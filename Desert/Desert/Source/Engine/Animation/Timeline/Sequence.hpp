@@ -16,7 +16,7 @@
  *
  *     AnimationClip   Bone bindings (Transform tracks) + Sequence bindings (Float curves, one Event track)
  *     UIAnimation     Widget bindings, Vector/Float tracks; one widget = the element that owns the clip
- *     LevelSequence   anything: Entity bindings (+ Bone under Entity), Animation, CameraCut, Event
+ *     LevelSequence   anything: Entity bindings (+ Bone under Entity), Animation, CameraCut, Event, Subsequence
  *
  * ── SERIALIZATION ─────────────────────────────────────────────────────────────────────────────────────
  *
@@ -101,6 +101,18 @@ namespace Desert::Animation::Timeline
     std::size_t                  RenameBoneLocators( Sequence& sequence, std::span<const BoneRename> renames );
     [[nodiscard]] const Track*   FindTrack( const Sequence& sequence, const BindingGuid& binding,
                                             std::string_view property );
+
+    /**
+     * @brief UE's "+ Track > Audio": an Audio track on the master binding with ONE section over the playback
+     * range playing @p sound (a `.desound` GUID, as `AudioSectionContent::Sound` names it).
+     *
+     * The master (Sequence) binding is found, or created once. The track is named "Audio", "Audio 2", ... —
+     * (Binding, Property, Kind) is unique, so a second sound is a second track, as in UE. Refuses an empty
+     * sound and a host whose master binding holds no Audio track (`Validate`'s rule, not a second one).
+     * Bumps `Revision`. Returns the new track's index.
+     */
+    [[nodiscard]] Common::ResultStr<size_t> AddAudioTrack( Sequence&                         sequence,
+                                                           const Common::Content::AssetGuid& sound );
 
     /**
      * @brief Every invariant stated in this folder, checked. The FIRST violation, named.

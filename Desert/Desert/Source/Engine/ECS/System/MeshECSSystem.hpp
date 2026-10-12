@@ -2,6 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
+#include "WindField.hpp"
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
@@ -149,26 +150,13 @@ namespace Desert::ECS
                                  binding->Slots.push_back( inst.get() );
                              mesh.RuntimeSlots = std::move( binding );
 
-                             // One-shot seed, CONSUMED here: Lit-channel MaterialComponent params exist only
-                             // as a hand-off buffer (scripts that ran before this build + legacy scenes).
-                             // They land as slot-0 instance overrides once and the buffer is cleared — the
-                             // authored slots stay the single source of truth, nothing re-applies per frame,
-                             // and slot edits in the editor can never be silently shadowed. Live script
-                             // writes go straight to the instance (Scripting/MaterialBindings.cpp,
-                             // entity:setMaterialParam).
-                             if ( registry.has<MaterialComponent>( entity ) &&
-                                  !mesh.RuntimeMaterialInstances.empty() )
-                             {
-                                 auto& matc = registry.get<MaterialComponent>( entity );
-                                 if ( matc.ShaderName.empty() && !matc.Params.empty() )
-                                 {
-                                     auto& inst = mesh.RuntimeMaterialInstances[0];
-                                     for ( const auto& p : matc.Params )
-                                         inst->SetParamFromVec4( p.Name, p.Value );
-                                     matc.Params.clear();
-                                     matc.Textures.clear();
-                                 }
-                             }
+                             // The script's slot-0 overrides land on EVERY slot-0 instance built (UE: the
+                             // MID a mesh component keeps across material changes). The list is the
+                             // script's, not a hand-off buffer: nothing is consumed, so a rebuild after a
+                             // material invalidation shows the same values the script last wrote.
+                             if ( !mesh.RuntimeMaterialInstances.empty() && mesh.RuntimeMaterialInstances[0] )
+                                 for ( const auto& p : mesh.ScriptSlotParams )
+                                     mesh.RuntimeMaterialInstances[0]->SetParamFromVec4( p.Name, p.Value );
                          }
 
                          glm::mat4 worldTransform = transform.GetTransform();
@@ -252,7 +240,7 @@ namespace Desert::ECS
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts );
+                                      overrideCasts, mesh.MaxDrawDistance );
                                  return; // skip the lit path for this entity
                              }
                          }
@@ -324,7 +312,7 @@ namespace Desert::ECS
 
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat, visible,
-                                  outlined, casts );
+                                  outlined, casts, mesh.MaxDrawDistance );
                          }
 
                          // Lit path draws the remaining submeshes (skip entirely when every
@@ -334,7 +322,7 @@ namespace Desert::ECS
                                   static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
                                   outlined, surfaceHidden, mesh.ForcedLOD, mesh.LODBias,
                                   shadowRoute == Rules::MeshShadowCaster::SurfaceDraw, mesh.ReceiveShadows,
-                                  mesh.TranslucencySortPriority );
+                                  mesh.TranslucencySortPriority, mesh.MaxDrawDistance );
                      } );
             }
 
@@ -433,7 +421,9 @@ namespace Desert::ECS
                          // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
                          // (one source: the paint panel's edit re-reads into the same asset). A type still being
                          // read culls nothing for those frames; one that failed says why once, in the service.
-                         // Its wind (FO-7) comes from the same file, at this frame's gameplay time.
+                         // Its wind response (FO-7) comes from the same file; the wind itself is the scene's
+                         // one query, ECS::WindAt, at the field entity's world origin (one push per draw, so one
+                         // sample per field), at this frame's gameplay time.
                          Graphic::InstanceCullDistance cullDistance;
                          Graphic::InstanceWind         wind;
                          if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
@@ -442,13 +432,16 @@ namespace Desert::ECS
                                        foliage->FoliageType ) )
                              {
                                  cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
-                                 wind         = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
-                                                                           type->Wind.Height, type->Wind.DirectionDegrees,
-                                                                           m_WindSeconds );
+                                 const glm::vec3 fieldOrigin =
+                                      glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
+                                 const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;
+                                 wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
+                                                                   type->Wind.Height, glm::vec2( air.x, air.z ),
+                                                                   m_WindSeconds );
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
                               targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
-                              cullDistance, wind );
+                              Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }
 
@@ -576,9 +569,20 @@ namespace Desert::ECS
                                       registry.get<TransformComponent>( current ).GetTransform() * worldTransform;
                          }
 
+                         // Morph weights blend before skinning (MeshRenderer::UpdateMorphTargets), only for a
+                         // mesh that has targets to blend.
+                         std::vector<float> morphWeights;
+                         uint64_t           morphRevision = 0;
+                         if ( skinnedMesh->GetMorphTargetCount() > 0 && registry.has<MorphComponent>( entity ) )
+                         {
+                             const auto& morph = registry.get<MorphComponent>( entity );
+                             morphWeights      = morph.GetWeights();
+                             morphRevision     = morph.GetRevision();
+                         }
+
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices,
-                              isSelected, mesh.CastShadows );
+                              std::move( morphWeights ), morphRevision, isSelected, mesh.CastShadows );
                      } );
             }
         }

@@ -169,6 +169,7 @@ namespace Desert::Animation::Graph
             {
                 case PoseNodeKind::StateMachine:
                 case PoseNodeKind::SequencePlayer:
+                case PoseNodeKind::BlendSpace1D:
                     pose.Pose.Resize( bones );
                     pose.CurveNames.clear();
                     pose.CurveValues.clear();
@@ -300,6 +301,7 @@ namespace Desert::Animation::Graph
             {
                 case PoseNodeKind::StateMachine:
                 case PoseNodeKind::SequencePlayer:
+                case PoseNodeKind::BlendSpace1D:
                     break; // a leaf: its weight is its own
 
                 case PoseNodeKind::LinkedInputPose:
@@ -476,7 +478,7 @@ namespace Desert::Animation::Graph
                          implementation.Name, host.Name, layer.Interface, layer.Layer, parameter, host.Name ) );
             }
 
-            Layer     entry{ implementationId, implementation.Name, layer.Interface, layer.Layer, {}, {} };
+            Layer     entry{ implementationId, layer.Interface, layer.Layer, {}, {} };
             AnimGraph layerGraph = LayerGraphAsGraph( implementation, layer );
             if ( std::any_of( layer.Nodes.begin(), layer.Nodes.end(),
                               []( const PoseNode& node ) { return node.Machine.has_value(); } ) )

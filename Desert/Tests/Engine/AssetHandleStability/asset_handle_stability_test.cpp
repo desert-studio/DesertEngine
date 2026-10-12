@@ -50,8 +50,12 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
+#include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -188,6 +192,20 @@ namespace
              { AssetTypeID::WaterWaves, "WaterWavesAsset", &HandleOf<Desert::Assets::WaterWavesAsset>,
                &MetadataTypeOf<Desert::Assets::WaterWavesAsset>,
                &DeclaredTypeOf<Desert::Assets::WaterWavesAsset> },
+             { AssetTypeID::InputAction, "InputActionAsset", &HandleOf<Desert::Assets::InputActionAsset>,
+               &MetadataTypeOf<Desert::Assets::InputActionAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputActionAsset> },
+             { AssetTypeID::InputMappingContext, "InputMappingContextAsset",
+               &HandleOf<Desert::Assets::InputMappingContextAsset>,
+               &MetadataTypeOf<Desert::Assets::InputMappingContextAsset>,
+               &DeclaredTypeOf<Desert::Assets::InputMappingContextAsset> },
+             { AssetTypeID::PhysicsAsset, "PhysicsAsset", &HandleOf<Desert::Assets::PhysicsAsset>,
+               &MetadataTypeOf<Desert::Assets::PhysicsAsset>, &DeclaredTypeOf<Desert::Assets::PhysicsAsset> },
+             { AssetTypeID::Sound, "SoundAsset", &HandleOf<Desert::Assets::SoundAsset>,
+               &MetadataTypeOf<Desert::Assets::SoundAsset>, &DeclaredTypeOf<Desert::Assets::SoundAsset> },
+             { AssetTypeID::VFXDataChannel, "VFXDataChannelAsset", &HandleOf<Desert::Assets::VFXDataChannelAsset>,
+               &MetadataTypeOf<Desert::Assets::VFXDataChannelAsset>,
+               &DeclaredTypeOf<Desert::Assets::VFXDataChannelAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -538,19 +556,15 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     // the link resolved in the session that wrote it and missed after a restart. The two ids must be the
     // same value, and this is the assertion that says so.
     //
-    // A REAL file with no MaterialId in it, because that is the case under test. It is written rather than
-    // fixtured because the whole point is a material the importer never stamped, which by definition is
-    // not something the repository ships.
+    // The one material that LOADS with no GUID is a NEW one: the editor names a file that does not exist yet
+    // and the load answers canonical defaults. A file that exists and states no GUID in a v4 header is not a
+    // material at all — it is refused and the record is broken (AssetMissingFile pins that), so the
+    // property under test lives on the not-yet-written file.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_noguid.demat";
-    {
-        std::ofstream out( scratch );
-        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[],"CloudAssets":[]})";
-    }
+    std::filesystem::remove( scratch );
 
     Desert::Assets::SurfaceMaterialAsset material{ Common::Filepath( scratch ) };
     ASSERT_TRUE( material.Load().IsSuccess() );
-    std::filesystem::remove( scratch );
 
     EXPECT_EQ( static_cast<uint64_t>( material.GetMaterialUUID() ),
                static_cast<uint64_t>( material.GetMetadata().Handle ) )
@@ -1328,6 +1342,11 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::VFXSystem,
          AssetTypeID::Fracture,
          AssetTypeID::WaterWaves,
+         AssetTypeID::InputAction,
+         AssetTypeID::InputMappingContext,
+         AssetTypeID::PhysicsAsset,
+         AssetTypeID::Sound,
+         AssetTypeID::VFXDataChannel,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1532,6 +1551,43 @@ TEST( AssetHandleStability, AWaterWavesHandleIsHandleForGuidOfItsHeader )
     data.Generator.Seed = 7;
     ASSERT_TRUE( Desert::Assets::WaterWavesAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::WaterWavesAsset>( file, Common::Content::ContentKind::WaterWaves );
+    fs::remove_all( dir );
+}
+
+// GP1b: a mapping context names its actions by GUID and the player names its contexts by handle, so both
+// handles must be the file's header GUID.
+TEST( AssetHandleStability, InputActionAndMappingContextHandlesAreHandleForGuidOfTheirHeaders )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "GP1bInputHandles";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path action = dir / "IA_Jump.deinputaction";
+    ASSERT_TRUE(
+         Desert::Assets::InputActionAsset::Save( action, Desert::Assets::Serialization::InputActionData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputActionAsset>( action,
+                                                                Common::Content::ContentKind::InputAction );
+    const fs::path context = dir / "IMC_Default.deinputcontext";
+    ASSERT_TRUE( Desert::Assets::InputMappingContextAsset::Save(
+         context, Desert::Assets::Serialization::InputMappingContextData{} ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::InputMappingContextAsset>(
+         context, Common::Content::ContentKind::InputMappingContext );
+    fs::remove_all( dir );
+}
+
+// VFX-10b: a scene registers a data channel by handle, so the handle must be the file's header GUID.
+TEST( AssetHandleStability, AVFXDataChannelHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "VFX10bChannelHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                                    file = dir / "Impacts.dfxch";
+    Desert::Assets::Serialization::VFXDataChannelData data;
+    data.Fields = { { "Position", Desert::Assets::Serialization::VFXDataChannelFieldType::Position } };
+    ASSERT_TRUE( Desert::Assets::VFXDataChannelAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::VFXDataChannelAsset>( file,
+                                                                   Common::Content::ContentKind::VFXDataChannel );
     fs::remove_all( dir );
 }
 

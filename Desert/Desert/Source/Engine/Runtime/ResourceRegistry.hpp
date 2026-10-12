@@ -22,6 +22,7 @@
 #include "Services/Foliage/FoliageTypeService.hpp"
 #include "Services/Destruction/FractureService.hpp"
 #include "Services/Water/WaterWavesService.hpp"
+#include "Services/Physics/PhysicsAssetService.hpp"
 
 namespace Desert::Runtime
 {
@@ -70,6 +71,9 @@ namespace Desert::Runtime
         // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner
         // waves once per load and shared by every body naming it.
         static WaterWavesService* GetWaterWavesService();
+        // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
+        // against the mesh's skeleton by GUID.
+        static PhysicsAssetService* GetPhysicsAssetService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

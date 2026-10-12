@@ -463,17 +463,17 @@ namespace Desert::Tests::PointerCensus
           "the answer of a resolver the editor's cubemap preview calls EVERY frame and consumes in the same "
           "call (EditorCubemapPreviewPass); the cube is resolved through the image service each time and "
           "never held, so an asset reload between frames cannot leave it dangling" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Camera", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Camera", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Target", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Target", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Depth", Guard::FrameScoped,
-          "per-frame data handed to an editor-registered pass when the render graph executes it; the "
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Depth", Guard::FrameScoped,
+          "per-frame data handed to a scene-registered extension pass when the render graph executes it; the "
           "target and its depth belong to the SceneRenderer running the graph" },
         { "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
           "Rule", "Replacement", Guard::StaticStorage,
@@ -696,10 +696,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/RenderCommandBuffer.hpp",
           "RenderCommandBuffer", "m_Commands", Guard::OwnedByThisObject,
           "the commands are placement-new'd into this object's own paged arena; pages are never freed mid-frame and Clear() runs the virtual destructor of every one before rewinding" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
+        { "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp",
           "DrawCommand", "Texture", Guard::IdentityOnly,
           "a batch discriminator: consecutive primitives with the same value extend one draw. It is also the key of Render2D's executor caches, and THAT use is what makes address recycling matter -- see the Render2D rows" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
+        { "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp",
           "DrawCommand", "Material", Guard::FrameScoped,
           "the UI material this batch is filled with, as a UIMaterialCache::Entry address. Unlike the "
           "Texture row beside it this IS dereferenced -- Render2D::Flush reads the entry's pipeline and "
@@ -709,7 +709,7 @@ namespace Desert::Tests::PointerCensus
           "RetireUnused() (which runs AFTER the last draw of the same Flush) refuses to erase an entry "
           "any frame in flight could still be reading -- the identical rule, and the identical window, as "
           "Render2D's executor caches" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIBatchInfo", "Material", Guard::IdentityOnly,
           "a COPY of DrawCommand::Material taken for display, on exactly the terms of the Texture copy "
           "below it: the panel prints it as an address so an author can tell two material batches apart, "
@@ -734,7 +734,7 @@ namespace Desert::Tests::PointerCensus
         // main. They are re-derived at the top of EVERY canvas walk from the canvas's handle, so a theme
         // that was hot-reloaded, evicted or repointed between two frames is never seen through a stale
         // pointer: the walk asks the service again rather than remembering the answer.
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "ElementStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
           "the flattened theme this element resolves through, owned by Runtime::UIThemeService (a "
           "function-local static released by ResourceRegistry::ClearAll inside main). An ElementStyle is "
@@ -742,28 +742,28 @@ namespace Desert::Tests::PointerCensus
           "RenderCanvas2D from the canvas's own handle, so the pointer is at most one walk old and cannot "
           "name an entry a hot reload replaced. Null is a legal value and means 'this canvas has no "
           "theme', which every query answers by returning the element's own authored value" },
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "ElementStyle", "m_Table", Guard::ObservedContainsUs,
           "the style's per-slot binding table, a value MEMBER of the UIThemeRuntime m_Theme points at — "
           "so it lives exactly as long as that entry does and the two cannot disagree about lifetime. "
           "Null means the theme declares no style of that name, which the walk reports once and answers "
           "by falling back to the element's own authored values" },
-        { "Desert/Desert/Source/Engine/UI/UIStyleResolver.hpp",
+        { "Desert/UI/Source/UI/UIStyleResolver.hpp",
           "CanvasStyle", "m_Theme", Guard::ReboundBeforeEveryUse,
           "the same service-owned entry as ElementStyle::m_Theme above, held for the length of ONE canvas "
           "walk: RenderCanvas2D constructs a CanvasStyle from UIThemeService::Get at the top of the walk "
           "and the object dies with the walk, which is what makes a theme switch reach the very next "
           "frame without any invalidation to remember" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UICanvasContext", "RowRecord", Guard::CallScoped,
           "UIL1: the record of a collection-bound list row, set by the list around the DrawElement of that "
           "row and restored to the outer value right after it. The record lives in UIDataStore's collection, "
           "which only gameplay mutates and never during a canvas walk, so it outlives the call that reads it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
+        { "Desert/UI/Source/UI/UICanvasLayout.cpp",
           "EnumScope", "Row", Guard::CallScoped,
           "UIL1: the record answering a bound list row's bindings during one EnumerateCanvas recursion; the "
           "scope is a stack value of that recursion and the collection is not mutated while a query runs" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "Materials", Guard::ObservedContainsUs,
           "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "
           "the UIMaterialCache that is a MEMBER of the Render2D backend the view's host owns alongside "
@@ -771,7 +771,7 @@ namespace Desert::Tests::PointerCensus
           "while the host that owns both is still walking. Null is a legal value and means the walk has "
           "no GPU backend at all (a unit test), which the walk REPORTS rather than treating as 'no "
           "materials today'" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "RenderTextures", Guard::ObservedContainsUs,
           "where this view's render-texture elements get their worlds from, as an IUIRenderTextureSource. "
           "Q1: nobody destroys the pointee through this member -- the one implementation, "
@@ -781,14 +781,14 @@ namespace Desert::Tests::PointerCensus
           "the thing walking, so the backend cannot be gone while the walk is running. Null is a legal "
           "value and means the walk has no GPU backend at all (a unit test), which the element REPORTS "
           "with the magenta error fill rather than drawing nothing"},
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIBatchInfo", "Texture", Guard::IdentityOnly,
           "a COPY of DrawCommand::Texture taken for display: the probe prints it as an address so an "
           "author can tell two batches apart, and nothing dereferences it. Address recycling cannot "
           "mislead here the way it can in Render2D's executor caches, because the value never outlives "
           "the frame it was copied from -- UIFrameProbe::Reset drops the whole batch list at the start "
           "of every capture, and a capture only happens while the panel is open" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UIElementCost", "Texture", Guard::IdentityOnly,
           "the same value again, for the one batch a measured element landed in. Same argument, and the "
           "same window: the measurement is taken inside one Capture and replaced by the next request" },
@@ -843,10 +843,7 @@ namespace Desert::Tests::PointerCensus
           "recycled address cannot be mistaken for an old command because BeginFrame clears this map in the same "
           "call that Resets m_DrawList, so a key never outlives the list generation it was taken from; a command "
           "vector that reallocated after AddRetainedPasses would only MISS, and Flush refuses that composite with an error" },
-        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
-          "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
-          "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "WalkCtx", "Root", Guard::CallScoped,
           "set by RenderCanvas2D to its own DrawList2D& argument, and the WalkCtx is a local of that call consumed "
           "by the recursive walk inside it; the caller's draw list outlives the call by construction" },
@@ -859,6 +856,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
           "SceneRenderer", "m_CurrentViewFrame", Guard::FrameScoped,
           "TAA1: points at the ViewFrame m_ViewState.BeginFrame returned (owned by m_ViewState, a member of this renderer) only while OnUpdate runs: set right after BeginFrame and cleared by OnUpdate's CurrentViewFrameScope destructor on every exit path, so GetViewFrame answers nullptr outside the frame" },
+        { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
+          "SceneRenderer", "m_FrameExtensions", Guard::FrameScoped,
+          "ARCH1b: points at the ExtensionPassRegistry of the Scene handed to BeginScene (a member of that Scene, which outlives the frame it is rendered in); set by BeginScene, read by AddExtensionPoint while OnUpdate builds the graph, nulled by EndScene, so no frame reads another scene's list" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "CurrentViewFrameScope", "Slot", Guard::CallScoped,
           "TAA1: a reference to this renderer's own m_CurrentViewFrame, held by a local of OnUpdate that is destroyed before OnUpdate returns; its destructor only writes nullptr through it" },
@@ -873,18 +873,19 @@ namespace Desert::Tests::PointerCensus
           "a string literal in a constexpr preset table" },
         { "Desert/Desert/Source/Engine/Graphic/SwapChain.hpp",
           "SwapChain", "m_Window", Guard::ObservedContainsUs,
-          "the platform window owns the swapchain and declares m_GLFWWindow BEFORE m_SwapChain, so the "
-          "swapchain is destroyed first; nothing in the tree calls glfwDestroyWindow at all. Note the "
+          "the platform window owns the swapchain, and its destructor resets m_SwapChain (surface included) "
+          "before glfwDestroyWindow, so the swapchain never observes a destroyed window. Note the "
           "member's const is decorative -- the one use site casts it away for InitSurface" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/RenderSystem.hpp",
           "RenderSystem", "m_SceneRenderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems" },
-        { "Desert/Desert/Source/Engine/Graphic/Systems/RenderSystem.hpp",
-          "RenderSystem", "m_RenderGraphBuilder", Guard::ObservedContainsUs,
-          "the builder is a member of the SceneRenderer that owns this system; note the sibling m_TargetFramebuffer is a weak_ptr, because THAT one is not owned by the renderer" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "MeshRenderData", "Mesh", Guard::CallScoped,
           "a temporary aggregate consumed synchronously by MeshRenderer::SubmitMesh" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "MorphTwin", "Base", Guard::FrameScoped,
+          "rewritten by every MorphedMeshFor from the frame's own skinned draw, and read only by "
+          "UpdateMorphTargets of that frame to put a failed blend's draws back on it" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "StaticMeshRenderData", "Mesh", Guard::FrameScoped,
           "held by the ECS component, the primitive factory or MeshService for the whole frame" },
@@ -981,12 +982,35 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp",
           "MeshCellPipelineKey", "PassState", Guard::IdentityOnly,
           "never dereferenced: a key of MeshRenderer::m_CellPipelines (CellPipeline). Four of the five pass states named here are shared_ptr members of that same MeshRenderer (m_StaticPipeline, m_StaticGBufferPipeline, m_StaticInstancedPipeline, m_InstancedGBufferPipeline), assigned by the Setup*Pass calls in Init and never re-assigned, so their addresses cannot be recycled while the map lives. The fifth, the skinned LOAD variant, is held only by the SceneRenderer's PipelineCache and can be freed by InvalidateByShader; the only pipeline that can then take its address and reach this key is that same variant rebuilt from the same m_SkinnedPipeline spec, i.e. the same pass state, because every other pass state is pinned by a member" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp",
+          "ParticleFrameEmitter", "Gpu", Guard::OwnedByThisObject,
+          "points into ParticleWorldGpu::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
+          "PrepareTick can perform while it is already pushing these pointers cannot move the pointee; "
+          "every erase happens after m_FrameEmitters is cleared" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
-          "FrameEmitter", "Gpu", Guard::OwnedByThisObject,
-          "points into ParticleRenderer::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
-          "PrepareFrame can perform while it is already pushing these pointers cannot move the pointee; "
-          "the erases are OnSceneReplaced's clear() and PrepareFrame's RetireDestroyedEmitters, both after "
-          "m_FrameEmitters is cleared" },
+          "ViewEmitter", "Frame", Guard::FrameScoped,
+          "points into ParticleWorldGpu::m_FrameEmitters of the tick PrepareFrame just ran; m_ViewEmitters is "
+          "cleared at the top of every PrepareFrame and by OnSceneReplaced, so no row outlives that tick" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewEmitter", "Sprite", Guard::OwnedByThisObject,
+          "the unique_ptr<SpriteDraw> in ParticleRenderer::m_Sprites, a node-based map that never erases while "
+          "m_ViewEmitters holds rows; a unique_ptr's pointee does not move" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewEmitter", "Instance", Guard::OwnedByThisObject,
+          "EmitterMaterial::Instance (a shared_ptr) of ParticleRenderer::m_Materials; that map is cleared only by "
+          "OnSceneReplaced, which clears m_ViewEmitters first" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ParticleRenderer", "m_World", Guard::ReboundBeforeEveryUse,
+          "re-pointed by PrepareFrame to the scene's ParticleWorldGpu every frame and nulled by OnSceneReplaced; "
+          "every reader checks it against nullptr" },
+        { "Desert/Desert/Source/Engine/VFX/VFXDataChannel.hpp",
+          "VFXDataChannelWriter", "m_Channel", Guard::FrameScoped,
+          "UE UNiagaraDataChannelWriter: a window valid until the next VFXWorld tick clears the entries; the "
+          "channel lives in VFXDataChannels::m_Channels, a node-based std::map, so registering another cannot "
+          "move it" },
+        { "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.hpp",
+          "NodeSpec", "Category", Guard::StaticStorage,
+          "a string literal, held by a constexpr/static table entry" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_ActiveCamera", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareCamera from SceneRenderer::BeginScene at the top of every frame, before any pass that reads it; the camera itself is a persistent member of Scene that Scene::Clear does not touch" },
@@ -1015,6 +1039,9 @@ namespace Desert::Tests::PointerCensus
         // one is a fact about the editor's own construction order, and a panel's lifetime is tangled
         // with the six renderer slots (a preview must be DESTROYED to give its slot back).
         // ------------------------------------------------------------------------------------------
+        { "Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+          "MeshPlacement", "Source", Guard::CallScoped,
+          "a function-local struct of ProcessScene(const aiScene* scene, ...): the node a mesh placement came from, pointing into scene->mRootNode's tree, which the caller's Assimp::Importer owns and keeps alive across the whole ProcessScene call; the placements vector is a local of that call and is gone before the importer is (IMPORT-RIG-SCALE reads it for the rigid part's bone)" },
         { "Editor/Source/Editor/Import/TextureImporter.cpp",
           "ExrMemoryStream", "Bytes", Guard::CallScoped,
           "an argument pack built inside DecodeExr(const std::string& bytes) as ExrMemoryStream{ &bytes, {} } and handed to OpenEXRCore as the context userdata; the context is started and destroyed inside that same call, so the read callbacks run only while the caller's source string is alive" },
@@ -1118,9 +1145,6 @@ namespace Desert::Tests::PointerCensus
           "PackagedTree", "EditorOnlySubtree", Guard::StaticStorage,
           "a string literal (Editor, Gizmo) or nullptr, held by the PackagedContentTrees() table entry" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
-          "AnimGraphPanel", "kComponentTypeName", Guard::StaticStorage,
-          "a string literal, held by a constexpr/static table entry" },
-        { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
           "AnimGraphPanel", "m_Library", Guard::HostOutlivesUs,
           "EditorLayer owns it and declares it BEFORE m_Documents (the DocumentHost that holds m_OpenDocuments) -- this is a DOCUMENT, so m_Panels is the wrong container to cite (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts both orders rather than trusting either" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
@@ -1222,6 +1246,33 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/Panels/TextureViewer/TextureViewerDocument.hpp",
           "TextureViewerDocument", "m_Assets", Guard::HostOutlivesUs,
           "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the viewer is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp",
+          "VFXDataChannelDocument", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the channel editor is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/ControlRig/ControlRigDocument.hpp",
+          "ControlRigDocument", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the Control Rig editor is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/ControlRig/ControlRigDocument.hpp",
+          "ControlRigDocument", "m_Canvas", Guard::OwningRaw,
+          "the rig graph's canvas: ed::CreateEditor in this document's constructor, ed::DestroyEditor in its destructor, never re-pointed. A C API handle with no C++ destructor, named as owning for the reason AnimGraphPanel::m_Context is" },
+        { "Editor/Source/Editor/Panels/ControlRig/ControlRigDocumentModel.cpp",
+          "ControlRigEditCommand", "m_Model", Guard::SelfDeregistering,
+          "the model the command restores; EditedObject() returns it, and ~ControlRigDocumentModel calls m_History.DropFor(this), so the model erases every command naming it from the history in its own destructor and no entry can outlive it" },
+        { "Editor/Source/Editor/Panels/Input/InputAssetPanels.hpp",
+          "InputActionPanel", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the Input Action editor is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/Input/InputAssetPanels.hpp",
+          "InputMappingContextPanel", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the Input Mapping Context editor is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp",
+          "PhysicsAssetEditorDocument", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the Physics Asset editor is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Panels/Retarget/RetargetDocument.hpp",
+          "RetargetDocument", "m_Assets", Guard::HostOutlivesUs,
+          "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the IK Retargeter is destroyed first (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents rather than trusting it" },
+        { "Editor/Source/Editor/Core/Commands/VFXDataChannelEdit.hpp",
+          "VFXDataChannelEditCommand", "m_Target", Guard::SelfDeregistering,
+          "VFXDataChannelDocument::m_Working, the working copy the window edits; EditedObject() returns it, and ~VFXDataChannelDocument calls CommandHistory::Get().DropFor(&m_Working), so the document erases every command naming its copy in its own destructor and no entry can outlive the copy" },
         { "Editor/Source/Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp",
           "AnimationEditorDocument", "m_Assets", Guard::HostOutlivesUs,
           "EditorLayer owns the AssetManager and declares it BEFORE m_Documents, whose DocumentHost holds every open document in m_OpenDocuments, so the Animation Editor is destroyed first; EditorLayerDeclaresItsHostsBeforeItsPanels asserts that order for documents" },
@@ -1598,9 +1649,9 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/LevelEditor/DockLayout.hpp",
           "EditorPanelHandles", "WorldPartition", Guard::CallScoped,
           "the same return value of RegisterEditorPanels as FileExplorer above, consumed in the same block of EditorLayer::OnAttach into m_WorldPartitionPanel, whose row carries the long-lived argument" },
-        { "Desert/Desert/Source/Engine/Graphic/ExternalRenderPass.hpp",
-          "ExternalPassContext", "Renderer", Guard::CallScoped,
-          "the context is a local built inside the render graph's pass lambda and consumed by Execute within that call; the pointer is the ExternalPassSystem's own m_Renderer, i.e. the renderer that is recording -- which is what lets a pass ask what THIS view is showing instead of asking the scene, whose answer is view 0's" },
+        { "Desert/Desert/Source/Engine/Graphic/ExtensionPass.hpp",
+          "ExtensionPassContext", "Renderer", Guard::CallScoped,
+          "the context is a local built inside the render graph's pass lambda and consumed by Execute within that call; the pointer is the SceneRenderer whose AddExtensionPoint built the node, i.e. the renderer that is recording -- which is what lets a pass ask what THIS view is showing instead of asking the scene, whose answer is view 0's" },
         { "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.hpp",
           "ViewportPanel", "m_ViewRenderer", Guard::HostOutlivesUs,
           "null for the primary viewport (which is always view 0); otherwise the renderer owned by the SceneWorkspace::SceneViewport that opened this panel. SceneWorkspace::CloseSceneViewport removes the PANEL from m_Panels first and destroys the renderer last, so the panel cannot outlive it -- the same order CloseSceneView uses for a document, and for the same reason" },
@@ -1881,6 +1932,13 @@ namespace Desert::Tests::PointerCensus
           "pass for the old graph alone: the key is (Guid, Graph, Revision), so a false match needs the same "
           "asset GUID at the same revision -- the same graph content, whose skipped relink would have built "
           "identical links" },
+        { "Desert/Desert/Source/Engine/ECS/System/GameModeSystem.hpp",
+          "GameModeSystem", "m_Scene", Guard::ObservedContainsUs,
+          "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this; both hosts (SceneWorkspace, RuntimeLayer) pass the scene the system is added to" },
+        { "Desert/Desert/Source/Engine/ECS/System/GameModeSystem.hpp",
+          "GameModeSystem", "m_AssetManager", Guard::HostOutlivesUs,
+          "the same host and the same order as LevelSequenceSystem::m_AssetManager: the hosts hold the manager as a "
+          "shared_ptr member declared BEFORE the scene that carries the systems" },
         { "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp",
           "LevelSequenceSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this; both hosts (EditorLayer, RuntimeLayer) pass the scene the system is added to" },
@@ -2031,7 +2089,7 @@ namespace Desert::Tests::PointerCensus
           "EdgePoint", "NearEdge", Guard::CallScoped,
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "m_Resources", Guard::ObservedContainsUs,
           "where this view's sprites, frames, themes, fonts and icons come from, as an IUICanvasResources. "
           "Bound by the constructor and never null. Q1: nobody destroys the pointee through this member -- "
@@ -2039,39 +2097,63 @@ namespace Desert::Tests::PointerCensus
           "host (EditorUIPass, UIEditorPanel, RuntimeLayer), so it is constructed first and destroyed last; a "
           "test's mock is a file-scope object that outlives every view. Q2: a copy (the introspection probe) "
           "lives inside one call of the host that owns both" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+        { "Desert/UI/Source/UI/UICanvasContext.hpp",
           "UIViewContext", "Scene", Guard::IdentityOnly,
           "IUITree::Storage() of the scene this state describes, compared by address in BeginUIFrame and never dereferenced; a recycled address after a scene is freed is why Reset() is public and why a host that swaps scenes resets the view" },
         { "Desert/Desert/Source/Engine/UI/Ecs/EcsUITree.hpp",
           "EcsUITree", "m_Reg", Guard::CallScoped,
           "the registry adapter is a temporary built at each registry overload (UI/Ecs/*Ecs.cpp) from the caller's entt::registry& and consumed inside that call; it is never stored past it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "TextureRef", "Id", Guard::IdentityOnly,
           "an opaque texture id the draw list carries to the 2D backend, which keys its per-texture executor by it; the walk never dereferences it, and the image is kept alive for the frame by the IUICanvasResources that answered it" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "FontFace", "Atlas", Guard::IdentityOnly,
           "the font's distance atlas as an opaque id for the 2D backend, never dereferenced by the walk; the resources that answered it own the atlas for the frame" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "FontFace", "Baked", Guard::FrameScoped,
           "the baked metrics owned by the IUICanvasResources that answered the query (RegistryUICanvasResources or a test mock), valid for the frame the walk asked in; a FontFace is a per-element value and is not stored across frames" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasResources.hpp",
+        { "Desert/UI/Source/UI/UICanvasResources.hpp",
           "IconRef", "Atlas", Guard::IdentityOnly,
           "the shared SDF icon atlas as an opaque id for the 2D backend, never dereferenced by the walk; the resources that answered it own the atlas for the frame" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
+        { "Desert/UI/Source/UI/UIIntrospection.hpp",
           "UICanvasWalk", "Cell", Guard::CallScoped,
           "the canvas cell of the UIViewContext passed to CaptureFrame/EnumerateCanvas; the walk list is built and consumed inside that call while the view (a host member) is alive" },
-        { "Desert/Desert/Source/Engine/UI/UITree.hpp",
+        { "Desert/UI/Source/UI/UITree.hpp",
           "Iterator", "m_Tree", Guard::CallScoped,
           "a child-range iterator over an IUITree the caller holds by reference for the loop it drives; it never outlives the range-for it was made for" },
-        { "Desert/Desert/Source/Engine/UI/UITree.hpp",
+        { "Desert/UI/Source/UI/UITree.hpp",
           "ChildRange", "m_Tree", Guard::CallScoped,
           "returned by Children() of an IUITree the caller holds by reference and consumed by one range-for in that scope" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Input", Guard::CallScoped,
           "the walk's UIInput argument, threaded through DrawElement for one element; ElementFrame is a local of that call" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.hpp",
+        { "Desert/UI/Source/UI/UICanvasRenderer2D.hpp",
           "UIInput", "Clipboard", Guard::CallScoped,
           "UI-FOCUS: the host's UI::WindowClipboard, a local declared before the frame's UIInput in the same scope (EditorUIPass.cpp, RuntimeLayer.cpp) and consumed by that frame's canvas walk; null = no clipboard" },
+        { "Desert/Desert/Source/Engine/Water/WaterQuadTree.hpp",
+          "Traversal", "Frustum", Guard::CallScoped,
+          "WATER-W6: the argument pack of one WaterQuadTree::Traverse call, a local of it; Frustum is that call's own parameter (null = no culling), owned by the caller for the call" },
+        { "Desert/Desert/Source/Engine/Water/WaterQuadTree.hpp",
+          "Traversal", "Output", Guard::CallScoped,
+          "WATER-W6: the address of Traverse's local result vector, filled by the recursive SelectLOD inside that call and returned by value after it" },
+        { "Desert/UI/Source/UI/UIListSelection.cpp",
+          "Frame", "Coll", Guard::CallScoped,
+          "a stack frame of FlattenTree's iterative walk, a local of that call; the collection belongs to the UIDataStore the caller passes by reference, which no part of the walk mutates" },
+        { "Desert/UI/Source/UI/UIListSelection.hpp",
+          "UITreeRow", "Owner", Guard::ReboundBeforeEveryUse,
+          "UI-WAVE-LIVE: rows cached in UIListViewState::TreeRows across frames are only read after TreeSeenCurrent finds every collection the flattening read with the same process-unique Serial and Generation (RefreshTreeRows, ResolveListShape); otherwise they are flattened again from the live store. Breaks if a reader uses TreeRows without that check" },
+        { "Desert/UI/Source/UI/UIListSelection.hpp",
+          "UIListShape", "Bound", Guard::CallScoped,
+          "UI-WAVE-LIVE: a list element's shape is resolved by ResolveListShape inside one element's draw or layout (ScrollList.cpp, UICanvasLayout.cpp) and consumed there; the collection is owned by the UIDataStore the walk reads" },
+        { "Desert/UI/Source/UI/UIListSelection.hpp",
+          "UIListShape", "Tree", Guard::CallScoped,
+          "UI-WAVE-LIVE: the element's UITreeViewData, read from the tree the walk holds by reference, consumed inside the same element's draw or layout" },
+        { "Desert/UI/Source/UI/UIListSelection.hpp",
+          "UIListShape", "Cached", Guard::CallScoped,
+          "UI-WAVE-LIVE: the view state's TreeRows, set only after TreeSeenCurrent proved them current; the UIListViewState is a member of the view the walk was handed, and the shape is consumed inside that element's draw or layout" },
+        { "Desert/UI/Source/UI/UIScreenMachine.hpp",
+          "UIScreenPresence", "Machine", Guard::FrameScoped,
+          "UI-WAVE-LIVE: an element of UICanvasContext::Screens (unordered_map, references stable until erased), returned by ScreenPresenceOf to a local of the walk; the only eraser, UpdateScreenMachines, runs before the walk, never inside it" },
         { "Desert/Desert/Source/Engine/ECS/ComponentEvents.hpp",
           "Key", "Event", Guard::IdentityOnly,
           "SCR-API-3: a map key, hashed and compared by address, never dereferenced through the key; it points into a TypeInfo::Events vector of the reflection registry, filled once at registration and never freed or resized for the process lifetime, so no address is ever reused by another event" },
@@ -2081,16 +2163,16 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_PendingWhat", Guard::StaticStorage,
           "what the pending environment bake contains, for its log line; every assignment is a string literal (SkyboxRenderer.cpp, the bake dispatch)" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "OutClicked", Guard::CallScoped,
           "the caller's out-parameter of RenderCanvas2D, written during the call; ElementFrame is a local of DrawElement inside it" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Focused", Guard::CallScoped,
           "the caller's focus out-parameter of RenderCanvas2D; ElementFrame is a local of DrawElement inside that call" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Popups", Guard::CallScoped,
           "the walk's popup list, a local of RenderCanvas2D drawn after the children; ElementFrame is a local of DrawElement inside that call" },
-        { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp",
+        { "Desert/UI/Source/UI/UIWalkCtx.hpp",
           "ElementFrame", "Focusables", Guard::CallScoped,
           "the view's Focusables list (a UIViewContext member, cleared at the start of each walk) or null for an inert subtree; ElementFrame is a local of DrawElement inside RenderCanvas2D, while the view is alive" },
         { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",
@@ -2107,10 +2189,10 @@ namespace Desert::Tests::PointerCensus
           "EVT-2: the application's event tree, joined in EditorLayer::OnAttach; the registry is a member of EditorLayer, which lives in the layer stack that Application declares after the tree" },
         { "Desert/Desert/Source/Platform/MacOS/MacOSWindow.hpp",
           "MacOSWindow", "m_GLFWWindow", Guard::OwningRaw,
-          "glfwCreateWindow here and NOTHING ANYWHERE DESTROYS IT: there is no glfwDestroyWindow in the tree and both platform files carry a live `// TODO: glfwTerminate on system shutdown`. So this is an owning raw pointer that never releases -- reclaimed by the process exit, which is why it has never been felt. Named here rather than fixed: the TODO predates this audit and closing it is a window-lifetime task, not a pointer-form one" },
+          "glfwCreateWindow in Init, glfwDestroyWindow in ~MacOSWindow after the swapchain and its surface are reset; the last window to close also calls glfwTerminate (s_GLFWWindows counts the windows past glfwInit)" },
         { "Desert/Desert/Source/Platform/Windows/WindowsWindow.hpp",
           "WindowsWindow", "m_GLFWWindow", Guard::OwningRaw,
-          "glfwCreateWindow here and NOTHING ANYWHERE DESTROYS IT: there is no glfwDestroyWindow in the tree and both platform files carry a live `// TODO: glfwTerminate on system shutdown`. So this is an owning raw pointer that never releases -- reclaimed by the process exit, which is why it has never been felt. Named here rather than fixed: the TODO predates this audit and closing it is a window-lifetime task, not a pointer-form one" },
+          "glfwCreateWindow in Init, glfwDestroyWindow in ~WindowsWindow after the swapchain and its surface are reset; the last window to close also calls glfwTerminate (s_GLFWWindows counts the windows past glfwInit)" },
         { "Runtime/Source/RuntimeLayer.hpp",
           "RuntimeLayer", "m_Application", Guard::HostOutlivesUs,
           "the Application owns the layer stack that owns this layer; it cannot go first" },
@@ -2135,6 +2217,12 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Common/Source/Common/Settings/Scalability.cpp",
           "State", "Listeners", Guard::IdentityOnly,
           "the void* is the subscriber's own cookie, never dereferenced here: State hands it back to the listener it was registered with. QualityState::Unsubscribe erases the exact (listener, user) pair, so a subscriber that unsubscribes before it dies leaves no entry for a recycled address to match" },
+        { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp",
+          "RagdollLifetime", "m_World", Guard::HostOutlivesUs,
+          "PhysicsECSSystem creates m_Ragdolls from *m_World, declares it after m_World and resets it BEFORE m_World->Shutdown (PhysicsECSSystem.hpp, the !active branch), so the lifetime never removes a ragdoll from a dead world" },
+        { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp",
+          "RagdollLifetime", "m_Registry", Guard::ObservedContainsUs,
+          "the registry is a member of the Scene that owns the PhysicsECSSystem that owns this; Attach re-points it every frame and Detach disconnects through it while it is alive (DestructibleLifetime's shape)" },
         { "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.hpp",
           "DestructibleLifetime", "m_World", Guard::HostOutlivesUs,
           "PhysicsECSSystem creates m_Destructibles from *m_Destruction and resets m_Destructibles BEFORE m_Destruction (PhysicsECSSystem.hpp:77-78), so the lifetime never releases into a dead destruction world" },
@@ -2180,13 +2268,15 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp",
           "ImpulseListener", "Profiles", Guard::OwnedByThisObject,
           "points at Impl::Profiles, a direct member of the same PhysicsWorld::Impl that holds this listener (set in PhysicsWorld::Init next to System, never re-pointed); Impl is heap-held by unique_ptr so the address is stable, and Profiles is declared before Impulses so it is destroyed after the listener; Jolt reads it only inside System.Update, which cannot run once Impl is going" },
+        { "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp",
+          "RagdollJoint", "Constraint", Guard::OwnedByThisObject,
+          "points at a constraint of the Jolt ragdoll held by RagdollEntry::Ragdoll (a Ref, the Ragdoll keeps a Ref to each constraint in mConstraints), and RagdollJoint lives in RagdollEntry::Joints of the same entry; RemoveRagdoll resets the whole entry at once (RagdollEntry{}), so the joints go with the Ref that keeps the constraint; the constraint is heap-allocated by Jolt, so the vector moving the joints does not move it" },
         { "Desert/Desert/Source/Engine/VFX/VFXEmitterSpawn.cpp",
           "CpuInput", "Name", Guard::StaticStorage,
           "a string literal in the braced input list each spawn module passes to ReadInputs" },
         { "Editor/Source/Editor/Core/EditorPreferences.cpp",
           "KeyCarrier", "Keys", Guard::CallScoped,
           "CarriersOf( prefs ) points each row at a CarriedKeys member of the EditorPreferences it was handed; the array is a local of the read/save call that walks it, and that EditorPreferences outlives the call" },
-
         };
         return rows;
     }

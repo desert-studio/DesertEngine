@@ -96,6 +96,19 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<ECS::Entity>
     SpawnDefaultPawn( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request );
 
+    // The level's Default Pawn prefab instantiated at @p spawnAt (UE SpawnDefaultPawnAtTransform): position and
+    // facing from the transform, the prefab's own scale, a StreamingSource unless the prefab authored one. Does
+    // NOT possess it. SpawnDefaultPawn and the GameMode's RestartPlayer (through GameModeSystem) both use it.
+    [[nodiscard]] Common::ResultStr<ECS::Entity>
+    SpawnPawnPrefabAt( Scene& scene, const Assets::AssetManager& assets, const glm::mat4& spawnAt );
+
+    // The level's Player Controller prefab (SceneSettings::PlayerController, UE PlayerControllerClass), spawned
+    // ONCE per Play and recorded as the scene's player controller: it outlives every pawn, so what it carries -
+    // its EnhancedInputPlayer contexts (menus, pause), its scripts (gameMode.pawn() reaches the pawn it drives) -
+    // survives deaths. Null entity when the level names none. Not undone on Stop, for the reason above.
+    [[nodiscard]] Common::ResultStr<ECS::Entity> SpawnPlayerController( Scene&                      scene,
+                                                                        const Assets::AssetManager& assets );
+
     // The capsule of the pawn Play WOULD spawn (UE: APlayerStart draws the DefaultPawnClass CDO's capsule).
     struct PawnCapsule
     {

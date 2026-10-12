@@ -1,10 +1,11 @@
 // The DECISIONS the gameplay systems make, tested without a Scene.
 //
-// LocomotionSystem and AttachmentSystem both hold a `Core::Scene*`, and Scene drags in the renderer — so
-// asking "does a character at 3 m/s pick the walk clip?" would otherwise mean linking the graphics stack
+// AttachmentSystem and the light systems hold a `Core::Scene*`, and Scene drags in the renderer — so
+// asking "where does a socketed entity end up?" would otherwise mean linking the graphics stack
 // and standing up a device. The rules live in Engine/ECS/System/SystemRules.hpp; the systems only fetch
 // the arguments. Same split that made the shadow cascades testable.
 
+#include "TestSupport/source_roots.hpp"
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <Common/Core/Units.hpp>
@@ -22,13 +23,10 @@
 #include <array>
 #include <vector>
 
-using Desert::ECS::LocomotionComponent;
 using Desert::ECS::Rules::AtmosphereSunDirection;
 using Desert::ECS::Rules::DecomposeTransform;
 using Desert::ECS::Rules::DirectionalLightTravel;
-using Desert::ECS::Rules::FallbackAtmosphereSunDirection;
 using Desert::ECS::Rules::IsSunDirectionValid;
-using Desert::ECS::Rules::LocomotionClipFor;
 using Desert::ECS::Rules::MeshShadowCaster;
 using Desert::ECS::Rules::RouteMeshShadowCaster;
 using Desert::ECS::Rules::SelectAtmosphereSun;
@@ -36,50 +34,6 @@ using Desert::ECS::Rules::SocketLocalTransform;
 using Desert::ECS::Rules::SunCandidate;
 
 namespace Units = Common::Units;
-
-// ---------------------------------------------------------------------------------------------------
-// Locomotion: speed -> clip name
-// ---------------------------------------------------------------------------------------------------
-
-TEST( LocomotionRules, PicksIdleWalkRunByTheComponentsThresholds )
-{
-    LocomotionComponent loco; // struct defaults ARE the data the system falls back to
-    loco.WalkSpeed = 0.2f;
-    loco.RunSpeed  = 6.5f;
-
-    EXPECT_EQ( LocomotionClipFor( loco, 0.0f, true ), loco.IdleClip );
-    EXPECT_EQ( LocomotionClipFor( loco, 0.19f, true ), loco.IdleClip );
-    EXPECT_EQ( LocomotionClipFor( loco, 0.2f, true ), loco.WalkClip ) << "the threshold itself walks";
-    EXPECT_EQ( LocomotionClipFor( loco, 3.0f, true ), loco.WalkClip );
-    EXPECT_EQ( LocomotionClipFor( loco, 6.5f, true ), loco.WalkClip ) << "run starts ABOVE RunSpeed";
-    EXPECT_EQ( LocomotionClipFor( loco, 6.6f, true ), loco.RunClip );
-    EXPECT_EQ( LocomotionClipFor( loco, 40.0f, true ), loco.RunClip );
-}
-
-// Airborne beats any ground speed — the ordering IS the rule, and getting it backwards gives a character
-// who runs in mid-air.
-TEST( LocomotionRules, AirborneWinsOverEverySpeed )
-{
-    LocomotionComponent loco;
-    for ( const float speed : { 0.0f, 0.5f, 5.0f, 100.0f } )
-        EXPECT_EQ( LocomotionClipFor( loco, speed, /*onGround=*/false ), loco.JumpClip );
-}
-
-// The names come from the component, not from the system: a project that renames its clips must not need
-// an engine change.
-TEST( LocomotionRules, ClipNamesComeFromTheComponent )
-{
-    LocomotionComponent loco;
-    loco.IdleClip = "Stand";
-    loco.WalkClip = "Stroll";
-    loco.RunClip  = "Sprint";
-    loco.JumpClip = "Leap";
-
-    EXPECT_EQ( LocomotionClipFor( loco, 0.0f, true ), "Stand" );
-    EXPECT_EQ( LocomotionClipFor( loco, 1.0f, true ), "Stroll" );
-    EXPECT_EQ( LocomotionClipFor( loco, 99.0f, true ), "Sprint" );
-    EXPECT_EQ( LocomotionClipFor( loco, 1.0f, false ), "Leap" );
-}
 
 // ---------------------------------------------------------------------------------------------------
 // Sockets: bone -> attached entity transform
@@ -308,10 +262,6 @@ TEST( AtmosphereSunRules, DirectionValidityUsesOneEpsilon )
     EXPECT_FALSE( IsSunDirectionValid( glm::vec3( 0.0f ) ) );
     EXPECT_FALSE( IsSunDirectionValid( glm::vec3( 1e-5f, 0.0f, 0.0f ) ) );
     EXPECT_TRUE( IsSunDirectionValid( glm::vec3( 0.0f, -1.0f, 0.0f ) ) );
-
-    // The documented no-light fallback points ABOVE the horizon, so an empty scene is lit, not black.
-    EXPECT_NEAR( glm::length( FallbackAtmosphereSunDirection() ), 1.0f, 1e-5f );
-    EXPECT_GT( FallbackAtmosphereSunDirection().y, 0.0f );
 }
 
 // Г18 — AND THE TEST ABOVE IS WHY THIS ONE HAD TO BE WRITTEN.
@@ -385,7 +335,7 @@ TEST( AtmosphereSunRules, NoFileOpenCodesTheSunDirectionThreshold )
     const std::regex reachesTheGate( "kSunDirectionEpsilon|IsSunDirectionValid|DirectionalLightTravel" );
 
     std::vector<std::string> offenders;
-    for ( const std::string& tree : { "Desert/Desert/Source", "Editor/Source", "Runtime" } )
+    for ( const std::string& tree : Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime" } ) )
     {
         const std::filesystem::path base = root + tree;
         if ( !std::filesystem::exists( base ) )

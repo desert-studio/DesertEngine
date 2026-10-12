@@ -4,6 +4,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/System/WindField.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Render/Commands/VolumetricCloudCommand.hpp>
 
@@ -85,7 +86,7 @@ namespace Desert::ECS
                 // march, no envelope to sit inside and no lighting to be lit by — a body drawn anyway
                 // would be a cloud with no sky, which is a picture nobody asked for.
                 renderCommandBuffer.Emplace<Graphic::Render::VolumetricCloudCommand>(
-                     false, ECS::VolumetricCloudData{}, glm::vec3( 0.0f ) );
+                     false, ECS::VolumetricCloudData{}, glm::vec3( 0.0f ), glm::vec3( 1.0f, 0.0f, 0.0f ) );
                 return;
             }
 
@@ -119,12 +120,15 @@ namespace Desert::ECS
 
             // THE WORLD'S STEP, not the gameplay timestep: the wind is part of how the world looks, so it
             // moves in the editor while the viewport is Realtime, stops on pause, and follows dilation.
-            AdvanceWind( data, m_WorldDeltaSeconds );
+            // THE SCENE'S WIND at the layer's entity (WIND-SRC): the one query foliage, cloth and hair ask too.
+            const ECS::WindAtPoint wind =
+                 ECS::WindAt( registry, glm::vec3( WorldTransformOf( registry, entities[chosen] )[3] ) );
+            AdvanceWind( data, wind, m_WorldDeltaSeconds );
 
             std::vector<Graphic::HeroCloudInstance> heroClouds = CollectHeroClouds( registry );
 
-            renderCommandBuffer.Emplace<Graphic::Render::VolumetricCloudCommand>( true, data, m_WindOffset,
-                                                                                  std::move( heroClouds ) );
+            renderCommandBuffer.Emplace<Graphic::Render::VolumetricCloudCommand>(
+                 true, data, m_WindOffset, wind.Direction(), std::move( heroClouds ) );
         }
 
     private:
@@ -219,21 +223,14 @@ namespace Desert::ECS
          *     the sky's position depend on how long the editor had been open, so two screenshots of the
          *     same scene would never match — and every visual comparison in this programme depends on
          *     them matching.
-         *   * A zero-length direction leaves the sky still instead of producing a NaN. `normalize` of a
-         *     zero vector is undefined, and the NaN would propagate into every sample position and render
-         *     as a black sky with nothing in the log.
+         *   * Still air (no WindSource, or sources that cancel) leaves the sky still: the velocity is
+         *     summed, never normalized here, so there is no NaN to propagate into the sample positions.
          */
-        void AdvanceWind( const VolumetricCloudData& data, float seconds )
+        void AdvanceWind( const VolumetricCloudData& data, const ECS::WindAtPoint& wind, float seconds )
         {
-            if ( !data.Enabled || data.WindSpeed <= 0.0f )
+            if ( !data.Enabled )
                 return;
-
-            const float lengthSquared = glm::dot( data.WindDirection, data.WindDirection );
-            if ( lengthSquared <= 1e-12f )
-                return;
-
-            const glm::vec3 direction = data.WindDirection / glm::sqrt( lengthSquared );
-            m_WindOffset += direction * ( data.WindSpeed * seconds );
+            m_WindOffset += wind.Velocity * seconds;
         }
 
         static uint64_t EntityId( entt::registry& registry, entt::entity entity )

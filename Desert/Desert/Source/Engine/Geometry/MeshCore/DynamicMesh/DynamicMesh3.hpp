@@ -97,7 +97,7 @@ namespace Desert::Geometry
     class DynamicMesh3
     {
 
-        // TODO:
+        // UE open notes:
         //  - Many of the iterators depend on lambda functions, can we replace these with calls to
         //    internal/static functions that do the same thing?
         //  - CompactInPlace() does not compact VertexEdgeLists
@@ -537,7 +537,7 @@ namespace Desert::Geometry
             return m_EdgeRefCounts.Indices();
         }
 
-        // TODO: write helper functions that allow us to do these iterations w/o lambdas
+        // UE: write helper functions that allow us to do these iterations w/o lambdas
 
         /** @return enumerable object for boundary edge indices suitable for use with range-based for, ie for ( int
          * i : BoundaryEdgeIndicesItr() ) */

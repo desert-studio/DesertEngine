@@ -17,6 +17,7 @@
 //      an image?") is legitimate and order-free; a new file that collects several extensions fails this
 //      test until somebody decides which of the two it is. That decision is the point.
 
+#include "TestSupport/source_roots.hpp"
 #include <Editor/Import/TextureSourceFormats.hpp>
 
 #include <gtest/gtest.h>
@@ -180,10 +181,11 @@ TEST( TextureSourceFormatCensus, NoSecondExtensionListExists )
         excluded.insert( x.Path );
     }
 
-    const char* kRoots[] = { "Editor/Source", "Desert/Desert/Source", "Desert/Common/Source", "Tools", "Runtime" };
+    const std::vector<std::string> kRoots =
+         Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Tools", "Runtime" } );
 
     std::set<std::string> offenders; // files with >=2 mentions, for the ghost check below
-    for ( const char* scanRoot : kRoots )
+    for ( const std::string& scanRoot : kRoots )
     {
         std::error_code                  ec;
         fs::recursive_directory_iterator it( root + scanRoot, ec ), end;

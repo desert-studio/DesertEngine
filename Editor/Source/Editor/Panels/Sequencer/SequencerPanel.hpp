@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "OutlinerColumn.hpp"
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
@@ -29,6 +30,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -298,11 +300,49 @@ namespace Desert::Editor
         /// The Event track row of @p binding (UE: the Event Track): "+ Key" at the playhead, each key a marker
         /// with its name; click selects, a drag retimes it on the display grid (one undo step on release), the
         /// selected key's name is edited in the row (one undo step per committed edit), Delete removes it.
+        /// A row's name in the Outliner's names column at (@p x, the cursor's line): fitted with "…" to the
+        /// column's right edge (`m_LevelNameWidth` from @p contentX0), the full name in its tooltip when cut.
+        void DrawLevelRowLabel( std::string_view label, float contentX0, float x );
+        /// The cursor to the controls column on the line of the item just drawn (UE: a row's buttons sit
+        /// after the names column, wherever its splitter is).
+        void SameLineAtLevelControls( float contentX0 ) const;
+        /// The splitter at the names column's right edge over [@p yTop, @p yBottom]: a drag sets
+        /// `m_LevelNameWidth`; the cursor is left where it was.
+        void DrawLevelNameSplitter( float contentX0, float yTop, float yBottom, float panelWidth );
         void DrawLevelEventRow( Animation::Timeline::Sequence&          sequence,
                                 const Animation::Timeline::BindingGuid& binding, const char* label,
                                 float contentX0, float laneX0, float laneW );
         /// Delete: the selected event key, one undo step (`ECS::RemoveEventKey`).
         void DeleteSelectedLevelEvent();
+        /// What the selected event key does when it fires (nullopt: a named marker), one undo step
+        /// (`ECS::SetEventKeyAction`).
+        void SetSelectedLevelEventAction( std::optional<Animation::Timeline::EventAction> action );
+        /// The selected keys' interpolation and tangent mode, every binding they sit on, one undo step
+        /// (`ECS::SetEntityTransformKeyShape`).
+        void ShapeSelectedLevelKeys( Animation::KeyInterp interp, Animation::TangentMode mode );
+        /// @p preset on the segment ending at each selected key, on the part the curve view shows (Location or
+        /// Scale), one undo step (`ECS::ApplyEntityTransformEasing`).
+        void EaseSelectedLevelKeys( Animation::Timeline::EasingPreset preset );
+        /// The .dseq files a Subsequence section can play (the content registry's LevelSequence rows), the
+        /// open document excluded.
+        [[nodiscard]] std::vector<std::pair<Common::Content::AssetGuid, std::string>>
+        LevelSubsequenceChoices() const;
+        /// "+ Track > Subsequence > <.dseq>": a section from the playhead to the range end, one undo step
+        /// (`ECS::AddSubsequenceSection`, a cycle refused by name).
+        void AddLevelSubsequence( const Common::Content::AssetGuid& sub );
+        /// Replaces section @p index (range, sequence, offset, scale), one undo step
+        /// (`ECS::SetSubsequenceSection`).
+        void SetLevelSubsequence( size_t index, Animation::FrameNumber start, Animation::FrameNumber end,
+                                  const Animation::Timeline::SubsequenceSectionContent& content );
+        /// Delete: the selected Subsequence section, one undo step (`ECS::RemoveSubsequenceSection`).
+        void DeleteSelectedLevelSubsequence();
+        /// The Subsequence track row (UE: the Subsequences track): a bar per section, stacked by row and named
+        /// by its sequence; a click selects, a drag moves it on the display grid (one undo step on release); the
+        /// selected section's sequence, range, offset and scale are edited under it.
+        void DrawLevelSubsequenceRow( Animation::Timeline::Sequence& sequence, float contentX0, float laneX0,
+                                      float laneW );
+        /// The playback range, one undo step (`ECS::SetPlaybackRange`).
+        void SetLevelPlaybackRange( Animation::FrameNumber start, Animation::FrameNumber end );
         void SetLevelRecord( bool on );
         /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
         void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
@@ -328,6 +368,30 @@ namespace Desert::Editor
         char                         m_LevelEventName[128] = {}; ///< the row's name field for the selected event
         bool                         m_LevelEventNameEditing =
              false; ///< the field holds a typed, uncommitted name (else it mirrors the key)
+        /// The selected event's action: 0 none, else EventActionKind + 1. Mirrors the key unless a kind that
+        /// needs a Target was picked and its Target is not typed yet (`m_LevelEventActionPending`).
+        int  m_LevelEventActionKind    = 0;
+        bool m_LevelEventActionPending = false;
+        char m_LevelEventTarget[256]   = {}; ///< the selected event's Target (sound file / Lua function)
+        bool m_LevelEventTargetEditing = false;
+        int  m_LevelKeyInterp          = 1; ///< the key-shape row's KeyInterp (Linear)
+        int  m_LevelKeyTangent         = 0; ///< the key-shape row's TangentMode (Auto)
+        int  m_LevelKeyEasing          = 6; ///< the key-shape row's EasingPreset (CubicInOut)
+        /// The selected Subsequence section (its index in `ECS::SubsequenceSections`).
+        std::optional<size_t> m_LevelSelSubsequence;
+        bool                  m_LevelSubsequenceDrag      = false;
+        float                 m_LevelSubsequenceDragX0    = 0.0f;
+        int32_t               m_LevelSubsequenceDragDelta = 0; ///< ticks, on the display grid
+        /// The selected section's fields: they mirror the section unless one of them is being typed in.
+        int    m_LevelSubsequenceFields[3] = {}; ///< start, end (display frames), offset (sub ticks)
+        double m_LevelSubsequenceScale     = 1.0;
+        bool   m_LevelSubsequenceEditing   = false;
+        /// A playback range handle held on the ruler: which (0 start, 1 end) and the tick it is dragged to.
+        std::optional<std::pair<int, int32_t>> m_LevelRangeDrag;
+        int  m_LevelRangeFields[2] = {}; ///< the toolbar's range fields (display frames)
+        bool m_LevelRangeEditing   = false;
+        /// The Outliner's names column width (UE: the Sequencer's splitter between the tree and the lanes).
+        float                                      m_LevelNameWidth = Sequencer::OutlinerColumn::kDefaultNameWidth;
         std::optional<Animation::Timeline::Player> m_LevelPlayer;
         Animation::Timeline::LoopMode              m_LevelLoop = Animation::Timeline::LoopMode::Loop;
         Animation::FrameNumber                     m_LevelPlayerStart{ INT32_MIN };
@@ -475,6 +539,9 @@ namespace Desert::Editor
         [[nodiscard]] ECS::UIAnimData* ResolveUIClip();
         // "Key this lane at the playhead", shared by the lane's + button and by the palette action.
         void AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane );
+        // UE's Audio section Details (UMovieSceneAudioSection): sound, range, start offset, volume, fades —
+        // each change one undo step of the clip's transaction.
+        void DrawUIAudioSectionDetails( ECS::UIAnimData& clip, size_t trackIndex, size_t sectionIndex );
 
         // The two edges of a HELD widget in the UI timeline (a Duration drag, a key's value field), in one
         // place. See the definition for why it closes on IsItemDeactivated and not on the AfterEdit form.
@@ -593,6 +660,10 @@ namespace Desert::Editor
         // UI-clip editing state (which lane/key is selected in UI mode).
         int m_UITrack = -1;
         int m_UIKey   = -1;
+        /// The selected section of an Audio lane (m_UITrack is its track); -1 when a key, or nothing, is.
+        int m_UIAudioSection = -1;
+        /// "+ Track > Audio"'s sound: an Assets-relative path, as AudioSectionContent::Sound names it.
+        Common::Content::AssetGuid m_UIAudioSound; // the `.desound` the next "+ Track > Audio" plays
 
         // ── SECTION AUTHORING STATE ───────────────────────────────────────────────────────────────
         //

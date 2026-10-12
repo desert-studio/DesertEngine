@@ -17,14 +17,21 @@
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Ragdoll/Ragdoll.h>
+#include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <Engine/Physics/PhysicsWorld.hpp>
+#include <Engine/Physics/RagdollDesc.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -46,6 +53,62 @@ static_assert( Desert::Physics::kHeightFieldNoCollision == JPH::HeightFieldShape
 
 namespace Desert::Physics
 {
+    // ---- Jolt in centimetres (the one place) ----
+    // One world unit is one centimetre (SetGravity takes cm/s^2), while every Jolt default below is tuned for
+    // metres. Each setting with a length, speed or force in it is assigned here explicitly: the metre default
+    // x 100 (x 100^2 for a squared length), and the unitless ones are assigned too, with the reason they stay,
+    // so the census (Engine/CharacterMovement JoltCentimetres) can hold that nothing is left at a metre value.
+    namespace
+    {
+        JPH::PhysicsSettings CentimetrePhysicsSettings()
+        {
+            JPH::PhysicsSettings s;
+            s.mBaumgarte                       = 0.2f;  // fraction of the position error fixed per step: unitless
+            s.mSpeculativeContactDistance      = 2.0f;  // 0.02 m
+            s.mPenetrationSlop                 = 2.0f;  // 0.02 m
+            s.mLinearCastThreshold             = 0.75f; // fraction of the body's inner radius: unitless
+            s.mLinearCastMaxPenetration        = 0.25f; // fraction of the body's inner radius: unitless
+            s.mManifoldTolerance               = 0.1f;  // 1e-3 m
+            s.mMaxPenetrationDistance          = 20.0f; // 0.2 m
+            s.mBodyPairCacheMaxDeltaPositionSq = 0.1f * 0.1f;     // (1 mm)^2
+            s.mContactPointPreserveLambdaMaxDistSq = 1.0f * 1.0f; // (1 cm)^2
+            s.mMinVelocityForRestitution           = 100.0f;      // 1 m/s
+            s.mPointVelocitySleepThreshold         = 3.0f;        // 0.03 m/s
+            return s;
+        }
+
+        void ApplyCentimetreCharacterSettings( JPH::CharacterVirtualSettings& s )
+        {
+            s.mMaxStrength               = 10000.0f; // 100 N = 100 kg*m/s^2 = 10000 kg*cm/s^2
+            s.mPredictiveContactDistance = 10.0f;    // 0.1 m
+            s.mCharacterPadding          = 2.0f;     // 0.02 m
+            s.mCollisionTolerance        = 0.1f;     // 1e-3 m
+            s.mPenetrationRecoverySpeed  = 1.0f;     // fraction of the penetration resolved per update: unitless
+            s.mMaxCollisionIterations    = 5;        // a count of sweep loops: unitless
+            s.mMaxConstraintIterations   = 15;       // a count of solver loops: unitless
+            s.mMinTimeRemaining          = 1.0e-4f;  // seconds: no length in it
+        }
+        // Shapes. Jolt's cDefaultConvexRadius (0.05 m) is a DEFAULT ARGUMENT of the BoxShape and
+        // ConvexHullShapeSettings constructors, not a settings field, so it reaches every shape that does not
+        // pass one: every Box / ConvexHull built in this file passes kConvexRadiusCm (census:
+        // JoltCentimetres.EveryConvexShapePassesTheCentimetreConvexRadius). A box shrinks it to its smallest
+        // half extent itself (BoxShape's constructor), a hull lowers it when the hull needs that. Sphere,
+        // Capsule, Mesh and HeightField shapes have no convex radius. Jolt has no Cylinder use here.
+        // cCapsuleProjectionSlop (0.02 m, "when a capsule's supporting face is an edge") is a constexpr read
+        // inside CapsuleShape::GetSupportingFace and exposed by no settings struct (CharacterVirtualSettings
+        // included): it stays 0.02 cm here, i.e. a capsule reports an edge face only when it is 50x closer to
+        // perpendicular than in a metre world. Changing it means patching ThirdParty/JoltPhysics.
+        constexpr float kConvexRadiusCm = 5.0f; // 0.05 m
+
+        void ApplyCentimetreHullSettings( JPH::ConvexHullShapeSettings& s )
+        {
+            s.mMaxConvexRadius      = kConvexRadiusCm;
+            s.mMaxErrorConvexRadius = 5.0f; // 0.05 m
+            s.mHullTolerance        = 0.1f; // 1e-3 m
+        }
+    } // namespace
+    // ---- end Jolt in centimetres ----
+
     namespace
     {
         // Object layers ARE collision profiles (UE ECollisionChannel + ECollisionResponse, project data):
@@ -280,7 +343,8 @@ namespace Desert::Physics
                 joltPoints.push_back( ToJolt( p ) );
             // The builder stops at cMaxPointsInHull and keeps the hull within tolerance of the rest, so a
             // dense mesh is simplified here rather than refused.
-            const JPH::ConvexHullShapeSettings    settings( joltPoints );
+            JPH::ConvexHullShapeSettings settings( joltPoints, kConvexRadiusCm );
+            ApplyCentimetreHullSettings( settings );
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>( std::format(
@@ -321,6 +385,40 @@ namespace Desert::Physics
 
         // Body user-data bit: the body's contacts are measured (CompoundBodyDesc::ReportContactImpulses).
         constexpr JPH::uint64 kReportImpulsesBit = 1u;
+        // Body user-data bit: the body is a character's inner body (CharacterVirtual's mInnerBodyShape), what
+        // another body's contacts and overlaps see of the character. Queries skip it: a character's own
+        // probes (the spring arm, the crouch check) start inside its capsule.
+        constexpr JPH::uint64 kCharacterInnerBit = 2u;
+
+        class NotCharacterBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            bool ShouldCollideLocked( const JPH::Body& body ) const override
+            {
+                return ( body.GetUserData() & kCharacterInnerBit ) == 0u;
+            }
+        };
+
+        // A sweep's filter: no character's inner body, and none of the caller's ignored bodies.
+        class SweepBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            explicit SweepBodyFilter( std::span<const BodyHandle> ignore ) : m_Ignore( ignore )
+            {
+            }
+            bool ShouldCollide( const JPH::BodyID& id ) const override
+            {
+                const BodyHandle handle = id.GetIndexAndSequenceNumber();
+                return std::find( m_Ignore.begin(), m_Ignore.end(), handle ) == m_Ignore.end();
+            }
+            bool ShouldCollideLocked( const JPH::Body& body ) const override
+            {
+                return ( body.GetUserData() & kCharacterInnerBit ) == 0u;
+            }
+
+        private:
+            std::span<const BodyHandle> m_Ignore;
+        };
 
         // Velocity iterations of the impulse estimate: Jolt's own default for EstimateCollisionResponse.
         constexpr JPH::uint kImpulseEstimateIterations = 10u;
@@ -345,6 +443,41 @@ namespace Desert::Physics
             std::mutex                  Mutex;
             std::vector<ContactImpulse> Contacts;
             std::vector<ContactEvent>   Events; // this step's, under Mutex; sorted and handed over after the step
+
+            // A landscape tile: a static heightfield body and its world-space XZ footprint. Tiles stay separate
+            // bodies (UE: one LandscapeHeightfieldCollisionComponent per component); written only between steps
+            // (CreateHeightField, RemoveBody), read on the workers during one.
+            struct LandscapeTile
+            {
+                JPH::BodyID Id;
+                float       MinX = 0.0f, MinZ = 0.0f, MaxX = 0.0f, MaxZ = 0.0f;
+                float       SpacingCm = 0.0f;
+                bool        Contains( JPH::RVec3Arg p ) const
+                {
+                    const float x = static_cast<float>( p.GetX() ), z = static_cast<float>( p.GetZ() );
+                    return x >= MinX && x <= MaxX && z >= MinZ && z <= MaxZ;
+                }
+            };
+            std::unordered_map<BodyHandle, LandscapeTile> Tiles;
+
+            // Jolt's InternalEdgeRemovingCollector welds the internal edges of ONE shape; the edge two tiles
+            // share is the border of both, so each tile reports it as a real edge and a body rolling over the
+            // seam is kicked off it (a hop). The cross-tile half of the same rule: a contact on a tile's border
+            // edge or vertex whose normal leans across that border, where the neighbouring tile has a surface,
+            // is an internal edge — the neighbour's face contact carries the body, and the edge contact is
+            // dropped, as the collector drops a voided feature.
+            JPH::ValidateResult OnContactValidate( const JPH::Body& body1, const JPH::Body& body2,
+                                                   JPH::RVec3Arg                  baseOffset,
+                                                   const JPH::CollideShapeResult& hit ) override
+            {
+                (void)body1; // the moving body; Jolt orders the static tile second
+                const auto own = Tiles.find( body2.GetID().GetIndexAndSequenceNumber() );
+                if ( own == Tiles.end() )
+                    return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+                return IsCrossTileInternalEdge( own->second, body2, baseOffset, hit )
+                            ? JPH::ValidateResult::RejectContact
+                            : JPH::ValidateResult::AcceptContact;
+            }
 
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
@@ -385,6 +518,45 @@ namespace Desert::Physics
             }
 
         private:
+            bool IsCrossTileInternalEdge( const LandscapeTile& tile, const JPH::Body& body,
+                                          JPH::RVec3Arg baseOffset, const JPH::CollideShapeResult& hit ) const
+            {
+                // The contact normal out of the tile, towards the other body.
+                const JPH::Vec3 out = -hit.mPenetrationAxis.NormalizedOr( JPH::Vec3::sZero() );
+                if ( out.IsNearZero() )
+                    return false;
+                // A face contact is the tile's own surface (the collector's test: within one degree).
+                const JPH::RVec3 point = baseOffset + hit.mContactPointOn2;
+                if ( out.Dot( body.GetWorldSpaceSurfaceNormal( hit.mSubShapeID2, point ) ) > kFaceContactCos )
+                    return false;
+                const JPH::Vec3 across( out.GetX(), 0.0f, out.GetZ() );
+                if ( across.IsNearZero() )
+                    return false;
+                // Just past the contact, along the normal's lean: still on this tile = an edge inside it (the
+                // collector's business); off it = the tile's border, internal only where a neighbour has ground.
+                const JPH::RVec3 beyond = point + across.Normalized() * ( tile.SpacingCm * kSeamProbeOfSpacing );
+                if ( tile.Contains( beyond ) )
+                    return false;
+                for ( const auto& [handle, other] : Tiles )
+                {
+                    if ( other.Id == tile.Id || !other.Contains( beyond ) )
+                        continue;
+                    const JPH::BodyLockRead lock( System->GetBodyLockInterfaceNoLock(), other.Id );
+                    if ( !lock.Succeeded() )
+                        continue;
+                    const JPH::Body& neighbour = lock.GetBody();
+                    const auto*      field     = static_cast<const JPH::HeightFieldShape*>( neighbour.GetShape() );
+                    const JPH::Vec3  local( neighbour.GetWorldTransform().InversedRotationTranslation() * beyond );
+                    JPH::Vec3        surface;
+                    JPH::SubShapeID  triangle;
+                    if ( field->ProjectOntoSurface( local, surface, triangle ) )
+                        return true; // the neighbour has ground there, not a hole
+                }
+                return false;
+            }
+            static constexpr float kFaceContactCos     = 0.999848f; // cos(1 deg), InternalEdgeRemovingCollector's
+            static constexpr float kSeamProbeOfSpacing = 0.01f;     // the probe step past the contact, of a cell
+
             struct ShapePair
             {
                 uint32_t Body1, Sub1, Body2, Sub2;
@@ -535,11 +707,41 @@ namespace Desert::Physics
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
         std::vector<CollisionProfileId>              CharacterProfiles; // parallel to Characters
 
+        // Ragdolls. Handle = index into this vector (slot nulled on remove, so other handles stay valid).
+        // A ragdoll joint as the projection reads it: the constraint frames in each body's centre-of-mass space
+        // and the same limits the constraint solves (Jolt keeps both to itself, so they are read back once).
+        struct RagdollJoint
+        {
+            JPH::SwingTwistConstraint*    Constraint = nullptr; // owned by the ragdoll; Body1 the parent
+            JPH::Quat                     ToBody1    = JPH::Quat::sIdentity(); // constraint space -> parent
+            JPH::Quat                     ToBody2    = JPH::Quat::sIdentity(); // constraint space -> child
+            JPH::Vec3                     Pivot1     = JPH::Vec3::sZero();
+            JPH::Vec3                     Pivot2     = JPH::Vec3::sZero();
+            JPH::SwingTwistConstraintPart Limits;
+        };
+        struct RagdollEntry
+        {
+            JPH::Ref<JPH::Ragdoll>            Ragdoll;
+            RagdollMotion                     Motion = RagdollMotion::Simulated;
+            std::vector<RagdollPartTransform> Target; // empty until SetRagdollTarget
+            std::vector<RagdollJoint>         Joints; // in part order: a parent's joint before its children's
+        };
+        std::vector<RagdollEntry> Ragdolls;
+        JPH::uint32               NextRagdollGroup = 0; // one collision group per ragdoll, unique in this world
+
         ImpulseListener              Impulses;
         std::vector<ContactImpulse>  StepContacts; // the last fixed step's, handed out by GetStepContactImpulses
         std::vector<ContactEvent>    StepEvents;   // the last Step call's, handed out by GetContactEvents
         std::function<void( float )> PreStepCallback;
         std::function<void( float )> StepCallback;
+
+        // SetKinematicTarget: the pose each kinematic body is being moved to. Main thread only.
+        struct KinematicTarget
+        {
+            JPH::RVec3 Position;
+            JPH::Quat  Rotation;
+        };
+        std::unordered_map<BodyHandle, KinematicTarget> KinematicTargets;
 
         // The fixed step's clock. The bank is double: a float bank fed 1/240 four times must reach exactly
         // the step a 1/60 frame reaches, or two frame rates would take their steps a frame apart.
@@ -622,6 +824,87 @@ namespace Desert::Physics
                 if ( Characters[i] != nullptr )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
         }
+
+        // UE's joint projection (Chaos FPBDJointSolver projection, bEnableProjection on a physics asset's
+        // constraints): the limit outranks the contacts. A simulated ragdoll's joint that a step left past its
+        // swing/twist limit — a floor contact and the limit fighting over the same body — is put back on the
+        // limit after the step: the child is turned to the clamped rotation about the joint, moved so the joint's
+        // two pivots meet, and its angular velocity loses the part that drove it out. Parents first, so each
+        // child is projected against its parent's final pose.
+        void ProjectRagdollLimits()
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+            {
+                if ( !entry.Ragdoll || entry.Motion != RagdollMotion::Simulated )
+                    continue;
+                for ( const RagdollJoint& joint : entry.Joints )
+                {
+                    const JPH::Body& parent = *joint.Constraint->GetBody1();
+                    const JPH::Body& child  = *joint.Constraint->GetBody2();
+                    const JPH::Quat  frame1 = parent.GetRotation() * joint.ToBody1;
+                    const JPH::Quat  q =
+                         ( frame1.Conjugated() * ( child.GetRotation() * joint.ToBody2 ) ).Normalized();
+                    JPH::Quat swing, twist;
+                    q.GetSwingTwist( swing, twist );
+                    JPH::uint clamped = 0u;
+                    joint.Limits.ClampSwingTwist( swing, twist, clamped );
+                    if ( clamped == 0u )
+                        continue;
+                    const JPH::Quat rotation =
+                         ( frame1 * swing * twist * joint.ToBody2.Conjugated() ).Normalized();
+                    const JPH::RVec3 pivot =
+                         parent.GetCenterOfMassPosition() + parent.GetRotation() * joint.Pivot1;
+                    const JPH::RVec3 com = pivot - rotation * joint.Pivot2;
+
+                    // The turn the projection took back (from the clamped rotation to the one the step left),
+                    // as a world axis: relative spin along it is what carried the child past the limit.
+                    JPH::Vec3 outAxis;
+                    float     outAngle = 0.0f;
+                    ( child.GetRotation() * rotation.Conjugated() ).GetAxisAngle( outAxis, outAngle );
+                    const JPH::Vec3 relative = child.GetAngularVelocity() - parent.GetAngularVelocity();
+                    const float     outward  = outAngle > 0.0f ? relative.Dot( outAxis ) : 0.0f;
+
+                    const JPH::BodyID id = child.GetID();
+                    Bodies->SetPositionAndRotation( id, com - rotation * child.GetShape()->GetCenterOfMass(),
+                                                    rotation, JPH::EActivation::DontActivate );
+                    if ( outward > 0.0f )
+                        Bodies->SetAngularVelocity( id, child.GetAngularVelocity() - outAxis * outward );
+                }
+            }
+        }
+
+        // A ragdoll's bodies leave the system before ~Ragdoll destroys them; the vector itself is destroyed
+        // before System, which is declared before it.
+        ~Impl()
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+                if ( entry.Ragdoll )
+                    entry.Ragdoll->RemoveFromPhysicsSystem();
+        }
+
+        RagdollEntry* FindRagdoll( RagdollHandle handle )
+        {
+            return handle < Ragdolls.size() && Ragdolls[handle].Ragdoll ? &Ragdolls[handle] : nullptr;
+        }
+
+        // Kinematic ragdolls reach their target at the end of the coming fixed step (UE: kinematic bodies follow
+        // the animation through their kinematic target; Jolt: Ragdoll::DriveToPoseUsingKinematics, which is this
+        // MoveKinematic per body).
+        void DriveKinematicRagdolls( float step )
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+            {
+                if ( !entry.Ragdoll || entry.Motion != RagdollMotion::Kinematic || entry.Target.empty() )
+                    continue;
+                for ( size_t i = 0; i < entry.Target.size(); ++i )
+                {
+                    const RagdollPartTransform& t = entry.Target[i];
+                    Bodies->MoveKinematic( entry.Ragdoll->GetBodyID( static_cast<int>( i ) ),
+                                           JPH::RVec3( t.Position.x, t.Position.y, t.Position.z ),
+                                           ToJolt( t.Rotation ), step );
+                }
+            }
+        }
     };
 
     PhysicsWorld::PhysicsWorld()  = default;
@@ -655,6 +938,7 @@ namespace Desert::Physics
         m_Impl->System.Init( kMaxBodies, kNumBodyMutexes, kMaxBodyPairs, kMaxContactConstraints,
                              m_Impl->BroadPhaseLayerInterface, m_Impl->ObjectVsBroadPhaseFilter,
                              m_Impl->ObjectLayerPairFilter );
+        m_Impl->System.SetPhysicsSettings( CentimetrePhysicsSettings() );
         SetGravity( gravityCmPerS2 );
         m_Impl->Bodies          = &m_Impl->System.GetBodyInterface();
         m_Impl->Impulses.System   = &m_Impl->System;
@@ -703,20 +987,37 @@ namespace Desert::Physics
         constexpr auto kStep = static_cast<double>( kFixedStepSeconds );
         world.Bank += static_cast<double>( dt );
         uint32_t taken = 0;
+        // Counted before the first is taken, so a kinematic body can share its remaining travel over them.
+        const auto steps = static_cast<uint32_t>(
+             std::min( std::floor( world.Bank / kStep ), static_cast<double>( kMaxStepsPerFrame ) ) );
         world.StepEvents.clear();
-        while ( world.Bank >= kStep && taken < kMaxStepsPerFrame )
+        while ( taken < steps )
         {
             world.KeepPoses();
             world.InStep = true;
             if ( world.PreStepCallback )
                 world.PreStepCallback( kFixedStepSeconds );
             world.InStep = false;
+            // Each kinematic body covers 1/(steps left) of what remains to its target, so it arrives on the
+            // call's last fixed step whatever their number, and contacts see it travel rather than teleport.
+            const float share = 1.0f / static_cast<float>( steps - taken );
+            for ( const auto& [handle, target] : world.KinematicTargets )
+            {
+                const JPH::BodyID id( handle );
+                const JPH::RVec3  from = world.Bodies->GetPosition( id );
+                const JPH::Quat   turn = world.Bodies->GetRotation( id );
+                world.Bodies->MoveKinematic( id, from + ( target.Position - from ) * share,
+                                             turn.SLERP( target.Rotation, share ).Normalized(),
+                                             kFixedStepSeconds );
+            }
             // Jolt clears a body's forces after every update, so a held force is given again on each step.
             for ( const Impl::HeldForce& force : world.HeldForces )
                 world.Apply( force );
 
             world.Impulses.Contacts.clear();
+            world.DriveKinematicRagdolls( kFixedStepSeconds );
             world.System.Update( kFixedStepSeconds, 1, world.TempAllocator.get(), world.JobSystem.get() );
+            world.ProjectRagdollLimits();
             world.Bank -= kStep;
             ++world.StepCount;
             ++taken;
@@ -885,7 +1186,8 @@ namespace Desert::Physics
                 shape = new JPH::CapsuleShape( desc.HalfHeight, desc.Radius );
                 break;
             case ShapeType::Box:
-                shape = new JPH::BoxShape( ToJolt( glm::max( desc.HalfExtents, glm::vec3( 1.0f ) ) ) );
+                shape = new JPH::BoxShape( ToJolt( glm::max( desc.HalfExtents, glm::vec3( 1.0f ) ) ),
+                                           kConvexRadiusCm );
                 break;
             case ShapeType::Mesh:
             case ShapeType::ConvexHull:
@@ -976,9 +1278,11 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return;
         const JPH::BodyID id( handle );
+        m_Impl->KinematicTargets.erase( handle );
         m_Impl->Bodies->RemoveBody( id );
         m_Impl->Bodies->DestroyBody( id );
         m_Impl->HeightFields.erase( handle );
+        m_Impl->Impulses.Tiles.erase( handle );
     }
 
     Common::ResultStr<BodyHandle> PhysicsWorld::CreateHeightField( const HeightFieldDesc& desc )
@@ -1002,6 +1306,13 @@ namespace Desert::Physics
                  " bodies exist, the world's limit is reached" );
         const BodyHandle handle      = id.GetIndexAndSequenceNumber();
         m_Impl->HeightFields[handle] = shape.GetValue();
+        const float extent             = static_cast<float>( desc.SampleCount - 1u ) * desc.SpacingCm;
+        m_Impl->Impulses.Tiles[handle] = { id,
+                                           desc.Position.x,
+                                           desc.Position.z,
+                                           desc.Position.x + extent,
+                                           desc.Position.z + extent,
+                                           desc.SpacingCm };
         return Common::MakeSuccess( BodyHandle( handle ) );
     }
 
@@ -1087,7 +1398,8 @@ namespace Desert::Physics
         const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
         JPH::RayCastResult         result;
         const QueryableLayerFilter queryable( m_Impl->Profiles );
-        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable ) )
+        const NotCharacterBodyFilter notCharacter;
+        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable, notCharacter ) )
             return std::nullopt;
 
         RayHit hit;
@@ -1100,6 +1412,57 @@ namespace Desert::Physics
             hit.Normal =
                  ToGlm( JPH::RVec3( lock.GetBody().GetWorldSpaceSurfaceNormal( result.mSubShapeID2, point ) ) );
         return hit;
+    }
+
+    float PhysicsWorld::GetGravity() const
+    {
+        if ( !m_Impl )
+            return 0.0f;
+        return -m_Impl->System.GetGravity().GetY();
+    }
+
+    std::optional<RayHit> PhysicsWorld::CastSphere( const glm::vec3& origin, const glm::vec3& direction,
+                                                    float radius, float maxDistance,
+                                                    std::span<const BodyHandle> ignore ) const
+    {
+        if ( !m_Impl || !( maxDistance > 0.0f ) || !( radius > 0.0f ) || glm::length( direction ) == 0.0f )
+            return std::nullopt;
+        const glm::vec3                                            dir    = glm::normalize( direction );
+        const JPH::RefConst<JPH::Shape>                            sphere = new JPH::SphereShape( radius );
+        const JPH::RShapeCast                                      cast( sphere, JPH::Vec3::sReplicate( 1.0f ),
+                                                                         JPH::RMat44::sTranslation( JPH::RVec3( origin.x, origin.y, origin.z ) ),
+                                                                         ToJolt( dir * maxDistance ) );
+        JPH::ShapeCastSettings                                     settings;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        const QueryableLayerFilter                                 queryable( m_Impl->Profiles );
+        const SweepBodyFilter                                      bodies( ignore );
+        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector, {},
+                                                        queryable, bodies );
+        if ( !collector.HadHit() )
+            return std::nullopt;
+
+        RayHit hit;
+        hit.Body             = collector.mHit.mBodyID2.GetIndexAndSequenceNumber();
+        hit.Distance         = glm::max( collector.mHit.mFraction, 0.0f ) * maxDistance;
+        hit.Point            = ToGlm( JPH::RVec3( collector.mHit.mContactPointOn2 ) );
+        const JPH::Vec3 axis = collector.mHit.mPenetrationAxis;
+        if ( axis.LengthSq() > 0.0f )
+            hit.Normal = ToGlm( JPH::RVec3( -axis.Normalized() ) );
+        return hit;
+    }
+
+    bool PhysicsWorld::OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const
+    {
+        if ( !m_Impl || !( radius > 0.0f ) )
+            return false;
+        const JPH::RefConst<JPH::Shape> capsule = new JPH::CapsuleShape( glm::max( halfHeight, 0.01f ), radius );
+        JPH::CollideShapeSettings       settings;
+        JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        m_Impl->System.GetNarrowPhaseQuery().CollideShape(
+             capsule, JPH::Vec3::sReplicate( 1.0f ),
+             JPH::RMat44::sTranslation( JPH::RVec3( center.x, center.y, center.z ) ), settings,
+             JPH::RVec3::sZero(), collector, {}, {}, NotCharacterBodyFilter{} );
+        return collector.HadHit();
     }
 
     glm::vec3 PhysicsWorld::GetPosition( BodyHandle handle ) const
@@ -1148,11 +1511,33 @@ namespace Desert::Physics
         return glm::slerp( previous->second.Rotation, current, GetInterpolationAlpha() );
     }
 
+    void PhysicsWorld::SetKinematicTarget( BodyHandle handle, const glm::vec3& position,
+                                           const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        const JPH::BodyID id( handle );
+        if ( m_Impl->Bodies->GetMotionType( id ) != JPH::EMotionType::Kinematic )
+            return;
+        m_Impl->KinematicTargets[handle] = { JPH::RVec3( position.x, position.y, position.z ),
+                                             ToJolt( rotation ).Normalized() };
+    }
+
     void PhysicsWorld::SetLinearVelocity( BodyHandle handle, const glm::vec3& velocity )
     {
         if ( !m_Impl || handle == kInvalidBody )
             return;
         m_Impl->Bodies->SetLinearVelocity( JPH::BodyID( handle ), ToJolt( velocity ) );
+    }
+
+    void PhysicsWorld::TeleportBody( BodyHandle handle, const glm::vec3& position, const glm::quat& rotation )
+    {
+        if ( !m_Impl || handle == kInvalidBody )
+            return;
+        SetTransform( handle, position, rotation ); // also drops the interpolation pose
+        m_Impl->Bodies->SetLinearAndAngularVelocity( JPH::BodyID( handle ), JPH::Vec3::sZero(),
+                                                     JPH::Vec3::sZero() );
+        m_Impl->KinematicTargets.erase( handle ); // a pending MoveKinematic would drag it back
     }
 
     void PhysicsWorld::AddImpulse( BodyHandle handle, const glm::vec3& impulse )
@@ -1238,15 +1623,22 @@ namespace Desert::Physics
             return Common::MakeError<CharacterHandle>( profiled.GetError() );
 
         JPH::CharacterVirtualSettings settings;
+        ApplyCentimetreCharacterSettings( settings );
         settings.mShape =
              new JPH::CapsuleShape( glm::max( desc.HalfHeight, 1.0f ), glm::max( desc.Radius, 1.0f ) );
         settings.mMaxSlopeAngle = glm::radians( desc.MaxSlopeDeg );
         // Keep the contact point a little inside the capsule so the character doesn't get stuck on edges.
         settings.mSupportingVolume = JPH::Plane( JPH::Vec3::sAxisY(), -desc.Radius );
+        // The inner body is what other bodies see of the character (UE: the pawn's capsule component), in the
+        // character's own profile: a trigger's Overlap answer reports it, a Block answer is pushed by it.
+        settings.mInnerBodyShape = settings.mShape;
+        settings.mInnerBodyLayer = LayerOf( desc.Profile, true );
 
         JPH::Ref<JPH::CharacterVirtual> character =
              new JPH::CharacterVirtual( &settings, ToJolt( desc.Position ), JPH::Quat::sIdentity(),
                                         &m_Impl->System );
+        if ( !character->GetInnerBodyID().IsInvalid() )
+            m_Impl->Bodies->SetUserData( character->GetInnerBodyID(), kCharacterInnerBit );
 
         // Reuse a released slot before growing. Slots used to be append-only, which was harmless while
         // characters lived as long as a Play session, and is a vector that only grows once streaming creates
@@ -1276,7 +1668,8 @@ namespace Desert::Physics
         m_Impl->Characters[handle] = nullptr; // Ref release; slot kept so other handles stay valid
     }
 
-    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt )
+    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2,
+                                        float dt )
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
@@ -1285,9 +1678,17 @@ namespace Desert::Physics
         const CollisionProfileId  profile   = m_Impl->CharacterProfiles[handle];
         const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         character->SetLinearVelocity( ToJolt( velocity ) );
-        character->Update( dt, m_Impl->System.GetGravity(),
+        character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ),
                            m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
                            {}, {}, *m_Impl->TempAllocator );
+    }
+
+    BodyHandle PhysicsWorld::GetCharacterBody( CharacterHandle handle ) const
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return kInvalidBody;
+        const JPH::BodyID id = m_Impl->Characters[handle]->GetInnerBodyID();
+        return id.IsInvalid() ? kInvalidBody : id.GetIndexAndSequenceNumber();
     }
 
     glm::vec3 PhysicsWorld::GetCharacterPosition( CharacterHandle handle ) const
@@ -1320,5 +1721,260 @@ namespace Desert::Physics
         m_Impl->Characters[handle]->SetPosition( ToJolt( position ) );
         if ( handle < m_Impl->PreviousCharacterPositions.size() )
             m_Impl->PreviousCharacterPositions[handle] = position; // a teleport is drawn where it lands
+    }
+    bool PhysicsWorld::SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight )
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return false;
+        auto&                           character = m_Impl->Characters[handle];
+        const JPH::RefConst<JPH::Shape> capsule =
+             new JPH::CapsuleShape( glm::max( halfHeight, 1.0f ), glm::max( radius, 1.0f ) );
+        const CollisionProfileId  profile = m_Impl->CharacterProfiles[handle];
+        const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
+        // Jolt's own crouch sample allows the character's padding of penetration and no more.
+        if ( !character->SetShape( capsule, 1.5f * character->GetCharacterPadding(),
+                                   m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ),
+                                   blockedBy, {}, {}, *m_Impl->TempAllocator ) )
+            return false;
+        // What other bodies see of the character changes with it.
+        character->SetInnerBodyShape( capsule );
+        return true;
+    }
+
+    void PhysicsWorld::TeleportCharacter( CharacterHandle handle, const glm::vec3& position )
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return;
+        SetCharacterPosition( handle, position ); // also lands the interpolation position
+        m_Impl->Characters[handle]->SetLinearVelocity( JPH::Vec3::sZero() );
+    }
+    // ---- Ragdolls ----
+
+    namespace
+    {
+        JPH::RefConst<JPH::Shape> RagdollPartShape( const RagdollPartDesc& part )
+        {
+            JPH::RefConst<JPH::Shape> inner;
+            switch ( part.Shape )
+            {
+                case PhysicsBodyShape::Sphere:
+                    inner = new JPH::SphereShape( part.Radius );
+                    break;
+                case PhysicsBodyShape::Capsule:
+                    inner = new JPH::CapsuleShape( part.HalfHeight, part.Radius );
+                    break;
+                case PhysicsBodyShape::Box:
+                {
+                    // The engine's convex radius (kConvexRadiusCm), never more than half the smallest half extent.
+                    const float smallest =
+                         std::min( { part.HalfExtents.x, part.HalfExtents.y, part.HalfExtents.z } );
+                    inner = new JPH::BoxShape( ToJolt( part.HalfExtents ),
+                                               std::min( kConvexRadiusCm, 0.5f * smallest ) );
+                    break;
+                }
+            }
+            return new JPH::RotatedTranslatedShape( ToJolt( part.ShapeOffset ), ToJolt( part.ShapeRotation ),
+                                                    inner );
+        }
+
+        JPH::EMotionType JoltMotion( RagdollMotion motion )
+        {
+            return motion == RagdollMotion::Kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;
+        }
+    } // namespace
+
+    Common::ResultStr<RagdollHandle> PhysicsWorld::CreateRagdoll( const RagdollDesc& desc,
+                                                                  const glm::vec3&   position,
+                                                                  const glm::quat& rotation, RagdollMotion motion )
+    {
+        if ( !m_Impl )
+            return Common::MakeError<RagdollHandle>( "the physics world is not initialised" );
+        if ( desc.Parts.empty() )
+            return Common::MakeError<RagdollHandle>( "the ragdoll has no parts" );
+
+        // The entity's frame is applied once, to the bodies and the constraint frames alike (component -> world).
+        const auto toWorldPoint = [&]( const glm::vec3& p )
+        {
+            const glm::vec3 w = position + rotation * p;
+            return JPH::RVec3( w.x, w.y, w.z );
+        };
+        const auto toWorldAxis = [&]( const glm::vec3& a ) { return ToJolt( glm::normalize( rotation * a ) ); };
+
+        // Every part is in the engine's Ragdoll profile (UE's Ragdoll preset); Build guarantees the register has
+        // it.
+        const auto             ragdollProfile = m_Impl->Profiles.Resolve( EngineProfiles::kRagdoll );
+        const JPH::ObjectLayer layer          = LayerOf( ragdollProfile.GetValue(), /*moving=*/true );
+
+        JPH::Ref<JPH::RagdollSettings> settings = new JPH::RagdollSettings();
+        settings->mSkeleton                     = new JPH::Skeleton();
+        settings->mParts.resize( desc.Parts.size() );
+        for ( size_t i = 0; i < desc.Parts.size(); ++i )
+        {
+            const RagdollPartDesc& part = desc.Parts[i];
+            if ( part.Parent >= static_cast<int32_t>( i ) )
+                return Common::MakeError<RagdollHandle>(
+                     std::format( "ragdoll part '{}' names part {} as its parent, which does not precede it",
+                                  part.Bone, part.Parent ) );
+            settings->mSkeleton->AddJoint( part.Bone, part.Parent );
+
+            JPH::RagdollSettings::Part& joltPart = settings->mParts[i];
+            joltPart.SetShape( RagdollPartShape( part ) );
+            joltPart.mPosition                     = toWorldPoint( part.Position );
+            joltPart.mRotation                     = ToJolt( glm::normalize( rotation * part.Rotation ) );
+            joltPart.mMotionType                   = JPH::EMotionType::Dynamic;
+            joltPart.mObjectLayer                  = layer;
+            joltPart.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+            joltPart.mMassPropertiesOverride.mMass = part.MassKg;
+            joltPart.mNumPositionStepsOverride     = kRagdollPositionSolverSteps;
+
+            if ( part.Parent >= 0 && part.HasConstraint )
+            {
+                const RagdollConstraintDesc&                c     = part.ToParent;
+                JPH::Ref<JPH::SwingTwistConstraintSettings> joint = new JPH::SwingTwistConstraintSettings();
+                joint->mSpace                                     = JPH::EConstraintSpace::WorldSpace;
+                joint->mPosition1                                 = toWorldPoint( c.Position1 );
+                joint->mTwistAxis1                                = toWorldAxis( c.TwistAxis1 );
+                joint->mPlaneAxis1                                = toWorldAxis( c.PlaneAxis1 );
+                joint->mPosition2                                 = toWorldPoint( c.Position2 );
+                joint->mTwistAxis2                                = toWorldAxis( c.TwistAxis2 );
+                joint->mPlaneAxis2                                = toWorldAxis( c.PlaneAxis2 );
+                joint->mNormalHalfConeAngle                       = c.NormalHalfConeAngle;
+                joint->mPlaneHalfConeAngle                        = c.PlaneHalfConeAngle;
+                joint->mTwistMinAngle                             = c.TwistMinAngle;
+                joint->mTwistMaxAngle                             = c.TwistMaxAngle;
+                joint->mNumPositionStepsOverride                  = kRagdollPositionSolverSteps;
+                joltPart.mToParent                                = joint;
+            }
+        }
+        if ( !settings->Stabilize() )
+            return Common::MakeError<RagdollHandle>( "Jolt could not stabilise the ragdoll's masses" );
+        settings->DisableParentChildCollisions();
+        settings->CalculateBodyIndexToConstraintIndex();
+        settings->CalculateConstraintIndexToBodyIdxPair();
+
+        JPH::Ref<JPH::Ragdoll> ragdoll =
+             settings->CreateRagdoll( m_Impl->NextRagdollGroup++, 0u, &m_Impl->System );
+        if ( ragdoll == nullptr )
+            return Common::MakeError<RagdollHandle>( std::format(
+                 "Jolt refused the ragdoll's {} bodies: {} bodies exist, the world's limit is reached",
+                 desc.Parts.size(), GetBodyCount() ) );
+        ragdoll->AddToPhysicsSystem( JPH::EActivation::Activate );
+
+        Impl::RagdollEntry entry;
+        entry.Ragdoll = ragdoll;
+        for ( size_t i = 0; i < ragdoll->GetConstraintCount(); ++i )
+        {
+            Impl::RagdollJoint joint;
+            joint.Constraint =
+                 static_cast<JPH::SwingTwistConstraint*>( ragdoll->GetConstraint( static_cast<int>( i ) ) );
+            // Read back in the bodies' centre-of-mass space (LocalToBodyCOM), the space the solver uses.
+            const auto local =
+                 JPH::StaticCast<JPH::SwingTwistConstraintSettings>( joint.Constraint->GetConstraintSettings() );
+            const auto frame = []( JPH::Vec3Arg twistAxis, JPH::Vec3Arg planeAxis )
+            {
+                return JPH::Mat44( JPH::Vec4( twistAxis, 0.0f ), JPH::Vec4( planeAxis.Cross( twistAxis ), 0.0f ),
+                                   JPH::Vec4( planeAxis, 0.0f ), JPH::Vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+                     .GetQuaternion()
+                     .Normalized();
+            };
+            joint.ToBody1 = frame( local->mTwistAxis1, local->mPlaneAxis1 );
+            joint.ToBody2 = frame( local->mTwistAxis2, local->mPlaneAxis2 );
+            joint.Pivot1  = JPH::Vec3( local->mPosition1 );
+            joint.Pivot2  = JPH::Vec3( local->mPosition2 );
+            joint.Limits.SetSwingType( local->mSwingType );
+            joint.Limits.SetLimits(
+                 joint.Constraint->GetTwistMinAngle(), joint.Constraint->GetTwistMaxAngle(),
+                 -joint.Constraint->GetPlaneHalfConeAngle(), joint.Constraint->GetPlaneHalfConeAngle(),
+                 -joint.Constraint->GetNormalHalfConeAngle(), joint.Constraint->GetNormalHalfConeAngle() );
+            entry.Joints.push_back( joint );
+        }
+        m_Impl->Ragdolls.push_back( std::move( entry ) );
+        const auto handle = static_cast<RagdollHandle>( m_Impl->Ragdolls.size() - 1 );
+        SetRagdollMotion( handle, motion );
+        return Common::MakeSuccess( handle );
+    }
+
+    void PhysicsWorld::RemoveRagdoll( RagdollHandle handle )
+    {
+        if ( !m_Impl )
+            return;
+        if ( Impl::RagdollEntry* entry = m_Impl->FindRagdoll( handle ) )
+        {
+            entry->Ragdoll->RemoveFromPhysicsSystem();
+            *entry = Impl::RagdollEntry{}; // the last Ref: ~Ragdoll destroys the bodies and constraints
+        }
+    }
+
+    uint32_t PhysicsWorld::GetRagdollCount() const
+    {
+        if ( !m_Impl )
+            return 0u;
+        return static_cast<uint32_t>( std::count_if( m_Impl->Ragdolls.begin(), m_Impl->Ragdolls.end(),
+                                                     []( const auto& r ) { return r.Ragdoll != nullptr; } ) );
+    }
+
+    void PhysicsWorld::SetRagdollMotion( RagdollHandle handle, RagdollMotion motion )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr )
+            return;
+        entry->Motion = motion;
+        for ( const JPH::BodyID& id : entry->Ragdoll->GetBodyIDs() )
+            m_Impl->Bodies->SetMotionType( id, JoltMotion( motion ), JPH::EActivation::Activate );
+    }
+
+    RagdollMotion PhysicsWorld::GetRagdollMotion( RagdollHandle handle ) const
+    {
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        return entry != nullptr ? entry->Motion : RagdollMotion::Simulated;
+    }
+
+    void PhysicsWorld::SetRagdollPose( RagdollHandle handle, std::span<const RagdollPartTransform> parts )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || parts.size() != entry->Ragdoll->GetBodyCount() )
+            return;
+        for ( size_t i = 0; i < parts.size(); ++i )
+        {
+            const JPH::BodyID id = entry->Ragdoll->GetBodyID( static_cast<int>( i ) );
+            m_Impl->Bodies->SetPositionAndRotation(
+                 id, JPH::RVec3( parts[i].Position.x, parts[i].Position.y, parts[i].Position.z ),
+                 ToJolt( parts[i].Rotation ), JPH::EActivation::Activate );
+            m_Impl->Bodies->SetLinearAndAngularVelocity( id, JPH::Vec3::sZero(), JPH::Vec3::sZero() );
+        }
+        entry->Ragdoll->ResetWarmStart();
+    }
+
+    void PhysicsWorld::SetRagdollTarget( RagdollHandle handle, std::span<const RagdollPartTransform> parts )
+    {
+        Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || parts.size() != entry->Ragdoll->GetBodyCount() )
+            return;
+        entry->Target.assign( parts.begin(), parts.end() );
+    }
+
+    void PhysicsWorld::GetRagdollPose( RagdollHandle handle, std::vector<RagdollPartTransform>& out ) const
+    {
+        out.clear();
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr )
+            return;
+        out.resize( entry->Ragdoll->GetBodyCount() );
+        for ( size_t i = 0; i < out.size(); ++i )
+        {
+            JPH::RVec3 p;
+            JPH::Quat  q;
+            m_Impl->Bodies->GetPositionAndRotation( entry->Ragdoll->GetBodyID( static_cast<int>( i ) ), p, q );
+            out[i].Position = ToGlm( p );
+            out[i].Rotation = ToGlm( q );
+        }
+    }
+
+    BodyHandle PhysicsWorld::GetRagdollPartBody( RagdollHandle handle, uint32_t part ) const
+    {
+        const Impl::RagdollEntry* entry = m_Impl ? m_Impl->FindRagdoll( handle ) : nullptr;
+        if ( entry == nullptr || part >= entry->Ragdoll->GetBodyCount() )
+            return kInvalidBody;
+        return entry->Ragdoll->GetBodyID( static_cast<int>( part ) ).GetIndexAndSequenceNumber();
     }
 } // namespace Desert::Physics

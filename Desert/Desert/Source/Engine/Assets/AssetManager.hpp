@@ -108,19 +108,30 @@ namespace Desert::Assets
 
             if ( const Asset<AssetBase>* record = FindRecord( key ) )
             {
+                // A BROKEN record answers null to a caller that asked for a LOADED asset, as the first
+                // call did; its failure was logged once, when the load was refused.
+                if ( loadAfterCreate && *record && ( *record )->IsBroken() )
+                    return nullptr;
                 return AsRequestedType<AssetType>( *record, "CreateAsset", key.Value() );
             }
 
             // NOTE:Perhaps the creation of an asset via the Create() method should be defined for each type
             // separately, and then call AssetType::Create()
             auto asset = std::make_shared<AssetType>( filepath, std::forward<Args>( args )... );
+            bool broken = false;
             if ( loadAfterCreate )
             {
                 const auto& loadResult = asset->Load();
                 if ( !loadResult )
                 {
-                    LOG_ERROR( "Error while loading {}. Error: {}", filepath.string(), loadResult.GetError() );
-                    return nullptr;
+                    // THE RECORD STAYS, BROKEN AND EMPTY (UE: a package that fails to load is still in the
+                    // asset registry; references to it resolve to null and a mesh slot draws the engine's
+                    // default material). Dropping it made the file vanish from the asset database, so every
+                    // reference to it read as "no such asset" rather than "this asset is broken" — the reason
+                    // SurfaceMaterialAsset used to answer a corrupt file with SUCCESS on substituted defaults.
+                    LOG_ERROR( "Error while loading {} — registered as BROKEN (no data): {}", filepath.string(),
+                               loadResult.GetError() );
+                    broken = true;
                 }
             }
 
@@ -148,6 +159,9 @@ namespace Desert::Assets
             // has to carry the number a scene reference actually holds. A path that names no content
             // kind (`procedural://`, a `.dgraph` document) is ignored by NoteAsset, not refused.
             ContentRegistry::NoteAsset( metadata.Filepath, static_cast<uint64_t>( metadata.Handle ) );
+
+            if ( broken )
+                return nullptr;
 
             if constexpr ( std::is_base_of_v<AssetBase, AssetType> )
             {

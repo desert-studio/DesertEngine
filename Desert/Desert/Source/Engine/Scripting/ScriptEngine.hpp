@@ -3,6 +3,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
+#include <entt/entt.hpp>
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -17,6 +20,11 @@ namespace Desert::Core
 namespace Desert::Assets
 {
     class AssetManager;
+}
+
+namespace Desert::Input
+{
+    class LocalPlayerInput;
 }
 
 namespace Desert::Scripting
@@ -56,15 +64,35 @@ namespace Desert::Scripting
         void CallStart( uint32_t entity, uint32_t slot );
         void CallUpdate( uint32_t entity, uint32_t slot, float dt );
 
-        // Calls a slot's OnAnimationNotify(name) if defined (no-op if not loaded / not defined). Dispatched
-        // when the entity's Animator crosses a named clip notify (footstep, hit-frame, ...).
-        // @p callback is the Lua function called with the notify's name: OnAnimationNotify (instant),
-        // OnAnimationNotifyBegin / OnAnimationNotifyEnd (a notify state).
-        void CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback, const std::string& name );
+        // Calls a slot's Lua function @p function( @p argument ) if defined (no-op if not loaded / not defined).
+        // Dispatched when the entity's Animator crosses a named clip notify (OnAnimationNotify (instant),
+        // OnAnimationNotifyBegin / OnAnimationNotifyEnd (a notify state), with the notify's name) and when a
+        // level sequence Event key's CallScript action fires (its function, with the key's name).
+        void CallSlotFunction( uint32_t entity, uint32_t slot, const char* function, const std::string& argument );
+
+        // Calls a slot's @p callback (OnBeginOverlap / OnEndOverlap: UE ReceiveActorBeginOverlap) with the other
+        // entity of the overlap, if defined. The other entity may already be destroyed (an End its removal
+        // caused): the script gets a handle whose valid() is false.
+        void CallOverlap( uint32_t entity, uint32_t slot, const char* callback, entt::registry& registry,
+                          entt::entity other );
+
+        // Calls a slot's OnHit(other, point, normal, impulse) if defined — UE ReceiveHit: this entity's body or
+        // projectile struck @p other (null for a body no entity owns, a landscape tile) at world @p point;
+        // @p normal points from this entity towards the other; @p impulse in kg*cm/s (0 for a projectile's
+        // swept hit).
+        void CallHit( uint32_t entity, uint32_t slot, entt::registry& registry, entt::entity other,
+                      const glm::vec3& point, const glm::vec3& normal, float impulse );
 
         // Writes the slot's editor-set property values into its env's `Properties` table, so the running
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
+
+        // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
+        // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
+        // not list it yet), so the slot holds the game state a save captures. Call after OnStart / OnUpdate. A
+        // value of another kind than a property can hold (a table, a function) is not copied.
+        void ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
+                                 std::vector<ScriptProperty>& props );
 
         // Calls OnUIMessage(msg) on EVERY loaded script that defines it. A UI message has no owner — a
         // button belongs to the canvas, not to a script — so it broadcasts, and each script decides what
@@ -89,6 +117,17 @@ namespace Desert::Scripting
         // Advances the edge-detection state for Input.wasPressed() (down THIS frame, up LAST frame). Call once
         // per frame BEFORE running scripts so each key fires wasPressed() exactly on the press transition.
         void NewInputFrame();
+
+        // THE LOCAL PLAYER'S ENHANCED INPUT (GP1b). TickPlayerInput runs once per played frame, after
+        // SetFrameMouseDelta and before the scripts: the first call of a Play session is UE's BeginPlay (the
+        // EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends the session.
+        void TickPlayerInput( entt::registry& registry, float deltaSeconds );
+        void EndPlayerInput();
+        // The scene's GameMode events since last frame (Core/GameMode.hpp), in order: a PawnDied unpossesses the
+        // player's input and calls OnPawnDied(pawn) on every script; a PlayerRestarted possesses the new pawn
+        // (its input contexts) and calls OnPlayerRestarted(pawn). After TickPlayerInput, before the scripts run.
+        void                     DeliverGameModeEvents( entt::registry& registry );
+        Input::LocalPlayerInput& PlayerInput();
 
         // A script may request cursor lock/unlock via Input.lockCursor()/showCursor(). ScriptSystem consumes the
         // pending request after running scripts and applies it (so it cooperates with the Escape toggle). Returns

@@ -37,9 +37,11 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -915,6 +917,36 @@ namespace Desert::Core::Serialize
                     a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
+            if ( type == "PhysicsAsset" )
+            {
+                // A ragdoll's physics asset (RagdollData::PhysicsAsset). Announced, not read, as the fracture
+                // above: PhysicsAssetService reads the `.dephysasset` when Play asks for it, and the asset's
+                // constructor adopts the handle its envelope GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::PhysicsAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::PhysicsAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "SoundAsset" )
+            {
+                // The locator half of the Audio Source's {Guid, Path}: the `.desound` the path names states
+                // the GUID, and ResolveGuidRef checks it is the one the scene states. Nothing is loaded: the
+                // audio file is streamed when a voice starts.
+                const std::filesystem::path named( path );
+                const auto                  sound = Assets::SoundAsset::ReadFile(
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                if ( !sound )
+                {
+                    LOG_ERROR( "[Audio] {}", sound.GetError() );
+                    return 0;
+                }
+                return static_cast<uint64_t>( Common::Content::HandleForGuid( sound.GetValue().Guid ) );
+            }
             if ( type == "PrefabAsset" )
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
@@ -1131,6 +1163,12 @@ namespace Desert::Core::Serialize
                     return 0;
                 return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
             }
+            if ( type == "SoundAsset" )
+            {
+                // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the
+                // `.desound`, wherever it has since moved; nothing is loaded until a voice starts.
+                return Assets::ContentRegistry::KeyForHandle( guid ).empty() ? 0 : guid;
+            }
             if ( type == "SkyboxAsset" )
             {
                 // Created from its content-registry row and requested (AL1-9): no boot stage has created the
@@ -1318,6 +1356,8 @@ namespace Desert::Core::Serialize
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
                 if ( smc.TranslucencySortPriority != 0 )
                     meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
+                if ( smc.MaxDrawDistance > 0.0f )
+                    meshSer.MaxDrawDistance = smc.MaxDrawDistance;
                 if ( smc.HiddenSubmeshes != 0 )
                     meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
 
@@ -1365,6 +1405,7 @@ namespace Desert::Core::Serialize
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
                 smc.TranslucencySortPriority =
                      meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
+                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
                 smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
@@ -1431,6 +1472,8 @@ namespace Desert::Core::Serialize
                 ser.Primitive = ism.Primitive;
                 if ( !ism.CastShadows )
                     ser.CastShadows = ism.CastShadows;
+                if ( ism.MaxDrawDistance > 0.0f )
+                    ser.MaxDrawDistance = ism.MaxDrawDistance;
                 if ( !ism.InstanceTransforms.empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
@@ -1484,7 +1527,8 @@ namespace Desert::Core::Serialize
                     }
                 }
                 ism.Primitive   = data.Primitive;
-                ism.CastShadows = data.CastShadows.value_or( ism.CastShadows );
+                ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
+                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {
                     ism.InstanceTransforms.clear();
@@ -1571,6 +1615,25 @@ namespace Desert::Core::Serialize
                     }
                     else
                         mc.ShaderName = name.ExtractValue();
+                }
+
+                // Params and Textures are the named shader's and nothing else's. With no shader they were the
+                // old slot-0 hand-off buffer, which is gone: a lit mesh's values are its material slots'. The
+                // block is REFUSED with its path, not quietly folded into slot 0 (no migration exists, since
+                // the corpus carries none).
+                const bool hasValues = ( data.Params.has_value() && !data.Params->empty() ) ||
+                                       ( data.Textures.has_value() && !data.Textures->empty() );
+                if ( mc.ShaderName.empty() && hasValues )
+                {
+                    issues.push_back( Common::Json::Issue{ "Material.Params", "a Shader that owns them",
+                                                           "parameters with no Shader" } );
+                    LOG_ERROR(
+                         "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
+                         "Override, a lit mesh's values are its material slots'; the values are not loaded",
+                         EntityContext( entity ) );
+                    if ( !data.Shader.has_value() )
+                        entity.RemoveComponent<ECS::MaterialComponent>();
+                    return;
                 }
 
                 if ( data.Params.has_value() )
@@ -2017,6 +2080,7 @@ namespace Desert::Core::Serialize
                 // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
                 out.Set( "Loop", actor.Loop );
                 out.Set( "AutoPlay", actor.AutoPlay );
+                out.Set( "PlayRate", actor.PlayRate );
                 Common::Json::Value::Array overrides;
                 for ( const auto& over : actor.BindingOverrides )
                     overrides.emplace_back(
@@ -2041,6 +2105,7 @@ namespace Desert::Core::Serialize
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
                 g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
                 g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
+                g.ReadInto( "PlayRate", actor.PlayRate, issues );
                 if ( const auto overrides = g.Find( "BindingOverrides" ) )
                     overrides->ForEachElement(
                          [&]( std::size_t, const Common::Json::Node& element )
@@ -2203,11 +2268,9 @@ namespace Desert::Core::Serialize
         // Desert/Tests/Engine/ComponentPersistence now derives "is authored in Details" from the editor's
         // own registration source and refuses to let a sixth one exist. No version bump: an added key is
         // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
-        // ever wrote one.
-        Register( MakeAuthored<ECS::LocomotionComponent>( "Locomotion" ) );
+        // ever wrote one. (Projectile, the fifth, is a reflected block now: ProjectileData.)
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
-        Register( MakeAuthored<ECS::ProjectileComponent>( "Projectile" ) );
 
         // ---- Landscape (LS-3) ----
         // The root is its frame and nothing else; the tile loads its heights from the file it names

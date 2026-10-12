@@ -1,0 +1,20 @@
+{
+    "Header": {
+        "Kind": "VFXDataChannel",
+        "Guid": "6a3f1c9e0d7b4e2a9c58b1f04e7d2a63",
+        "Versions": {
+            "VFXD": 1
+        },
+        "Dependencies": []
+    },
+    "Fields": [
+        {
+            "Name": "Position",
+            "Type": "Position"
+        },
+        {
+            "Name": "Normal",
+            "Type": "Direction"
+        }
+    ]
+}

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Text/IconLayer.hpp>
+#include <Render2DCore/Text/IconLayer.hpp>
 
 #include <cstdint>
 #include <memory>

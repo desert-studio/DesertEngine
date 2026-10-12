@@ -4,7 +4,7 @@
 
 #include <Common/Core/Units.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
 {
@@ -113,8 +113,12 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Render Path" ), Category( "Rendering" ) )
         RenderPath RenderingPath = RenderPath::Deferred;
 
-        PROPERTY( DisplayName( "Gravity" ), Category( "Physics" ), Range( 0.0f, 5000.0f ) )
-        float Gravity = 981.0f; // For physics simulation (cm/s^2 — 1 unit = 1 cm)
+        // UE AWorldSettings::GlobalGravityZ: the ONE downward acceleration of the level. The physics world is
+        // built with it (PhysicsECSSystem), and every consumer reads it back from there, never a literal of its
+        // own: PhysicsWorld::GetGravity() times the consumer's Gravity Scale (character, projectile), the same
+        // value as a vector for cloth/hair (ClothStepContext/GroomStepContext/LeaderPose::Gravity).
+        PROPERTY( DisplayName( "Gravity" ), Category( "Physics" ), Range( 0.0f, 5000.0f ), Units( "cm/s2" ) )
+        float Gravity = 981.0f; // downward magnitude, cm/s^2 (1 unit = 1 cm)
         // "Pause Simulation" used to sit here. It was reflected, serialized and shown beside Gravity, and
         // read by NOTHING — the editor's transport owns pausing, as runtime state rather than scene data.
         // Sixteen probe scenes had authored it `true` and got nothing, which is the exact defect §1.3
@@ -139,8 +143,9 @@ namespace Desert::Core
         // drops the three keys from the files at scene schema v19.
 
         // Time of Day was removed: the sun's single source of truth is the directional-light ENTITY
-        // (its position encodes the direction; sky + lighting follow it). Old scene files may still
-        // carry the fields — unknown keys are ignored on load.
+        // (its position encodes the direction; sky + lighting follow it). An old scene file that still
+        // carries the fields keeps them: SceneSerializer::Deserialize preserves every key it cannot name,
+        // writes it back on save, and names it once in a load warning.
 
         // Splash screen: an image the standalone Runtime shows full-screen when THIS scene loads (the boot
         // scene's splash is the game's startup splash). Duration 0 = no splash; Fade = in/out seconds.
@@ -152,6 +157,17 @@ namespace Desert::Core
         // player (Core::BeginPlay). Unset = a level without a player — a cinematic, a benchmark.
         PROPERTY( DisplayName( "Default Pawn" ), Category( "Game Mode" ), Asset<PrefabAsset> )
         Assets::AssetHandle DefaultPawn;
+
+        // UE's GameMode PlayerControllerClass: a prefab Play spawns ONCE (Core::SpawnPlayerController) and that
+        // outlives every pawn — what must survive a death (pause/menu input contexts, a controller script that
+        // drives gameMode.pawn()) goes on it. Unset = the pawn carries the player's input and scripts itself.
+        PROPERTY( DisplayName( "Player Controller" ), Category( "Game Mode" ), Asset<PrefabAsset> )
+        Assets::AssetHandle PlayerController;
+
+        // Seconds between the player's pawn dying (Core::GameMode::Kill, Lua gameMode.kill) and RestartPlayer
+        // spawning a new one at the PlayerStart. Game time: a paused Play does not count down.
+        PROPERTY( DisplayName( "Respawn Delay" ), Category( "Game Mode" ), Range( 0.0f, 60.0f ) )
+        float RespawnDelay = 3.0f;
 
         PROPERTY( DisplayName( "Splash Sprite" ), Category( "Splash" ), Asset<TextureAsset> )
         Assets::AssetHandle SplashSprite;

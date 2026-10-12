@@ -16,20 +16,11 @@ namespace Desert::Core::Formats
 {
     // ---- Program-level metadata declared in a .shader file (data-driven materials) ----
     //
-    // Parsed by the ShaderPreprocessor from `#pragma param` / `#pragma state` lines and attached to the
-    // compiled Shader. The Graphic layer (pipeline cache + generic Material) consumes it; the editor
-    // builds the Details UI from the param list. Kept backend-neutral so Core can produce it and Graphic
-    // can interpret it without a layer-inversion.
-    //
-    // Syntax (in the .shader, alongside `#pragma use_stage`):
-    //   #pragma param float   Roughness  "Roughness"  range(0,1)  default(0.5)
-    //   #pragma param color   BaseColor  "Base Color"             default(1,1,1,1)
-    //   #pragma param vec3    SunDir                              default(0,1,0)
-    //   #pragma param texture2D AlbedoTex "Albedo"               default("white")
-    //   #pragma state cull back
-    //   #pragma state depth less write on
-    //   #pragma state blend off
-    //   #pragma state topology patches 4
+    // Parsed by DShaderParser from a Desert Shader Language file's `Domain`, `Properties` and `State`
+    // blocks (ShaderPreprocess::ParseProgramMetaForPass picks the pass) and attached to the compiled
+    // Shader. The Graphic layer (pipeline cache + generic Material) consumes it; the editor builds the
+    // Details UI from the param list. Kept backend-neutral so Core can produce it and Graphic can
+    // interpret it without a layer-inversion. The syntax is documented at the top of DShaderParser.hpp.
 
     // How a param is presented/edited. The underlying storage type is ShaderValueType; UiHint refines it
     // (e.g. a vec4 shown as a color picker vs four drag floats).
@@ -194,11 +185,11 @@ namespace Desert::Core::Formats
 
     // Where a shader may be used (mirrors UE's Material Domain). Drives the editor's material shader
     // picker: only "assignable" domains (Surface, Terrain) are offered for a MaterialComponent; engine
-    // shaders (skybox, post-process, shadow…) stay out of the list. A shader with no `#pragma domain` is
+    // shaders (skybox, post-process, shadow…) stay out of the list. A shader with no `Domain` line is
     // Unspecified -> treated as internal (not offered).
     enum class ShaderDomain : uint8_t
     {
-        Unspecified = 0, // no #pragma domain -> internal, not user-assignable
+        Unspecified = 0, // no `Domain` line -> internal, not user-assignable
         Surface,         // lit/unlit surface materials on meshes
         Terrain,         // tessellated terrain materials
         Skybox,
@@ -287,7 +278,7 @@ namespace Desert::Core::Formats
     // world position and no normal, so a Surface shader placed in a UI slot would read uniform blocks
     // that path never binds: the UI slot asks THIS predicate and draws the error material by name when
     // it is false, which is the refusal UE never wrote (its own source still carries
-    // `//TODO UMG Check if the material can be used with the UI`, and a wrong-domain UMG material
+    // the open note `UMG Check if the material can be used with the UI`, and a wrong-domain UMG material
     // renders silently nothing).
     constexpr bool DrawnByUIPath( ShaderDomain domain )
     {
@@ -313,7 +304,18 @@ namespace Desert::Core::Formats
         Opaque,
         Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
         Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
+        // UE BLEND_Additive: everything Translucent is (Forward cells only, the translucency pass header, the
+        // DESERT_SURFACE_TRANSLUCENT define) except how the pass composites it: colour x opacity ADDED to the
+        // scene (SrcAlpha, One) instead of laid over it. Fire, sparks, glows. The particle emitter's own
+        // over/additive switch moved here (VFX-08): how a sprite composites is a property of its material.
+        Additive,
     };
+
+    // Every blend mode drawn by the translucency pass rather than written into depth / the G-buffer.
+    constexpr bool IsTranslucentBlend( const SurfaceBlendMode blend )
+    {
+        return blend == SurfaceBlendMode::Translucent || blend == SurfaceBlendMode::Additive;
+    }
 
     struct ShaderProgramMeta
     {

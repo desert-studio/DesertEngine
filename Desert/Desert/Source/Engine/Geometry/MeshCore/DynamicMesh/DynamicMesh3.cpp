@@ -330,7 +330,7 @@ void DynamicMesh3::CompactCopy( const DynamicMesh3& copy, bool bNormals, bool bC
         }
     }
 
-    // [TODO] would be much faster to explicitly copy triangle & edge data structures!!
+    // UE: would be much faster to explicitly copy triangle & edge data structures!!
     if ( copy.HasTriangleGroups() )
     {
         EnableTriangleGroups( 0 );

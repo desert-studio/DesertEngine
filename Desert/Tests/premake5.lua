@@ -69,6 +69,9 @@ local function DesertRunnerSettings(deps)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         -- Engine suites read header-only editor types (component editors' data, command records).
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
@@ -84,7 +87,7 @@ local function DesertRunnerSettings(deps)
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
+    links { "Desert", "DesertUI", "Render2DCore", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
@@ -128,6 +131,9 @@ local kRunners = {
             -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
             -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
             "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source",
             -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
@@ -173,6 +179,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MaterialAOParam.cpp", -- the retired OcclusionStrength rename (MAT-AO-ONEHOME)
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipMigration.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
@@ -230,12 +237,8 @@ local kRunners = {
     end,
     Engine = function(deps)
         DesertRunnerSettings(deps)
-        files {
-            -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
-            -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
-            -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
-        }
+        -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
+        -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         includedirs {
             -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
             "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
@@ -253,72 +256,17 @@ local kRunners = {
                   'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
     end,
     Editor = function(deps)
+        -- EditorCore (Editor/premake5.lua) is every editor source but the entry point, built once as a static
+        -- library, so a suite gets the editor code it tests by LINKING it, as the Editor executable does -- not
+        -- from a list of editor sources compiled here a second time (BLD-EDITORCORE; the list was 67 files).
+        -- Named before DesertRunnerSettings so the link line has it ahead of Desert and the libraries it uses:
+        -- gmake resolves static libraries left to right.
+        -- Whole, as the Editor links it: a suite reading the component-editor registry sees the editor's.
+        links { "EditorCore" }
+        DesertPlatform.LinkWholeArchive( "EditorCore" )
         DesertRunnerSettings(deps)
-        -- The editor is an executable, so the editor sources its suites test are compiled here, once
-        -- (the union of what the suites compiled one by one before BUILD1).
         files {
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetFileOps.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InstanceFold.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Control/ControlSocket.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GizmoState.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/LogView.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/MultiEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ThemeManager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ViewportModes.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/EditedMeshAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/LevelEditor/SceneMeshBounds.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PropertyEditor/PropertyReset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/CurveView.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Splash/SplashImage.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeMeshSplit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeActors.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceAlphaMode.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceMaterialAdapter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportManager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MaterialImportContract.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/TrackFilter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
+            -- PackagedContent: the player's packaged-content resolution (the Runtime executable's source).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
         }
         includedirs {
@@ -335,16 +283,31 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         }
         links { "ImGuiNodeEditor" }
+        -- EditorCore's face tracking builds against dlib when ThirdParty/dlib is present (Editor/premake5.lua).
+        if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
+            links { "Dlib" }
+        end
         filter "system:windows"
-            -- The control socket (ControlTransport, ControlDispatch) is Winsock.
-            links { "ws2_32", "advapi32" }
+            -- The control socket (ControlTransport, ControlDispatch) is Winsock; the system file dialogs
+            -- (Editor/Platform/Windows/DesktopPlatformWindows.cpp) are comdlg32/shell32/ole32 -- the same
+            -- system libraries the Editor executable names, since both link EditorCore.
+            links { "ws2_32", "advapi32", "comdlg32", "shell32", "ole32" }
         filter {}
     end,
+}
+
+-- TEST SOURCES OUTSIDE Desert/Tests THAT A SUITE ADOPTS (AdoptedTestSource, TestSupport/runner.hpp): suite -> its
+-- files. They go wherever that suite is compiled -- its layer runner, and DevTests only when the suite is named
+-- there: a runner holding the file without its adopting suite fails with "test outside Desert/Tests/<Layer>/<Suite>/".
+local kAdoptedSources = {
+    -- The launcher/engine project-format conformance suite (ThirdParty/desert-shared).
+    ProjectFormat = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp" },
 }
 
 local deps           = dofile(currentDir .. "/Desert/Dependencies.lua")
 local manifest_lines = {} -- "<Executable> <Suite>", one per suite
 local test_projects  = {} -- every project RunAllTests depends on
+local suite_home     = {} -- suite name -> { layer = <Layer>, dir = <its directory> }, for DevTests below
 
 for _, layer in ipairs(kLayers) do
     local suiteDirs = os.matchdirs(testsDir .. "/" .. layer .. "/*")
@@ -363,6 +326,7 @@ for _, layer in ipairs(kLayers) do
         end
         table.insert(converted, dir)
         table.insert(manifest_lines, runnerName .. " " .. suite)
+        suite_home[suite] = { layer = layer, dir = dir }
     end
     if configure and #converted > 0 then
         project(runnerName)
@@ -370,11 +334,62 @@ for _, layer in ipairs(kLayers) do
             files { testsDir .. "/TestSupport/RunnerMain.cpp" }
             for _, dir in ipairs(converted) do
                 files { dir .. "/*.cpp" }
+                files(kAdoptedSources[path.getname(dir)] or {})
             end
             configure(deps)
             removeconfigurations { "Shipping" }
         table.insert(test_projects, runnerName)
     end
+end
+for suite in pairs(kAdoptedSources) do
+    if not suite_home[suite] then
+        error(string.format("kAdoptedSources names %s, which is no suite directory Desert/Tests/<Layer>/%s", suite, suite), 0)
+    end
+end
+
+-- DEVTESTS: A RUNNER OF ONLY THE SUITES AN AGENT IS WORKING ON (BLD-DEVTESTS). A layer runner compiles every suite
+-- of its layer and links once per layer, so an agent touching one Engine suite and one Editor suite recompiled
+-- the other suites' changed TUs and paid two of the biggest links of the build. `premake5 gmake
+-- --dev-suites=A,B` adds one more project, DevTests, holding RunnerMain, those suites' sources and the runner
+-- settings of every layer they come from -- the same configure functions as the layer runners, so a suite
+-- compiles here exactly as in its own runner. It is a developer convenience and nothing else: not in the
+-- manifest, not in RunAllTests, absent from every generation without the option, so the CI runners
+-- (EngineTests, EditorTests, ToolsTests, ...) are generated byte for byte as before. Driven by
+-- `scripts/Dev/suite.sh --dev-suites <Suite...>` and `build_quiet.sh ... --dev-suites=A,B`.
+newoption {
+    trigger     = "dev-suites",
+    value       = "Suite[,Suite...]",
+    description = "Also generate DevTests: one runner of only these test suites (agent builds; CI never passes it)",
+}
+if _OPTIONS["dev-suites"] then
+    local dev_dirs, dev_layers = {}, {}
+    for suite in _OPTIONS["dev-suites"]:gmatch("[^,%s]+") do
+        local home = suite_home[suite]
+        if not home then
+            error(string.format("--dev-suites: %s is no suite directory Desert/Tests/<Layer>/%s", suite, suite), 0)
+        end
+        if not kRunners[home.layer] then
+            error(string.format("--dev-suites: %s is in %s, a layer with no runner", suite, home.layer), 0)
+        end
+        table.insert(dev_dirs, home.dir)
+        dev_layers[home.layer] = true
+    end
+    if #dev_dirs == 0 then
+        error("--dev-suites names no suite", 0)
+    end
+    project "DevTests"
+        DesertTestsCommonSettings(deps)
+        files { testsDir .. "/TestSupport/RunnerMain.cpp" }
+        for _, dir in ipairs(dev_dirs) do
+            files { dir .. "/*.cpp" }
+            files(kAdoptedSources[path.getname(dir)] or {})
+        end
+        for _, layer in ipairs(kLayers) do
+            if dev_layers[layer] then
+                kRunners[layer](deps)
+            end
+        end
+        removeconfigurations { "Shipping" }
 end
 
 -- A SUITE THAT NEEDS A VULKAN DEVICE IS NAMED ONCE, HERE (it used to call `test_needs_vulkan_device` in its own

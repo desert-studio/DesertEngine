@@ -14,6 +14,7 @@
 #include "runtime_handle_register.hpp"
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
+#include "TestSupport/source_roots.hpp"
 
 #include <gtest/gtest.h>
 
@@ -275,7 +276,7 @@ TEST( RuntimeHandleCensus, EveryComponentHandleFieldHasARegisteredRelease )
     for ( const auto& [component, field] :
           std::vector<std::pair<std::string, std::string>>{ { "TransformComponent", "Translation" },
                                                             { "StaticMeshComponent", "MeshHandle" },
-                                                            { "CharacterControllerComponent", "VerticalVelocity" },
+                                                            { "CharacterControllerComponent", "Velocity" },
                                                             { "RigidBodyComponent", "Data" } } )
         EXPECT_TRUE( seen.count( { component, field } ) )
              << "the field scan no longer sees " << component << "::" << field;
@@ -300,22 +301,27 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
+    // Every library the engine is built on, not only Desert/Desert: a table that moves into Desert/UI or a
+    // library yet to come is still a table a destroyed entity must leave.
     std::set<std::pair<std::string, std::string>> found;
-    for ( const auto& e : fs::recursive_directory_iterator( root + "Desert/Desert/Source/Engine" ) )
+    for ( const std::string& tree : Desert::TestSupport::EngineRoots() )
     {
-        const auto ext = e.path().extension();
-        if ( !e.is_regular_file() || ( ext != ".hpp" && ext != ".cpp" && ext != ".h" ) )
-            continue;
-        const std::string rel = fs::relative( e.path(), root ).generic_string();
-        for ( const std::string& member : EntityKeyedMembers( Code( e.path() ) ) )
+        for ( const auto& e : fs::recursive_directory_iterator( root + tree ) )
         {
-            found.insert( { rel, member } );
-            const bool registered =
-                 std::any_of( kEntityTables.begin(), kEntityTables.end(),
-                              [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
-            EXPECT_TRUE( registered ) << rel << ": `" << member
-                                      << "` is keyed by entt::entity and has no row in "
-                                         "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";
+            const auto ext = e.path().extension();
+            if ( !e.is_regular_file() || ( ext != ".hpp" && ext != ".cpp" && ext != ".h" ) )
+                continue;
+            const std::string rel = fs::relative( e.path(), root ).generic_string();
+            for ( const std::string& member : EntityKeyedMembers( Code( e.path() ) ) )
+            {
+                found.insert( { rel, member } );
+                const bool registered =
+                     std::any_of( kEntityTables.begin(), kEntityTables.end(),
+                                  [&]( const EntityTableRow& r ) { return r.File == rel && r.Member == member; } );
+                EXPECT_TRUE( registered ) << rel << ": `" << member
+                                          << "` is keyed by entt::entity and has no row in "
+                                             "runtime_handle_register.hpp. Say how a destroyed entity leaves it.";
+            }
         }
     }
 
@@ -341,21 +347,23 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     EXPECT_GE( found.size(), 9u );
 }
 
-// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters, PrepareFrame), so
-// everything that erase destroys must go through the allocator's deletion ring and never be freed while the
-// last submitted frame may still read it. The chain: the entry's StorageBuffers own MappedBufferCopy copies,
-// and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in VulkanViewDescriptorPools.
-// Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object immediately.
+// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters,
+// ParticleWorldGpu::PrepareTick), so everything that erase destroys must go through the allocator's deletion ring
+// and never be freed while the last submitted frame may still read it. The chain: the entry's StorageBuffers own
+// MappedBufferCopy copies, and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in
+// VulkanViewDescriptorPools. Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object
+// immediately.
 TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionRing )
 {
     const fs::path root = RepoRoot();
     const fs::path vk   = root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan";
 
+    // VFX-07b: the emitters' GPU state is the scene's pool (ParticleWorldGpu), retired once per VFXWorld tick.
     const std::string renderer =
-         Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+         Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
     ASSERT_FALSE( renderer.empty() );
     EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Emitters, reg )" ) )
-         << "PrepareFrame no longer retires emitters whose entity is gone";
+         << "PrepareTick no longer retires emitters whose entity is gone";
 
     const std::string copy =
          Code( root / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.cpp" );

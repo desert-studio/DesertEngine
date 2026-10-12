@@ -1,0 +1,9 @@
+{
+    "Header": {
+        "Kind": "Sound",
+        "Guid": "af3e387f5d55411bbbfa2c59fe9ffd0b",
+        "Versions": {},
+        "Dependencies": []
+    },
+    "Source": "DesertEngine.wav"
+}

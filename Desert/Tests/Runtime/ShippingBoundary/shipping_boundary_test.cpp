@@ -58,6 +58,7 @@
 // — twice in one week here, once taking a real finding down with it — and this file's own paragraphs
 // name every token it forbids.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -259,8 +260,7 @@ namespace
     // not a violation of anything and listing editor exceptions would be a register nobody could finish.
     const std::vector<std::string>& PlayerSourceRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Desert/Source", "Desert/Common/Source",
-                                                        "Runtime/Source" };
+        static const std::vector<std::string> roots = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
         return roots;
     }
 
@@ -822,7 +822,12 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
          << "the macOS `Run tests` step must be guarded to the tests leg — the Shipping build creates no "
             "build/Bin/Tests/Shipping at all, so the step has nothing to run. Unguarded it goes red on a "
             "missing directory, which is a whole CI leg spent saying so.";
-    EXPECT_NE( ci.find( "exclude:\n          - config: Shipping\n            leg: tests\n" ), std::string::npos )
+    // The matrix either excludes Shipping x tests, or has no tests leg at all (package only: then no
+    // configuration, Shipping included, builds or runs a test binary).
+    const bool shippingTestsExcluded =
+         ci.find( "exclude:\n          - config: Shipping\n            leg: tests\n" ) != std::string::npos;
+    const bool packageLegOnly = ci.find( "leg: [package]\n" ) != std::string::npos;
+    EXPECT_TRUE( shippingTestsExcluded || packageLegOnly )
          << "the macOS matrix no longer excludes Shipping x tests: a tests leg in Shipping has no test "
             "binaries to build or run.";
 

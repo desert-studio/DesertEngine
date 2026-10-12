@@ -121,18 +121,19 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( dir.DirectionLights.data() ), size );
             }
 
-        // `Name` is a static member and not part of the object, so the block is just the three counts.
-        const uint32_t counts[3] = { static_cast<uint32_t>( dir.DirectionLights.size() ),
-                                     static_cast<uint32_t>( point.PointLights.size() ),
-                                     static_cast<uint32_t>( spot.SpotLights.size() ) };
+        const ShaderProtocols::LightsMetadata counts{
+             .DirectionLightsCount = static_cast<uint32_t>( dir.DirectionLights.size() ),
+             .PointLightsCount     = static_cast<uint32_t>( point.PointLights.size() ),
+             .SpotLightsCount      = static_cast<uint32_t>( spot.SpotLights.size() ) };
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
-            ub->SetRawData( reinterpret_cast<const std::byte*>( counts ), sizeof( counts ) );
+            ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
     /// The cascaded directional shadow maps (R32F light-space depth) and their per-cascade light
-    /// view-projections, bias, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3.
+    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3. No depth
+    /// bias: the casters wrote it into the maps (Graphic::CascadeCasterBias), so Params.x is reserved, 0.
     inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
-                                 float bias, bool enabled, int debugMode, bool showNormals,
+                                 bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, bool lightingDebug )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
@@ -151,7 +152,7 @@ namespace Desert::Graphic
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
             data.LightViewProj[i] = ( i < n ) ? cascadeViewProj[i] : glm::mat4( 1.0f );
         data.Params =
-             glm::vec4( bias, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ), static_cast<float>( n ) );
+             glm::vec4( 0.0f, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ), static_cast<float>( n ) );
         data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
         data.CascadeTexelWorld = cascadeWorldPerTexel;
 

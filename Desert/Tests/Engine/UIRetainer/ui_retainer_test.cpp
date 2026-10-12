@@ -1,13 +1,14 @@
 // UE Retainer Box (VIDEO-2c): a subtree recorded into its own layer, composited through one effect.
 // Device-free: the layer/mask geometry is what DrawList2D records, and the per-pixel effect is
 // RetainerEffect.hpp, which UIRetainer.shader mirrors line for line.
-#include <Engine/Graphic/Render2D/DrawList2D.hpp>
-#include <Engine/Graphic/Render2D/RetainerEffect.hpp>
+#include <Render2DCore/DrawList2D.hpp>
+#include <Render2DCore/RetainerEffect.hpp>
 
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <vector>
+#include <cstdint>
 
 using namespace Desert::Graphic::Render2D;
 

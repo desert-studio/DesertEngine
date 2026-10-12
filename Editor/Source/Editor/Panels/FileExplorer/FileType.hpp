@@ -64,6 +64,10 @@ namespace Desert::Editor
         /// an icon and filter by it; its picture is the class icon until a producer renders the pieces.
         Fracture,
 
+        /// A physics asset (`.dephysasset`, UE UPhysicsAsset): its own type so the browser can colour it, give it
+        /// an icon and filter by it; its picture is the class icon until the physics asset editor (RAG1c).
+        PhysicsAsset,
+
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
         ImportSettings,
@@ -81,6 +85,11 @@ namespace Desert::Editor
         FoliageType, // `.defoliage`: UE's UFoliageType
         StringTable, // `.destrings`: a localisation table
 
+        // ENHANCED INPUT (GP1): UE's UInputAction and UInputMappingContext. Each its own kind for its colour,
+        // icon and filter entry; both open in their asset editor (Panels/Input) on a double-click.
+        InputAction,         // `.deinputaction`: one action and its value type
+        InputMappingContext, // `.deinputcontext`: keys -> actions, with modifiers and triggers
+
         /// A partitioned world's cooked cells and index (`.dwcell`, `.dwindex`). ONE kind for two extensions
         /// for the reason Cloud is: one colour, one icon, one producer, and neither is authored — both are
         /// written by the streaming cook beside their scene.
@@ -95,12 +104,16 @@ namespace Desert::Editor
 
         /// A water wave set (`.dwaves`, UE UWaterWavesAsset): its own type so the browser can colour it, give it
         /// an icon and filter by it; its picture is the class icon, as UE's is.
-        WaterWaves
+        WaterWaves,
+
+        /// A VFX data channel (`.dfxch`, UE UNiagaraDataChannel): its own type so the browser can colour it, give
+        /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
+        VFXDataChannel
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::WaterWaves;
+    inline constexpr FileType kLastFileType = FileType::VFXDataChannel;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -149,6 +162,8 @@ namespace Desert::Editor
          { "m4a", FileType::Audio },
          { "wav", FileType::Audio },
          { "ogg", FileType::Audio },
+         // The imported sound ASSET (`.desound`, UE USoundWave): typed as the audio it plays.
+         { "desound", FileType::Audio },
          { "demat", FileType::Material },
          { "lmat", FileType::Material },
          { "dgraph", FileType::ShaderGraph },
@@ -163,6 +178,8 @@ namespace Desert::Editor
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
          { "dwaves", FileType::WaterWaves },
+         { "dephysasset", FileType::PhysicsAsset },
+         { "dfxch", FileType::VFXDataChannel },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },
@@ -172,6 +189,8 @@ namespace Desert::Editor
          { "retarget", FileType::Retarget },
          { "defoliage", FileType::FoliageType },
          { "destrings", FileType::StringTable },
+         { "deinputaction", FileType::InputAction },
+         { "deinputcontext", FileType::InputMappingContext },
          { "dwcell", FileType::CookedWorld },
          { "dwindex", FileType::CookedWorld },
     };

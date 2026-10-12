@@ -4,11 +4,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl/enums.hpp>
-
 #include <algorithm>
-#include <array>
-#include <charconv>
 #include <format>
 #include <iterator>
 #include <cstdlib>
@@ -111,29 +107,25 @@ namespace Common::Settings
             const auto raw = Common::Utils::FileSystem::ReadFileContent( s_File );
             if ( !raw || raw.GetValue().empty() )
             {
-                LOG_WARN( "[Machine] {} exists but could not be read before saving; keys written by "
-                          "another build cannot be preserved this time and the file will be replaced "
-                          "wholesale.",
-                          s_File.string() );
+                LOG_ERROR( "[Machine] {} exists but could not be read before saving; keys written by "
+                           "another build cannot be preserved this time and the file will be replaced "
+                           "wholesale.",
+                           s_File.string() );
                 return std::nullopt;
             }
 
             auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
             if ( !parsed )
             {
-                LOG_WARN( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
-                          "key another build put in it is lost with it.",
-                          s_File.string(), parsed.GetError() );
+                LOG_ERROR( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
+                           "key another build put in it is lost with it.",
+                           s_File.string(), parsed.GetError() );
                 return std::nullopt;
             }
 
             MachineSettings fromDisk = parsed.ExtractValue();
 
-            // Taken BEFORE the migration: a file still holding the retired key differs from what Save()
-            // writes, so it is rewritten.
-            const std::string canonical = Json::Write( fromDisk );
-            // The retired key must not be adopted back as "another build's key", or the file would keep it.
-            MachineSettings::DropRetiredKeys( fromDisk );
+            const std::string canonical        = Json::Write( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
@@ -150,7 +142,7 @@ namespace Common::Settings
         return s_File;
     }
 
-    void MachineSettings::Load( const std::filesystem::path& file, const Scalability::ScalabilityTable& table )
+    void MachineSettings::Load( const std::filesystem::path& file )
     {
         s_File = file;
 
@@ -175,7 +167,11 @@ namespace Common::Settings
         }
         if ( raw.GetValue().empty() )
         {
-            LOG_WARN( "[Machine] {} is empty; using the default quality.", s_File.string() );
+            // A machine config that is THERE and says nothing is broken, not a first run (UE GameUserSettings:
+            // no file = first launch, a file that does not load = an error). ERROR, then the defaults.
+            LOG_ERROR( "[Machine] {} is empty — this session runs at the default quality, and the next change "
+                       "will overwrite the file.",
+                       s_File.string() );
             return;
         }
 
@@ -184,18 +180,18 @@ namespace Common::Settings
         auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
         if ( !parsed )
         {
-            LOG_WARN( "[Machine] {} is corrupt, using the default quality: {}", s_File.string(),
-                      parsed.GetError() );
+            // The parse error names the field (or the offset) that refused; the path names the file.
+            LOG_ERROR( "[Machine] {} is corrupt: {} — this session runs at the default quality, and the next "
+                       "change will overwrite the file.",
+                       s_File.string(), parsed.GetError() );
             return;
         }
 
         Get() = parsed.ExtractValue();
         // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
         // spacing is not a settings change, and a memo taken from the raw text would report the whole
-        // struct as changed on the first save after an upgrade. Taken before the migration, for the same
-        // reason as in AdoptUnknownKeysFromDisk.
-        s_OnDisk            = Json::Write( Get() );
-        const RetiredKeyMigration migrated = MigrateRetiredKeys( Get(), raw.GetValue(), table );
+        // struct as changed on the first save after an upgrade.
+        s_OnDisk = Json::Write( Get() );
 
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what was this
         // machine asking for" with. What it actually RUNS is QualityState's to say (it knows the device).
@@ -213,16 +209,6 @@ namespace Common::Settings
             LOG_INFO( "[Machine] {} — no quality chosen yet; VSync {}", s_File.string(),
                       Get().Display.VSync ? "on" : "off" );
 
-        // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
-        // left in the file).
-        if ( migrated.KeysMoved > 0 )
-        {
-            LOG_INFO( "[Machine] {}: migrated {} retired quality key(s) into Quality, {} of them as override(s) "
-                      "(the rest equal the High level); the next save drops them",
-                      s_File.string(), migrated.KeysMoved, migrated.Overrides );
-            Save();
-        }
-
         // CARRYING A KEY WE DO NOT UNDERSTAND IS AN EVENT, NOT A DETAIL: another build owns settings this
         // binary cannot show or edit. Named rather than counted, because a count tells a reader nothing
         // about whether to go and look for the build that wrote them.
@@ -232,7 +218,7 @@ namespace Common::Settings
             for ( auto it = std::next( Get().UnknownKeys.begin() ); it != Get().UnknownKeys.end(); ++it )
                 names += ", " + it->first;
 
-            LOG_INFO( "[Machine] {} holds {} key(s) this build does not know ({}); they belong to another "
+            LOG_WARN( "[Machine] {} holds {} key(s) this build does not know ({}); they belong to another "
                       "build and are preserved on save, not dropped.",
                       s_File.string(), Get().UnknownKeys.size(), names );
         }
@@ -258,145 +244,6 @@ namespace Common::Settings
         Scalability::QualitySelection selection;
         selection.Levels.fill( Scalability::Level::High );
         return selection;
-    }
-
-    namespace
-    {
-        // The keys task/SCAL1 retired, and the parameter each one became. `AA` is the post filter that predates
-        // AAMethod and is folded into it below.
-        struct RetiredKey
-        {
-            std::string_view                      Name;
-            std::optional<Scalability::Parameter> Becomes;
-        };
-        constexpr std::size_t               kRetiredMethod = 0, kRetiredSamples = 1, kRetiredPostAA = 6;
-        constexpr std::array<RetiredKey, 7> kRetiredKeys{ {
-             { "AAMethod", Scalability::Parameter::AntiAliasingMethod },
-             { "MSAASamples", Scalability::Parameter::AntiAliasingSamples },
-             { "TextureFilterMode", Scalability::Parameter::TextureFilter },
-             { "Anisotropy", Scalability::Parameter::Anisotropy },
-             { "MeshLOD", Scalability::Parameter::MeshLOD },
-             { "CloudQualityTier", Scalability::Parameter::CloudQuality },
-             { "AA", std::nullopt },
-        } };
-
-        bool IsRetired( std::string_view name )
-        {
-            return std::any_of( kRetiredKeys.begin(), kRetiredKeys.end(),
-                                [name]( const RetiredKey& key ) { return key.Name == name; } );
-        }
-
-        template <std::size_t N>
-        std::optional<Scalability::ParameterValue> IndexIn( const std::array<std::string_view, N>& names,
-                                                            std::string_view                       value )
-        {
-            const auto it = std::find( names.begin(), names.end(), value );
-            if ( it == names.end() )
-                return std::nullopt;
-            return static_cast<Scalability::ParameterValue>( it - names.begin() );
-        }
-
-        // A retired value as the parameter's int. ObjectMembers re-writes every value compactly, so an enum
-        // arrives as its quoted name and a bool as true/false. The names are the retired enums' spellings, whose
-        // ints the parameters keep (Scalability::AntiAliasingMethod starts None/FXAA/SMAA/MSAA; TextureFilter and
-        // CloudQuality are still the parameters' value domains).
-        std::optional<Scalability::ParameterValue> RetiredValue( std::string_view key, std::string_view value )
-        {
-            constexpr std::array<std::string_view, 4> kMethods{ "\"None\"", "\"FXAA\"", "\"SMAA\"", "\"MSAA\"" };
-            constexpr std::array<std::string_view, 4> kFilters{ "\"Nearest\"", "\"Bilinear\"", "\"Trilinear\"",
-                                                                "\"Anisotropic\"" };
-            constexpr std::array<std::string_view, 3> kClouds{ "\"Low\"", "\"Medium\"", "\"High\"" };
-            if ( key == "AAMethod" || key == "AA" )
-                return IndexIn( kMethods, value );
-            if ( key == "TextureFilterMode" )
-                return IndexIn( kFilters, value );
-            if ( key == "CloudQualityTier" )
-                return IndexIn( kClouds, value );
-            if ( key == "MeshLOD" )
-            {
-                if ( value == "true" )
-                    return 1;
-                if ( value == "false" )
-                    return 0;
-                return std::nullopt;
-            }
-            Scalability::ParameterValue number = 0;
-            const auto [end, error] = std::from_chars( value.data(), value.data() + value.size(), number );
-            if ( error != std::errc{} || end != value.data() + value.size() )
-                return std::nullopt;
-            return number;
-        }
-    } // namespace
-
-    MachineSettings::RetiredKeyMigration
-    MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
-                                         const Scalability::ScalabilityTable& table )
-    {
-        RetiredKeyMigration result;
-        const auto          members = Json::ObjectMembers( rawJson );
-        if ( !members )
-            return result;
-
-        std::array<std::optional<std::string>, kRetiredKeys.size()> found;
-        bool                                                        hasQuality = false;
-        for ( const auto& [name, value] : members.GetValue() )
-        {
-            if ( name == "Quality" )
-                hasQuality = true;
-            for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
-                if ( kRetiredKeys[k].Name == name )
-                    found[k] = value;
-        }
-        result.KeysMoved = static_cast<int>(
-             std::count_if( found.begin(), found.end(), []( const auto& v ) { return v.has_value(); } ) );
-        if ( result.KeysMoved == 0 )
-            return result;
-        DropRetiredKeys( settings );
-        if ( hasQuality )
-            return result;
-
-        // Read every retired value first: AAMethod decides whether MSAASamples means anything, and `AA` stands
-        // for AAMethod only when AAMethod is absent.
-        std::array<std::optional<Scalability::ParameterValue>, kRetiredKeys.size()> values;
-        for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
-        {
-            if ( !found[k] )
-                continue;
-            values[k] = RetiredValue( kRetiredKeys[k].Name, *found[k] );
-            if ( !values[k] )
-                LOG_ERROR( "[Machine] retired key {} holds {}, which is not one of its values; it is dropped and "
-                           "its parameter stays at the High level",
-                           kRetiredKeys[k].Name, *found[k] );
-        }
-        const auto msaa = static_cast<Scalability::ParameterValue>( Scalability::AntiAliasingMethod::MSAA );
-        if ( !found[kRetiredMethod] && values[kRetiredPostAA] )
-            values[kRetiredMethod] =
-                 values[kRetiredSamples] && *values[kRetiredSamples] > 1 ? msaa : *values[kRetiredPostAA];
-        if ( !values[kRetiredMethod] || *values[kRetiredMethod] != msaa )
-            values[kRetiredSamples].reset();
-
-        settings.Quality = HighSelection();
-        for ( std::size_t k = 0; k < kRetiredKeys.size(); ++k )
-        {
-            if ( !kRetiredKeys[k].Becomes || !values[k] )
-                continue;
-            const Scalability::Parameter parameter = *kRetiredKeys[k].Becomes;
-            if ( *values[k] == table.ValueAt( parameter, Scalability::Level::High ) )
-                continue;
-            settings.Quality->Overrides.push_back(
-                 { std::string( Scalability::SpecOf( parameter ).Key ), *values[k] } );
-            ++result.Overrides;
-        }
-        return result;
-    }
-
-    void MachineSettings::DropRetiredKeys( MachineSettings& settings )
-    {
-        Json::CarriedKeys kept;
-        for ( const auto& [name, value] : settings.UnknownKeys )
-            if ( !IsRetired( name ) )
-                kept.insert( name, value );
-        settings.UnknownKeys = std::move( kept );
     }
 
     bool MachineSettings::Save()

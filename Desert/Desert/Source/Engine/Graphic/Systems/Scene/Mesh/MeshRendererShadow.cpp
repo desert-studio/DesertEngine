@@ -149,7 +149,7 @@ namespace Desert::Graphic::System
         // A ZERO BUDGET IS A LEGAL BUDGET, and the only place that has to know it is this one. A renderer
         // built with Graphic::kNoShadowQuality allocates no map, compiles no caster pipeline and loads no
         // shadow shader; everything downstream is already driven by the count it publishes
-        // (RegisterShadowPass registers nothing, CaptureFrameState reports 0, and the shader's cascade
+        // (ShadowCascadePasses hands no pass, CaptureFrameState reports 0, and the shader's cascade
         // loop over u_ShadowParams.w selects none), so there is no second switch to keep in step.
         //
         // Returning `true` matters: Initialize treats a false here as fatal, and "this renderer was asked
@@ -206,7 +206,7 @@ namespace Desert::Graphic::System
         // would buy exactly zero precision while inverting the compare in seven sampling shaders and the
         // sign of the shadow bias. It is spelled with a raw CompareOp, not DepthCompare::, precisely so
         // that it does not silently follow the engine convention if that is ever revisited. Its render
-        // pass clears depth to 1 via PassConfig::ClearDepth in RegisterShadowPass.
+        // pass clears depth to 1 via SystemRasterPass::ClearDepth in ShadowCascadePasses.
         spec.DepthCompareOp = CompareOp::LessOrEqual;
         // No culling in the shadow pass: store ALL faces so the map can never come out empty (front-face
         // culling under the engine's negative-height viewport could cull the wrong set and black out the
@@ -250,7 +250,7 @@ namespace Desert::Graphic::System
         // SKINNED caster (optional): same depth-only state and the same standard-Z convention, but the
         // skinned vertex layout and a vertex stage that skins before projecting. Without this cell the
         // cascade pass had nothing it could draw a skinned mesh WITH, which is half of why a character
-        // cast no shadow; the other half is the queue the pass walks (RegisterShadowPass).
+        // cast no shadow; the other half is the queue the pass walks (ShadowCascadePasses).
         m_ShadowSkinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::ShadowDepth );
         if ( m_ShadowSkinnedShader )
         {
@@ -334,6 +334,10 @@ namespace Desert::Graphic::System
         {
             m_CascadeVP[c]                                          = fits[c].ViewProj;
             m_CascadeWorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
+            // The caster's bias, in world centimetres scaled per cascade (CascadeBiasSettings), as the
+            // matrix the casters draw with and the slope term their depth cell adds.
+            m_CascadeCasterBias[c] = ComputeCascadeCasterBias( m_ShadowBias, fits[c], fits[0].WorldPerTexel );
+            m_CascadeCasterVP[c]   = CasterViewProj( fits[c].ViewProj, m_CascadeCasterBias[c].DepthBias );
 
             if ( c == rsmCascade )
             {
@@ -534,7 +538,8 @@ namespace Desert::Graphic::System
     {
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
-        m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+        m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                             m_CascadeCasterBias[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
 
         // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
@@ -547,7 +552,7 @@ namespace Desert::Graphic::System
         // the frame it is not itself in, so the camera's frustum would buy draw calls with
         // missing shadows and the draw-call detector would report it as a win.
         //
-        // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeVP[c]`, the
+        // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeCasterVP[c]`, the
         // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
         // it as Projection with an identity View, and so does this). The cascade projection
         // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
@@ -559,7 +564,7 @@ namespace Desert::Graphic::System
         // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
         // which of the two derived planes is "near" and which is "far" — the SET of six
         // half-spaces is the same one either way, and Intersects tests all six by value.
-        const Core::Frustum cascadeFrustum( m_CascadeVP[c], glm::mat4( 1.0f ) );
+        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
         // deliberate rather than convenient: a caster drawn into the cascade at a coarser
@@ -567,7 +572,9 @@ namespace Desert::Graphic::System
         // object it belongs to. The per-object caster loop below has always asked it this
         // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
         const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
-        const glm::vec3 lodViewPosition = lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+        const Geometry::LODView lodView =
+             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
+                                  : Geometry::LODView{};
 
         std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
@@ -712,14 +719,13 @@ namespace Desert::Graphic::System
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // The cull distance from the MAIN camera, as the geometry pass measures it:
                 // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
                 CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodViewPosition, lodViewPosition, maxLevel, visible, levels );
+                                     lodView, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 if ( visible.empty() )
                     continue;
 
@@ -828,7 +834,8 @@ namespace Desert::Graphic::System
         if ( m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !m_SkinnedQueue.empty() )
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
-            skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                     m_CascadeCasterBias[c] );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -880,7 +887,8 @@ namespace Desert::Graphic::System
         if ( instancingOn && !batches.empty() )
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
-            instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                     m_CascadeCasterBias[c] );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -904,7 +912,8 @@ namespace Desert::Graphic::System
         for ( std::size_t i = 0; i < maskedSetCount; ++i )
         {
             auto& set = *m_ScratchMaskedSets[i];
-            WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                              m_CascadeCasterBias[c] );
             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
@@ -953,61 +962,64 @@ namespace Desert::Graphic::System
                         } } );
         }
     }
-    void MeshRenderer::RegisterShadowPass( RenderGraphBuilder& builder )
+    std::vector<SystemRasterPass> MeshRenderer::ShadowCascadePasses()
     {
         // Same guard as the geometry pass: the cascade pass reads m_ShadowPipeline's spec, and
         // SetupShadowPass can now refuse. No caster pipeline means no cascade passes and an unshadowed
         // scene, not a dead editor.
         if ( !m_ShadowPipeline )
-            return;
+            return {};
 
-        // One depth-only pass per cascade, all in DepthPrePass (before Geometry, which depends on it).
-        // Cascade matrices are computed in UpdateCascades() before the graph records (intra-phase order is
-        // nondeterministic, so per-pass matrix computation can't be relied on for ordering).
+        // One depth-only pass per cascade, cascade 0 first (SceneRenderer::AddFrameShadowDepths adds them before
+        // the base pass, which samples them). Cascade matrices are computed in UpdateCascades() before the graph
+        // records: a pass only reads them.
+        std::vector<SystemRasterPass> passes;
         for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
         {
             if ( !m_CascadeFB[c] )
                 continue;
 
-            builder
-                 .AddPass(
-                      std::format( "MeshShadowCascade{}", c ), RenderPhase::DepthPrePass,
-                      [this, c]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-                      {
-                          if ( !m_ShadowsEnabled )
-                              return BOOLSUCCESS;
-                          // The casters this node's Declare chose.
-                          if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
-                              return drawn;
+            SystemRasterPass pass{
+                 .Name        = std::format( "MeshShadowCascade{}", c ),
+                 .ExecuteFunc = [this, c]( RDG::PassContext& context,
+                                           const FrameGraphRefs& ) -> Common::BoolResultStr
+                 {
+                     if ( !m_ShadowsEnabled )
+                         return BOOLSUCCESS;
+                     // The casters this node's Declare chose.
+                     if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
+                         return drawn;
 
-                          // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the
-                          // cascade is cleared once and holds everyone's depth (IShadowCaster): the ones the
-                          // Declare declared, each through its own blocks.
-                          for ( const auto& [weak, firstBlock] : m_CascadeCasters[c] )
-                          {
-                              const auto caster = weak.lock();
-                              if ( !caster )
-                              {
-                                  continue; // gone since the setup: its draws went with it
-                              }
-                              if ( auto cast =
-                                        caster->RecordShadowCascade( context, c, firstBlock, m_CascadeVP[c] );
-                                   !cast.IsSuccess() )
-                              {
-                                  return cast;
-                              }
-                          }
-                          return BOOLSUCCESS;
-                      },
-                      m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
-                      // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",
-                      // else the default 0.1 grey clear falsely shadows receivers whose light-space depth > 0.1.
-                      glm::vec4( 1.0f ), RenderPassOrder::Default,
-                      // And the DEPTH ATTACHMENT to 1.0 as well, overriding the engine's reversed-Z clear of
-                      // 0. This pass is standard-Z (SetupShadowPass says why); a 0 clear under its LessOrEqual
-                      // test would reject every caster and hand back an empty shadow map, silently.
-                      1.0f )
-                 .Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+                     // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the
+                     // cascade is cleared once and holds everyone's depth (IShadowCaster): the ones the
+                     // Declare declared, each through its own blocks.
+                     for ( const auto& [weak, firstBlock] : m_CascadeCasters[c] )
+                     {
+                         const auto caster = weak.lock();
+                         if ( !caster )
+                         {
+                             continue; // gone since the setup: its draws went with it
+                         }
+                         if ( auto cast = caster->RecordShadowCascade(
+                                   context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
+                              !cast.IsSuccess() )
+                         {
+                             return cast;
+                         }
+                     }
+                     return BOOLSUCCESS;
+                 },
+                 .TargetFramebuffer = m_CascadeFB[c],
+                 .ClearColor = // Clear the R32F depth target to 1.0 (far): background texels must read as "no
+                               // occluder",
+                 // else the default 0.1 grey clear falsely shadows receivers whose light-space depth > 0.1.
+                 glm::vec4( 1.0f ),
+                 .ClearDepth = // And the DEPTH ATTACHMENT to 1.0 as well, overriding the engine's reversed-Z clear
+                               // of
+                 // 0. This pass is standard-Z (SetupShadowPass says why); a 0 clear under its LessOrEqual
+                 // test would reject every caster and hand back an empty shadow map, silently.
+                 1.0f };
+            pass.Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 // Depth-only casters sample no graph resource: one block per caster material with the material's
                 // own fill, so ValidatePassBindings judges every caster before anything is recorded.
@@ -1031,7 +1043,9 @@ namespace Desert::Graphic::System
                     }
                 }
             };
+            passes.push_back( std::move( pass ) );
         }
+        return passes;
     }
 
 } // namespace Desert::Graphic::System

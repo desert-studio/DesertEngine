@@ -4,7 +4,7 @@
 #include <glm/glm.hpp>
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <cstdint>
 
@@ -194,7 +194,7 @@ namespace Desert::ECS
         // numbers are in Common/CloudField.glslh. It buys nothing HERE because our coverage field is
         // already sampled in full three dimensions, which is a different solution to the same problem —
         // and it cost one fetch of the noise volume per sample, in the march and in every light-march
-        // sample beneath it. A control that moves nothing is what §1.3 of the contract calls a TODO
+        // sample beneath it. A control that moves nothing is what §1.3 of the contract calls a stub
         // wearing a feature's clothes.
 
         PROPERTY( DisplayName( "Region Size" ), Category( "Weather" ), Length, Range( 1600000.0f, 12000000.0f ),
@@ -516,18 +516,8 @@ namespace Desert::ECS
         // rather than a slider whose top half bakes nothing and whose bottom half changes the sky's scale.
         int32_t VolumeResolution = 256;
 
-        // ---- Animation ------------------------------------------------------------------------------
-
-        PROPERTY( DisplayName( "Wind Direction" ), Category( "Animation" ),
-                  Tooltip( "Direction the layer drifts. Normalized by the renderer; a zero vector simply "
-                           "leaves the sky still." ) )
-        glm::vec3 WindDirection = { 1.0f, 0.0f, 0.0f };
-
-        PROPERTY( DisplayName( "Wind Speed" ), Category( "Animation" ), Length, Range( 0.0f, 50000.0f ),
-                  Tooltip( "How fast the layer drifts, in world units per second. The wind moves the "
-                           "SAMPLE POSITION rather than the data, which is what makes the motion free and "
-                           "seamless." ) )
-        float WindSpeed = 3000.0f; // 30 m/s
+        // The layer's drift is the SCENE's wind (WIND-SRC): VolumetricCloudECSSystem asks ECS::WindAt at the
+        // layer's entity, so the clouds move the way the grass bends. The layer states no wind of its own.
     };
 
     /**

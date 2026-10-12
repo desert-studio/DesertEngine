@@ -149,7 +149,6 @@ namespace Desert::Animation::Graph
             /// The implementing graph's identity — its .danimgraph asset GUID, what Unlink matches (UE: the
             /// linked class). Two graphs may share a Name; they never share a GUID.
             uint64_t          Implementation = 0;
-            std::string       ImplementationName; ///< for messages only
             std::string       Interface;
             std::string       Name;
             PoseGraphInstance Instance; ///< bound in GraphScope::Layer against the host's skeleton

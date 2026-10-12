@@ -14,6 +14,7 @@
 // MATERIALS ARE ENUMERATED FROM DISK, not from a hand-written list, so a new `.demat` added to the
 // project is covered automatically and a fixed one cannot be quietly dropped from the census.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <Common/Core/Constants.hpp>
@@ -353,6 +354,10 @@ namespace
          { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialValues.hpp", "CloudRaymarch",
            "compile key of the cloud renderer's own program, whose Properties block is the cloud material "
            "schema" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+           "ParticleSpriteDefault",
+           "the renderer's own fallback sprite program for an emitter with no drawable material (VFX-08), "
+           "not a material's choice of template" },
          { "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp", "TextSDF",
            "compile key of the text system's own program, not a material's template" },
          { "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp", "Terrain",
@@ -430,8 +435,7 @@ TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
         EXPECT_NE( std::find( stems.begin(), stems.end(), expected ), stems.end() ) << expected;
 
     std::vector<std::string> offenders;
-    for ( const char* root :
-          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+    for ( const std::string& root : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
     {
         std::error_code ec;
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( repo / root, ec ) )

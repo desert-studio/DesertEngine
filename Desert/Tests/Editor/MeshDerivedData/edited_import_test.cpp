@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <string>
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -158,8 +159,9 @@ TEST( EditedImport, AReimportOverwritesTheEditAndSaysSo )
 
     // The warning's own answer: the edited file it removed.
     const auto discarded = Editor::RemoveBesideSourceFile( rock.Source );
-    ASSERT_TRUE( discarded.has_value() );
-    EXPECT_EQ( *discarded, rock.Asset );
+    ASSERT_TRUE( discarded.IsSuccess() ) << discarded.GetError();
+    ASSERT_TRUE( discarded.GetValue().has_value() );
+    EXPECT_EQ( *discarded.GetValue(), rock.Asset );
     // Put the edit back and re-import through the importer's one write site.
     ASSERT_TRUE( Editor::WriteImportedMeshAsset( Quad(), {}, rock.Source ).IsSuccess() );
     ASSERT_TRUE( Editor::WriteEditedMeshAsset( rock.Asset, *Edit( *before.GetValue().Mesh ) ).IsSuccess() );
@@ -192,5 +194,12 @@ TEST( EditedImport, AFileWithAnotherGuidBesideTheSourceIsNeverReadInTheEnvelopes
     const auto loaded = Assets::LoadMeshSourceAsset( rock.Asset );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     EXPECT_NE( loaded.GetValue().Guid, leftover.Guid ) << "the DDC envelope, not the stale file";
-    EXPECT_FALSE( Editor::RemoveBesideSourceFile( rock.Source ).has_value() ) << "a leftover goes silently";
+    // A LEFTOVER IS REFUSED BY PATH, not removed silently (UE LinkerLoad: a too-old package is a load error
+    // naming the file): neither the removal nor the re-import touches it.
+    const auto refused = Editor::RemoveBesideSourceFile( rock.Source );
+    ASSERT_FALSE( refused.IsSuccess() ) << "a leftover beside the source was removed silently";
+    EXPECT_NE( refused.GetError().find( rock.Asset.generic_string() ), std::string::npos ) << refused.GetError();
+    const auto reimport = Editor::WriteImportedMeshAsset( Quad(), {}, rock.Source );
+    EXPECT_FALSE( reimport.IsSuccess() ) << "a re-import went past a leftover beside its source";
+    EXPECT_TRUE( fs::exists( rock.Asset ) ) << "the leftover was removed";
 }

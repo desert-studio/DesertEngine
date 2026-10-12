@@ -68,7 +68,6 @@ namespace Desert::Graphic
         // by hand behaves as every snapshot did before the budget existed.
         uint32_t  CascadeCount = SceneResources::kMaxCascades;
         glm::vec4 CascadeTexelWorld{ 0.0f };
-        float     ShadowBias      = 0.0f;
         bool      ShadowsEnabled  = true;
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;

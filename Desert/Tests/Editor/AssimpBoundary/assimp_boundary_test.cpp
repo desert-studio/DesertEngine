@@ -18,6 +18,7 @@
 // `if exist`. So these are censuses over the repository's own text, the same instrument as
 // ShippedShaderPasses and PointerOwnership, and for the same reason.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -132,15 +133,12 @@ TEST( AssimpBoundary, NeitherTheEngineNorTheRuntimeReachesForAssimp )
     const auto root = RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::vector<std::filesystem::path> guarded = {
-         root / "Desert" / "Desert" / "Source",
-         root / "Desert" / "Common" / "Source",
-         // NOT Desert/Runtime/Source — the runtime lives at the repository root, and the first version of
-         // this suite guarded the wrong path. It passed, because a directory that does not exist contains
-         // no offending include; the `exists` assertions below are what turned that silence into a
-         // failure. A census over a path nobody checks is the defect it is supposed to catch.
-         root / "Runtime" / "Source",
-    };
+    // NOT Desert/Runtime/Source — the runtime lives at the repository root, and the first version of
+    // this suite guarded the wrong path. It passed, because a directory that does not exist contains
+    // no offending include; the `exists` assertions below are what turned that silence into a
+    // failure. A census over a path nobody checks is the defect it is supposed to catch.
+    const std::vector<std::filesystem::path> guarded =
+         Desert::TestSupport::Under( root, Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } ) );
 
     for ( const auto& dir : guarded )
     {

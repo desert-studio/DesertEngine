@@ -166,7 +166,6 @@ namespace Desert::Media
         std::unique_ptr<OpusAudioDecoder> m_Audio;
         IMediaAudioSink*                  m_Sink              = nullptr;
         int64_t                           m_OriginNs          = 0; // media time of the sink's played-frame 0
-        int64_t                           m_DropAudioBeforeNs = 0;
         std::vector<VideoFrame>           m_Decoded; // scratch
         std::vector<float>                m_Pcm;     // scratch
 

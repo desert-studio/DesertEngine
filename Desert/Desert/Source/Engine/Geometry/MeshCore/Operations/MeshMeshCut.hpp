@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Operations/MeshMeshCut.h:84-160 (FMeshMeshCut),
 // adapted: std/glm, namespace Desert::Geometry. Left out: FMeshSelfCut (no caller: nothing here finds a mesh's
-// self-intersections), bCutCoplanar (UE's own "TODO: not implemented!" guarded by check(!bCutCoplanar)),
+// self-intersections), bCutCoplanar (UE's own "not implemented!" note, guarded by check(!bCutCoplanar)),
 // Validate (always Ok), and SegmentToChain (MeshBoolean, the only caller, reads VertexChains alone).
 // VertexChains are always recorded: UE's bTrackInsertedVertices is set by MeshBoolean from
 // bCollapseDegenerateEdgesOnCut, which is on by default and has no other setter here.

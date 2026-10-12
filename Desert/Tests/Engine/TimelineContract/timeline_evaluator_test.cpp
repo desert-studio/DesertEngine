@@ -87,7 +87,7 @@ namespace
         {
             Applied.emplace_back( property );
         }
-        void Fire( const FiredEvent& ) override
+        void Fire( const FiredEvent&, const std::optional<ResolvedBinding>& ) override
         {
         }
         void SetCamera( const std::optional<ResolvedBinding>& ) override

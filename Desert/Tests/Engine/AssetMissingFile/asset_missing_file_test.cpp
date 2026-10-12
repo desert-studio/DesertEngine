@@ -1,7 +1,7 @@
 // The MISSING-FILE branch of the loaders, which was DEAD CODE until 2026-09-05. Each of these
 // loaders was written with a deliberate answer to "the file is not there":
 //
-//   - SurfaceMaterialAsset::Load: "New / empty material — canonical defaults; editable and
+//   - SurfaceMaterialAsset::Load: "New material — canonical defaults; editable and
 //     re-savable" (a success, by design — the editor creates materials by naming a file that does
 //     not exist yet);
 //   - CloudTypeAsset::Load: "a file that is missing ... is an ERROR carrying the reason" (its own
@@ -102,26 +102,24 @@ TEST( AssetMissingFile, CloudTypeLoadRefusesWithTheReason )
 }
 
 // A missing .demat is a new material and a SUCCESS (above). A .demat that is THERE and will not parse is
-// a different thing entirely, and the difference is the authored parameters: they are still in the file,
-// and the moment anything writes this asset back they are gone. The loader's own message has always said
-// so ("re-saving will overwrite the file") — it just had no way to stop it, because Save() handed out the
-// substituted defaults like any other material's data.
-TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsFile )
+// a FAILED LOAD (UE: the package does not load; the slot naming it draws the engine's default material):
+// the record is broken, holds no data, names the file in its failure, and refuses to write anything over
+// the authored file — the parameters are still in it.
+TEST( AssetMissingFile, AnUnparseableMaterialIsBrokenAndRefusesToSaveOverItsFile )
 {
     const fs::path path = PathWith( "corrupt.demat", "{ this is not json" );
 
     Desert::Assets::SurfaceMaterialAsset material( path );
     const auto                           result = material.Load();
 
-    // Deliberately still a success and still usable: AssetManager::CreateAsset drops an asset whose
-    // Load fails, so refusing here would delete the material from the asset database and leave every
-    // mesh slot pointing at it resolving to nothing. See the comment on that branch.
-    EXPECT_TRUE( result.IsSuccess() );
-    EXPECT_TRUE( material.IsReadyForUse() );
+    ASSERT_FALSE( result.IsSuccess() ) << "a corrupt .demat loaded as a success";
+    EXPECT_FALSE( material.IsReadyForUse() );
+    ASSERT_TRUE( material.IsBroken() );
+    EXPECT_TRUE( material.Data().Params.empty() ) << "a broken record holds no data";
 
     const auto saved = material.Save();
-    ASSERT_FALSE( saved.IsSuccess() ) << "the material offered to serialize its substituted defaults; "
-                                         "writing them out is the step that makes the loss permanent";
+    ASSERT_FALSE( saved.IsSuccess() ) << "the broken material offered to serialize; "
+                                         "writing it out is the step that makes the loss permanent";
     EXPECT_NE( saved.GetError().find( path.string() ), std::string::npos )
          << "the refusal does not name the file the user has to fix: " << saved.GetError();
 

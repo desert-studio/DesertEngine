@@ -173,6 +173,14 @@ namespace
         return partition;
     }
 
+    // What a conversion gives: the default grid and the stated Instancing HLOD layer (WP-FAR-7).
+    WorldPartitionSerialized ConvertedDefaults()
+    {
+        WorldPartitionSerialized partition = WorldPartitionGridDefaults();
+        Desert::Core::Rules::StateInstancingHLODLayer( partition );
+        return partition;
+    }
+
     WorldPartitionSerialized Cells( float size, float loadingRange = 25600.0f )
     {
         WorldPartitionGridSerialized grid;
@@ -437,7 +445,7 @@ TEST( WorldPartitionConvert, ConvertingAnUnpartitionedSceneAddsExactlyTheOneDefa
     // The format's own defaults, in centimetres: 128 m cells, 256 m loading range (SceneFormat.hpp).
     EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].CellSize, 12800.0f );
     EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].LoadingRange, 25600.0f );
-    EXPECT_EQ( converted.GetValue(), WorldPartitionGridDefaults() );
+    EXPECT_EQ( converted.GetValue(), ConvertedDefaults() );
 }
 
 // A CONVERTED WORLD IS A PARTITIONED WORLD ON DISK. The conversion is only worth anything if what it
@@ -708,8 +716,13 @@ namespace
     //   * +1 with SPAWN1 (2319 / 2342): Starter gains a PlayerStart, a record with no extent (it loads Global).
     //   * +14 with RDG3 (2333 / 2356): the two render-graph bench scenes, RDG_DeferredSSRGI and
     //     RDG_LandscapeParticles, fourteen point-only records on both counts (measured at SCNE 39).
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2333;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2356;
+    //   * +12 with the b10-b12 merges (2345 / 2368, measured by CI 38186860592 at SCNE 47): the gameplay,
+    //     wind and time-of-day probe scenes' extent-less records (WindSource, TimeOfDay, PlayerStart, pawns).
+    //   * +56 with int/b12 (2401 / 2424, SCNE 49): UI-WAVE-LIVE's UI_ListPlusProbe (14 records) and
+    //     UI_RichTextProbe (16) and the twenty elements it adds to MainMenu, and WATER-W6's Water_Ocean (6: sky,
+    //     sun, camera, PostProcessVolume, WaterBody, WaterZone; its three primitive meshes carry their extent).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2401;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2424;
 
     // A committed project (TestSupport/committed_projects.hpp), opened the way the editor opens it: the engine
     // directory is the checkout's Editor/ and the project root is the .deproj's directory, its assets root read

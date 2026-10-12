@@ -60,6 +60,13 @@ namespace Desert::Graphic
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
+    void Material::SetShadowSlopeBias( const float slopeBias, const float slopeClamp )
+    {
+        const glm::vec2 slope( slopeBias, slopeClamp );
+        const bool      written = WritePushField( "ShadowSlope", &slope, sizeof( glm::vec2 ) );
+        DESERT_VERIFY( written, "SetShadowSlopeBias on a cell with no ShadowSlope push field" );
+    }
+
     // Writes the Bones buffer; tidy sees it as const only because Get<> is const and hands out a mutable
     // property (SceneFrameBinding pins the non-const signature).
     // NOLINTNEXTLINE(readability-make-member-function-const)

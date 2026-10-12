@@ -1,6 +1,6 @@
 #include "Hosts.hpp"
 
-#include <Engine/UI/Args/UIEasing.hpp>
+#include <UI/Args/UIEasing.hpp>
 
 namespace Desert::Animation::Timeline
 {

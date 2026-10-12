@@ -365,6 +365,9 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
          "MatProbe.shader",
          "MatProbeUnlit.shader",
+         // The particle sprite templates' cells read the generated row of the material their emitter names.
+         "ParticleSpriteAdditive.shader",
+         "ParticleSpriteDefault.shader",
          // MAT1a: the mesh lit programs read the one generated row the renderer writes per object (their
          // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
          // template whose cells replaced the five forward/G-buffer programs.
@@ -375,7 +378,8 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          // by the TerrainRenderer into whichever of the two the render path draws with.
          "TerrainGBuffer.shader",
          "TextSDF.shader",
-         "Toon.shader", // SHM1: the Toon shading model ships its own program
+         "Toon.shader",            // SHM1: the Toon shading model ships its own program
+         "UIMatRadialGlow.shader", // VIDEO-STUDIO: the continuous radial falloff (sun halo)
          "UIMatRadialWipe.shader",
          "Unlit.shader",
     };
@@ -719,6 +723,10 @@ TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams 
         if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
             continue;
         ++vertexHeaders;
+        // The sprite path (MeshVertexPath::ParticleSprite) binds NO vertex buffer: it pulls each corner from the
+        // particle pool through the alive list, so it has no vertex streams to declare. Counted, not checked.
+        if ( file.filename() == "Vertex_ParticleSprite.glslh" )
+            continue;
         const std::string source = ReadFile( file );
         EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
         EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;

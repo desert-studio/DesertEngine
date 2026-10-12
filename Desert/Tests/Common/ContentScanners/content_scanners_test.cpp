@@ -63,6 +63,7 @@
 // their new comments say "this used to be a raw recursive_directory_iterator" — a checker that reads
 // comments as code is the same "a comment is not the code" defect, inverted, and the blanker is where
 // that lesson is already paid for (its own header lists a character literal that ate hundreds of lines).
+#include "TestSupport/source_roots.hpp"
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -204,6 +205,10 @@ namespace
            "lists the slots of <Project>/Saved/Trash - the editor's machine-local recycle bin of deleted assets, "
            "gitignored with the rest of Saved/. What is in the trash is no longer content; a package has none.",
            "" },
+         { "Desert/Desert/Source/Engine/Core/SaveGame.cpp", Verdict::NotContent,
+           "lists the save slots of the user's save directory (UE's SaveGames/ under the user's Saved/): "
+           "machine-local player data, never project content and never in a package.",
+           "" },
          { "Runtime/Source/PackagedContent.cpp", Verdict::NotContent,
            "finds the .dpak files THEMSELVES. It cannot go through the mount it is about to create.", "" },
 
@@ -255,12 +260,8 @@ namespace
     // the argument at the top of this file.
     const std::vector<std::string>& ScannedRoots()
     {
-        static const std::vector<std::string> roots = {
-             "Editor/Source",
-             "Runtime/Source",
-             "Desert/Desert/Source",
-             "Desert/Common/Source",
-        };
+        static const std::vector<std::string> roots =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
         return roots;
     }
 

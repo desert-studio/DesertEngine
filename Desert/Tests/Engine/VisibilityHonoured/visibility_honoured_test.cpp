@@ -145,6 +145,10 @@ namespace
               "SCR-API-3: it delivers physics contacts and destruction breaks to the scripts subscribed to "
               "the entity they happened to; a hidden body is still simulated (PhysicsECSSystem's verdict), "
               "so its hits must still reach gameplay -- hiding it in the outliner must not mute its events." },
+         Row{ "RagdollLifetime.hpp", Verdict::MustNot,
+              "it puts a character's physics-asset bodies into the physics world and writes the simulated "
+              "pose back; the bodies are simulated like PhysicsECSSystem's, so a ragdoll hidden in the "
+              "outliner must neither leave the simulation nor stop colliding." },
          Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
               "it adds a destructible's fracture to the destruction world on Play and releases it on "
               "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "
@@ -169,8 +173,8 @@ namespace
               "outliner must not freeze a cinematic or make its events a function of the outliner "
               "(UE: ALevelSequenceActor ticks regardless of bHidden)." },
          Row{ "LocomotionSystem.hpp", Verdict::MustNot,
-              "picks a clip NAME from a character's speed; hiding a character must not change which "
-              "animation it is playing when it comes back." },
+              "publishes a character's Speed / IsFalling / IsCrouched into its AnimGraph; hiding a "
+              "character must not change the state its graph is in when it comes back." },
          Row{ "MeshECSSystem.hpp", Verdict::Honours,
               "the original three sites (static, instanced, skinned) and the whole reason the flag "
               "appeared to work at all." },
@@ -201,10 +205,35 @@ namespace
               "drops the hidden light from its candidates so nothing lit is affected." },
          Row{ "VolumetricCloudECSSystem.hpp", Verdict::Honours,
               "the cloud layer and every sculpted hero body; same stale-state argument as the fog." },
+         Row{ "WaterZoneECSSystem.hpp", Verdict::Honours,
+              "WATER-W6: it emits the frame's water surface; a hidden zone draws no surface and a hidden body "
+              "contributes no footprint, as a hidden mesh is no geometry (the physics half, WaterBodyGather, "
+              "keeps the body for buoyancy)." },
          Row{ "WaterBodyGather.hpp", Verdict::MustNot,
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
               "not sink every boat on it." },
+         Row{ "ProjectileMovement.hpp", Verdict::MustNot,
+              "UE ProjectileMovement (LEG-PROJECTILE): a hidden projectile still flies and still hits, as a "
+              "hidden body still collides (PhysicsECSSystem's verdict); UE's ProjectileMovementComponent has no "
+              "visibility test either, and freezing a bullet because the outliner hid it would change gameplay." },
+         Row{ "CharacterMovement.hpp", Verdict::MustNot,
+              "the playable character's walking/falling model on its Jolt CharacterVirtual (GP2a); a hidden "
+              "character is still in the simulation (PhysicsECSSystem's verdict), so hiding it must not freeze "
+              "its capsule in mid-air or let it walk through what it stood on." },
+         Row{ "GameModeSystem.hpp", Verdict::MustNot,
+              "it ticks the GameMode: the respawn delay counts down in game time and the restart spawns the "
+              "Default Pawn; a rule of the match, not a picture -- the outliner must not stop a respawn." },
+         Row{ "KinematicBodies.hpp", Verdict::MustNot,
+              "a kinematic body follows its entity's transform (UE: a kinematic body follows its component); a "
+              "hidden moving platform still carries what stands on it, as PhysicsECSSystem's bodies do." },
+         Row{ "SpringArm.hpp", Verdict::MustNot,
+              "UE USpringArmComponent: it places the arm's camera; the camera is the view, never drawn, and "
+              "hiding the pawn it hangs from must not snap the player's view to the arm's origin." },
+         Row{ "WindField.hpp", Verdict::MustNot,
+              "the one wind query over WindSource entities (UE: UWindDirectionalSourceComponent, never drawn); "
+              "a source is a field acting on foliage, clouds and cloth, and hiding it must not still the air -- "
+              "the same argument as DestructionFields." },
     };
 
     // ── ONE ROW PER SITE, NOT PER FILE ──────────────────────────────────────────────────────────────
@@ -235,8 +264,8 @@ namespace
                "view<ECS::HeroCloudComponent, ECS::TransformComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the Sky Atmosphere election", "view<ECS::SkyAtmosphereComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the HDR cubemap", "view<ECS::SkyboxComponent>" },
-         Site{ "SkyboxECSSystem.hpp", "the atmosphere sun candidates",
-               "view<ECS::DirectionLightComponent, ECS::TransformComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water body footprints", "view<WaterBodyComponent, TransformComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water zones", "for ( const entt::entity entity : zones )" },
          Site{ "PointLightSystem.hpp", "point lights", "view<PointLightComponent, TransformComponent>" },
          Site{ "SpotLightSystem.hpp", "spot lights", "view<SpotLightComponent, TransformComponent>" },
     };
@@ -511,7 +540,9 @@ TEST( VisibilityCensus, NoSystemOpenCodesTheVisibilityCheck )
 }
 
 // The sun is not a system. It is collected inline in Scene.cpp, which is why it was missed — a sweep
-// of Engine/ECS/System/ finds nothing wrong and the owner's first example stays broken.
+// of Engine/ECS/System/ finds nothing wrong and the owner's first example stays broken. Since SUN-SOURCE
+// every reader of the sun (Scene.cpp's light list, the sky collector, the shadow settings) takes it from
+// ECS::PickAtmosphereSun with SunCandidacy::Lit, so the hidden check lives once, in that pick.
 TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
 {
     const std::string root = RepositoryRoot();
@@ -525,13 +556,24 @@ TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
          << "the directional-light collection moved out of Scene.cpp; this census has to follow it "
             "rather than go quietly green.";
 
-    // Within the same lambda, not merely somewhere in a 3000-line file.
-    const size_t lambda = code.rfind( "dirLightGroup.each", collection );
-    ASSERT_NE( lambda, std::string::npos );
-    const std::string block = code.substr( lambda, collection - lambda );
+    const size_t pick = code.rfind( "PickAtmosphereSun(", collection );
+    ASSERT_NE( pick, std::string::npos ) << "Scene.cpp collects a directional light that is not the picked sun";
+    EXPECT_NE( code.substr( pick, collection - pick ).find( "SunCandidacy::Lit" ), std::string::npos )
+         << "the directional light is collected with a candidacy that keeps hidden lights, so unticking "
+            "Visible on the SUN leaves the scene lit and shadowed by it.";
 
-    EXPECT_NE( block.find( "ECS::IsHidden(" ), std::string::npos )
-         << "the directional light is collected without asking whether its entity is hidden, so "
-            "unticking Visible on the SUN leaves the scene lit and shadowed by it — the owner's first "
-            "example, and the one no sweep of the ECS systems can see.";
+    for ( const char* reader : { "Desert/Desert/Source/Engine/ECS/System/SkyboxECSSystem.hpp",
+                                 "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp" } )
+    {
+        const std::string text = StripComments( ReadFile( root + reader ) );
+        EXPECT_NE( text.find( "SunCandidacy::Lit )" ), std::string::npos )
+             << reader << " reads the sun without the Lit candidacy (hidden lights must drop out).";
+    }
+
+    const std::string rule =
+         StripComments( ReadFile( root + "Desert/Desert/Source/Engine/ECS/AtmosphereSunLight.hpp" ) );
+    const size_t lit = rule.find( "candidacy == SunCandidacy::Lit && IsHidden(" );
+    EXPECT_NE( lit, std::string::npos )
+         << "ECS::PickAtmosphereSun no longer drops hidden lights for SunCandidacy::Lit — the sun, the sky "
+            "and the shadows all keep a hidden sun.";
 }

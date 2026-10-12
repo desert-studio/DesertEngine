@@ -601,7 +601,9 @@ TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
     const auto isGuarded = [&]( const std::string& name, const std::string& body )
     {
         return name == "BeginFrame" || body.find( "IsRecording()" ) != std::string::npos ||
-               calls( body, "CommandBufferOf" ) || calls( body, "BindGraphicsPassState" );
+               calls( body, "CommandBufferOf" ) || calls( body, "BindGraphicsPassState" ) ||
+               // A graph compute dispatch takes its command buffer from its pass (CommandBufferOf inside).
+               calls( body, "BindComputePassState" );
     };
 
     int recorders = 0;

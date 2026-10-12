@@ -272,6 +272,18 @@ namespace Desert::Graphic::RDG
         return AccessState{ a.Stages | b.Stages, a.Memory | b.Memory, a.Layout };
     }
 
+    // A read-only depth attachment that the same pass also samples (UE: FExclusiveDepthStencil::DepthRead with the
+    // SceneDepth SRV - depth-tested particles fading against the scene depth). @p accessMask is the pass's folded
+    // mask (1 << Access) on one subresource; true when it is exactly { DepthRead, SampledGraphics }. Vulkan
+    // permits sampling an image in DEPTH_STENCIL_READ_ONLY_OPTIMAL while it is the read-only depth attachment, so
+    // the pair holds that one layout. A DepthWrite attachment never pairs with a sample (feedback loop).
+    constexpr bool IsDepthReadSampledPair( uint32_t accessMask )
+    {
+        constexpr uint32_t kPair = ( 1u << static_cast<uint32_t>( Access::DepthRead ) ) |
+                                   ( 1u << static_cast<uint32_t>( Access::SampledGraphics ) );
+        return accessMask == kPair;
+    }
+
     // True when a resource already in @p current needs no barrier to be used in @p next: both are
     // read-only, share a layout, and everything @p next reads was already made visible to @p current's
     // stages and accesses by the barrier that entered @p current.

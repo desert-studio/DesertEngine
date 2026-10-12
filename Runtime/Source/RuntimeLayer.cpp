@@ -1,4 +1,4 @@
-#include <Engine/UI/UIWindowClipboard.hpp>
+#include <Engine/UI/Ecs/UIWindowClipboard.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include "RuntimeLayer.hpp"
 
@@ -49,8 +49,10 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/UI/UIDataStore.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <Engine/ECS/System/GameModeSystem.hpp>
+#include <UI/UIDataStore.hpp>
+#include <UI/UIOverlay.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
@@ -75,13 +77,12 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
-#include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Render2DCore/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Core/Input.hpp>
@@ -138,6 +139,25 @@ namespace
         const float cy  = h * 0.5f;
         dl.AddImage( &img, { cx - sw * 0.5f, cy - sh * 0.5f }, { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f },
                      { 1.0f, 1.0f }, glm::vec4( 1.0f, 1.0f, 1.0f, alpha ) );
+    }
+
+    /// The modifier keys held right now, as the UI reads them — for a key event and for the pointer alike
+    /// (a Shift-click in a list), asked of one function so the two cannot disagree about Cmd vs Ctrl.
+    Desert::UI::UIKeyMods HeldUIMods()
+    {
+        using ::Common::KeyCode;
+        using Desert::Input::Keyboard;
+        using Desert::UI::UIKeyMods;
+        UIKeyMods mods = UIKeyMods::None;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftShift ) || Keyboard::IsKeyPressed( KeyCode::RightShift ) )
+            mods = mods | UIKeyMods::Shift;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftControl ) || Keyboard::IsKeyPressed( KeyCode::RightControl ) )
+            mods = mods | UIKeyMods::Ctrl;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftAlt ) || Keyboard::IsKeyPressed( KeyCode::RightAlt ) )
+            mods = mods | UIKeyMods::Alt;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftSuper ) || Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
+            mods = mods | UIKeyMods::Super;
+        return mods;
     }
 } // namespace
 
@@ -545,6 +565,7 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::GameModeSystem>( m_Scene.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
@@ -1086,6 +1107,7 @@ namespace Desert::Player
                     input.ScrollDelta    = m_ScrollAccum;
                     input.TypedText      = m_TypedText;
                     input.Keys           = m_UIKeys;
+                    input.Mods           = HeldUIMods();
                     m_PrevMouseDown      = down;
                     m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
@@ -1388,21 +1410,7 @@ namespace Desert::Player
         }
         // Every key goes to the UI as it happened — key, modifiers, repeat — in arrival order; what a key
         // means to a menu is the UI's decision (UIInput::Keys), not this host's.
-        using Common::KeyCode;
-        UI::UIKeyMods mods = UI::UIKeyMods::None;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftShift ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightShift ) )
-            mods = mods | UI::UIKeyMods::Shift;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftControl ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightControl ) )
-            mods = mods | UI::UIKeyMods::Ctrl;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftAlt ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightAlt ) )
-            mods = mods | UI::UIKeyMods::Alt;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftSuper ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
-            mods = mods | UI::UIKeyMods::Super;
-        m_UIKeys.push_back( { key.GetKeyCode(), mods, key.GetRepeatCount() > 0 } );
+        m_UIKeys.push_back( { key.GetKeyCode(), HeldUIMods(), key.GetRepeatCount() > 0 } );
         return false;
     }
 } // namespace Desert::Player

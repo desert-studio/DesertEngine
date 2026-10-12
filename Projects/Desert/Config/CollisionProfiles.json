@@ -133,6 +133,19 @@
             "Responses": []
         },
         {
+            "Name": "Ragdoll",
+            "Enabled": "QueryAndPhysics",
+            "GeneratesHitEvents": true,
+            "GeneratesOverlapEvents": true,
+            "ObjectChannel": "PhysicsBody",
+            "Responses": [
+                {
+                    "Channel": "Pawn",
+                    "Response": "Ignore"
+                }
+            ]
+        },
+        {
             "Name": "Trigger",
             "Enabled": "QueryAndPhysics",
             "GeneratesHitEvents": false,

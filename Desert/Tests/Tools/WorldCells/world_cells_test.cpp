@@ -15,9 +15,11 @@
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
+#include "TestSupport/source_roots.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -127,6 +129,7 @@ namespace
                                               Desert::Core::kUnitVersion );
         scene.Settings       = rfl::json::read<rfl::Generic>( R"({"Exposure": 1.5})" ).value();
         scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
+        Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
 
         auto&      records = scene.Entities;
         EntityData camera  = Record( kCameraId, "Camera", { 50.0f, 0.0f, 50.0f } );
@@ -520,9 +523,9 @@ TEST( WorldCells, NoSourceSpellsTheRetiredWp8Magic )
     }
     std::size_t       scanned       = 0;
     bool              sawWorldCells = false;
-    const char* const trees[]       = { "Desert/Desert/Source", "Desert/Common/Source", "Tools", "Editor/Source",
-                                        "Runtime/Source" };
-    for ( const char* tree : trees )
+    const std::vector<std::string> trees =
+         Desert::TestSupport::LibraryRootsAnd( { "Tools", "Editor/Source", "Runtime/Source" } );
+    for ( const std::string& tree : trees )
     {
         if ( !fs::exists( root / tree ) )
             continue;

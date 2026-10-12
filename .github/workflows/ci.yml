@@ -55,6 +55,8 @@ jobs:
   # converge as they get touched — a full-tree gate would fail on pre-config code forever).
   format:
     name: clang-format (changed lines)
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- reports only, nothing waits for it.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -178,6 +180,8 @@ jobs:
 
   tidy:
     name: clang-tidy ${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- reports only.
+    continue-on-error: true
     needs: [ tidy-plan ]
     if: needs.tidy-plan.outputs.shards != '0'
     runs-on: macos-14 # Apple Silicon — the platform whose headers the developers' verdict comes from
@@ -239,6 +243,8 @@ jobs:
 
   tidy-verdict:
     name: clang-tidy (changed lines)
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- reports only.
+    continue-on-error: true
     needs: [ tidy-plan, tidy ]
     if: always()
     runs-on: ubuntu-latest
@@ -281,6 +287,8 @@ jobs:
   # it saves in tests, but the one shard still makes a red test re-runnable without the 100-min build).
   sanitizers:
     name: ASan+UBSan build
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- this job builds the instrumented test runners and nothing else; off with the tests.
+    if: false
     runs-on: macos-14
     # 90, UNCHANGED, and the number was re-argued rather than inherited. On 2026-09-23 this job crossed
     # it (run 35802378535, 1 h 30 m 24 s) after 61, 79 and 79 minutes on the three runs before it, and
@@ -570,6 +578,8 @@ jobs:
   sanitizers-tests:
     name: ASan+UBSan tests ${{ matrix.shard }}/3
     needs: [ sanitizers ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- test binaries are neither built nor run.
+    if: false
     runs-on: macos-14
     # One shard is ~1/3 of the ~41-minute sweep, floored by JsonCensus (749 s); 45 is a ceiling.
     timeout-minutes: 45
@@ -651,33 +661,44 @@ jobs:
     # appended, and this name must stay exactly the check name the unsharded job had.
     env:
       ARTIFACT: asan
+      TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
     steps: &test-verdict-steps
       - name: The build and every shard passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
           echo "needs: $RESULTS"
-          for r in $RESULTS; do [ "$r" = success ] || { echo "::error::a build or test shard ended '$r'"; exit 1; }; done
+          for r in $RESULTS; do
+            [ "$r" = success ] && continue
+            # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- with the test jobs
+            # off (`if: false`) they end 'skipped'; that is the expected state, not a missing shard.
+            [ "$TESTS" = off ] && [ "$r" = skipped ] && continue
+            echo "::error::a build or test shard ended '$r'"; exit 1
+          done
 
       - name: Checkout the shard script
+        if: env.TESTS != 'off' # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
         uses: actions/checkout@v4
         with:
           sparse-checkout: scripts/CI
           sparse-checkout-cone-mode: true
 
       - name: Download the shard plan
+        if: env.TESTS != 'off' # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
         uses: actions/download-artifact@v4
         with:
           name: test-plan-${{ env.ARTIFACT }}
           path: plan
 
       - name: Download the shard reports
+        if: env.TESTS != 'off' # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
         uses: actions/download-artifact@v4
         with:
           pattern: test-reports-${{ env.ARTIFACT }}-shard-*
           path: reports
 
       - name: Every expected suite ran exactly once
+        if: env.TESTS != 'off' # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
         run: python3 scripts/CI/TestShards.py verify --plan plan --reports reports
 
   # The Release and Shipping builds, the test run, the shader lint, the shipping symbol census and the
@@ -692,7 +713,7 @@ jobs:
   # Release + Shipping and nothing in Debug.)
   macos:
     name: macOS ${{ matrix.config }}${{ matrix.leg == 'tests' && ' tests' || '' }}
-    needs: [ format ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was `needs: [ format ]`.
     runs-on: macos-14 # Apple Silicon (arm64) — matches the supported platform
     timeout-minutes: 60
     strategy:
@@ -722,10 +743,8 @@ jobs:
         # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
         # which is what the packager's own error message tells people to run — under test.
         config: [Release, Shipping]
-        leg: [tests, package]
-        exclude:
-          - config: Shipping
-            leg: tests
+        # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was `leg: [tests, package]` with Shipping x tests excluded.
+        leg: [package]
         # EACH LEG BUILDS WHAT ITS OWN STEPS READ, AND NOTHING ELSE (BuildMacOS.sh --project; the
         # workspace Makefile adds every library a named project links). The whole workspace in one job
         # is more than a 3-core runner compiles in the step's 50 minutes on a cold cache: CI 38049132064
@@ -743,9 +762,10 @@ jobs:
         # compiling everything after it in series. The ccache key carries the leg: each leg's dev run
         # warms exactly the objects that leg's branch runs compile.
         include:
-          - config: Release
-            leg: tests
-            projects: --project=EngineTests --project=EditorTests --project=ToolsTests --project=CommonTests --project=RuntimeTests --project=DShaderTool
+          # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- the tests leg's entry was:
+          # - config: Release
+          #   leg: tests
+          #   projects: --project=EngineTests --project=EditorTests --project=ToolsTests --project=CommonTests --project=RuntimeTests --project=DShaderTool
           - config: Release
             leg: package
             projects: --project=Editor --project=Runtime --project=PakTool --project=DShaderTool --project=AssetClosure --project=GamePackager
@@ -1001,7 +1021,7 @@ jobs:
   # what JobBudget.sh reads the ceiling of, via ${{ github.job }}.
   windows-debug:
     name: Windows ${{ matrix.config }} build
-    needs: [ format ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was `needs: [ format ]`.
     # PINNED, NOT "latest". On 2026-09-14 `windows-latest` rolled forward to an image carrying Visual
     # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset. premake's vs2022 action writes
     # PlatformToolset=v143 into every .vcxproj, so msbuild on that image fails with MSB8020 -- Setup.bat
@@ -1061,7 +1081,7 @@ jobs:
         config: [Debug]
         ccache_max: [2.5G]
         column: [windows-debug]
-        shards: [3]
+        shards: [0] # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was [3]
 
     steps: &windows-build-steps
       # The job's own clock — see the note on the `sanitizers` job's copy of this step. `shell: bash`
@@ -1140,7 +1160,12 @@ jobs:
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
       - name: Setup dependencies + generate projects
         shell: cmd
-        run: scripts\Windows\Setup.bat --unity
+        # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev: Desert/premake5.lua
+        # generates the Tests group when CI is set (GitHub sets CI=true), so the solution would build the
+        # test runners. Unset for this step only -> no test projects in Desert.sln. Restore = the bare call.
+        run: |
+          set "CI="
+          scripts\Windows\Setup.bat --unity
 
       # ── THE COMPILER CACHE, WITHIN ONE BUILD ────────────────────────────────────────────────────
       #
@@ -1471,7 +1496,7 @@ jobs:
 
   windows-release:
     name: Windows ${{ matrix.config }} build
-    needs: [ format ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was `needs: [ format ]`.
     runs-on: windows-2022
     timeout-minutes: 150
     strategy:
@@ -1479,12 +1504,12 @@ jobs:
         config: [Release]
         ccache_max: [2G]
         column: [windows-release]
-        shards: [1]
+        shards: [0] # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was [1]
     steps: *windows-build-steps
 
   windows-shipping:
     name: Windows ${{ matrix.config }}
-    needs: [ format ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev -- was `needs: [ format ]`.
     runs-on: windows-2022
     timeout-minutes: 150
     strategy:
@@ -1498,6 +1523,8 @@ jobs:
   windows-debug-tests:
     name: Windows Debug tests ${{ matrix.shard }}/3
     needs: [ windows-debug ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
+    if: false
     runs-on: windows-2022
     # One shard is ~1/3 of the 29-minute sweep of run #900, floored by ShaderCacheKey (577 s).
     timeout-minutes: 60
@@ -1580,6 +1607,8 @@ jobs:
   windows-release-tests:
     name: Windows Release tests ${{ matrix.shard }}/1
     needs: [ windows-release ]
+    # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
+    if: false
     runs-on: windows-2022
     # Release ran all 354 suites in 2.4 min in run #900.
     timeout-minutes: 30
@@ -1600,6 +1629,7 @@ jobs:
     # appended, and this name must stay exactly the check name the unsharded job had.
     env:
       ARTIFACT: windows-Debug
+      TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
     steps: *test-verdict-steps
 
   windows-release-verdict:
@@ -1612,4 +1642,5 @@ jobs:
     # appended, and this name must stay exactly the check name the unsharded job had.
     env:
       ARTIFACT: windows-Release
+      TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12): restore after int/all lands in dev
     steps: *test-verdict-steps

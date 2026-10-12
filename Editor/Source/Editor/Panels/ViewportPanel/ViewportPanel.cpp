@@ -16,15 +16,17 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Core/ViewportCameraProperties.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/NodeActors.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
+#include <format>
 #include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
-#include <Engine/Graphic/Render2D/Transform2D.hpp>
+#include <Render2DCore/Transform2D.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -41,8 +43,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UILayout.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <UI/UILayout.hpp>
 #include <Editor/Panels/ViewportPanel/ActiveViewportRule.hpp>
 #include <Editor/Panels/UI/UIElementCatalog.hpp>
 #include <Editor/Panels/UI/UIElementFactory.hpp>
@@ -1204,6 +1206,7 @@ namespace Desert::Editor
                 VM_MaterialComplexity,
                 VM_ShadingModel,
                 VM_SunShadowReceive,
+                VM_Velocity,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1222,6 +1225,7 @@ namespace Desert::Editor
                                          ICON_MDI_TEXTURE "  Material Complexity",
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
+                                         ICON_MDI_ARROW_ALL "  Velocity",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1259,6 +1263,8 @@ namespace Desert::Editor
                 vm = VM_ShadingModel;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SunShadowReceive )
                 vm = VM_SunShadowReceive;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
+                vm = VM_Velocity;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1321,6 +1327,50 @@ namespace Desert::Editor
                 // afterwards, because 2D mode kept its suppression in the field being written. Eleven
                 // other Save() call sites had no such wrapper and would each have made the suppression
                 // permanent. There is nothing left to wrap: the struct always holds the user's answer.
+                // UE's viewport "Screen Percentage" (EditorViewportClient): THIS view's render scale, a view
+                // setting beside the Show flags and never the game's Resolution.Percent — picking 50 here
+                // changes no Scalability value. "Use project setting" clears it back to the game's answer.
+                // Values are this device's catalog RenderScale range (the Scalability panel's Render Scale
+                // slider's), so the menu cannot write one the resolver refuses.
+                {
+                    const auto&       renderScale = Common::Scalability::QualityState::Catalog().RenderScale;
+                    const int         scaleMin    = renderScale.MinPercent;
+                    const int         scaleMax    = renderScale.MaxPercent;
+                    const std::string label =
+                         view.ScreenPercentage ? std::format( "Screen Percentage: {} %", *view.ScreenPercentage )
+                                               : std::string( "Screen Percentage: project setting" );
+                    if ( ImGui::BeginMenu( label.c_str() ) )
+                    {
+                        if ( ImGui::MenuItem( "Use project setting", nullptr,
+                                              !view.ScreenPercentage.has_value() ) )
+                        {
+                            view.ScreenPercentage.reset();
+                            viewChanged = true;
+                        }
+                        ImGui::Separator();
+                        for ( const int preset : { 50, 75, 100, 125, 150, 200 } )
+                        {
+                            if ( preset < scaleMin || preset > scaleMax )
+                                continue;
+                            const std::string presetLabel = std::format( "{} %", preset );
+                            if ( ImGui::MenuItem( presetLabel.c_str(), nullptr, view.ScreenPercentage == preset ) )
+                            {
+                                view.ScreenPercentage = preset;
+                                viewChanged           = true;
+                            }
+                        }
+                        ImGui::Separator();
+                        int custom = view.ScreenPercentage.value_or( 100 );
+                        ImGui::SetNextItemWidth( 160.0f );
+                        if ( ImGui::SliderInt( "##ScreenPercentage", &custom, scaleMin, scaleMax, "%d %%",
+                                               ImGuiSliderFlags_AlwaysClamp ) )
+                        {
+                            view.ScreenPercentage = custom;
+                            viewChanged           = true;
+                        }
+                        ImGui::EndMenu();
+                    }
+                }
                 if ( viewChanged )
                     EditorPreferences::Save();
 
@@ -1348,14 +1398,8 @@ namespace Desert::Editor
             ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 8.0f, 6.0f ) );
             if ( ImGui::Combo( "##ViewMode", &vm, kViewModes, IM_ARRAYSIZE( kViewModes ) ) )
             {
-                // Reset every debug channel, then set the one this mode needs. LightingDebug is in the
-                // list because it is a channel like the others: left out, "Lighting" would be the one mode
-                // you could not leave, and the dropdown would keep reporting it whatever else was picked.
-                view.WireframeMode = false;
-                view.ShowNormals   = false;
-                view.LightingDebug = false;
-                view.DeferredDebug = Graphic::DeferredDebugMode::Off;
-                view.ShadowDebug   = Graphic::ShadowDebugMode::Off;
+                // Reset every debug channel, then set the one this mode needs.
+                view.ClearViewMode();
                 switch ( vm )
                 {
                     case VM_Wireframe:
@@ -1400,6 +1444,9 @@ namespace Desert::Editor
                         break;
                     case VM_SunShadowReceive:
                         view.DeferredDebug = Graphic::DeferredDebugMode::SunShadowReceive;
+                        break;
+                    case VM_Velocity:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;
@@ -1474,7 +1521,8 @@ namespace Desert::Editor
                     {
                         float fov = editorCam->GetFOV();
                         ImGui::SetNextItemWidth( kW );
-                        if ( ImGui::SliderFloat( "FOV", &fov, 20.0f, 120.0f, "%.0f" ) )
+                        if ( ImGui::SliderFloat( "FOV", &fov, kViewportCameraMinFOV, kViewportCameraMaxFOV,
+                                                 "%.0f" ) )
                             editorCam->SetFOV( fov );
                     }
                     else
@@ -1560,11 +1608,13 @@ namespace Desert::Editor
             // starts. Calling Scene::Resize() here (inside OnUIRender) destroys descriptor set
             // pools while their DS are still bound to the recording command buffer.
             m_PendingViewportSize = m_ViewportData.Size;
-            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x,
-                                                m_ViewportData.Size.y ); // TODO: Move to scene
+            // The camera's aspect follows this panel's rect at once: unlike the scene's targets, a
+            // projection matrix holds no GPU object that a recording could still be reading.
+            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x, m_ViewportData.Size.y );
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+        m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
@@ -1600,11 +1650,18 @@ namespace Desert::Editor
         // in-scene WYSIWYG handles (select marquee + drag/resize/anchor) as before.
         {
             auto& pv = ::Desert::Editor::Core::UIPreview::Get();
-            if ( m_UIPreview )
+            // PLAY IS PREVIEW. In UE's PIE the game's widgets take the pointer and the keyboard the moment
+            // Play starts — nobody toggles a Design/Preview switch for a running game. Here a level in Play
+            // drove its canvases with no input at all unless the user had also flipped the authoring
+            // toggle, so a menu could not be walked with the arrows in Play. The keyboard follows window
+            // FOCUS, as Slate's does (FSlateUser keyboard focus), not the hover the pointer needs: a menu
+            // keeps answering ↑/↓ while the cursor rests on another panel.
+            const bool playing = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+            if ( m_UIPreview || playing )
             {
                 const bool down = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Left );
                 pv.Enabled      = true;
-                pv.HasInput     = m_ViewportData.IsHovered;
+                pv.HasInput     = m_ViewportData.IsHovered || m_ViewportData.IsFocused;
                 pv.MousePx      = m_ViewportData.MousePosition;
                 pv.DisplaySize  = m_ViewportData.Size;
                 pv.Released     = pv.Down && !down; // down->up edge
@@ -1627,6 +1684,7 @@ namespace Desert::Editor
                         mods = mods | ::Desert::UI::UIKeyMods::Alt;
                     if ( io.KeySuper )
                         mods = mods | ::Desert::UI::UIKeyMods::Super;
+                    pv.Mods = mods;
                     using Common::KeyCode;
                     static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
                          { ImGuiKey_Tab, KeyCode::Tab },
@@ -1636,6 +1694,9 @@ namespace Desert::Editor
                          { ImGuiKey_Delete, KeyCode::Delete },
                          { ImGuiKey_Home, KeyCode::Home },
                          { ImGuiKey_End, KeyCode::End },
+                         { ImGuiKey_PageUp, KeyCode::PageUp },
+                         { ImGuiKey_PageDown, KeyCode::PageDown },
+                         { ImGuiKey_Space, KeyCode::Space },
                          { ImGuiKey_LeftArrow, KeyCode::Left },
                          { ImGuiKey_RightArrow, KeyCode::Right },
                          { ImGuiKey_UpArrow, KeyCode::Up },
@@ -2430,7 +2491,7 @@ namespace Desert::Editor
         }
 
         if ( hotTip >= 0 && editorCam && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
-            editorCam->SnapToDirection( -tips2[hotTip].WorldDir );
+            ApplyViewAxisTip( *editorCam, tips2[hotTip].WorldDir );
     }
 
     bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )

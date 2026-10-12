@@ -168,10 +168,12 @@ namespace
     const std::vector<std::string> kComponentHeaders = {
          "Desert/Desert/Source/Engine/ECS/Components.hpp",
          "Desert/Desert/Source/Engine/ECS/SkyAtmosphereComponent.hpp",
+         "Desert/Desert/Source/Engine/ECS/TimeOfDayComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/ExponentialHeightFogComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/HeroCloudComponent.hpp",
          "Desert/Desert/Source/Engine/ECS/PostProcessVolumeComponent.hpp",
+         "Desert/Desert/Source/Engine/ECS/WindSourceComponent.hpp",
     };
 
     constexpr const char* kRegistry = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";

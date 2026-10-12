@@ -7,11 +7,14 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <ImGui/imgui.h>
 
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <string>
 
 namespace Desert::Editor
 {
@@ -19,8 +22,14 @@ namespace Desert::Editor
 
     namespace
     {
-        using Data  = ECS::ParticleEmitterData;
-        using Blend = ECS::ParticleBlendMode;
+        using Data = ECS::ParticleEmitterData;
+
+        // The glowing presets (fire, sparks, magic, an explosion) composite additively: they name the engine's
+        // additive sprite material; Smoke keeps the default translucent sprite (no material).
+        Assets::AssetHandle AdditiveMaterial()
+        {
+            return Assets::AssetHandle::FromKey( ECS::kParticleAdditiveMaterialKey );
+        }
 
         struct Preset
         {
@@ -30,16 +39,16 @@ namespace Desert::Editor
 
         void Fire( Data& d )
         {
-            d.Blend          = Blend::Additive;
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 300.0f;
             d.Lifetime       = 1.2f;
-            d.StartSpeed     = 1.5f;
+            d.StartSpeed     = 150.0f;
             d.SpeedVariance  = 0.4f;
             d.Direction      = glm::vec3( 0.0f, 1.0f, 0.0f );
             d.ConeAngle      = 22.0f;
-            d.Gravity        = glm::vec3( 0.0f, 1.2f, 0.0f ); // buoyant rise
-            d.StartSize      = 0.3f;
-            d.EndSize        = 0.05f;
+            d.Gravity        = glm::vec3( 0.0f, 120.0f, 0.0f ); // buoyant rise
+            d.StartSize      = 30.0f;
+            d.EndSize        = 5.0f;
             d.SizeCurvePower = 0.6f;
             d.StartColor     = glm::vec3( 1.0f, 0.6f, 0.15f );
             d.EndColor       = glm::vec3( 0.7f, 0.1f, 0.0f );
@@ -48,16 +57,15 @@ namespace Desert::Editor
         }
         void Smoke( Data& d )
         {
-            d.Blend          = Blend::AlphaBlend;
             d.SpawnRate      = 60.0f;
             d.Lifetime       = 3.0f;
-            d.StartSpeed     = 0.6f;
+            d.StartSpeed     = 60.0f;
             d.SpeedVariance  = 0.3f;
             d.Direction      = glm::vec3( 0.0f, 1.0f, 0.0f );
             d.ConeAngle      = 25.0f;
-            d.Gravity        = glm::vec3( 0.0f, 0.4f, 0.0f );
-            d.StartSize      = 0.4f;
-            d.EndSize        = 1.3f;
+            d.Gravity        = glm::vec3( 0.0f, 40.0f, 0.0f );
+            d.StartSize      = 40.0f;
+            d.EndSize        = 130.0f;
             d.SizeCurvePower = 1.4f;
             d.StartColor     = glm::vec3( 0.32f, 0.32f, 0.34f );
             d.EndColor       = glm::vec3( 0.1f, 0.1f, 0.1f );
@@ -66,16 +74,16 @@ namespace Desert::Editor
         }
         void Sparks( Data& d )
         {
-            d.Blend          = Blend::Additive;
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 220.0f;
             d.Lifetime       = 0.8f;
-            d.StartSpeed     = 6.0f;
+            d.StartSpeed     = 600.0f;
             d.SpeedVariance  = 0.5f;
             d.Direction      = glm::vec3( 0.0f, 1.0f, 0.0f );
             d.ConeAngle      = 65.0f;
-            d.Gravity        = glm::vec3( 0.0f, -9.0f, 0.0f );
-            d.StartSize      = 0.06f;
-            d.EndSize        = 0.02f;
+            d.Gravity        = glm::vec3( 0.0f, -980.0f, 0.0f ); // Niagara's Gravity Force default
+            d.StartSize      = 6.0f;
+            d.EndSize        = 2.0f;
             d.SizeCurvePower = 1.0f;
             d.StartColor     = glm::vec3( 1.0f, 0.9f, 0.5f );
             d.EndColor       = glm::vec3( 1.0f, 0.4f, 0.1f );
@@ -84,15 +92,15 @@ namespace Desert::Editor
         }
         void Magic( Data& d )
         {
-            d.Blend          = Blend::Additive;
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 150.0f;
             d.Lifetime       = 2.0f;
-            d.StartSpeed     = 1.0f;
+            d.StartSpeed     = 100.0f;
             d.SpeedVariance  = 0.6f;
             d.Direction      = glm::vec3( 0.0f, 1.0f, 0.0f );
             d.ConeAngle      = 180.0f; // omni
-            d.Gravity        = glm::vec3( 0.0f, 0.2f, 0.0f );
-            d.StartSize      = 0.15f;
+            d.Gravity        = glm::vec3( 0.0f, 20.0f, 0.0f );
+            d.StartSize      = 15.0f;
             d.EndSize        = 0.0f;
             d.SizeCurvePower = 0.8f;
             d.StartColor     = glm::vec3( 0.5f, 0.4f, 1.0f );
@@ -102,21 +110,46 @@ namespace Desert::Editor
         }
         void Explosion( Data& d )
         {
-            d.Blend          = Blend::Additive;
+            d.Material       = AdditiveMaterial();
             d.SpawnRate      = 500.0f;
             d.Lifetime       = 0.6f;
-            d.StartSpeed     = 8.0f;
+            d.StartSpeed     = 800.0f;
             d.SpeedVariance  = 0.6f;
             d.Direction      = glm::vec3( 0.0f, 1.0f, 0.0f );
             d.ConeAngle      = 180.0f;
-            d.Gravity        = glm::vec3( 0.0f, -2.0f, 0.0f );
-            d.StartSize      = 0.5f;
-            d.EndSize        = 1.4f;
+            d.Gravity        = glm::vec3( 0.0f, -200.0f, 0.0f );
+            d.StartSize      = 50.0f;
+            d.EndSize        = 140.0f;
             d.SizeCurvePower = 2.0f;
             d.StartColor     = glm::vec3( 1.0f, 0.7f, 0.2f );
             d.EndColor       = glm::vec3( 0.3f, 0.0f, 0.0f );
             d.StartAlpha     = 1.0f;
             d.EndAlpha       = 0.0f;
+        }
+
+        // THE SLIDERS TAKE THEIR BOUNDS AND UNIT FROM THE REFLECTED PROPERTY (Components.hpp), the one place
+        // they are declared — the Details panel reads the same Range/Units. A field without a declared Range
+        // is refused out loud rather than given a guessed one.
+        bool ReflectedSlider( const Reflection::TypeInfo& type, const char* field, const char* label, float* v,
+                              int components = 1 )
+        {
+            const Reflection::FieldInfo* info = nullptr;
+            for ( const Reflection::FieldInfo& f : type.Fields )
+                if ( f.Name == field )
+                    info = &f;
+            if ( info == nullptr || !info->Meta.HasRange )
+            {
+                ImGui::TextDisabled( "%s: ParticleEmitterData.%s declares no Range", label, field );
+                return false;
+            }
+            const Reflection::PropertyMetadata& meta  = info->Meta;
+            const char*                         unit  = meta.IsLength ? "cm" : meta.Units.c_str();
+            const bool                          whole = meta.RangeMax - meta.RangeMin >= 100.0f;
+            const std::string                   format =
+                 std::format( "{}{}{}", whole ? "%.0f" : "%.2f", *unit != '\0' ? " " : "", unit );
+            if ( components == 3 )
+                return ImGui::SliderFloat3( label, v, meta.RangeMin, meta.RangeMax, format.c_str() );
+            return ImGui::SliderFloat( label, v, meta.RangeMin, meta.RangeMax, format.c_str() );
         }
 
         constexpr Preset kPresets[] = {
@@ -207,6 +240,14 @@ namespace Desert::Editor
 
         Data& d = emitter->Data;
 
+        const Reflection::TypeInfo* type = Reflection::ReflectionRegistry::Get().Find( "ParticleEmitterData" );
+        if ( type == nullptr )
+        {
+            ImGui::TextDisabled(
+                 "ParticleEmitterData is not reflected — the generated registrations did not link." );
+            return;
+        }
+
         // Presets.
         ImGui::TextColored( ImVec4( 0.70f, 0.78f, 0.90f, 1.0f ), ICON_MDI_STAR " Presets" );
         for ( int i = 0; i < static_cast<int>( std::size( kPresets ) ); ++i )
@@ -233,17 +274,14 @@ namespace Desert::Editor
             d.EndColor = glm::vec3( end );
             d.EndAlpha = end.a;
         }
-        int blend = ( d.Blend == Blend::Additive ) ? 0 : 1;
-        if ( ImGui::Combo( "Blend", &blend, "Additive (glow)\0Alpha (soft)\0" ) )
-            d.Blend = ( blend == 0 ) ? Blend::Additive : Blend::AlphaBlend;
         ImGui::Separator();
 
         // Size over life.
         ImGui::TextColored( ImVec4( 0.70f, 0.78f, 0.90f, 1.0f ), ICON_MDI_CHART_BELL_CURVE " Size over life" );
         SizeCurvePlot( d.StartSize, d.EndSize, d.SizeCurvePower );
-        ImGui::SliderFloat( "Start Size", &d.StartSize, 0.0f, 10.0f );
-        ImGui::SliderFloat( "End Size", &d.EndSize, 0.0f, 10.0f );
-        ImGui::SliderFloat( "Curve Power", &d.SizeCurvePower, 0.1f, 8.0f );
+        ReflectedSlider( *type, "StartSize", "Start Size", &d.StartSize );
+        ReflectedSlider( *type, "EndSize", "End Size", &d.EndSize );
+        ReflectedSlider( *type, "SizeCurvePower", "Curve Power", &d.SizeCurvePower );
         ImGui::Separator();
 
         // Emission.
@@ -252,18 +290,18 @@ namespace Desert::Editor
         ImGui::SameLine();
         ImGui::Checkbox( "Looping", &d.Looping );
         ImGui::SliderInt( "Max Particles", &d.MaxParticles, 1, 100000 );
-        ImGui::SliderFloat( "Spawn Rate", &d.SpawnRate, 0.0f, 5000.0f, "%.0f /s" );
-        ImGui::SliderFloat( "Lifetime", &d.Lifetime, 0.05f, 20.0f, "%.2f s" );
-        ImGui::SliderFloat( "Lifetime Var", &d.LifetimeVariance, 0.0f, 1.0f );
+        ReflectedSlider( *type, "SpawnRate", "Spawn Rate", &d.SpawnRate );
+        ReflectedSlider( *type, "Lifetime", "Lifetime", &d.Lifetime );
+        ReflectedSlider( *type, "LifetimeVariance", "Lifetime Var", &d.LifetimeVariance );
         ImGui::Separator();
 
         // Motion.
         ImGui::TextColored( ImVec4( 0.70f, 0.78f, 0.90f, 1.0f ), ICON_MDI_ARROW_TOP_RIGHT " Motion" );
-        ImGui::SliderFloat( "Start Speed", &d.StartSpeed, 0.0f, 50.0f );
-        ImGui::SliderFloat( "Speed Var", &d.SpeedVariance, 0.0f, 1.0f );
+        ReflectedSlider( *type, "StartSpeed", "Start Speed", &d.StartSpeed );
+        ReflectedSlider( *type, "SpeedVariance", "Speed Var", &d.SpeedVariance );
         ImGui::SliderFloat3( "Direction", &d.Direction.x, -1.0f, 1.0f );
-        ImGui::SliderFloat( "Cone Angle", &d.ConeAngle, 0.0f, 180.0f, "%.0f deg" );
-        ImGui::SliderFloat3( "Gravity", &d.Gravity.x, -20.0f, 20.0f );
+        ReflectedSlider( *type, "ConeAngle", "Cone Angle", &d.ConeAngle );
+        ReflectedSlider( *type, "Gravity", "Gravity", &d.Gravity.x, 3 );
         ImGui::Separator();
 
         // Stats.

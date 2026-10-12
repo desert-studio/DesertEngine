@@ -199,7 +199,8 @@ TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
         doomed.push_back( MakeBody( reg, index, world, 300.0f * static_cast<float>( i ) ) );
     doomed.push_back( MakeCharacter( reg, index, world ) );
     doomed.push_back( MakeCharacter( reg, index, world ) );
-    ASSERT_EQ( world.GetBodyCount(), bodiesBefore + 64u );
+    // Each character is its inner body to the others (PhysicsWorld::GetCharacterBody): 64 + 2.
+    ASSERT_EQ( world.GetBodyCount(), bodiesBefore + 66u );
     ASSERT_EQ( world.GetCharacterCount(), 2u );
     world.Step( 1.0f / 30.0f ); // the bodies have been simulated, as they would be in Play
 

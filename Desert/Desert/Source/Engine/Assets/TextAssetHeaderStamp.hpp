@@ -40,8 +40,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;
     // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (ANIM-SKELREF): the rig states its TargetSkeleton {Guid, Path}.
+    // v4 (ANIM-FIX11): Graphs per solve event, node canvas Positions, control Limits.
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
-    inline constexpr uint32_t kControlRigSchemaVersion = 3;
+    inline constexpr uint32_t kControlRigSchemaVersion = 4;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
     // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
     // v4 (ANIM-SKELREF): the target rig is named too (TargetSkeleton {Guid, Path}); not a Dependency.
@@ -49,7 +50,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kRetargetSchemaVersion = 4;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
-    inline constexpr uint32_t kFoliageTypeSchemaVersion = 7;
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 8;
     // A .dwaves: the water wave set file layout (UE UWaterWavesAsset), stated in the header from its first
     // version (WATER-W1).
     inline constexpr uint32_t kWaterWavesSchemaTag     = Common::Content::FourCC( "WAVS" );
@@ -62,6 +63,15 @@ namespace Desert::Assets
     // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
     inline constexpr uint32_t kVFXSystemSchemaVersion = 1;
+    // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
+    // their first version (GP1a; Serialization/InputAssets.hpp).
+    inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );
+    inline constexpr uint32_t kInputActionSchemaVersion         = 1;
+    inline constexpr uint32_t kInputMappingContextSchemaTag     = Common::Content::FourCC( "INMC" );
+    inline constexpr uint32_t kInputMappingContextSchemaVersion = 1;
+    // A .dfxch: the VFX data channel file layout, stated in the header from its first version (VFX-10).
+    inline constexpr uint32_t kVFXDataChannelSchemaTag     = Common::Content::FourCC( "VFXD" );
+    inline constexpr uint32_t kVFXDataChannelSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );
@@ -78,9 +88,10 @@ namespace Desert::Assets
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
-    // import record's SourceHash is the one freshness). Tools/SceneMigrator raises v1 and v2 to v3.
+    // import record's SourceHash is the one freshness). v4 (ANIM-FIX5a): the rig's Sockets and BoneMasks (UE
+    // USkeleton::Sockets / BlendProfiles), every file stating both lists. Tools/SceneMigrator raises v1-v3 to v4.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 3;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 4;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one

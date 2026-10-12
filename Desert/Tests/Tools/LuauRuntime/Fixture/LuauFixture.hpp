@@ -4,7 +4,7 @@
 // member, a const member and a static FUNCTION(ScriptCallable), plus one FUNCTION() a script must NOT see.
 // DesertHeaderTool generates Generated/LuauFixture.gen.cpp from this header in the Tools runner's prebuild.
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>

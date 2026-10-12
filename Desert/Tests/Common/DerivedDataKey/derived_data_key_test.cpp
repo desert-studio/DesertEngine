@@ -6,6 +6,7 @@
 // key exists to prevent. The censuses read the repository as text: no cache path is spelled outside the
 // DDC module, nothing but the packager names the Saved/Cooked tree, and git is told to ignore the DDC.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Settings/MachineSettings.hpp>
@@ -271,8 +272,8 @@ namespace
         return out;
     }
 
-    const std::array<const char*, 3> kEngineSourceRoots = { "Desert/Desert/Source", "Editor/Source",
-                                                            "Runtime/Source" };
+    const std::vector<std::string> kEngineSourceRoots =
+         Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime/Source" } );
 } // namespace
 
 TEST( DerivedDataKey, OnlyTheCookNamesSavedCooked )
@@ -330,7 +331,7 @@ TEST( DerivedDataKey, NoDerivedCacheIsSpelledUnderTheCookedTree )
                                                 "IconCache",   "EnvironmentCache", "Thumbnails" };
     const fs::path                   repo   = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    for ( const char* root : kEngineSourceRoots )
+    for ( const std::string& root : kEngineSourceRoots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
         {
             std::istringstream lines( ReadText( file ) );

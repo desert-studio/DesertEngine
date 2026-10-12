@@ -5,15 +5,25 @@
 DESERT_SURFACE_VARYINGS( in )
 #endif
 
+#include <Common/CameraUB.glslh>
+
 layout( location = 0 ) out vec4 o_Depth;
 
 void main()
 {
+    // THE CASTER'S SLOPE DEPTH BIAS (UE: ComputeDepthBiasDirectionalSpot, ShadowDepthVertexShader.usf). The
+    // constant part is already in the depth - the cascade matrix carries it (Graphic::CasterViewProj). The
+    // slope part grows with tan(angle to the sun) up to 45 degrees: the depth's gradient per shadow-map texel
+    // IS that tangent in this depth's units, so no normal is needed and an opaque cell, which has none,
+    // gets the same bias as a masked one. Taken before the clip, while the quad's derivatives are defined.
+    const float depth    = gl_FragCoord.z;
+    const float gradient = max( abs( dFdx( depth ) ), abs( dFdy( depth ) ) );
+    const float biased   = depth + cameraUB.ShadowSlopeBias * min( gradient, cameraUB.ShadowSlopeClamp );
 #ifdef DESERT_SURFACE_MASKED
     const SurfaceOutput s =
          EvaluateSurface( DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor ) );
     DESERT_SURFACE_CLIP( s );
 #endif
-    o_Depth = vec4( gl_FragCoord.z, 0.0, 0.0, 1.0 );
+    o_Depth = vec4( biased, 0.0, 0.0, 1.0 );
 }

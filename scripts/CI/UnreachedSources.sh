@@ -34,26 +34,42 @@ fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# --- Every test suite, named the way the sweep names them: one directory with a premake5.lua under
-#     Desert/Tests, excluding the aggregate at the root.
-find Desert/Tests -mindepth 2 -name premake5.lua -print0 |
-    xargs -0 -n1 dirname |
-    xargs -n1 basename |
-    sort -u > "$TMP/suites"
+# --- Every test suite and the runner that holds it: build/TestManifest.txt, "<Runner> <Suite>" per line, written by
+#     Desert/Tests/premake5.lua (suites are directories in per-layer runners, not projects of their own).
+MANIFEST=build/TestManifest.txt
+if [ ! -f "$MANIFEST" ]; then
+    echo "No $MANIFEST. Run: CI=true premake5 gmake" >&2
+    exit 2
+fi
+SUITES=$(grep -c . "$MANIFEST")
+awk 'NF { print $1 }' "$MANIFEST" | sort -u > "$TMP/runners"
 
-SUITES=$(wc -l < "$TMP/suites" | tr -d ' ')
-
-# --- Every source file those suites compile. Premake writes one dependency line per object:
+# --- Every source file those runners compile, plus every source of a static library a runner links WHOLE
+#     (DesertPlatform.LinkWholeArchive: -force_load / --whole-archive on its link line -- EditorCore in
+#     EditorTests): such a library's objects are all in the runner, as if compiled there. A library linked by
+#     reference (Desert, Common) contributes only the objects something pulls, which a makefile cannot tell, so
+#     its sources are not counted. Premake writes one dependency line per object:
 #       $(OBJDIR)/<name>.o: <source path>
 : > "$TMP/compiled"
 MISSING=""
-while read -r suite; do
-    if [ ! -f "$PROJ_DIR/$suite.make" ]; then
-        MISSING="$MISSING $suite"
+sources_of() {
+    awk '/^\$\(OBJDIR\)\/[^:]+: /{ sub(/^\.\.\/\.\.\//, "", $2); print $2 }' "$PROJ_DIR/$1.make"
+}
+while read -r runner; do
+    if [ ! -f "$PROJ_DIR/$runner.make" ]; then
+        MISSING="$MISSING $runner"
         continue
     fi
-    awk '/^\$\(OBJDIR\)\/[^:]+: /{ sub(/^\.\.\/\.\.\//, "", $2); print $2 }' "$PROJ_DIR/$suite.make" >> "$TMP/compiled"
-done < "$TMP/suites"
+    sources_of "$runner" >> "$TMP/compiled"
+    for lib in $(grep -oE '(-force_load,|--whole-archive )[^ ]*/lib[A-Za-z0-9_]+\.a' "$PROJ_DIR/$runner.make" |
+                 sed -E 's#.*/lib([A-Za-z0-9_]+)\.a$#\1#' | sort -u); do
+        if [ -f "$PROJ_DIR/$lib.make" ]; then
+            sources_of "$lib" >> "$TMP/compiled"
+        else
+            MISSING="$MISSING $lib"
+        fi
+    done
+done < "$TMP/runners"
 sort -u "$TMP/compiled" -o "$TMP/compiled"
 
 # --- Every translation unit we own. Third-party trees are not ours to test.
@@ -68,7 +84,7 @@ UNREACHED=$(wc -l < "$TMP/unreached" | tr -d ' ')
 REACHED=$((OURS - UNREACHED))
 
 echo "=== Reachability of our sources by the test suites ==="
-echo "suites:                 $SUITES"
+echo "suites:                 $SUITES (in $(wc -l < "$TMP/runners" | tr -d ' ') runners)"
 echo "our translation units:  $OURS"
 echo "compiled by >=1 suite:  $REACHED"
 echo "compiled by NO suite:   $UNREACHED"

@@ -73,13 +73,13 @@ Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanIndexBuffer.cpp
 Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp
 Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp
 Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp
-Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp
+Desert/Render2DCore/Source/Render2DCore/DrawList2D.cpp
 Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp
 Desert/Desert/Source/Engine/Project/ProjectContext.cpp
 Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp
 Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp
-Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp
-Desert/Desert/Source/Engine/UI/UIIntrospection.cpp
+Desert/UI/Source/UI/UICanvasRenderer2D.cpp
+Desert/UI/Source/UI/UIIntrospection.cpp
 Editor/Source/Editor/Core/Control/ControlSocket.cpp
 Editor/Source/Editor/Import/ImportManager.cpp
 Editor/Source/Editor/Packaging/GamePackager.cpp

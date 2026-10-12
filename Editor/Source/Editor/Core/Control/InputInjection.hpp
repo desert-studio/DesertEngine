@@ -124,6 +124,9 @@ namespace Desert::Editor::Control
         return { action, x, y, code, mods, {} };
     }
 
+    /// The button an 'input' request that names none presses (Request::Button absent): ImGui's left button.
+    inline constexpr int32_t kLeftMouseButton = 0;
+
     [[nodiscard]] inline Common::ResultStr<std::vector<InputFrame>>
     PlanInput( std::string_view kind, float x, float y, int32_t button, std::string_view key,
                const std::vector<std::string>& paths )

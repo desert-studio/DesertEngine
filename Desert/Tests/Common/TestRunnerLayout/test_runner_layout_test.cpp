@@ -447,11 +447,45 @@ namespace
         return files;
     }
 
+    // The test sources a suite adopts from outside Desert/Tests (`kAdoptedSources`, BLD-DEVTESTS): they are
+    // compiled wherever that suite is, so an adopted file of an Engine suite is in the Engine runner although
+    // the runner's own entry does not name it. Rows read `<Suite> = { "<path>", ... },` inside the table.
+    std::vector<std::string> AdoptedFiles( const std::string& premake, const std::string& layer )
+    {
+        const size_t begin = premake.find( "local kAdoptedSources = {" );
+        EXPECT_NE( begin, std::string::npos ) << "Desert/Tests/premake5.lua has no kAdoptedSources table";
+        if ( begin == std::string::npos )
+            return {};
+        const size_t       end = premake.find( "\n}", begin );
+        std::istringstream rows(
+             premake.substr( begin, end == std::string::npos ? std::string::npos : end - begin ) );
+        static const std::regex  kRow( R"re(^\s*([A-Za-z0-9_]+)\s*=\s*\{(.*)\})re" );
+        static const std::regex  kQuoted( R"re("([^"]*)")re" );
+        std::vector<std::string> files;
+        for ( std::string row; std::getline( rows, row ); )
+        {
+            std::smatch       match;
+            const std::string code = row.substr( 0, row.find( "--" ) );
+            if ( !std::regex_search( code, match, kRow ) ||
+                 !std::filesystem::is_directory( RepoRoot() / "Desert" / "Tests" / layer / match[1].str() ) )
+                continue;
+            const std::string list = match[2].str();
+            for ( auto it = std::sregex_iterator( list.begin(), list.end(), kQuoted );
+                  it != std::sregex_iterator(); ++it )
+                files.push_back( ( *it )[1].str() );
+        }
+        return files;
+    }
+
     TEST( TestRunnerLayout, EngineTestsCompilesNothingOfEditorOrTools )
     {
-        const std::string              premake = ReadFile( RepoRoot() / "Desert" / "Tests" / "premake5.lua" );
-        const std::vector<std::string> files   = RunnerFiles( premake, "Engine" );
-        ASSERT_FALSE( files.empty() ) << "the Engine runner's `files` were not found: the reader is stale";
+        const std::string premake = ReadFile( RepoRoot() / "Desert" / "Tests" / "premake5.lua" );
+        ASSERT_NE( premake.find( "    Engine = function(deps)" ), std::string::npos )
+             << "kRunners has no Engine entry: the reader is stale";
+        // The entry may name no file of its own (its one adopted source moved to kAdoptedSources).
+        std::vector<std::string>       files   = RunnerFiles( premake, "Engine" );
+        const std::vector<std::string> adopted = AdoptedFiles( premake, "Engine" );
+        files.insert( files.end(), adopted.begin(), adopted.end() );
         for ( const std::string& file : files )
         {
             const bool editor = file.find( "_MAIN_SCRIPT_DIR}/Editor/" ) != std::string::npos;

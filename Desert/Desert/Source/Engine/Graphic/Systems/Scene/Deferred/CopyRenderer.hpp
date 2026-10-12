@@ -40,10 +40,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
-        }
-
         // SETUP of "Deferred: SceneCopy": the node's one block (block 0) - u_Input, the shader's only resource,
         // so no other route. The sampler is the one the material route sampled the scene colour with (the
         // image's own: linear, REPEAT). Without a pipeline nothing is declared and Record refuses.

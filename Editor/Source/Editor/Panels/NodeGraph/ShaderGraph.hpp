@@ -14,7 +14,7 @@
 namespace Desert::Editor
 {
     // The shader graph's SEMANTICS: the node catalogue, the compiler that turns a graph into Desert
-    // Shader Language (.shader) source, and the migration that brings an older graph up to the current
+    // Shader Language (.shader) source, and the reconstruction that rebuilds a graph's pins against the current
     // catalogue. The panel owns the interactive canvas; the FILE — pins, nodes, links, the JSON round
     // trip — is Engine/Assets/Serialization/ShaderGraph.hpp, and the block below says why.
     namespace ShaderGraph
@@ -74,7 +74,16 @@ namespace Desert::Editor
             bool                 HasColorValue = false; // shows a vec4 editor
             bool                 HasFloatValue = false; // shows a float editor
             unsigned             Domains = AllDomains;  // which domains this node is offered in
+            // The palette submenu the node is listed under; nullptr = the palette's top level.
+            const char* Category = nullptr;
         };
+
+        // The palette category of the particle nodes (UE's "Particles" expression category).
+        inline constexpr const char* kParticlesCategory = "Particles";
+
+        /// True for the node kinds that read the particle half of SurfaceInput (i.Particle), which only the
+        /// ParticleSprite cell fills: a graph using one must be UsedWithParticleSprites.
+        [[nodiscard]] bool ReadsParticleInputs( const std::string& kind );
 
         const std::vector<NodeSpec>& Specs();
         const NodeSpec*              FindSpec( const std::string& kind );
@@ -148,39 +157,29 @@ namespace Desert::Editor
         // names) come back as the error string.
         Common::ResultStr<std::string> CompileToDShader( const Document& doc );
 
-        // Bring every node in @p doc up to the CURRENT catalogue by appending the pins its kind has
-        // grown since the document was written, and return how many pins were appended.
+        // REBUILD EVERY NODE'S PINS FROM THE CURRENT CATALOGUE — run on every load, like UE's
+        // UEdGraphSchema::ReconstructNode / UK2Node::ReconstructNode (EdGraphSchema.cpp, K2Node.cpp:703).
+        // It is not a format migration: nothing is written back, and a document whose nodes already
+        // match the catalogue comes out unchanged.
         //
-        // Pins are stored positionally in a .dgraph and links reference them by id, so a pin that is
-        // APPENDED changes nothing that already exists: index 0..n-1 keep their meaning and every
-        // saved link still lands where it landed. That is also the limit of what can be repaired
-        // here — a node whose stored pins are not a PREFIX of the catalogue's (a renamed pin, a
-        // changed type, a reorder) is left exactly as it is, so ValidateGraph rejects it by name
-        // instead of this function quietly rewriting the artist's graph into something else.
+        // Per node of a kind the catalogue knows, both pin lists are reallocated in catalogue order and
+        // the stored pins are rewired onto them (UE's RewireOldPinsToNewPins):
+        //   * a stored pin whose NAME and TYPE match a catalogue pin keeps its id, so every link to it
+        //     still lands where it landed;
+        //   * a catalogue pin with no stored match is new and takes its id from doc.NextId;
+        //   * a stored pin with no match that a link still uses is kept AFTER the catalogue pins as an
+        //     ORPHAN (UE's bOrphanedPin) — the link is never silently rebound to a different pin, and
+        //     ValidateGraph refuses the node by the orphan's name;
+        //   * a stored pin with no match and no link is dropped (UE discards unconnected old pins).
+        // A node of an unknown kind is left as it is; ValidateGraph names it.
         //
-        // THAT SENTENCE WAS A PROMISE THIS PAIR DID NOT KEEP until O1-J, and it is recorded rather
-        // than quietly corrected because the shape recurs: ValidateGraph compared pin TYPES and not
-        // pin NAMES, so a rename that kept the type was left alone here and then accepted there —
-        // the one half of "not a prefix" that reached the emitter, which uses the stored name as a
-        // GLSL struct member. Both functions now give the same answer to a renamed pin, refuse.
-        //
-        // Pure: takes a document, returns a document, touches no file and no global state.
-        int MigrateToCatalogue( Document& doc );
+        // Pure: takes a document, touches no file and no global state.
+        void ReconstructNodes( Document& doc );
 
-        // A document as it came off disk, plus what had to change to make it current. Deserialize
-        // hands back both TOGETHER and not a bare Document, because a silent migration is the thing
-        // the contract forbids: the caller cannot be given the new document without also being told
-        // how much of it is new.
-        struct Loaded
-        {
-            Document Doc;
-            int      MigratedPins = 0;
-        };
-
-        // JSON -> document, THEN up to the current node catalogue. The writing half is not here: it is
-        // `Assets::Serialization::ShaderGraph::Serialize`, which needs no catalogue and belongs with the
-        // bytes. This one does need it, which is exactly why the two halves sit on opposite sides of the
-        // seam — see the note at the top of the engine header.
-        Common::ResultStr<Loaded> Deserialize( const std::string& json );
+        // JSON -> document, THEN its nodes reconstructed against the current catalogue. The writing half
+        // is not here: it is `Assets::Serialization::ShaderGraph::Serialize`, which needs no catalogue and
+        // belongs with the bytes. This one does need it, which is exactly why the two halves sit on
+        // opposite sides of the seam — see the note at the top of the engine header.
+        Common::ResultStr<Document> Deserialize( const std::string& json );
     } // namespace ShaderGraph
 } // namespace Desert::Editor

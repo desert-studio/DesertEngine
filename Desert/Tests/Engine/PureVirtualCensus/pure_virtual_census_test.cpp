@@ -24,6 +24,7 @@
 // these rows are a question for the owner (does the engine want asset eviction at all?) rather than a
 // cleanup. What the row must carry is WHO decides, so that a year from now the entry is readable.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -102,10 +103,10 @@ namespace
     // are excluded.
     std::vector<fs::path> ProjectSources( const std::string& root )
     {
-        const char* trees[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source",
-                                "Tools" };
+        const std::vector<std::string> trees =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
         std::vector<fs::path> files;
-        for ( const char* tree : trees )
+        for ( const std::string& tree : trees )
         {
             const fs::path  base = fs::path( root ) / tree;
             std::error_code ec;
@@ -142,8 +143,8 @@ namespace
     // header and cannot declare one of our pure virtuals.
     void BuildIncludeClosure( const std::string& root, Tree& tree )
     {
-        const char* roots[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source",
-                                "Runtime/Source" };
+        const std::vector<std::string> roots =
+             Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
 
         std::set<std::string> known;
         for ( const auto& f : tree.Files )
@@ -186,7 +187,7 @@ namespace
 
                 std::vector<fs::path> candidates;
                 candidates.push_back( f.parent_path() / name );
-                for ( const char* r : roots )
+                for ( const std::string& r : roots )
                     candidates.push_back( fs::path( root ) / r / name );
                 for ( const auto& c : candidates )
                 {
@@ -705,7 +706,7 @@ namespace
         const char* Task;
     };
 
-    constexpr std::array<AheadOfImplementationRow, 7> k_AheadOfImplementation = { {
+    constexpr std::array<AheadOfImplementationRow, 6> k_AheadOfImplementation = { {
          { "IClothingSimulation", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
            "CLO1: Jolt SoftBody backend" },
          { "IClothingSimulationFactory", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
@@ -717,10 +718,6 @@ namespace
            "HAIR1: groom instance + strand renderer" },
          { "IModularCharacter", "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp",
            "EQP1: ECS modular character + Lua bindings" },
-         // TAA1 wave A lands the seam the view's history and ViewFrame are built around; its fakes live in
-         // Desert/Tests/Engine/TemporalViewContract. The engine's TAA and TAAU are the next TAA1 wave.
-         { "ITemporalUpscaler", "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.hpp",
-           "TAA1 wave B: engine TAA + TAAU" },
     } };
 
     bool DeclaredAheadOfImplementation( const std::string& cls )
@@ -930,7 +927,7 @@ TEST( PureVirtualCensus, InterfacesDeclaredAheadOfImplementationAreStillUnimplem
              << "): delete its k_AheadOfImplementation row so the two census rules hold it like any other base.";
     }
     // Stated so growth is visible, as the count below is.
-    EXPECT_EQ( k_AheadOfImplementation.size(), 7u );
+    EXPECT_EQ( k_AheadOfImplementation.size(), 6u );
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )

@@ -9,6 +9,7 @@
 
 #include "SequencerPanel.hpp"
 #include "LevelMaterialProperties.hpp"
+#include "OutlinerColumn.hpp"
 #include "TrackFilter.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
@@ -90,6 +91,15 @@ namespace Desert::Editor
             const double perFrame = TicksPerDisplayFrame( sequence );
             return static_cast<int32_t>( std::llround( std::round( ticks / perFrame ) * perFrame ) );
         }
+
+        constexpr std::array<const char*, 3>  kKeyInterpNames = { "Constant", "Linear", "Cubic" };
+        constexpr std::array<const char*, 3>  kTangentNames   = { "Auto", "User", "Break" };
+        constexpr std::array<const char*, 10> kEasingNames = { "Linear",     "QuadIn",   "QuadOut",    "QuadInOut",
+                                                               "CubicIn",    "CubicOut", "CubicInOut", "BackOut",
+                                                               "ElasticOut", "BounceOut" };
+        /// The event action combo: 0 = none (a named marker), else EventActionKind + 1.
+        constexpr std::array<const char*, 4> kEventActionNames = { "None", "Play Sound", "Activate Particles",
+                                                                   "Call Script" };
     } // namespace
 
     std::shared_ptr<Assets::LevelSequenceAsset> SequencerPanel::ResolveLevelAsset() const
@@ -137,11 +147,14 @@ namespace Desert::Editor
         const auto scene = m_Scene.lock();
         if ( !scene )
             return;
-        const auto step =
-             m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick,
-                                   m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
-                                                             : ECS::LevelSequenceClipSource{},
-                                   ECS::LevelSequenceMaterialSlotOverrides() );
+        const auto step = m_LevelPreview.Scrub(
+             scene->GetRegistry(), sequence, m_LevelTick,
+             m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
+                                       : ECS::LevelSequenceClipSource{},
+             ECS::LevelSequenceMaterialSlotOverrides(),
+             m_AssetManager != nullptr ? ECS::LevelSequenceSubsequences( *m_AssetManager )
+                                       : ECS::LevelSequenceSubsequenceSource{},
+             ResolveLevelAsset() ? ResolveLevelAsset()->Guid() : Common::Content::AssetGuid{} );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
@@ -516,6 +529,22 @@ namespace Desert::Editor
             if ( ImGui::MenuItem( ICON_MDI_FLAG " Event", nullptr, false,
                                   !ECS::HasEventTrack( sequence, ECS::LevelSequenceMasterBinding() ) ) )
                 AddLevelEventTrack( ECS::LevelSequenceMasterBinding() );
+            // UE: "+ Track > Subsequences Track" with the level sequence assets; a pick that would make the
+            // sequence play itself is refused by name (ECS::AddSubsequenceSection's cycle check).
+            if ( ImGui::BeginMenu( "Subsequence" ) )
+            {
+                const auto choices = LevelSubsequenceChoices();
+                if ( choices.empty() )
+                    ImGui::TextDisabled( "No other level sequence in the content registry." );
+                for ( size_t i = 0; i < choices.size(); ++i )
+                {
+                    ImGui::PushID( static_cast<int>( i ) );
+                    if ( ImGui::MenuItem( choices[i].second.c_str() ) )
+                        AddLevelSubsequence( choices[i].first );
+                    ImGui::PopID();
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndPopup();
         }
         ImGui::SameLine();
@@ -526,7 +555,11 @@ namespace Desert::Editor
                                                EditorPreferences::Get().SequencerFilterKeyed };
 
         // ── THE RULER: the display-frame grid, scrubbed by a click or a drag on it ──────────────────
-        constexpr float gutter              = 320.0f;
+        // The Outliner left of the lanes: the names column (its width the panel's, dragged by the splitter)
+        // and the controls column after it.
+        const float panelWidth                = ImGui::GetContentRegionAvail().x;
+        m_LevelNameWidth                      = Sequencer::ClampNameColumnWidth( m_LevelNameWidth, panelWidth );
+        const float                    gutter = m_LevelNameWidth + Sequencer::OutlinerColumn::kControlsWidth;
         const float     contentX0           = ImGui::GetCursorScreenPos().x;
         const float     laneX0              = contentX0 + gutter;
         const float     laneW               = std::max( 40.0f, ImGui::GetContentRegionAvail().x - gutter - 10.0f );
@@ -549,7 +582,41 @@ namespace Desert::Editor
                 const double ticks   = seconds * sequence.TickRate.Numerator / sequence.TickRate.Denominator;
                 JumpLevel( sequence, SnapToDisplayFrame( sequence, ticks ) );
             }
-            ImGui::SetCursorScreenPos( ImVec2( contentX0, rulerY + rulerH + 4.0f ) );
+            // THE PLAYBACK RANGE under the ruler (UE: the green start / red end handles): a handle drag is
+            // written once, on release (one undo step).
+            const float   rangeY     = rulerY + rulerH;
+            const int32_t shownStart = m_LevelRangeDrag && m_LevelRangeDrag->first == 0 ? m_LevelRangeDrag->second
+                                                                                        : sequence.Start.Value;
+            const int32_t shownEnd =
+                 m_LevelRangeDrag && m_LevelRangeDrag->first == 1 ? m_LevelRangeDrag->second : sequence.End.Value;
+            draw->AddRectFilled( ImVec2( xOf( shownStart ), rangeY + 2.0f ),
+                                 ImVec2( xOf( shownEnd ), rangeY + 6.0f ), IM_COL32( 70, 150, 90, 200 ) );
+            for ( int handle = 0; handle < 2; ++handle )
+            {
+                const float hx     = xOf( handle == 0 ? shownStart : shownEnd );
+                const ImU32 colour = handle == 0 ? IM_COL32( 80, 200, 110, 255 ) : IM_COL32( 210, 70, 70, 255 );
+                draw->AddTriangleFilled( ImVec2( hx - 5.0f, rangeY ), ImVec2( hx + 5.0f, rangeY ),
+                                         ImVec2( hx, rangeY + 8.0f ), colour );
+                ImGui::PushID( handle );
+                ImGui::SetCursorScreenPos( ImVec2( hx - 5.0f, rangeY ) );
+                ImGui::InvisibleButton( "##LevelRangeHandle", ImVec2( 10.0f, 8.0f ) );
+                if ( ImGui::IsItemActive() )
+                {
+                    const double seconds = axis.XToTime( ImGui::GetIO().MousePos.x );
+                    const double ticks   = seconds * sequence.TickRate.Numerator / sequence.TickRate.Denominator;
+                    m_LevelRangeDrag     = std::make_pair( handle, SnapToDisplayFrame( sequence, ticks ) );
+                }
+                if ( ImGui::IsItemDeactivated() && m_LevelRangeDrag && m_LevelRangeDrag->first == handle )
+                {
+                    Animation::FrameNumber start  = sequence.Start;
+                    Animation::FrameNumber end    = sequence.End;
+                    ( handle == 0 ? start : end ) = Animation::FrameNumber{ m_LevelRangeDrag->second };
+                    m_LevelRangeDrag.reset();
+                    SetLevelPlaybackRange( start, end );
+                }
+                ImGui::PopID();
+            }
+            ImGui::SetCursorScreenPos( ImVec2( contentX0, rangeY + 8.0f + 4.0f ) );
         }
 
         // ── ROWS: one per possessable, then the Camera Cut track ─────────────────────────────────────
@@ -577,10 +644,9 @@ namespace Desert::Editor
             const auto  entity = BoundEntity( *scene, binding );
             const float rowY   = ImGui::GetCursorScreenPos().y;
             ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted( entity ? binding.Label.c_str()
-                                           : std::format( "{} (not in this scene)", binding.Label ).c_str() );
-            ImGui::SameLine( 160.0f );
+            DrawLevelRowLabel( entity ? binding.Label : std::format( "{} (not in this scene)", binding.Label ),
+                               contentX0, contentX0 );
+            SameLineAtLevelControls( contentX0 );
             if ( ImGui::SmallButton( ICON_MDI_KEY " Transform" ) )
                 KeyLevelTransform( binding.Guid );
             if ( entity && entity->HasComponent<ECS::CameraComponent>() )
@@ -677,9 +743,8 @@ namespace Desert::Editor
             {
                 const float visY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, visY ) );
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted( ICON_MDI_EYE " Visibility" );
-                ImGui::SameLine( 160.0f );
+                DrawLevelRowLabel( ICON_MDI_EYE " Visibility", contentX0, contentX0 + 16.0f );
+                SameLineAtLevelControls( contentX0 );
                 bool visible = *shown;
                 if ( ImGui::Checkbox( "##LevelVisible", &visible ) )
                     KeyLevelVisibility( binding.Guid, visible );
@@ -737,12 +802,11 @@ namespace Desert::Editor
                 ImGui::PushID( property.c_str() );
                 const float matY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, matY ) );
-                ImGui::AlignTextToFramePadding();
                 // UE: the material track's slot, then the parameter — "Slot 0 (MP_Default) ▸ Blend".
-                ImGui::TextUnformatted( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
-                                                     schema != nullptr ? schema->Label : parameter.Name )
-                                             .c_str() );
-                ImGui::SameLine( 160.0f );
+                DrawLevelRowLabel( std::format( ICON_MDI_PALETTE " {} ▸ {}", slotLabel,
+                                                schema != nullptr ? schema->Label : parameter.Name ),
+                                   contentX0, contentX0 + 16.0f );
+                SameLineAtLevelControls( contentX0 );
                 ImGui::SetNextItemWidth( std::max( 60.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
                 const std::string draftId = std::format( "{}/{}", binding.Locator, property );
                 glm::vec4         shown   = *value;
@@ -794,8 +858,8 @@ namespace Desert::Editor
                  !Sequencer::TrackPasses( track, false, filters ) )
                 continue;
             const float rowY = ImGui::GetCursorScreenPos().y;
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted( ICON_MDI_VIDEO " Camera Cuts" );
+            ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
+            DrawLevelRowLabel( ICON_MDI_VIDEO " Camera Cuts", contentX0, contentX0 );
             for ( const auto& section : track.Sections )
             {
                 const auto* cut = std::get_if<LevelTL::CameraCutSectionContent>( &section.Content );
@@ -819,6 +883,10 @@ namespace Desert::Editor
             DrawLevelEventRow( sequence, ECS::LevelSequenceMasterBinding(), ICON_MDI_FLAG " Sequence Events",
                                contentX0, laneX0, laneW );
 
+        // The sequence's Subsequence track (UE: the Subsequences track at the sequence's root).
+        DrawLevelSubsequenceRow( sequence, contentX0, laneX0, laneW );
+        DrawLevelNameSplitter( contentX0, lanesTop, ImGui::GetCursorScreenPos().y, panelWidth );
+
         // The marquee closes on any release; a key drag closes in the lane that holds it.
         if ( m_LevelMarquee )
         {
@@ -832,8 +900,8 @@ namespace Desert::Editor
         }
 
         // The playhead over the ruler and the lanes.
-        Sequencer::DrawPlayhead( draw, axis, SecondsAt( sequence, m_LevelTick.Value ), lanesTop - 26.0f,
-                                 ImGui::GetCursorScreenPos().y, lanesTop - 4.0f );
+        Sequencer::DrawPlayhead( draw, axis, SecondsAt( sequence, m_LevelTick.Value ), lanesTop - 34.0f,
+                                 ImGui::GetCursorScreenPos().y, lanesTop - 12.0f );
 
         if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && !ImGui::GetIO().WantTextInput &&
              ImGui::IsKeyPressed( ImGuiKey_Delete ) )
@@ -842,10 +910,39 @@ namespace Desert::Editor
                 DeleteSelectedLevelKeys();
             if ( m_LevelSelEvent )
                 DeleteSelectedLevelEvent();
+            if ( m_LevelSelSubsequence && m_LevelSelKeys.empty() && !m_LevelSelEvent )
+                DeleteSelectedLevelSubsequence();
         }
 
         // ── THE CURVE VIEW of a Transform track: the one curve editor the skeletal timeline draws with ──
         ImGui::Separator();
+        // THE SELECTED KEYS' SHAPE (UE: the curve editor's key menu): a pick is one undo step on every
+        // selected key; the easing shapes the segment ending at each selected key, on the part the curve
+        // view shows.
+        if ( !m_LevelSelKeys.empty() )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text( "%d key(s)", static_cast<int>( m_LevelSelKeys.size() ) );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 100.0f );
+            const bool interpPicked = ImGui::Combo( "Interp##LevelKey", &m_LevelKeyInterp, kKeyInterpNames.data(),
+                                                    static_cast<int>( kKeyInterpNames.size() ) );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 90.0f );
+            const bool tangentPicked =
+                 ImGui::Combo( "Tangents##LevelKey", &m_LevelKeyTangent, kTangentNames.data(),
+                               static_cast<int>( kTangentNames.size() ) );
+            if ( interpPicked || tangentPicked )
+                ShapeSelectedLevelKeys( static_cast<Animation::KeyInterp>( m_LevelKeyInterp ),
+                                        static_cast<Animation::TangentMode>( m_LevelKeyTangent ) );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 120.0f );
+            ImGui::Combo( "##LevelKeyEasing", &m_LevelKeyEasing, kEasingNames.data(),
+                          static_cast<int>( kEasingNames.size() ) );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( m_LevelCurvePart == 2 ? "Ease Scale into Keys" : "Ease Location into Keys" ) )
+                EaseSelectedLevelKeys( static_cast<LevelTL::EasingPreset>( m_LevelKeyEasing ) );
+        }
         ImGui::Checkbox( "Curves", &m_LevelCurveView );
         if ( m_LevelCurveView )
         {
@@ -918,6 +1015,21 @@ namespace Desert::Editor
         ImGui::SameLine();
         const double perFrame = TicksPerDisplayFrame( sequence );
         ImGui::Text( "Frame %d", static_cast<int>( std::floor( m_LevelTick.Value / perFrame ) ) );
+        // The playback range in display frames (the ruler's handles reach only what the ruler shows; a
+        // longer range is typed here). One undo step per committed field.
+        if ( !m_LevelRangeEditing )
+        {
+            m_LevelRangeFields[0] = static_cast<int>( std::lround( sequence.Start.Value / perFrame ) );
+            m_LevelRangeFields[1] = static_cast<int>( std::lround( sequence.End.Value / perFrame ) );
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 110.0f );
+        ImGui::InputInt2( "Range##Level", m_LevelRangeFields );
+        m_LevelRangeEditing = ImGui::IsItemActive();
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            SetLevelPlaybackRange(
+                 Animation::FrameNumber{ SnapToDisplayFrame( sequence, m_LevelRangeFields[0] * perFrame ) },
+                 Animation::FrameNumber{ SnapToDisplayFrame( sequence, m_LevelRangeFields[1] * perFrame ) } );
     }
 
     void SequencerPanel::DrawLevelTrackFilters()
@@ -1143,6 +1255,47 @@ namespace Desert::Editor
         m_LevelSelEvent.reset();
     }
 
+    void SequencerPanel::DrawLevelRowLabel( const std::string_view label, const float contentX0, const float x )
+    {
+        ImGui::SetCursorScreenPos( ImVec2( x, ImGui::GetCursorScreenPos().y ) );
+        ImGui::AlignTextToFramePadding();
+        const float maxWidth = contentX0 + m_LevelNameWidth - Sequencer::OutlinerColumn::kLabelPadding - x;
+        const auto  fitted =
+             Sequencer::FitLabel( label, maxWidth, []( const std::string_view text )
+                                  { return ImGui::CalcTextSize( text.data(), text.data() + text.size() ).x; } );
+        ImGui::TextUnformatted( fitted.Text.c_str() );
+        if ( fitted.Truncated && ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "%.*s", static_cast<int>( label.size() ), label.data() );
+    }
+
+    void SequencerPanel::SameLineAtLevelControls( const float contentX0 ) const
+    {
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos( ImVec2( contentX0 + m_LevelNameWidth, ImGui::GetCursorScreenPos().y ) );
+    }
+
+    void SequencerPanel::DrawLevelNameSplitter( const float contentX0, const float yTop, const float yBottom,
+                                                const float panelWidth )
+    {
+        if ( yBottom <= yTop )
+            return;
+        const ImVec2 resume = ImGui::GetCursorScreenPos();
+        const float  edgeX  = contentX0 + m_LevelNameWidth;
+        const float  grip   = Sequencer::OutlinerColumn::kLabelPadding;
+        ImGui::SetCursorScreenPos( ImVec2( edgeX - grip, yTop ) );
+        ImGui::InvisibleButton( "##LevelNameSplitter", ImVec2( grip, yBottom - yTop ) );
+        const bool held = ImGui::IsItemActive();
+        if ( held )
+            m_LevelNameWidth =
+                 Sequencer::ClampNameColumnWidth( m_LevelNameWidth + ImGui::GetIO().MouseDelta.x, panelWidth );
+        if ( held || ImGui::IsItemHovered() )
+            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+        ImGui::GetWindowDrawList()->AddLine( ImVec2( edgeX - 1.0f, yTop ), ImVec2( edgeX - 1.0f, yBottom ),
+                                             held || ImGui::IsItemHovered() ? IM_COL32( 120, 160, 230, 255 )
+                                                                            : IM_COL32( 70, 70, 76, 255 ) );
+        ImGui::SetCursorScreenPos( resume );
+    }
+
     void SequencerPanel::DrawLevelEventRow( LevelTL::Sequence& sequence, const LevelTL::BindingGuid& binding,
                                             const char* label, const float contentX0, const float laneX0,
                                             const float laneW )
@@ -1156,9 +1309,8 @@ namespace Desert::Editor
         ImGui::PushID( "##LevelEvents" );
 
         ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, rowY ) );
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted( label );
-        ImGui::SameLine( 160.0f );
+        DrawLevelRowLabel( label, contentX0, contentX0 + 16.0f );
+        SameLineAtLevelControls( contentX0 );
         if ( ImGui::SmallButton( ICON_MDI_PLUS " Key" ) )
             AddLevelEventKey( binding );
 
@@ -1205,6 +1357,9 @@ namespace Desert::Editor
             {
                 m_LevelSelKeys.clear();
                 m_LevelSelEvent = LevelEventRef{ binding, *hit };
+                m_LevelSelSubsequence.reset();
+                m_LevelEventActionPending = false;
+                m_LevelEventTargetEditing = false;
                 std::snprintf( m_LevelEventName, sizeof( m_LevelEventName ), "%s", keys[*hit].Name.c_str() );
                 m_LevelEventDrag      = true;
                 m_LevelEventDragX0    = mouse.x;
@@ -1252,7 +1407,66 @@ namespace Desert::Editor
                                      ImVec2( x, rowY + 10.0f ), colour );
             draw->AddText( ImVec2( x + 10.0f, rowY + 2.0f ), colour, keys[i].Name.c_str() );
         }
-        ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY + rowH + 4.0f ) );
+        float bottom = rowY + rowH;
+        if ( m_LevelSelEvent && m_LevelSelEvent->Binding == binding && m_LevelSelEvent->Index < keys.size() )
+        {
+            // The selected key's action (UE: the event key's endpoint), a second line under the row. The fields
+            // mirror the key unless a kind that needs a Target was picked and the Target is not typed yet.
+            const auto& action = keys[m_LevelSelEvent->Index].Action;
+            if ( !m_LevelEventActionPending )
+                m_LevelEventActionKind = action ? static_cast<int>( action->Kind ) + 1 : 0;
+            if ( !m_LevelEventTargetEditing && !m_LevelEventActionPending )
+                std::snprintf( m_LevelEventTarget, sizeof( m_LevelEventTarget ), "%s",
+                               action ? action->Target.c_str() : "" );
+            constexpr int kPlaySound  = static_cast<int>( LevelTL::EventActionKind::PlayAudio ) + 1;
+            constexpr int kParticles  = static_cast<int>( LevelTL::EventActionKind::ActivateParticles ) + 1;
+            constexpr int kCallScript = static_cast<int>( LevelTL::EventActionKind::CallScript ) + 1;
+            ImGui::SetCursorScreenPos( ImVec2( contentX0 + 32.0f, bottom + 2.0f ) );
+            ImGui::SetNextItemWidth( 150.0f );
+            if ( ImGui::Combo( "##EventAction", &m_LevelEventActionKind, kEventActionNames.data(),
+                               static_cast<int>( kEventActionNames.size() ) ) )
+            {
+                if ( m_LevelEventActionKind == kPlaySound || m_LevelEventActionKind == kCallScript )
+                {
+                    // Validate refuses these without a Target: the kind waits for the Target field's commit.
+                    m_LevelEventActionPending = true;
+                    m_LevelEventTarget[0]     = '\0';
+                }
+                else
+                {
+                    m_LevelEventActionPending = false;
+                    // A local, not a conditional argument: MSVC has hung on a ternary into a by-value parameter.
+                    std::optional<LevelTL::EventAction> picked;
+                    if ( m_LevelEventActionKind == kParticles )
+                        picked = LevelTL::EventAction{ LevelTL::EventActionKind::ActivateParticles, {} };
+                    SetSelectedLevelEventAction( std::move( picked ) );
+                }
+            }
+            if ( m_LevelEventActionKind == kPlaySound || m_LevelEventActionKind == kCallScript )
+            {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth( std::max( 60.0f, laneX0 - ImGui::GetCursorScreenPos().x - 8.0f ) );
+                ImGui::InputTextWithHint( "##EventTarget",
+                                          m_LevelEventActionKind == kPlaySound ? "audio file (Assets-relative)"
+                                                                               : "Lua function",
+                                          m_LevelEventTarget, sizeof( m_LevelEventTarget ) );
+                m_LevelEventTargetEditing = ImGui::IsItemActive();
+                if ( ImGui::IsItemDeactivatedAfterEdit() )
+                {
+                    m_LevelEventActionPending = false;
+                    SetSelectedLevelEventAction(
+                         LevelTL::EventAction{ static_cast<LevelTL::EventActionKind>( m_LevelEventActionKind - 1 ),
+                                               m_LevelEventTarget } );
+                }
+            }
+            else if ( m_LevelEventActionKind == kParticles )
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled( "restarts the bound actor's particle emitter" );
+            }
+            bottom += rowH + 2.0f;
+        }
+        ImGui::SetCursorScreenPos( ImVec2( contentX0, bottom + 4.0f ) );
         ImGui::PopID();
     }
 
@@ -1362,6 +1576,299 @@ namespace Desert::Editor
         DrawTransformCurve( plot );
     }
 
+    void SequencerPanel::SetSelectedLevelEventAction( std::optional<LevelTL::EventAction> action )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset || !m_LevelSelEvent )
+            return;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto set = ECS::SetEventKeyAction( asset->EditSequence(), m_LevelSelEvent->Binding,
+                                                      m_LevelSelEvent->Index, std::move( action ) );
+             !set.IsSuccess() )
+            ToastManager::Push( std::format( "Event action refused: {}", set.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
+    void SequencerPanel::ShapeSelectedLevelKeys( const Animation::KeyInterp   interp,
+                                                 const Animation::TangentMode mode )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset || m_LevelSelKeys.empty() )
+            return;
+        LevelTL::Sequence&                sequence = asset->EditSequence();
+        const ScopedSequenceEdit          undoStep( m_LevelEdit, LevelOwner() );
+        std::vector<LevelTL::BindingGuid> owners;
+        for ( const auto& key : m_LevelSelKeys )
+            if ( std::ranges::find( owners, key.Binding ) == owners.end() )
+                owners.push_back( key.Binding );
+        for ( const auto& owner : owners )
+        {
+            std::vector<Animation::FrameNumber> ticks;
+            for ( const auto& key : m_LevelSelKeys )
+                if ( key.Binding == owner )
+                    ticks.push_back( key.Tick );
+            if ( const auto shaped = ECS::SetEntityTransformKeyShape( sequence, owner, ticks, interp, mode );
+                 !shaped.IsSuccess() )
+                ToastManager::Push( std::format( "Key shape refused: {}", shaped.GetError() ), ToastLevel::Error,
+                                    6.0f );
+        }
+    }
+
+    void SequencerPanel::EaseSelectedLevelKeys( const LevelTL::EasingPreset preset )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset || m_LevelSelKeys.empty() )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        const auto               part =
+             m_LevelCurvePart == 2 ? Animation::TrackChannel::Scale : Animation::TrackChannel::Position;
+        for ( const auto& key : m_LevelSelKeys )
+            if ( const auto eased =
+                      ECS::ApplyEntityTransformEasing( sequence, key.Binding, part, key.Tick, preset );
+                 !eased.IsSuccess() )
+                ToastManager::Push( std::format( "Ease refused: {}", eased.GetError() ), ToastLevel::Error, 6.0f );
+    }
+
+    std::vector<std::pair<Common::Content::AssetGuid, std::string>> SequencerPanel::LevelSubsequenceChoices() const
+    {
+        std::vector<std::pair<Common::Content::AssetGuid, std::string>> choices;
+        const auto                                                      asset = ResolveLevelAsset();
+        const Common::Content::AssetGuid self = asset ? asset->Guid() : Common::Content::AssetGuid{};
+        // A section names its sequence by GUID: a row whose header states none cannot be played.
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::LevelSequence ) )
+            if ( row.Guid && *row.Guid != self )
+                choices.emplace_back( *row.Guid,
+                                      row.DisplayName.empty() ? row.Path.stem().string() : row.DisplayName );
+        return choices;
+    }
+
+    void SequencerPanel::AddLevelSubsequence( const Common::Content::AssetGuid& sub )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        const auto added = ECS::AddSubsequenceSection( sequence, asset->Guid(), sub, m_LevelTick, sequence.End,
+                                                       m_AssetManager != nullptr
+                                                            ? ECS::LevelSequenceSubsequences( *m_AssetManager )
+                                                            : ECS::LevelSequenceSubsequenceSource{} );
+        if ( !added.IsSuccess() )
+        {
+            ToastManager::Push( std::format( "+ Track > Subsequence refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+            return;
+        }
+        m_LevelSelSubsequence     = added.GetValue();
+        m_LevelSubsequenceEditing = false;
+    }
+
+    void SequencerPanel::SetLevelSubsequence( const size_t index, const Animation::FrameNumber start,
+                                              const Animation::FrameNumber              end,
+                                              const LevelTL::SubsequenceSectionContent& content )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto set = ECS::SetSubsequenceSection(
+                  asset->EditSequence(), asset->Guid(), index, start, end, content,
+                  m_AssetManager != nullptr ? ECS::LevelSequenceSubsequences( *m_AssetManager )
+                                            : ECS::LevelSequenceSubsequenceSource{} );
+             !set.IsSuccess() )
+            ToastManager::Push( std::format( "Subsequence edit refused: {}", set.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
+    void SequencerPanel::DeleteSelectedLevelSubsequence()
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset || !m_LevelSelSubsequence )
+            return;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto removed = ECS::RemoveSubsequenceSection( asset->EditSequence(), *m_LevelSelSubsequence );
+             !removed.IsSuccess() )
+            ToastManager::Push( std::format( "Delete subsequence refused: {}", removed.GetError() ),
+                                ToastLevel::Error, 6.0f );
+        m_LevelSelSubsequence.reset();
+    }
+
+    void SequencerPanel::SetLevelPlaybackRange( const Animation::FrameNumber start,
+                                                const Animation::FrameNumber end )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto set = ECS::SetPlaybackRange( asset->EditSequence(), start, end ); !set.IsSuccess() )
+            ToastManager::Push( std::format( "Playback range refused: {}", set.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
+    void SequencerPanel::DrawLevelSubsequenceRow( LevelTL::Sequence& sequence, const float contentX0,
+                                                  const float laneX0, const float laneW )
+    {
+        const auto sections = ECS::SubsequenceSections( sequence );
+        if ( m_LevelSelSubsequence && *m_LevelSelSubsequence >= sections.size() )
+            m_LevelSelSubsequence.reset(); // an undo took the section away
+        if ( sections.empty() )
+            return;
+        ImDrawList*                    draw = ImGui::GetWindowDrawList();
+        const Sequencer::CurveViewport axis =
+             Sequencer::TimeAxis( laneX0, laneW, static_cast<float>( SecondsAt( sequence, sequence.End.Value ) ) );
+        const auto  xOf  = [&]( const int32_t tick ) { return axis.TimeToX( SecondsAt( sequence, tick ) ); };
+        const float rowH = ImGui::GetFrameHeight();
+        const float rowY = ImGui::GetCursorScreenPos().y;
+        int32_t     rows = 1;
+        for ( const auto& section : sections )
+            rows = std::max( rows, section.Row + 1 );
+        const float laneH = rowH * static_cast<float>( rows );
+        ImGui::PushID( "##LevelSubsequences" );
+
+        ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted( "Subsequences" );
+
+        const auto choices = LevelSubsequenceChoices();
+        const auto nameOf  = [&choices]( const Common::Content::AssetGuid& guid ) -> std::string
+        {
+            for ( const auto& [candidate, name] : choices )
+                if ( candidate == guid )
+                    return name;
+            return "(not in the content registry)";
+        };
+
+        // The lane: click selects the section under the mouse, a drag moves it on the display grid and is
+        // written once, on release (one undo step).
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        ImGui::SetCursorScreenPos( ImVec2( laneX0, rowY ) );
+        ImGui::InvisibleButton( "##SubsequenceLane", ImVec2( laneW, laneH ) );
+        if ( ImGui::IsItemClicked( ImGuiMouseButton_Left ) )
+        {
+            std::optional<size_t> hit;
+            for ( size_t i = 0; i < sections.size(); ++i )
+            {
+                const float y0 = rowY + rowH * static_cast<float>( sections[i].Row );
+                if ( mouse.x >= xOf( sections[i].Start.Value ) && mouse.x <= xOf( sections[i].End.Value ) &&
+                     mouse.y >= y0 && mouse.y < y0 + rowH )
+                    hit = i;
+            }
+            m_LevelSelSubsequence     = hit;
+            m_LevelSubsequenceEditing = false;
+            if ( hit )
+            {
+                m_LevelSelKeys.clear();
+                m_LevelSelEvent.reset();
+                m_LevelSubsequenceDrag      = true;
+                m_LevelSubsequenceDragX0    = mouse.x;
+                m_LevelSubsequenceDragDelta = 0;
+            }
+        }
+        if ( m_LevelSubsequenceDrag && ImGui::IsItemActive() )
+        {
+            const double ticksPerPixel = ( axis.TimeEnd - axis.TimeStart ) / std::max( 1.0f, laneW ) *
+                                         sequence.TickRate.Numerator / sequence.TickRate.Denominator;
+            m_LevelSubsequenceDragDelta =
+                 SnapToDisplayFrame( sequence, ( mouse.x - m_LevelSubsequenceDragX0 ) * ticksPerPixel );
+        }
+        if ( m_LevelSubsequenceDrag && ImGui::IsItemDeactivated() )
+        {
+            m_LevelSubsequenceDrag = false;
+            if ( m_LevelSubsequenceDragDelta != 0 && m_LevelSelSubsequence )
+            {
+                const auto& moved = sections[*m_LevelSelSubsequence];
+                SetLevelSubsequence(
+                     moved.Index, Animation::FrameNumber{ moved.Start.Value + m_LevelSubsequenceDragDelta },
+                     Animation::FrameNumber{ moved.End.Value + m_LevelSubsequenceDragDelta }, moved.Content );
+            }
+            m_LevelSubsequenceDragDelta = 0;
+        }
+
+        // Each section: a bar on its row, named by the sequence it plays.
+        for ( size_t i = 0; i < sections.size(); ++i )
+        {
+            const bool    selected = m_LevelSelSubsequence == i;
+            const int32_t shift    = selected && m_LevelSubsequenceDrag ? m_LevelSubsequenceDragDelta : 0;
+            const float   x0       = xOf( sections[i].Start.Value + shift );
+            const float   x1       = xOf( sections[i].End.Value + shift );
+            const float   y0       = rowY + rowH * static_cast<float>( sections[i].Row );
+            draw->AddRectFilled( ImVec2( x0, y0 + 2.0f ), ImVec2( x1, y0 + rowH - 2.0f ),
+                                 selected ? IM_COL32( 150, 110, 190, 255 ) : IM_COL32( 110, 80, 150, 255 ), 3.0f );
+            draw->AddText( ImVec2( x0 + 4.0f, y0 + 3.0f ), IM_COL32( 240, 240, 240, 255 ),
+                           nameOf( sections[i].Content.Sequence ).c_str() );
+        }
+
+        float bottom = rowY + laneH;
+        if ( m_LevelSelSubsequence )
+        {
+            // The selected section's properties (UE: the sub section's Details): one undo step per commit.
+            const auto&  selected = sections[*m_LevelSelSubsequence];
+            const double perFrame = TicksPerDisplayFrame( sequence );
+            if ( !m_LevelSubsequenceEditing )
+            {
+                m_LevelSubsequenceFields[0] = static_cast<int>( std::lround( selected.Start.Value / perFrame ) );
+                m_LevelSubsequenceFields[1] = static_cast<int>( std::lround( selected.End.Value / perFrame ) );
+                m_LevelSubsequenceFields[2] = selected.Content.StartOffset.Value;
+                m_LevelSubsequenceScale     = selected.Content.TimeScale;
+            }
+            ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, bottom + 2.0f ) );
+            ImGui::SetNextItemWidth( 160.0f );
+            if ( ImGui::BeginCombo( "##SubsequenceSequence", nameOf( selected.Content.Sequence ).c_str() ) )
+            {
+                for ( size_t i = 0; i < choices.size(); ++i )
+                {
+                    ImGui::PushID( static_cast<int>( i ) );
+                    if ( ImGui::Selectable( choices[i].second.c_str(),
+                                            choices[i].first == selected.Content.Sequence ) )
+                    {
+                        LevelTL::SubsequenceSectionContent content = selected.Content;
+                        content.Sequence                           = choices[i].first;
+                        SetLevelSubsequence( selected.Index, selected.Start, selected.End, content );
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            bool editing = false;
+            bool commit  = false;
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 130.0f );
+            ImGui::InputInt2( "Frames##Subsequence", m_LevelSubsequenceFields );
+            editing = editing || ImGui::IsItemActive();
+            commit  = commit || ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 80.0f );
+            ImGui::InputInt( "Offset##Subsequence", &m_LevelSubsequenceFields[2], 0 );
+            editing = editing || ImGui::IsItemActive();
+            commit  = commit || ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 70.0f );
+            ImGui::InputDouble( "Scale##Subsequence", &m_LevelSubsequenceScale, 0.0, 0.0, "%.3f" );
+            editing                   = editing || ImGui::IsItemActive();
+            commit                    = commit || ImGui::IsItemDeactivatedAfterEdit();
+            m_LevelSubsequenceEditing = editing;
+            if ( commit )
+            {
+                LevelTL::SubsequenceSectionContent content = selected.Content;
+                content.StartOffset                        = Animation::FrameNumber{ m_LevelSubsequenceFields[2] };
+                content.TimeScale                          = m_LevelSubsequenceScale;
+                SetLevelSubsequence( selected.Index,
+                                     Animation::FrameNumber{
+                                          SnapToDisplayFrame( sequence, m_LevelSubsequenceFields[0] * perFrame ) },
+                                     Animation::FrameNumber{
+                                          SnapToDisplayFrame( sequence, m_LevelSubsequenceFields[1] * perFrame ) },
+                                     content );
+            }
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "Remove##Subsequence" ) )
+                DeleteSelectedLevelSubsequence();
+            bottom += rowH + 4.0f;
+        }
+        ImGui::SetCursorScreenPos( ImVec2( contentX0, bottom + 4.0f ) );
+        ImGui::PopID();
+    }
+
     std::vector<SequencerPanel::DocumentAction> SequencerPanel::LevelActions()
     {
         // EVERY BUTTON ABOVE, REACHABLE WITHOUT A MOUSE (see Actions for why a widget alone is not enough).
@@ -1417,6 +1924,35 @@ namespace Desert::Editor
                                                { AddLevelEventKey( ECS::LevelSequenceMasterBinding() ); } } );
         if ( m_LevelSelEvent )
             actions.push_back( DocumentAction{ "Delete Selected Event", [this] { DeleteSelectedLevelEvent(); } } );
+        if ( m_LevelSelEvent )
+            actions.push_back( DocumentAction{ "Clear Selected Event Action",
+                                               [this] { SetSelectedLevelEventAction( std::nullopt ); } } );
+        if ( m_LevelSelSubsequence )
+            actions.push_back(
+                 DocumentAction{ "Delete Selected Subsequence", [this] { DeleteSelectedLevelSubsequence(); } } );
+        for ( const auto& [guid, name] : LevelSubsequenceChoices() )
+            actions.push_back( DocumentAction{ std::format( "Add Subsequence {}", name ),
+                                               [this, sub = guid] { AddLevelSubsequence( sub ); } } );
+        if ( !m_LevelSelKeys.empty() )
+        {
+            for ( size_t i = 0; i < kKeyInterpNames.size(); ++i )
+                actions.push_back(
+                     DocumentAction{ std::format( "Set Key Interp {}", kKeyInterpNames[i] ),
+                                     [this, interp = static_cast<Animation::KeyInterp>( i )] {
+                                         ShapeSelectedLevelKeys(
+                                              interp, static_cast<Animation::TangentMode>( m_LevelKeyTangent ) );
+                                     } } );
+            for ( size_t i = 0; i < kTangentNames.size(); ++i )
+                actions.push_back( DocumentAction{
+                     std::format( "Set Key Tangents {}", kTangentNames[i] ),
+                     [this, mode = static_cast<Animation::TangentMode>( i )] {
+                         ShapeSelectedLevelKeys( static_cast<Animation::KeyInterp>( m_LevelKeyInterp ), mode );
+                     } } );
+            for ( size_t i = 0; i < kEasingNames.size(); ++i )
+                actions.push_back( DocumentAction{ std::format( "Ease Into Selected Keys {}", kEasingNames[i] ),
+                                                   [this, preset = static_cast<LevelTL::EasingPreset>( i )]
+                                                   { EaseSelectedLevelKeys( preset ); } } );
+        }
         for ( const auto& binding : asset->GetSequence().Bindings )
         {
             if ( binding.Kind != LevelTL::BindingKind::Entity )

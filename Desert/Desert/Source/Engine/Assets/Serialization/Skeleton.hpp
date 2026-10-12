@@ -39,6 +39,12 @@ namespace Desert::Assets::Serialization
         /// SKEL 2: skeletons whose clips play on meshes of THIS one (UE USkeleton::CompatibleSkeletons) - one
         /// direction, not transitive. Every file states the list, empty when there is none.
         std::vector<AssetGuidRef> CompatibleSkeletons;
+        /// SKEL 4 (ANIM-FIX5a): the rig's sockets (UE USkeleton::Sockets) - a named point on a bone that
+        /// SocketAttachmentComponent follows by name. Every file states the list, empty when there is none.
+        std::vector<Desert::Animation::SkeletonSocket> Sockets;
+        /// SKEL 4: the rig's bone masks (UE USkeleton::BlendProfiles, BlendMask mode) - a Layered Blend Per Bone
+        /// layer names one instead of restating branch filters. Every file states the list, empty when none.
+        std::vector<Desert::Animation::BoneMask> BoneMasks;
     };
 
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SkeletonTextSubsystems()

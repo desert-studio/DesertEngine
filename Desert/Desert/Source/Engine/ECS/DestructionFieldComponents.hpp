@@ -8,7 +8,7 @@
 // Units: centimetres, kilograms, seconds.
 
 #include <Engine/Destruction/DestructionField.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec3.hpp>
 

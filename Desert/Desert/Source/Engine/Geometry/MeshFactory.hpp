@@ -89,7 +89,7 @@ namespace Desert::Graphic
 
             const auto skinnedMesh =
                  std::make_shared<SkinnedMesh>( asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(),
-                                                skeletonRT, asset->GetVertexStreams() );
+                                                skeletonRT, asset->GetVertexStreams(), asset->GetMorphTargets() );
             if ( !skinnedMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );

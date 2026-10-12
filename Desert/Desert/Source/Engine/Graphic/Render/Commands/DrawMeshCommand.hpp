@@ -29,21 +29,23 @@ namespace Desert::Graphic::Render
         bool                                           CastShadows     = true;
         bool                                           ReceiveShadows  = true;
         int                                            TranslucencySortPriority = 0; // lower draws first
+        float MaxDrawDistance = 0.0f; // StaticMeshComponent::MaxDrawDistance (cm, 0 = no limit)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
                                const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
                                int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
-                               bool receiveShadows = true, int translucencySortPriority = 0 )
+                               bool receiveShadows = true, int translucencySortPriority = 0,
+                               float maxDrawDistance = 0.0f )
              : Entity( entity ), Mesh( mesh ), MaterialSlots( std::move( materialSlots ) ), Transform( transform ),
                Outlined( outlined ), HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ),
                LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
-               TranslucencySortPriority( translucencySortPriority )
+               TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            if ( MaterialSlots )
+            if ( MaterialSlots && renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
                 renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
                                      { .Entity                   = Entity,
                                        .BoneMatrices             = {},

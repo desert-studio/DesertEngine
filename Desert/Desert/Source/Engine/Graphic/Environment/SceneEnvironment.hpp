@@ -21,7 +21,9 @@ namespace Desert::Graphic
 
     struct Environment
     {
-        Common::Filepath Filepath; // TODO: Asset Env
+        // What the cubes were baked from: the source .hdr path, or "ProceduralSky" for the procedural bake.
+        // A record of the source, not a handle anything reloads the environment by.
+        Common::Filepath Filepath;
 
         // THE SHARP CUBE, AND IT IS NOT ALWAYS THERE. Only the .hdr path keeps one: it is what the
         // skybox pass draws as the backdrop and what the two editor previews read. The procedural sky

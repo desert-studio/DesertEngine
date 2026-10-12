@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 
 #include <format>
@@ -1219,7 +1220,6 @@ namespace Desert::Graphic::System
                 // Only the visible transforms are appended, so the slice named by firstInstance is exactly
                 // the instances that survived: nothing downstream needs to know culling happened.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // Visible instances and their levels, gathered in ONE pass over the component's array.
                 // The LOD question is per instance for the same reason the visibility question is: the
@@ -1227,8 +1227,9 @@ namespace Desert::Graphic::System
                 // of a single ISM are not the same object to a renderer.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
-                                     camera->GetPosition(), camera->GetPosition(), maxLevel, visible, levels );
+                const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, mainView,
+                                     mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
@@ -1534,27 +1535,9 @@ namespace Desert::Graphic::System
             return nullptr;
         }
 
-        GraphicsPipelineSpecification spec;
-        spec.DebugName         = cellShader;
-        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
-        spec.Shader            = shader;
-        spec.TargetLayout      = SceneTargetLayout();
-        spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
-        spec.DepthWriteEnabled = false; // translucent: don't occlude later fragments / itself
-        spec.CullMode          = CullMode::Back;
-        spec.BlendEnable       = true; // src-alpha over the composited scene
-
-        const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
-        if ( !pipeline )
-        {
-            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
-            return nullptr;
-        }
-
         // Dedicated to the translucency pass: its per-frame UBs / Materials rows are written once per frame, in
         // RenderGlassManual, and by no opaque pass (see TranslucentDraw).
         auto draw      = std::make_unique<TranslucentDraw>();
-        draw->Pipeline = pipeline.GetValue();
         draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
         draw->Instance = draw->Material->CreateInstance();
         if ( !draw->Instance )
@@ -1563,7 +1546,25 @@ namespace Desert::Graphic::System
                        cellShader );
             return nullptr;
         }
-        slot = std::move( draw );
+
+        GraphicsPipelineSpecification spec;
+        spec.DebugName      = cellShader;
+        spec.Layout         = MeshVertexLayout( MeshVertexPath::Static );
+        spec.Shader         = shader;
+        spec.TargetLayout   = SceneTargetLayout();
+        spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+        spec.CullMode       = CullMode::Back;
+        // The cell's template decides over (Translucent) or added (Additive) - one rule, shared with the sprites.
+        ApplySurfaceBlendMode( spec, draw->Material->GetSchema().Blend );
+
+        const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
+            return nullptr;
+        }
+        draw->Pipeline = pipeline.GetValue();
+        slot           = std::move( draw );
         return slot.get();
     }
 

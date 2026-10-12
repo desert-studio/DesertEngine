@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <glm/glm.hpp>
 #include <entt/entt.hpp>
@@ -35,6 +35,7 @@ namespace Desert::Editor::Core
         bool                                  RightDown = false;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
         std::vector<::Desert::UI::UIKeyEvent> Keys; // key presses this frame, in order (UIInput::Keys)
+        ::Desert::UI::UIKeyMods Mods = ::Desert::UI::UIKeyMods::None; // modifiers held (UIInput::Mods)
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 
         entt::entity Focused = entt::null; // persisted keyboard focus across frames

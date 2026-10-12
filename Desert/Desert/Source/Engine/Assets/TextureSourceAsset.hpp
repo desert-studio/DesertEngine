@@ -33,8 +33,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -43,14 +45,22 @@ namespace Desert::Assets
 
     // The envelope's subsystem stamp for the IMPT layout below (UE custom version).
     inline constexpr uint32_t kTextureAssetSubsystemTag     = Common::Content::FourCC( "TXAS" );
-    inline constexpr uint32_t kTextureAssetSubsystemVersion = 1;
+    //   1  IMPT = SourceFile, SourceHash, Intent
+    //   2  + ColorSpace (TEX-SRGB, UE UTexture::SRGB). A version-1 asset is REFUSED by the reader and raised by
+    //      SceneMigrator (UpgradeTextureSourceAsset), never read leniently.
+    inline constexpr uint32_t kTextureAssetSubsystemVersion = 2;
 
     // Import settings: what, besides the source bytes, shapes the platform data. Serialized into IMPT and,
     // separately and in a fixed order, into the DDC key (SerializeTextureSettingsForKey).
     struct TextureImportSettings
     {
         Core::Formats::TextureIntent Intent = Core::Formats::TextureIntent::Unspecified;
-        bool                         operator==( const TextureImportSettings& ) const = default;
+        // UE UTexture::SRGB: the colour space the source's values are in. Authored (travels by NAME in IMPT);
+        // set at first import from the material slot that binds the texture (baseColor/emissive sRGB, normal/
+        // ORM/masks Linear) or, with no slot, DefaultTextureColorSpace. Drives the mip filter (linear light)
+        // and the GPU view format (*_SRGB).
+        Core::Formats::TextureColorSpace ColorSpace = Core::Formats::TextureColorSpace::SRGB;
+        bool                             operator==( const TextureImportSettings& ) const = default;
     };
 
     struct TextureImportInfo
@@ -116,9 +126,39 @@ namespace Desert::Assets
     // packing, the alpha probe) that may be handed either a loose image or an asset derived from an embedded one.
     Common::ResultStr<std::vector<std::byte>> ReadTextureSourceImage( const std::filesystem::path& file );
 
+    // THE ONE DEFAULT for an asset no material slot speaks for (a loose image's first import, the migration of
+    // a version-1 asset): a float source (Radiance `#?RADIANCE`/`#?RGBE`, OpenEXR `v/1\x01`) is Linear --
+    // its values are scene-linear radiance; otherwise Colour and Unspecified are sRGB (UE's default SRGB=true) and
+    // NormalMap, Mask and Data are Linear.
+    Core::Formats::TextureColorSpace DefaultTextureColorSpace( Core::Formats::TextureIntent intent,
+                                                               std::span<const std::byte>   sourceBytes );
+
+    // SceneMigrator's step for a version-1 `.detex` (no ColorSpace): the same asset at the current version with
+    // ColorSpace = DefaultTextureColorSpace. nullopt = already current; an error = not a texture asset or
+    // unreadable at either version.
+    Common::ResultStr<std::optional<std::vector<std::byte>>>
+    UpgradeTextureSourceAsset( std::span<const std::byte> file );
+
+    // Rewrites the asset at @p asset with @p space when it states another (identity, source and intent kept).
+    // True when the file changed. The material importer's slot is the authority for the textures it binds.
+    Common::ResultStr<bool> SetTextureColorSpace( const std::filesystem::path&     asset,
+                                                  Core::Formats::TextureColorSpace space );
+
     // True when the file is an envelope whose header states a texture (or skybox) kind — a legacy `.detex`
     // (JSON `{"Intent": ...}`) is not, and neither is another binary asset such as a `.dclayout`.
     bool IsTextureSourceAssetFile( const std::filesystem::path& file );
+
+    // THE PRE-ASSET `.detex`: a JSON `{"Intent": "<name>"}` sidecar beside an image, from before the texture
+    // was an asset. It is NOT READ -- not by the importer, not by the cook, not by SceneMigrator: a file at the
+    // asset's path that is not a texture asset is REFUSED by path (UE LinkerLoad.cpp:1537-1546, a package
+    // older than the oldest loadable version is an error naming the file, never a lenient load). True when the
+    // first non-blank byte opens a JSON object, which no envelope (magic `DAST`) does.
+    bool IsLegacyTextureIntentSidecar( std::span<const std::byte> file );
+
+    // The one sentence every refusal of a legacy sidecar ends with: what it is and what replaces it.
+    inline constexpr std::string_view kLegacyTextureIntentSidecarRefusal =
+         "a pre-asset JSON intent sidecar (an object with one Intent key), which this build does not read; "
+         "delete it, import the image beside it, and set Intent in the texture asset's Details";
 
     // ── THE DERIVED DATA KEY ─────────────────────────────────────────────────────────────────────────
     // UE: TEXTURE_DERIVEDDATA_VER (TextureDerivedData.cpp:68). Change it whenever the platform data the

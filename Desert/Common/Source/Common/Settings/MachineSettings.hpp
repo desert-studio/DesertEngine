@@ -90,8 +90,7 @@ namespace Common::Settings
     {
         // THE QUALITY THIS MACHINE ASKED FOR (SCAL1): a level per group plus per-parameter overrides. Written only
         // through Scalability::QualityState (its Saver lands here); every renderer reads the RESOLVED values
-        // (QualityState::Resolved()), never this. Replaces the six retired knobs AAMethod, MSAASamples,
-        // TextureFilterMode, Anisotropy, MeshLOD and CloudQualityTier (see MigrateRetiredKeys).
+        // (QualityState::Resolved()), never this.
         // ABSENT = this machine never chose: QualityBoot starts on StartingQuality's answer (the benchmark's
         // recommendation when it is valid for this device, UE's auto-detect on first run; else all High), and
         // the key appears in the file the first time a selection is applied.
@@ -123,9 +122,8 @@ namespace Common::Settings
         // one: the editor and the game, at any two vintages. A file with two hosts must not learn the
         // lesson a second time.
         //
-        // It is not a compatibility shim and it does not keep legacy alive (contract §4). A key this
-        // project DELETES on purpose is retired by name, not left unknown: `AA` (post AA before the one
-        // AAMethod), see MigrateRetiredKeys.
+        // It is not a compatibility shim and it does not keep legacy alive (contract §4): nothing migrates
+        // a key at load and no list of retired keys is kept. Load() names every carried key in a WARN.
         Json::CarriedKeys UnknownKeys;
 
         // THE STORED STATE. Quality is read once, by the host, into Scalability::QualityState::Initialize; after
@@ -134,11 +132,8 @@ namespace Common::Settings
 
         // Reads `file` into Get(), and REMEMBERS IT as the place Save() writes. Missing file = this
         // machine has never chosen anything, so the defaults above stand and nothing is written; a file
-        // that exists and cannot be read or parsed is reported and the defaults stand.
-        //
-        // `table` is the parsed Scalability.json: the retired-key migration needs its High values (see
-        // MigrateRetiredKeys), so the host parses the table before it loads this file.
-        static void Load( const std::filesystem::path& file, const Scalability::ScalabilityTable& table );
+        // that exists and cannot be read or parsed is reported and the defaults stand. It never writes.
+        static void Load( const std::filesystem::path& file );
 
         // The path Load() was given, or an empty path when this process never called it.
         static const std::filesystem::path& File();
@@ -171,30 +166,6 @@ namespace Common::Settings
         };
         [[nodiscard]] static StartingQuality StartFrom( const MachineSettings&                settings,
                                                         const Scalability::BenchmarkCacheKey& device );
-
-        // What one migration did, for the log line and the tests.
-        struct RetiredKeyMigration
-        {
-            int  KeysMoved = 0; // retired keys found in the file (each is removed from UnknownKeys)
-            int  Overrides = 0; // of those, the ones whose value differs from the High table value
-            bool operator==( const RetiredKeyMigration& ) const = default;
-        };
-        // THE MIGRATION OF THE RETIRED SCHEMA (SCAL1; expires with machine.json written before task/SCAL1),
-        // applied by Load(). PURE: `rawJson` is the text `settings` was read from, `table` gives the High values.
-        //
-        // The retired keys are AAMethod, MSAASamples, TextureFilterMode, Anisotropy, MeshLOD, CloudQualityTier and
-        // the older `AA` (the post filter before AAMethod). When the file holds any of them and NO `Quality` key,
-        // the selection becomes all-High plus one override per retired value that differs from the High table
-        // value — so an untouched machine comes out with zero overrides. MSAASamples moves only under AAMethod
-        // MSAA (it was read only there); `AA` stands for AAMethod when AAMethod is absent (MSAASamples > 1 meant
-        // MSAA). When the file already holds `Quality` (a newer build re-saved it and an older one added its keys
-        // back), Quality wins and the retired keys are only dropped. Either way they leave UnknownKeys, so the
-        // next save writes only `Quality`. A retired value that cannot be read is reported and not migrated.
-        static RetiredKeyMigration MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson,
-                                                       const Scalability::ScalabilityTable& table );
-        // Removes the retired keys from `settings.UnknownKeys` without migrating them — the re-read before a save,
-        // where the live Quality already holds this session's answer.
-        static void DropRetiredKeys( MachineSettings& settings );
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
 

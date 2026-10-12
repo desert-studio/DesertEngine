@@ -27,10 +27,12 @@ namespace Desert::Assets
         // or a DAST envelope (MeshSourceAsset), and the extension says neither. Reading only the MeshBinary
         // prefix gave an envelope the path-derived handle while the content registry, reading the same
         // file through this same function, stated the GUID's — two identities for one mesh.
-        // A file that states no GUID (absent — a cook-create names a file about to be written — or a pre-v3
-        // cook) keeps the path-derived handle and a null Guid(); a malformed header does too, and the load
-        // refuses it by name, so no mesh is ever READY under that handle. RecordOnly: identity is all this
-        // needs, and the load judges the subsystem versions.
+        // An ABSENT file (a cook-create names a file about to be written) with no import record keeps the
+        // path-derived handle and a null Guid(). A cooked mesh of any version but the current one (v1-2 state no
+        // GUID, v3-4 state it at another offset) is REFUSED by the header reader by name, as a malformed header
+        // is (UE LinkerLoad.cpp:1537-1546), and the load refuses it again - so no mesh is ever READY under a
+        // path-derived handle. RecordOnly: identity is all this needs, and the load judges the subsystem
+        // versions.
         MeshAsset( const Common::Filepath& filepath, const AssetTypeID type ) : AssetBase( filepath, type )
         {
             // AN IMPORT SINCE AF4h HAS NO FILE AT THIS PATH (its envelope is in the DDC): its identity is the

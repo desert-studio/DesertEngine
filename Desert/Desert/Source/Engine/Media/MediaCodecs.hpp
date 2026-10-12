@@ -131,9 +131,12 @@ namespace Desert::Media
         std::string   m_Error;
     };
 
-    // Opus → interleaved float PCM at 48 kHz (Opus's own rate, whatever the source was), with the stream's
-    // pre-skip dropped at the start and each packet's DiscardPadding dropped at the end — so a one-second
-    // clip decodes to exactly 48 000 frames.
+    // Opus → interleaved float PCM at 48 kHz (Opus's own rate, whatever the source was). Every decoded sample
+    // is placed on the PRESENTATION timeline — block time minus the track's CodecDelay (Matroska), which is
+    // RFC 7845's pre-skip — and what lies before the start point is dropped: from the start that is exactly
+    // the pre-skip, after a seek it is the pre-skip-free lead the demuxer restarted early by (SeekPreRoll, so
+    // the decoder has converged by the target). Each packet's DiscardPadding is dropped at the end — so a
+    // one-second clip decodes to exactly 48 000 frames.
     class OpusAudioDecoder
     {
     public:
@@ -144,10 +147,24 @@ namespace Desert::Media
         OpusAudioDecoder( const OpusAudioDecoder& )            = delete;
         OpusAudioDecoder& operator=( const OpusAudioDecoder& ) = delete;
 
-        std::string Open( const WebmAudioTrack& track ); // empty on success
-        // Appends the packet's samples to `interleaved`; returns the number of frames appended, -1 on error.
+        // Empty on success. The track's CodecDelay is the pre-skip; OpusHead's own pre-skip must agree with it.
+        std::string Open( const WebmAudioTrack& track );
+        // Appends the packet's samples at or after the start point to `interleaved`; returns the number of
+        // frames appended, -1 on error.
         int64_t Decode( const MediaPacket& packet, std::vector<float>& interleaved );
-        void    Reset( bool fromStart ); // seek: decoder state cleared; pre-skip again when fromStart
+        // Seek: decoder state cleared; output starts at `startNs` on the presentation timeline (0 = the first
+        // sample after the pre-skip).
+        void Reset( int64_t startNs );
+        // Frames decoded and dropped before the start point since Open/Reset: the pre-skip from the start,
+        // the SeekPreRoll lead after a seek.
+        [[nodiscard]] uint64_t LeadFramesDropped() const
+        {
+            return m_LeadDropped;
+        }
+        [[nodiscard]] uint32_t PreSkipFrames() const
+        {
+            return m_PreSkip;
+        }
         [[nodiscard]] uint32_t Channels() const
         {
             return m_Channels;
@@ -161,8 +178,11 @@ namespace Desert::Media
         OpusDecoder*       m_Decoder     = nullptr;
         OpusMSDecoder*     m_MultiStream = nullptr;
         uint32_t           m_Channels    = 0;
-        uint32_t           m_PreSkip     = 0;
-        uint32_t           m_SkipLeft    = 0;
+        uint32_t           m_PreSkip     = 0;     // frames, from the track's CodecDelay
+        int64_t            m_StartFrame  = 0;     // presentation-timeline frame the output starts at
+        int64_t            m_NextFrame   = 0;     // presentation-timeline frame of the next decoded sample
+        bool               m_Anchored    = false; // m_NextFrame placed by the first packet since Open/Reset
+        uint64_t           m_LeadDropped = 0;
         std::vector<float> m_Scratch;
         std::string        m_Error;
     };

@@ -116,7 +116,8 @@ namespace Desert::Editor
                  {
                      // The heavy part, OFF the main thread. No GPU, no AssetManager, no ECS — only this
                      // loader's own ImportManager + the filesystem.
-                     m_Importer.Import( job.SourcePath );
+                     // A drop is the user's import (UE: the factory), never the cook.
+                     m_Importer.Import( job.SourcePath, ImportPass::Import );
 
                      {
                          std::lock_guard<std::mutex> lk( m_Mutex );

@@ -1,7 +1,7 @@
 -- UNITY (JUMBO) BUILD FOR THE WINDOWS CI JOB, AND FOR NOTHING ELSE.
 --
 -- `premake5 vs2022 --unity` turns on MSBuild's own unity support (<EnableUnitySupport>) for the three
--- projects that hold almost all of the code -- Common, Desert and Editor -- through
+-- projects that hold almost all of the code -- Common, Desert and EditorCore -- through
 -- DesertUnity.EnableForProject(), which each of those project scripts calls. MSBuild then writes
 -- unity_*.cpp files into IntDir, each #including up to MaxFilesInUnityFile of the project's sources,
 -- and compiles those instead of the sources one by one: the headers every source repeats are parsed
@@ -21,7 +21,7 @@
 
 newoption {
     trigger     = "unity",
-    description = "Visual Studio only: compile Common, Desert and Editor as MSBuild unity files (CI speed; see BuildScripts/UnityBuild.lua)",
+    description = "Visual Studio only: compile Common, Desert and EditorCore as MSBuild unity files (CI speed; see BuildScripts/UnityBuild.lua)",
 }
 
 DesertUnity = {}
@@ -29,7 +29,7 @@ DesertUnity = {}
 -- Sources per unity file. MSBuild's own default has no upper bound, and one huge unity file per project
 -- would undo the only intra-project parallelism the CI build has (one cl.exe per source through the
 -- MultiToolTask, see BuildScripts/MSBuild/Ccache.props): Desert (~340 sources) would compile on one
--- core. 12 keeps Desert at ~30 unity files and Editor at ~13 -- enough to fill the runner's four cores
+-- core. 12 keeps Desert at ~30 unity files and EditorCore at ~13 -- enough to fill the runner's four cores
 -- -- while still sharing each group's header parse twelve ways.
 DesertUnity.MaxFilesInUnityFile = 12
 
@@ -37,7 +37,7 @@ DesertUnity.MaxFilesInUnityFile = 12
 -- unit. A pattern is a premake `filter "files:..."` pattern and starts with a bare `**` on purpose:
 -- `**/ThirdParty/**` matched the engine's vendored sources (listed from the workspace root) but NOT
 -- Editor's `ThirdParty/ImGuizmo/ImGuizmo.cpp` (listed relative to Editor/) -- measured in the
--- generated Editor.vcxproj, which carried no <IncludeInUnityFile> until the slash went.
+-- generated Editor.vcxproj (now EditorCore.vcxproj), which carried no <IncludeInUnityFile> until the slash went.
 DesertUnity.OptOut = {
     {
         pattern = "**ThirdParty/**",
@@ -66,7 +66,7 @@ DesertUnity.OptOut = {
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp", why = "clang unity check: redefinition of 'kGroupSize'" },
-    { pattern = "**Source/Engine/UI/UICanvasRenderer2D.cpp", why = "clang unity check: redefinition of 'CanvasFit'" },
+    { pattern = "**Source/UI/UICanvasRenderer2D.cpp", why = "clang unity check: redefinition of 'CanvasFit'" },
     { pattern = "**Source/Engine/World/Landscape/LandscapeEditCache.cpp", why = "clang unity check: redefinition of 'FloorDiv'" },
     { pattern = "**Source/Editor/Panels/Clouds/CloudLayoutPanel.cpp", why = "clang unity check: no member named 'Formats' in namespace 'Desert::Editor::Core'; did you mean '::Desert::Core::Formats" },
     { pattern = "**Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp", why = "clang unity check: no member named 'Formats' in namespace 'Desert::Editor::Core'; did you mean '::Desert::Core::Formats" },

@@ -211,6 +211,21 @@ TEST_F( AssetOpenRoute, ASkeletonOpensInPersonasSkeletonModeAndAClipInItsAnimati
     EXPECT_EQ( PersonaModeFor( clip ), PersonaMode::Animation );
 }
 
+// THE ANIM GRAPH IS AN ASSET EDITOR (ANIM-FIX8), as UE's Animation Blueprint Editor: a `.danimgraph` opens as
+// its own asset subject — no entity, no scene — so a double-click in the browser reaches the window, and two
+// characters on one graph reach ONE window. It used to be a component subject and the type was refused.
+TEST_F( AssetOpenRoute, AnAnimGraphOpensAsItsAssetSubject )
+{
+    EXPECT_EQ( AssetOpenRefusal( Assets::AssetTypeID::AnimGraph ), nullptr );
+    const auto registry = Registering( { Assets::AssetTypeID::AnimGraph } );
+    const auto graph    = MetadataAt( 0x5C6, Assets::AssetTypeID::AnimGraph, "AnimGraphs/ABP_Walk.danimgraph" );
+    const auto subject  = AssetSubjectFor( &graph, graph.Handle, registry );
+    ASSERT_TRUE( subject.IsSuccess() ) << subject.GetError();
+    EXPECT_EQ( subject.GetValue(),
+               AssetSubject( graph.Handle, static_cast<uint32_t>( Assets::AssetTypeID::AnimGraph ) ) );
+    EXPECT_EQ( PersonaModeFor( graph ), std::nullopt );
+}
+
 namespace
 {
     std::string ReadRepoFile( const char* relative )
@@ -326,4 +341,29 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
          std::format( R"({}\([^)]*\)\s*\{{[^}}]*SceneOpenRequest::Request\()", entry[1].str() ) );
     EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
                                                     << ", which does not call SceneOpenRequest::Request";
+}
+
+// A `.dfxch` DOUBLE-CLICK REACHES THE CHANNEL EDITOR (VFX-10c). The browser's double-click asks the registry
+// (OpenPath) for every file that is not a folder or a scene; the registry answers for `.dfxch` only if a path
+// opener is registered under the format's own extension constant and hands the path to the channel editor's
+// opener. Red when the opener is not registered, is registered under another extension, calls something else,
+// when VFXDataChannel is back on the no-editor list, or when the browser stops routing double-clicks to OpenPath.
+TEST( AssetOpenRegister, AVFXDataChannelFileHasAPathOpener )
+{
+    EXPECT_EQ( AssetOpenRefusal( Assets::AssetTypeID::VFXDataChannel ), nullptr );
+
+    const std::string layer = ReadRepoFile( "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp" );
+    ASSERT_FALSE( layer.empty() )
+         << "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp not found from the working directory";
+    const std::regex opener(
+         R"(RegisterPathOpener\(\s*\{\s*std::string\(\s*Assets::Serialization::kVFXDataChannelExtension\s*\)\s*\}\s*,[^;]*RequestVFXDataChannelDocument\()" );
+    EXPECT_TRUE( std::regex_search( layer, opener ) )
+         << "no path opener for Assets::Serialization::kVFXDataChannelExtension calls "
+            "RequestVFXDataChannelDocument";
+
+    const std::string browser = ReadRepoFile( "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    ASSERT_FALSE( browser.empty() );
+    EXPECT_NE( browser.find( "else if ( doubleClicked && m_SubjectEditors )" ), std::string::npos )
+         << "the browser's double-click no longer falls through to the registry";
+    EXPECT_NE( browser.find( "m_SubjectEditors->OpenPath( entry->AssetPath )" ), std::string::npos );
 }

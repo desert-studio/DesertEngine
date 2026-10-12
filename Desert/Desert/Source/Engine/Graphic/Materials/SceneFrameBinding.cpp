@@ -39,8 +39,8 @@ namespace Desert::Graphic
         // preview that binds one map and would otherwise ask the shader to walk four.
         if ( Reads( groups, SceneRead::Shadow ) )
         {
-            SceneShadowBind( material, CascadeViewProj, CascadeCount, ShadowBias, ShadowsEnabled, ShadowDebugMode,
-                             ShowNormals, CascadeTexelWorld, LightingDebug );
+            SceneShadowBind( material, CascadeViewProj, CascadeCount, ShadowsEnabled, ShadowDebugMode, ShowNormals,
+                             CascadeTexelWorld, LightingDebug );
         }
 
         if ( Reads( groups, SceneRead::Environment ) )

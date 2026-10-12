@@ -135,6 +135,13 @@ namespace Desert::Scripting
         [[nodiscard]] Common::BoolResultStr Call( LuauSlot slot, const char* function,
                                                   std::span<const Reflection::Value> args = {} );
 
+        /// Calls the slot's global `function` with ONE entity of `registry` (an engine event about an actor:
+        /// the GameMode's OnPawnDied / OnPlayerRestarted) followed by `after` (OnHit's point, normal, impulse),
+        /// under the watchdog.
+        [[nodiscard]] Common::BoolResultStr CallWithEntity( LuauSlot slot, const char* function,
+                                                            entt::registry& registry, entt::entity entity,
+                                                            std::span<const Reflection::Value> after = {} );
+
         /// Calls the slot's global `function` with the `count` values at `first..` of `from`'s stack (a native
         /// forwarding a script's own arguments — entity:call(fn, ...)), under the watchdog.
         [[nodiscard]] Common::BoolResultStr CallFrom( LuauSlot slot, const char* function, lua_State* from,
@@ -152,6 +159,11 @@ namespace Desert::Scripting
 
         /// The string-keyed boolean / number / string entries of the slot's global `table`; empty when absent.
         [[nodiscard]] std::vector<LuauTableEntry> ReadTable( LuauSlot slot, const char* table ) const;
+
+        /// The array part (1..n) of the slot's global `table` as names: empty when the global is nil; refused
+        /// when it is not a table or an entry is not a string (the error names the entry's 1-based index).
+        [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadStringList( LuauSlot    slot,
+                                                                                  const char* table ) const;
 
         /// THE CONSOLE (REPL): runs `code` as an expression first, then as a statement, in one sandbox that
         /// keeps its globals between lines. Everything printed and the expression's values land in `output`.

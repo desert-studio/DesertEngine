@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
@@ -28,8 +29,9 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/Graphic/RenderGraphBuilder.hpp>
+#include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -143,6 +145,9 @@ namespace Desert::Graphic::System
 
         // optional
         std::vector<glm::mat4> BoneMatrices;
+        // Skinned only: MorphComponent's weights and revision (empty = drawn unmorphed). See UpdateMorphTargets.
+        std::vector<float> MorphWeights;
+        uint64_t           MorphRevision = 0;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -304,12 +309,26 @@ namespace Desert::Graphic::System
                        "would write matrices no shader ever reads." );
 
         virtual Common::BoolResultStr Initialize() override;
-        virtual void                  RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The raster passes this renderer hands the frame build (SceneRenderer::AddFrameShadowDepths,
+        // AddFrameBasePass, AddFrameSilhouette and the debug overlay add them, in that order of the frame). Each
+        // is empty (no TargetFramebuffer) when its pipeline or target was never built: the frame then has no such
+        // pass. The forward geometry of the scene target; LOAD, after the sky that clears it.
+        [[nodiscard]] SystemRasterPass GeometryPass();
+        // The silhouette mask (always produced and cleared, so the Jump Flood outline has a fresh input every
+        // frame; outline visibility is JumpFloodOutlineRenderer's).
+        [[nodiscard]] SystemRasterPass SilhouettePass();
+        // One depth-only pass per cascade, cascade 0 first; each clears its own cascade target.
+        [[nodiscard]] std::vector<SystemRasterPass> ShadowCascadePasses();
+#if DESERT_DEV_INSTRUMENTS
+        // The bounding-box lines over the lit scene, depth-tested.
+        [[nodiscard]] SystemRasterPass DebugLinesPass();
+#endif
 
         // Silhouette mask of the currently outlined meshes (white on the framebuffer clear color).
         // Consumed by JumpFloodOutlineRenderer to build the outline.
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
-        // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
+        // (outside the graph — see the note in GeometryPass). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
         // G-buffer shaders sample no scene/view input). The exec records that list.
@@ -484,6 +503,14 @@ namespace Desert::Graphic::System
         // nondeterministic). Called from SceneRenderer::OnUpdate.
         void UpdateCascades();
 
+        // MORPH TARGETS BEFORE SKINNING (UE FSkeletalMeshObjectGPUSkin::Update -> GPUMorphUpdateCS). Runs the
+        // morph graph of this frame: one compute node per skinned component whose MorphComponent revision moved
+        // since its morphed vertices were last blended (or that has none yet), base + Σ weight·delta into the
+        // component's own vertex buffer, handed to vertex input at the graph's end. Every pass then skins the
+        // morphed twin SubmitMesh put on the skinned queue. No changed revision = no graph, no dispatch. Called
+        // from SceneRenderer::OnUpdate after the frame's draws were submitted and before the view graph records.
+        void UpdateMorphTargets();
+
         // Cascade depth map (for the editor's CSM debug viewer). Null if out of range / not yet created.
         std::shared_ptr<Image2D> GetCascadeShadowImage( uint32_t cascade ) const
         {
@@ -526,15 +553,17 @@ namespace Desert::Graphic::System
         // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
         [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
-        void SetShadows( bool enabled, float bias, int debugMode, float splitLambda )
+        void SetShadows( const ViewShadowSettings& shadows, int debugMode )
         {
-            m_ShadowsEnabled  = enabled;
-            m_ShadowBias      = bias;
+            m_ShadowsEnabled  = shadows.Enabled;
+            m_ShadowBias      = shadows.Bias;
             m_ShadowDebugMode = debugMode;
-            m_SplitLambda     = splitLambda;
+            m_SplitLambda     = shadows.CascadeSplitLambda;
         }
-        bool  AreShadowsEnabled() const { return m_ShadowsEnabled; }
-        float GetShadowBias() const     { return m_ShadowBias; }
+        bool AreShadowsEnabled() const
+        {
+            return m_ShadowsEnabled;
+        }
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
 
@@ -623,8 +652,6 @@ namespace Desert::Graphic::System
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
-        void RegisterSilhouettePass( RenderGraphBuilder& builder );
-        void RegisterShadowPass( RenderGraphBuilder& builder );
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
         // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
@@ -637,7 +664,6 @@ namespace Desert::Graphic::System
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
-        void RegisterDebugPass( RenderGraphBuilder& builder );
 #endif // DESERT_DEV_INSTRUMENTS
 
     private:
@@ -792,8 +818,13 @@ namespace Desert::Graphic::System
         // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
         // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
         glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
+        // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
+        // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
+        glm::mat4 m_CascadeCasterVP[kMaxCascades] = { glm::mat4( 1.0f ), glm::mat4( 1.0f ), glm::mat4( 1.0f ),
+                                                      glm::mat4( 1.0f ) };
+        CascadeCasterBias                 m_CascadeCasterBias[kMaxCascades]{};
         bool                              m_ShadowsEnabled  = true;
-        float                             m_ShadowBias      = 0.005f;
+        CascadeBiasSettings               m_ShadowBias;
         int                               m_ShadowDebugMode = 0;     // ShadowDebugMode (Off/ShadowFactor/Cascades)
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
 
@@ -825,6 +856,35 @@ namespace Desert::Graphic::System
 
         std::vector<StaticMeshRenderData>  m_StaticQueue;
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
+
+        // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
+        // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision
+        // the vertices hold (UE FMorphVertexBufferPool revision number); Pending carries the weights the next
+        // UpdateMorphTargets blends. A twin not drawn for kMorphTwinIdleFrames frames is released.
+        struct MorphTwin
+        {
+            SkinnedMesh*                  Base = nullptr;
+            std::shared_ptr<SkinnedMesh>  Twin;
+            std::shared_ptr<VertexBuffer> Vertices;
+            std::shared_ptr<VertexBuffer> BaseVertices;
+            bool                          Blended  = false;
+            uint64_t                      Revision = 0;
+            bool                          Pending  = false;
+            std::vector<float>            PendingWeights;
+            uint64_t                      PendingRevision = 0;
+            uint64_t                      LastDrawn       = 0;
+            RDG::ExternalBuffer           BaseImport;
+            RDG::ExternalBuffer           DeltasImport;
+            RDG::ExternalBuffer           OutputImport;
+        };
+        static constexpr uint64_t               kMorphTwinIdleFrames = 8;
+        std::unordered_map<uint32_t, MorphTwin> m_MorphTwins;
+        uint64_t                                m_MorphFrame = 0;
+        std::shared_ptr<ComputePipeline>        m_MorphPipeline;
+        ShaderBindingLayoutCache                m_MorphLayout;
+        // The mesh a skinned draw skins from: the entity's morphed twin when its weights are non-zero, else
+        // the base mesh. Records the blend UpdateMorphTargets owes when the revision moved.
+        SkinnedMesh* MorphedMeshFor( const MeshRenderData& data, SkinnedMesh* base );
 
         // Generic (data-driven) static meshes + a cache of the materials that record them. Per-object data
         // is the transform push constant plus a ROW of the material's `Materials[]` buffer, named by a

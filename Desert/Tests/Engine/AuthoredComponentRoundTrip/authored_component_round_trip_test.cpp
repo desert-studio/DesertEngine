@@ -1,8 +1,9 @@
 // DOES AN AUTHORED COMPONENT WITH NO REFLECTED DATA BLOCK SURVIVE BEING WRITTEN AND READ BACK?
 //
 // Five of them did not survive anything at all until U13: Foliage, Locomotion, Morph,
-// SocketAttachment and Projectile each had a full Details editor and no line in ComponentRegistry.cpp,
-// so every value an artist set was discarded by the next load. `ComponentPersistence` next door is the
+// SocketAttachment and Projectile (a reflected block since LEG-PROJECTILE) each had a full Details
+// editor and no line in ComponentRegistry.cpp, so every value an artist set was discarded by the next
+// load. `ComponentPersistence` next door is the
 // gate that stops a SIXTH one existing — it asserts that the component is named by the table. This
 // suite asserts the other half, which a name cannot: that the mapping is COMPLETE and EXACT, field by
 // field, through the JSON text a `.desce` actually holds.
@@ -89,7 +90,7 @@ namespace
     // ── THE FIELD CENSUS ───────────────────────────────────────────────────────────────────────────
     //
     // Comparing the keys the writer emits against the fields the STRUCT declares. Without this, adding
-    // a field to LocomotionComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
+    // a field to SocketAttachmentComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
     // round-trips, the suite still passes, and one slider out of eleven stops being saved.
 
     std::string RepoRoot()
@@ -199,10 +200,10 @@ namespace
     // A struct field that is deliberately NOT written, with the reason. Exactly one exists; a second
     // one is a conversation, because "not saved" is the defect this whole task is about.
     const std::map<std::string, std::string> kNotWritten = {
-         { "AppliedWeights",
-           "MorphComponent's cache of the last weights the runtime blended into the geometry. Writing a "
-           "frame of cache into the file would make a saved scene differ from itself depending on when "
-           "it was saved." },
+         { "Revision",
+           "MorphComponent's count of this session's changes of Weights, which the renderer compares to re-blend "
+           "only on a change. Writing it would make a saved scene differ from itself depending on how often "
+           "it was edited." },
          { "Heights",
            "LandscapeTileComponent's loaded tile: what HeightFile decodes to. The samples live in the DLHT "
            "file beside the scene, and writing them into the block too would be two copies of one terrain." },
@@ -260,52 +261,28 @@ namespace
     }
 } // namespace
 
-// ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryLocomotionFieldComesBack )
-{
-    ECS::LocomotionComponent written;
-    written.IdleClip  = "Anim_Idle_Relaxed";
-    written.WalkClip  = "Anim_Walk_Fwd";
-    written.RunClip   = "Anim_Sprint";
-    written.JumpClip  = "Anim_Jump_Start";
-    written.WalkSpeed = 33.75f;
-    written.RunSpeed  = 412.5f;
-
-    const ECS::LocomotionComponent read = RoundTrip( written );
-
-    EXPECT_EQ( read.IdleClip, written.IdleClip );
-    EXPECT_EQ( read.WalkClip, written.WalkClip );
-    EXPECT_EQ( read.RunClip, written.RunClip );
-    EXPECT_EQ( read.JumpClip, written.JumpClip );
-    EXPECT_FLOAT_EQ( read.WalkSpeed, written.WalkSpeed );
-    EXPECT_FLOAT_EQ( read.RunSpeed, written.RunSpeed );
-}
-
-TEST( AuthoredComponentRoundTrip, TheLocomotionBlockNamesEveryLocomotionField )
-{
-    ExpectEveryFieldIsWritten( "LocomotionComponent", WriteComponent( ECS::LocomotionComponent{} ) );
-}
-
 // ── MORPH ──────────────────────────────────────────────────────────────────────────────────────────
 TEST( AuthoredComponentRoundTrip, EveryMorphWeightComesBackIndexAligned )
 {
     ECS::MorphComponent written;
-    written.Weights        = { 0.0f, 0.25f, 1.0f, 0.75f };
-    written.TargetNames    = { "Smile", "BrowRaise", "JawOpen", "EyeBlink_L" };
-    written.AppliedWeights = { 9.0f, 9.0f, 9.0f, 9.0f };
+    // Edited three times in the writer's session: its revision is 3, the reader's starts afresh.
+    written.SetWeights( { 0.5f, 0.25f, 1.0f, 0.75f } );
+    written.SetWeight( 0, 1.0f );
+    written.SetWeight( 0, 0.0f );
+    written.TargetNames = { "Smile", "BrowRaise", "JawOpen", "EyeBlink_L" };
 
     const ECS::MorphComponent read = RoundTrip( written );
 
-    ASSERT_EQ( read.Weights.size(), written.Weights.size() );
-    for ( std::size_t i = 0; i < written.Weights.size(); ++i )
-        EXPECT_FLOAT_EQ( read.Weights[i], written.Weights[i] ) << "weight " << i;
+    ASSERT_EQ( read.GetWeights().size(), written.GetWeights().size() );
+    for ( std::size_t i = 0; i < written.GetWeights().size(); ++i )
+        EXPECT_FLOAT_EQ( read.GetWeights()[i], written.GetWeights()[i] ) << "weight " << i;
     EXPECT_EQ( read.TargetNames, written.TargetNames );
 
-    // The cache is not part of the file, so a fresh component must come back with it EMPTY rather than
-    // with a frame of somebody else's blend in it.
-    EXPECT_TRUE( read.AppliedWeights.empty() )
-         << "AppliedWeights was written to the scene; it is a per-frame cache and a saved scene would "
-            "differ from itself depending on when it was saved";
+    // The revision is not part of the file: the read component counts from its own fresh start (one bump
+    // for the read itself) rather than carrying the writer's session count.
+    EXPECT_NE( read.GetRevision(), written.GetRevision() )
+         << "Revision was written to the scene; it counts one session's edits and a saved scene would "
+            "differ from itself depending on how often it was edited";
 }
 
 TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotTrusted )
@@ -322,8 +299,8 @@ TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotT
     ECS::MorphComponent read;
     ReadAt( ThroughJsonText( block ), read );
 
-    EXPECT_EQ( read.Weights.size(), 2u );
-    EXPECT_EQ( read.TargetNames.size(), read.Weights.size() )
+    EXPECT_EQ( read.GetWeights().size(), 2u );
+    EXPECT_EQ( read.TargetNames.size(), read.GetWeights().size() )
          << "the two lists came back out of step, and every widget that reads them assumes they are not";
 }
 
@@ -337,7 +314,7 @@ TEST( AuthoredComponentRoundTrip, EverySocketFieldComesBack )
 {
     ECS::SocketAttachmentComponent written;
     written.Target            = Common::UUID( 1234567890123456789ull );
-    written.BoneName          = "mixamorig:RightHand";
+    written.SocketName        = "mixamorig:RightHand";
     written.OffsetTranslation = glm::vec3( 1.5f, -2.25f, 3.125f );
     written.OffsetRotation    = glm::vec3( 0.5f, 1.25f, -0.75f );
     written.OffsetScale       = glm::vec3( 2.0f, 0.5f, 1.75f );
@@ -345,7 +322,7 @@ TEST( AuthoredComponentRoundTrip, EverySocketFieldComesBack )
     const ECS::SocketAttachmentComponent read = RoundTrip( written );
 
     EXPECT_EQ( static_cast<uint64_t>( read.Target ), static_cast<uint64_t>( written.Target ) );
-    EXPECT_EQ( read.BoneName, written.BoneName );
+    EXPECT_EQ( read.SocketName, written.SocketName );
     EXPECT_EQ( read.OffsetTranslation, written.OffsetTranslation );
     EXPECT_EQ( read.OffsetRotation, written.OffsetRotation );
     EXPECT_EQ( read.OffsetScale, written.OffsetScale );
@@ -384,30 +361,6 @@ TEST( AuthoredComponentRoundTrip, TheSocketBlockNamesEverySocketField )
     ExpectEveryFieldIsWritten( "SocketAttachmentComponent", WriteComponent( ECS::SocketAttachmentComponent{} ) );
 }
 
-// ── PROJECTILE ─────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryProjectileFieldComesBack )
-{
-    ECS::ProjectileComponent written;
-    written.Velocity      = glm::vec3( 100.0f, 25.5f, -3000.0f );
-    written.GravityScale  = 0.35f;
-    written.LifeRemaining = 12.5f;
-    written.Damage        = 47.5f;
-    written.Owner         = Common::UUID( 9876543210987654321ull );
-
-    const ECS::ProjectileComponent read = RoundTrip( written );
-
-    EXPECT_EQ( read.Velocity, written.Velocity );
-    EXPECT_FLOAT_EQ( read.GravityScale, written.GravityScale );
-    EXPECT_FLOAT_EQ( read.LifeRemaining, written.LifeRemaining );
-    EXPECT_FLOAT_EQ( read.Damage, written.Damage );
-    EXPECT_EQ( static_cast<uint64_t>( read.Owner ), static_cast<uint64_t>( written.Owner ) );
-}
-
-TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
-{
-    ExpectEveryFieldIsWritten( "ProjectileComponent", WriteComponent( ECS::ProjectileComponent{} ) );
-}
-
 // ── THE RULE THE LOAD PATH HIDES ───────────────────────────────────────────────────────────────────
 //
 // An absent key must LEAVE THE FIELD ALONE, not reset it to the struct default. Today the two are
@@ -418,26 +371,26 @@ TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
 // property that lets a field be ADDED to one of these blocks with no scene version bump.
 TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 {
-    ECS::LocomotionComponent locomotion;
-    locomotion.RunClip  = "Anim_Sprint";
-    locomotion.RunSpeed = 999.0f;
-    ReadAt( Common::Json::Object{}, locomotion );
-    EXPECT_EQ( locomotion.RunClip, "Anim_Sprint" );
-    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 999.0f );
+    ECS::LandscapeComponent landscape;
+    landscape.SpacingCm = 999.0f;
+    landscape.ZScale    = 0.25f;
+    ReadAt( Common::Json::Object{}, landscape );
+    EXPECT_FLOAT_EQ( landscape.SpacingCm, 999.0f );
+    EXPECT_FLOAT_EQ( landscape.ZScale, 0.25f );
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
-    socket.BoneName = "mixamorig:Head";
+    socket.SocketName = "mixamorig:Head";
     ReadAt( Common::Json::Object{}, socket );
     EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 777ull );
-    EXPECT_EQ( socket.BoneName, "mixamorig:Head" );
+    EXPECT_EQ( socket.SocketName, "mixamorig:Head" );
 
     ECS::MorphComponent morph;
-    morph.Weights     = { 0.5f };
+    morph.SetWeights( { 0.5f } );
     morph.TargetNames = { "Smile" };
     ReadAt( Common::Json::Object{}, morph );
-    ASSERT_EQ( morph.Weights.size(), 1u );
-    EXPECT_FLOAT_EQ( morph.Weights[0], 0.5f );
+    ASSERT_EQ( morph.GetWeights().size(), 1u );
+    EXPECT_FLOAT_EQ( morph.GetWeights()[0], 0.5f );
     EXPECT_EQ( morph.TargetNames.size(), 1u );
 }
 
@@ -447,17 +400,24 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
     Common::Json::Object block;
-    block["WalkSpeed"] = Common::Json::Value( std::string( "lots" ) );
-    block["IdleClip"]  = Common::Json::Value( 3.5 );
-    block["RunSpeed"]  = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
+    block["SpacingCm"] = Common::Json::Value( std::string( "lots" ) );
+    block["ZScale"]    = Common::Json::Value( 0.5 ); // a good key beside the bad one still lands
 
-    ECS::LocomotionComponent locomotion;
-    locomotion.WalkSpeed = 42.0f;
-    ReadAt( ThroughJsonText( block ), locomotion );
+    ECS::LandscapeComponent landscape;
+    landscape.SpacingCm = 42.0f;
+    ReadAt( ThroughJsonText( block ), landscape );
 
-    EXPECT_FLOAT_EQ( locomotion.WalkSpeed, 42.0f );
-    EXPECT_EQ( locomotion.IdleClip, "Idle" );
-    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 8.5f );
+    EXPECT_FLOAT_EQ( landscape.SpacingCm, 42.0f );
+    EXPECT_FLOAT_EQ( landscape.ZScale, 0.5f );
+
+    Common::Json::Object socketBlock;
+    socketBlock["SocketName"] = Common::Json::Value( 3.5 );
+
+    ECS::SocketAttachmentComponent socket;
+    socket.SocketName = "Hand_R";
+    ReadAt( ThroughJsonText( socketBlock ), socket );
+
+    EXPECT_EQ( socket.SocketName, "Hand_R" );
 }
 
 // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────
@@ -606,25 +566,30 @@ TEST( AuthoredComponentRoundTrip, AnIdWithTrailingJunkIsRefusedNotReadAsItsDigit
 
 TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 {
-    ECS::ProjectileComponent projectile;
-    projectile.Owner = Common::UUID( 42 );
+    ECS::SocketAttachmentComponent socket;
+    socket.Target = Common::UUID( 42 );
     Common::Json::Object block;
-    block["Owner"]    = Common::Json::Value( std::string( "-1" ) );
-    const auto issues = ReadAt( block, projectile );
-    EXPECT_EQ( static_cast<uint64_t>( projectile.Owner ), 42u );
+    block["Target"]   = Common::Json::Value( std::string( "-1" ) );
+    const auto issues = ReadAt( block, socket );
+    EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 42u );
     ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Owner" ).ToString() );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Target" ).ToString() );
 }
 
 TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
 {
-    ECS::LocomotionComponent locomotion;
-    const float              walk = locomotion.WalkSpeed;
-    Common::Json::Object     block;
-    block["WalkSpeed"] = Common::Json::Value( 1e300 );
-    const auto issues  = ReadAt( ThroughJsonText( block ), locomotion );
-    EXPECT_EQ( locomotion.WalkSpeed, walk );
-    ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "WalkSpeed" ).ToString() );
-    EXPECT_EQ( issues[0].Expected, "number" );
+    ECS::LandscapeComponent landscape;
+    const float             spacing = landscape.SpacingCm;
+    Common::Json::Object    block;
+    block["SpacingCm"] = Common::Json::Value( 1e300 );
+    const auto issues  = ReadAt( ThroughJsonText( block ), landscape );
+    EXPECT_EQ( landscape.SpacingCm, spacing );
+    // The block carries no EditLayers either, which is refused on its own path; only SpacingCm's is asked here.
+    const std::string path = BlockPath().Key( "SpacingCm" ).ToString();
+    const auto        refused =
+         std::count_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    ASSERT_EQ( refused, 1 );
+    const auto found =
+         std::find_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    EXPECT_EQ( found->Expected, "number" );
 }

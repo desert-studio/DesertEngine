@@ -143,6 +143,12 @@ namespace Desert::Core::ExternalEntities
     [[nodiscard]] Common::ResultStr<std::string>
     ReadSceneRegionText( const std::filesystem::path& path, const std::unordered_set<std::uint64_t>& wanted );
 
+    // WP20 - IS `path` A WORLD AN EDITOR OPENS BY REGION: true for a partitioned header whose every `.deent` below
+    // its folder is listed (the check ReadSceneFileText makes, without reading an entity). False for any other
+    // file - a scene that is not partitioned, or one ReadSceneFileText refuses with its own wording. Refused:
+    // unreadable, an unreadable list, an entity file the header does not list.
+    [[nodiscard]] Common::ResultStr<bool> ReadsByRegion( const std::filesystem::path& path );
+
     // The entity list of the partitioned header at `path`, in its order, without reading an entity (the
     // descriptor index's input, EntityDescriptorIndex.hpp). Refused, naming the file: unreadable, not JSON,
     // not a header.

@@ -432,10 +432,13 @@ namespace Desert::Editor
         ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
         // THE BUTTON THE OWNER ASKED FOR, and the one that could not be built before U7: it opens a
         // document FROM the component in front of the user. Open-or-focus falls out of the subject — a
-        // second press brings the window that is already on this entity forward instead of making a
-        // second one (EditorLayer::ServiceSubjectOpenRequests).
+        // second press brings the window that is already on this GRAPH forward instead of making a second
+        // one (EditorLayer::ServiceSubjectOpenRequests). The subject is the `.danimgraph` the slot names
+        // (ANIM-FIX8), so two characters on one graph share one window; an empty slot has nothing to open.
+        ImGui::BeginDisabled( !animation.GraphAsset );
         if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_STATE_MACHINE "  Open in Anim Graph", 28.0f ) )
-            Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
+            Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( animation.GraphAsset ) );
+        ImGui::EndDisabled();
 
         ImGui::Unindent( 6.0f );
     }
@@ -526,9 +529,9 @@ namespace Desert::Editor
         animation.GraphAsset = asset->GetMetadata().Handle;
         animation.GraphEvaluator.reset();
 
-        // Straight into the visual editor, ON THIS ENTITY. The subject is what the request carries, so the
-        // window that opens is this graph's and not "whatever is selected".
-        Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( EntityId( entity ) ) );
+        // Straight into the visual editor, over the file just made. The subject is what the request carries,
+        // so the window that opens is this graph's and not "whatever is selected".
+        Core::SubjectOpenRequests::Request( AnimGraphPanel::SubjectFor( animation.GraphAsset ) );
     }
 
     DESERT_REGISTER_CUSTOM_COMPONENT(

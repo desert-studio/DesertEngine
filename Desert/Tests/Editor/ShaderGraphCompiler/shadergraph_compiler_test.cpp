@@ -176,9 +176,7 @@ TEST( ShaderGraphCompiler, DomainSurvivesSerializationRoundTrip )
     const std::string json = SGF::Serialize( PostProcessDoc() );
     auto              back = SG::Deserialize( json );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
-    EXPECT_EQ( back.GetValue().Doc.DomainEnum(), SG::Domain::PostProcess );
-    // A document this build wrote needs nothing done to it.
-    EXPECT_EQ( back.GetValue().MigratedPins, 0 );
+    EXPECT_EQ( back.GetValue().DomainEnum(), SG::Domain::PostProcess );
 }
 
 // A .dgraph written before the Domain field existed (no "Domain" key) defaults to Surface.
@@ -749,7 +747,7 @@ TEST( ShaderGraphCompiler, TheGraphsOwnTexturesCannotLandOnAnEngineBinding )
          << compiled.GetValue();
 }
 
-// ========================================================================== the migration =====
+// ===================================================================== node reconstruction =====
 
 TEST( ShaderGraphCompiler, ADocumentWrittenAgainstTheOlderCatalogueGrowsTheMissingPins )
 {
@@ -768,10 +766,7 @@ TEST( ShaderGraphCompiler, ADocumentWrittenAgainstTheOlderCatalogueGrowsTheMissi
     auto loaded = SG::Deserialize( legacy );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
 
-    // Reported, never silent — the panel logs this number and puts it in the status line.
-    EXPECT_EQ( loaded.GetValue().MigratedPins, 3 );
-
-    const SG::Document& doc = loaded.GetValue().Doc;
+    const SG::Document& doc = loaded.GetValue();
 
     const SG::Node* output = nullptr;
     for ( const auto& node : doc.Nodes )
@@ -780,9 +775,8 @@ TEST( ShaderGraphCompiler, ADocumentWrittenAgainstTheOlderCatalogueGrowsTheMissi
     ASSERT_NE( output, nullptr );
     ASSERT_EQ( output->Inputs.size(), 6u );
 
-    // THE PROPERTY that makes appending safe, and the reason the migration refuses anything else: the
-    // pins that were already there keep their index AND their id, so the saved link still lands on
-    // Albedo rather than on whatever now occupies index 0.
+    // THE PROPERTY that makes reconstruction safe: the pins that were already there keep their id, so
+    // the saved link still lands on Albedo.
     EXPECT_EQ( output->Inputs[0].Id, 4u );
     EXPECT_EQ( output->Inputs[2].Id, 6u );
     ASSERT_EQ( doc.Links.size(), 1u );
@@ -794,16 +788,15 @@ TEST( ShaderGraphCompiler, ADocumentWrittenAgainstTheOlderCatalogueGrowsTheMissi
     EXPECT_GT( doc.NextId, output->Inputs[5].Id );
 
     // And it compiles — which is the whole point, because ValidateGraph rejects a node whose pin count
-    // disagrees with its kind. Without the migration every .dgraph in existence stopped compiling.
+    // disagrees with its kind. Without the reconstruction every older .dgraph stopped compiling.
     EXPECT_TRUE( SG::CompileToDShader( doc ).IsSuccess() );
 }
 
-TEST( ShaderGraphCompiler, MigrationRefusesToRewriteAGraphThatIsNotMerelyOld )
+// A LINK IS NEVER REBOUND TO ANOTHER PIN (UE's orphaned pin). A linked pin whose name matches nothing
+// in the catalogue is kept, after the catalogue's pins, with its id and its link — and the validator
+// refuses the node by that pin's name instead of the graph silently meaning something else.
+TEST( ShaderGraphCompiler, ReconstructionOrphansALinkedPinTheCatalogueNoLongerDeclares )
 {
-    // Appending is safe BECAUSE what is stored is a prefix of the catalogue. A node whose pins were
-    // renamed, retyped or reordered is not an old document, it is a wrong one, and inventing the tail of
-    // it would turn a diagnosable file into a silently different graph. It is left alone so
-    // ValidateGraph names it.
     SG::Document doc    = LitSurfaceDoc();
     SG::Node*    output = nullptr;
     for ( auto& node : doc.Nodes )
@@ -811,23 +804,26 @@ TEST( ShaderGraphCompiler, MigrationRefusesToRewriteAGraphThatIsNotMerelyOld )
             output = &node;
     ASSERT_NE( output, nullptr );
 
-    output->Inputs.resize( 2 );
-    output->Inputs[1].Name = "NotEmission";
+    const size_t   pins    = output->Inputs.size();
+    const uint64_t linked  = output->Inputs[0].Id; // Albedo carries the fixture's link
+    output->Inputs[0].Name = "NotAlbedo";
 
-    EXPECT_EQ( SG::MigrateToCatalogue( doc ), 0 );
-    EXPECT_EQ( output->Inputs.size(), 2u );
-    EXPECT_FALSE( SG::CompileToDShader( doc ).IsSuccess() );
+    SG::ReconstructNodes( doc );
+    ASSERT_EQ( output->Inputs.size(), pins + 1 ) << "the orphan was dropped or the catalogue pin not added";
+    EXPECT_EQ( output->Inputs.back().Id, linked );
+    EXPECT_EQ( output->Inputs.back().Name, "NotAlbedo" );
+    EXPECT_EQ( output->Inputs[0].Name, "Albedo" );
+    EXPECT_NE( output->Inputs[0].Id, linked ) << "the link was rebound to the catalogue's pin";
+
+    const auto compiled = SG::CompileToDShader( doc );
+    ASSERT_FALSE( compiled.IsSuccess() );
+    EXPECT_NE( compiled.GetError().find( "NotAlbedo" ), std::string::npos ) << compiled.GetError();
 }
 
-// THE TWO FUNCTIONS MUST GIVE A RENAMED PIN THE SAME ANSWER, and until O1-J they did not.
-//
-// The test above shortens the list AND renames a pin, so what refused it was the pin COUNT — and that
-// hid the disagreement completely: a document of the right LENGTH with one pin renamed was left alone by
-// MigrateToCatalogue (correctly: it is not a prefix of the catalogue, so nothing may be appended and
-// nothing may be rewritten) and then accepted by ValidateGraph, which compared only types. One half
-// refusing to touch a document while the other half declares it fine is worse than either policy on its
-// own, because the refusal to repair was justified by a rejection that never happened.
-TEST( ShaderGraphCompiler, TheMigrationAndTheValidatorAgreeOnARenamedPin )
+// THE VALIDATOR AND THE RECONSTRUCTION GIVE A RENAMED PIN THE SAME ANSWER (O1-J). The validator alone
+// refuses a document of the right length with one pin renamed, by the pin's name; reconstruction drops
+// that pin only when nothing links to it, and puts the catalogue's pin in its place.
+TEST( ShaderGraphCompiler, TheReconstructionAndTheValidatorAgreeOnARenamedPin )
 {
     SG::Document doc    = LitSurfaceDoc();
     SG::Node*    output = nullptr;
@@ -837,17 +833,16 @@ TEST( ShaderGraphCompiler, TheMigrationAndTheValidatorAgreeOnARenamedPin )
     ASSERT_NE( output, nullptr );
 
     const size_t pins      = output->Inputs.size();
-    output->Inputs[1].Name = "Emissive"; // right count, right types, one wrong name
+    output->Inputs[1].Name = "Emissive"; // right count, right types, one wrong name, no link
 
-    // The migration's answer: not a prefix, so not repaired — and not truncated or grown either.
-    EXPECT_EQ( SG::MigrateToCatalogue( doc ), 0 );
+    const auto refused = SG::CompileToDShader( doc );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Emissive" ), std::string::npos ) << refused.GetError();
+
+    SG::ReconstructNodes( doc );
     ASSERT_EQ( output->Inputs.size(), pins );
-    EXPECT_EQ( output->Inputs[1].Name, "Emissive" ) << "the migration rewrote a name it must not touch";
-
-    // The validator's answer: the same refusal, and it says which pin.
-    const auto compiled = SG::CompileToDShader( doc );
-    ASSERT_FALSE( compiled.IsSuccess() );
-    EXPECT_NE( compiled.GetError().find( "Emissive" ), std::string::npos ) << compiled.GetError();
+    EXPECT_EQ( output->Inputs[1].Name, "Emission" );
+    EXPECT_TRUE( SG::CompileToDShader( doc ).IsSuccess() );
 }
 
 // ============================================================== the corpus on disk ============
@@ -882,12 +877,12 @@ TEST( ShaderGraphCompiler, EveryGraphCommittedToTheProjectStillCompiles )
         const std::string json = Desert::Tests::ShaderGraph::ReadAll( entry.path() );
         ASSERT_FALSE( json.empty() ) << entry.path().string() << " is empty or unreadable";
 
-        // Through Deserialize, not through a hand-built Document: the migration is part of what a load
+        // Through Deserialize, not through a hand-built Document: the reconstruction is part of what a load
         // IS, and a corpus that only compiles after somebody edits it by hand is not a corpus that works.
         const auto loaded = SG::Deserialize( json );
         ASSERT_TRUE( loaded.IsSuccess() ) << entry.path().string() << ": " << loaded.GetError();
 
-        const auto compiled = SG::CompileToDShader( loaded.GetValue().Doc );
+        const auto compiled = SG::CompileToDShader( loaded.GetValue() );
         EXPECT_TRUE( compiled.IsSuccess() )
              << entry.path().filename().string()
              << " no longer compiles against the current node catalogue: " << compiled.GetError()
@@ -915,7 +910,7 @@ TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow 
             continue;
         const auto loaded = SG::Deserialize( Desert::Tests::ShaderGraph::ReadAll( entry.path() ) );
         ASSERT_TRUE( loaded.IsSuccess() ) << entry.path().string();
-        const auto compiled = SG::CompileToDShader( loaded.GetValue().Doc );
+        const auto compiled = SG::CompileToDShader( loaded.GetValue() );
         ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
 
         const std::filesystem::path shader = shaders / std::format( "{}.shader", entry.path().stem().string() );
@@ -949,7 +944,7 @@ TEST( ShaderGraphCompiler, TheDeliberatelyBrokenGraphIsRefusedBeforeAnyGlslIsEmi
     const auto loaded = SG::Deserialize( json );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
 
-    const auto compiled = SG::CompileToDShader( loaded.GetValue().Doc );
+    const auto compiled = SG::CompileToDShader( loaded.GetValue() );
     ASSERT_FALSE( compiled.IsSuccess() )
          << "the reproduction of the defect this validator was written for now compiles";
     EXPECT_NE( compiled.GetError().find( "Albedo" ), std::string::npos )
@@ -965,7 +960,7 @@ TEST( ShaderGraphCompiler, TheDeliberatelyBrokenGraphIsRefusedBeforeAnyGlslIsEmi
 // `Pin/Node/Link/Document` and the JSON round trip moved to Engine/Assets/Serialization/ShaderGraph.hpp
 // so that `ShaderGraphAsset` could exist and `NodeGraphPanel` could become a document over its handle.
 // These tests are about THAT half and are written against `SGF::` deliberately: the editor's
-// `SG::Deserialize` adds the catalogue migration on top, so a test written through it cannot say which
+// `SG::Deserialize` adds the node reconstruction on top, so a test written through it cannot say which
 // of the two steps answered.
 
 TEST( ShaderGraphFormat, TheRoundTripIsByteStableOverEveryCommittedGraph )

@@ -7,7 +7,6 @@
 
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <Engine/Assets/Serialization/Material.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -44,10 +43,6 @@ namespace Desert::Assets
         copy->m_ShaderName         = source.m_ShaderName;
         copy->m_ShaderHandle       = source.m_ShaderHandle;
         copy->m_ShaderIsStandardSurface = source.m_ShaderIsStandardSurface;
-        // Carried over so a working copy of a material that is running on substituted defaults refuses to
-        // save for the same reason its source does. Nothing saves the copy today, and this is what keeps
-        // that true if something ever tries.
-        copy->m_RunningOnSubstitutedDefaults = source.m_RunningOnSubstitutedDefaults;
 
         // Generated, and named as generated. A random id here is the one thing that keeps this copy out of
         // every map the subject is in — see the header for what a shared one would do to the mesh ->
@@ -162,78 +157,64 @@ namespace Desert::Assets
             m_ReadyForUse = true;
         };
 
-        if ( !raw || raw.GetValue().empty() )
+        // A BROKEN FILE IS A FAILED LOAD (UE: a package that does not load is an error, and the slot that
+        // named it draws UMaterial::GetDefaultMaterial(MD_Surface) — Material.cpp, StaticMeshComponent.cpp).
+        // The record holds NO data afterwards: not a guessed surface, not "defaults that refuse to save".
+        // AssetManager keeps the record registered as broken (AssetBase::IsBroken), MaterialService answers
+        // null for it, and the mesh slot draws the engine's Default Surface (MeshECSSystem::DefaultInstance).
+        const auto refuse = [this]( std::string reason ) -> Common::BoolResultStr
         {
-            // New / empty material — canonical defaults; editable and re-savable. A MISSING file is
-            // this branch by design too: the editor creates a material by naming a file that does
-            // not exist yet (pinned by the AssetMissingFile suite).
-            m_Data = MaterialData{};
+            m_Data        = MaterialData{};
+            m_ReadyForUse = false;
+            return Common::MakeError<bool>( std::move( reason ) );
+        };
 
-            // BUT a file that IS there and could not be read is NOT a new material. Both used to land
-            // here identically, with the reason ReadFileContent gave thrown away — so a .demat locked
-            // by permissions, racing a delete or coming out of a truncated pak was presented to the
-            // editor as a blank material somebody had just made, and the next save wrote that over it.
+        if ( !raw )
+        {
+            // A MISSING file is a NEW material by design: the editor creates a material by naming a file
+            // that does not exist yet (pinned by the AssetMissingFile suite). A file that IS there and could
+            // not be read is not new — locked by permissions, racing a delete, out of a truncated pak.
             // Exists() asks the VFS as well, so a packaged game answers this the same way.
-            if ( !raw && Common::Utils::FileSystem::Exists( m_Metadata.Filepath ) )
-            {
-                LOG_ERROR( "[SurfaceMaterialAsset] '{}' EXISTS but could not be read ({}) — rendering "
-                           "with DEFAULTS; the authored parameters are not applied and this material "
-                           "will refuse to save over the file.",
-                           m_Metadata.Filepath.string(), raw.GetError() );
-                m_RunningOnSubstitutedDefaults = true;
-            }
-
+            if ( Common::Utils::FileSystem::Exists( m_Metadata.Filepath ) )
+                return refuse( std::format( "material '{}' exists but could not be read: {}",
+                                            m_Metadata.Filepath.generic_string(), raw.GetError() ) );
+            m_Data = MaterialData{};
             finalize();
             return BOOLSUCCESS;
         }
+
+        if ( raw.GetValue().empty() )
+            return refuse( std::format( "material '{}' is an empty file: a material states its Shader (Guid "
+                                        "and Path) or, as an instance, its Parent",
+                                        m_Metadata.Filepath.generic_string() ) );
 
         // The unified MaterialData protocol is the ONLY on-disk format (pre-protocol migration
         // readers were removed with the rest of the legacy paths).
         const auto parsed = ParseMaterialJson( m_Metadata.Filepath.generic_string(), raw.GetValue() );
-        if ( parsed )
-        {
-            // NO DEFAULT TEMPLATE. A material names its template by GUID, or is an instance naming its parent;
-            // a file that does neither is refused by path rather than drawn as a guessed surface.
-            if ( !parsed.GetValue().Shader.has_value() && !parsed.GetValue().InstanceParentId().has_value() )
-                return Common::MakeFormattedError<bool>(
-                     "material '{}' names no surface template: a material states its Shader (Guid and Path; an "
-                     "instance states its Parent); there is no default template",
-                     m_Metadata.Filepath.generic_string() );
-            m_Data                         = parsed.GetValue();
-            m_RunningOnSubstitutedDefaults = false; // a reload that parses clears a previous failure
-            finalize();
-            return BOOLSUCCESS;
-        }
+        if ( !parsed )
+            return refuse( parsed.GetError() );
 
-        // Nothing parsed — keep the editor usable with defaults.
-        //
-        // THIS BRANCH RETURNS SUCCESS DELIBERATELY, and the reason belongs here rather than in a
-        // review comment: AssetManager::CreateAsset drops the asset entirely when Load answers an
-        // error, so an unparseable .demat would vanish from the asset database, every mesh slot
-        // pointing at it would resolve to nothing, and the user would be shown an empty material
-        // picker instead of a material they can look at and fix. Refusing to load is a worse answer
-        // than loading degraded — for the FILE, though, not for the DATA: the half that was actually
-        // destructive is the re-save this message used to warn about while nothing could stop it, and
-        // that is now refused by Save() below. Whether an unloadable asset should additionally mark
-        // the whole SCENE as degraded is a larger change to the load path (audit Д31-8) and is not
-        // decided here.
-        LOG_ERROR( "[SurfaceMaterialAsset] {} — rendering with DEFAULTS; authored parameters are NOT "
-                   "applied and this material will refuse to save over the file.",
-                   parsed.GetError() );
-        m_Data                         = MaterialData{};
-        m_RunningOnSubstitutedDefaults = true;
+        // NO DEFAULT TEMPLATE. A material names its template by GUID, or is an instance naming its parent;
+        // a file that does neither is refused by path rather than drawn as a guessed surface.
+        if ( !parsed.GetValue().Shader.has_value() && !parsed.GetValue().InstanceParentId().has_value() )
+            return refuse( std::format(
+                 "material '{}' names no surface template: a material states its Shader (Guid and Path; an "
+                 "instance states its Parent); there is no default template",
+                 m_Metadata.Filepath.generic_string() ) );
+
+        m_Data = parsed.GetValue();
         finalize();
         return BOOLSUCCESS;
     }
 
     Common::ResultStr<std::string> SurfaceMaterialAsset::Save() const
     {
-        if ( m_RunningOnSubstitutedDefaults )
+        // A BROKEN record holds no data; writing it would replace the authored file with nothing.
+        if ( const auto& failure = LoadFailure() )
             return Common::MakeFormattedError<std::string>(
-                 "'{}' is running on substituted defaults because its file could not be read or parsed; "
-                 "writing them out would destroy the authored parameters permanently. Fix or delete the "
-                 "file first.",
-                 m_Metadata.Filepath.string() );
+                 "'{}' did not load ({}); it holds no data, and writing it would destroy the authored file. "
+                 "Fix or delete the file first.",
+                 m_Metadata.Filepath.string(), *failure );
 
         // AN UNLOADED SHELL IS NOT A MATERIAL (UE: a package is saved only while its objects are loaded). An
         // evicted or never-read asset holds an empty MaterialData — no parameters and NO HEADER — so writing it
@@ -306,9 +287,8 @@ namespace Desert::Assets
         // submesh and every service map names this material by (AssetBase::Unload, rule 3).
         m_Data = MaterialData{};
         ResolveShader( nullptr );
-        // Not cleared, and it must not be: it records that this session's values were SUBSTITUTED because
-        // the file would not parse. Clearing it here would let a later Save() write the defaults over the
-        // authored file — the exact loss Save()'s own refusal exists to prevent.
+        // A broken record's failure (AssetBase::LoadFailure) is NOT cleared here: only a Load() that
+        // succeeds clears it, so Save() keeps refusing to write an empty material over the authored file.
         m_ReadyForUse = false;
         return BOOLSUCCESS;
     }

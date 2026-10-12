@@ -34,9 +34,9 @@ do
         error( "Dav1d.lua: cannot read the version from " .. root .. "/meson.build" )
     end
     os.mkdir( generated )
-    io.writefile( generated .. "/vcs_version.h",
+    DesertPlatform.WriteGenerated( generated .. "/vcs_version.h",
         "/* written by BuildScripts/ThirdParty/Dav1d.lua */\n#define DAV1D_VERSION \"" .. version .. "\"\n" )
-    io.writefile( generated .. "/config.h", [[
+    DesertPlatform.WriteGenerated( generated .. "/config.h", [[
 /* written by BuildScripts/ThirdParty/Dav1d.lua: the header meson's configure step would write */
 #pragma once
 #define CONFIG_8BPC 1
@@ -109,7 +109,7 @@ do
 ]] )
     for _, name in ipairs( templates ) do
         for _, depth in ipairs( { "8", "16" } ) do
-            io.writefile( generated .. "/" .. name .. "_" .. depth .. "bpc.c",
+            DesertPlatform.WriteGenerated( generated .. "/" .. name .. "_" .. depth .. "bpc.c",
                 "/* written by BuildScripts/ThirdParty/Dav1d.lua */\n#define BITDEPTH " .. depth ..
                 "\n#include \"src/" .. name .. ".c\"\n" )
         end

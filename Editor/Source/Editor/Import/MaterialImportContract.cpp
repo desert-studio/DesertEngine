@@ -125,6 +125,15 @@ namespace Desert::Editor
                                      [&]( char c ) { return given.find( c ) != std::string::npos; } );
     }
 
+    ::Desert::Core::Formats::TextureColorSpace SourceKeyColorSpace( const std::string_view sourceKey )
+    {
+        static constexpr std::string_view kColourKeys[] = { "gltf.baseColorTexture", "gltf.emissiveTexture",
+                                                            "fbx.DiffuseColor", "fbx.EmissiveColor" };
+        return std::ranges::find( kColourKeys, sourceKey ) != std::end( kColourKeys )
+                    ? ::Desert::Core::Formats::TextureColorSpace::SRGB
+                    : ::Desert::Core::Formats::TextureColorSpace::Linear;
+    }
+
     TemplateFill FillFromTemplate( const SourceMaterial& material, const ImportTemplate& chosen )
     {
         TemplateFill               fill;
@@ -163,6 +172,8 @@ namespace Desert::Editor
                     if ( slot.Parts.empty() )
                         slot.Sampler = entry->second.Sampler;
                     slot.Parts.push_back( { *texture, row.Channels } );
+                    if ( SourceKeyColorSpace( row.SourceKey ) == ::Desert::Core::Formats::TextureColorSpace::SRGB )
+                        slot.ColorSpace = ::Desert::Core::Formats::TextureColorSpace::SRGB;
                 }
             }
             else if ( const auto& value = entry->second.Value; value.has_value() )

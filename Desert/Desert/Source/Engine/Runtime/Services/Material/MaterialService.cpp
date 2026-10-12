@@ -366,6 +366,11 @@ namespace Desert::Runtime
         const auto handle = asset->GetMetadata().Handle;
         if ( m_Requests.contains( handle ) )
             return false;
+        // BROKEN (its last read was refused, AssetBase::IsBroken): not read again per frame. The slot draws the
+        // engine's Default Surface (MeshECSSystem::DefaultInstance); the completion below named the file once.
+        // A hot reload (Load) is what asks the file again.
+        if ( asset->IsBroken() )
+            return false;
         // BOTH DELEGATES (T2.3). The completion bumps the invalidation version, so every cached instance
         // set that drew nothing for this material asks again on its next tick.
         m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
@@ -376,8 +381,10 @@ namespace Desert::Runtime
                  m_Requests.erase( handle );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
-                     LOG_ERROR( "[MaterialService] '{}' could not be read: {}",
+                     LOG_ERROR( "[MaterialService] '{}' is BROKEN: {} — every mesh slot naming it draws the "
+                                "engine's Default Surface material until the file is fixed and reloaded.",
                                 loaded->GetMetadata().Filepath.string(), error );
+                     ++m_InvalidationVersion; // the slots waiting on it build their default instance now
                      return;
                  }
                  // The shader is resolved by name through the manager, which a worker may not touch.
@@ -401,9 +408,18 @@ namespace Desert::Runtime
         // ResolveOverrides, ShaderHandleOf, the editor) go through the same request Get() starts, finished on
         // this thread by FlushOne: no second read of a file a worker is already reading, the shader resolved
         // by the one completion, and SyncLoadLedger counting it as the synchronous load it is.
+        // A broken record answers its recorded failure; its completion already logged it by path.
+        if ( const auto& failure = asset->LoadFailure() )
+            return Common::MakeFormattedError<bool>( "material '{}' is broken: {}",
+                                                     asset->GetMetadata().Filepath.string(), *failure );
+
         const auto handle = asset->GetMetadata().Handle;
         if ( !RequestIfUnread( asset ) )
             Assets::AsyncAssetLoader::Get().FlushOne( handle );
+
+        if ( const auto& failure = asset->LoadFailure() )
+            return Common::MakeFormattedError<bool>( "material '{}' is broken: {}",
+                                                     asset->GetMetadata().Filepath.string(), *failure );
 
         if ( !asset->IsReadyForUse() )
         {

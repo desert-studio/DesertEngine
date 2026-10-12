@@ -11,6 +11,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
 
 namespace Desert::Assets::Serialization
 {
@@ -34,6 +35,21 @@ namespace Desert::Assets::Serialization
         std::array<uint32_t, 4> BoneIDs     = { 0, 0, 0, 0 };
         std::array<float, 4>    BoneWeights = { 0, 0, 0, 0 };
     };
+
+    /// The runtime vertex a stored skinned vertex becomes — the one conversion, for the asset load and for a
+    /// generator that works from MeshAssetData before any asset is loaded.
+    [[nodiscard]] inline SkinnedVertex ToSkinnedVertex( const SkinnedVertexData& v )
+    {
+        SkinnedVertex vertex;
+        vertex.StaticVertex.Position  = v.Position;
+        vertex.StaticVertex.Normal    = v.Normal;
+        vertex.StaticVertex.Tangent   = v.Tangent;
+        vertex.StaticVertex.Bitangent = v.Bitangent;
+        vertex.StaticVertex.TexCoord  = v.TexCoord;
+        vertex.BoneIDs                = v.BoneIDs;
+        vertex.BoneWeights            = v.BoneWeights;
+        return vertex;
+    }
 
     struct IndexData
     {

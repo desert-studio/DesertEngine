@@ -3,19 +3,18 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/System/SystemRules.hpp>
+#include <Engine/ECS/System/CharacterMovement.hpp>
 
 namespace Desert::ECS
 {
-    // Maps a character's MOVEMENT STATE (planar speed + on-ground, produced by PhysicsECSSystem) to a locomotion
-    // CLIP NAME on its skinned child. Deliberately SEPARATE from physics (mechanism vs behaviour), and — by
-    // design — the system holds NO clip knowledge: the state->clip-name mapping + speed thresholds come from a
-    // LocomotionComponent (data), and the clip itself is resolved by name in AnimationECSSystem from the
-    // AnimationLibrary. So neither a clip instance nor a clip name is hard-coded here. Play-only; runs AFTER
-    // PhysicsECSSystem.
-    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it picks a clip NAME from a character's speed, and
-    // hiding a character must not change which animation it is playing when it is shown again.
-    // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
+    // Publishes each character's MOVEMENT STATE (planar speed, falling, crouched — produced by PhysicsECSSystem)
+    // into its skinned child's AnimGraph parameters, as UE's AnimBP reads Speed / IsFalling / IsCrouching from
+    // the CharacterMovementComponent: the GRAPH picks and blends the clips (a blend space by Speed, jump states
+    // on IsFalling, crouch states on IsCrouched). This is the one path from movement to animation — the old
+    // clip-name switch (idle / walk / run / jump by speed thresholds) is gone. Play-only; runs AFTER
+    // PhysicsECSSystem and before AnimationECSSystem drains the parameter queue.
+    // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: hiding a character must not change the state its
+    // graph is in when it is shown again. Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
     class LocomotionSystem final : public System
     {
     public:
@@ -33,44 +32,21 @@ namespace Desert::ECS
             for ( auto entity : view )
             {
                 const auto& cc = view.get<CharacterControllerComponent>( entity );
-                Drive( registry, entity, cc.CurrentSpeed, cc.OnGround );
+                Drive( registry, entity, cc );
             }
         }
 
     private:
-        // Picks the locomotion clip NAME for the current speed from the entity's LocomotionComponent (or the
-        // struct defaults when absent) and writes it to the skinned child's AnimationComponent.CurrentClip.
-        // AnimationECSSystem resolves + cross-fades to that clip; an unknown name simply plays nothing.
-        static void Drive( entt::registry& registry, entt::entity character, float speed, bool onGround )
+        static void Drive( entt::registry& registry, entt::entity character,
+                           const CharacterControllerComponent& cc )
         {
             if ( !registry.has<RelationshipComponent>( character ) )
                 return;
-
-            // Defaults live in the struct (data), so the system code contains no clip names.
-            static const LocomotionComponent kDefault{};
-            const LocomotionComponent&       loco = registry.has<LocomotionComponent>( character )
-                                                         ? registry.get<LocomotionComponent>( character )
-                                                         : kDefault;
-
             for ( entt::entity child : registry.get<RelationshipComponent>( character ).Children )
             {
                 if ( !registry.has<SkinnedMeshComponent>( child ) || !registry.has<AnimationComponent>( child ) )
                     continue;
-
-                auto& anim = registry.get<AnimationComponent>( child );
-                if ( anim.Graph ) // a state machine already owns clip selection
-                    return;
-
-                // The rule itself lives in SystemRules.hpp so it can be tested without a Scene (and so the
-                // ordering — airborne beats any ground speed — is stated in one place).
-                const std::string& name = Rules::LocomotionClipFor( loco, speed, onGround );
-
-                if ( anim.CurrentClip != name )
-                {
-                    anim.CurrentClip = name; // AnimationECSSystem cross-fades on change
-                    anim.Playing     = true;
-                    anim.Loop        = true;
-                }
+                CharacterMovement::PublishAnimGraphParameters( cc, registry.get<AnimationComponent>( child ) );
                 return;
             }
         }

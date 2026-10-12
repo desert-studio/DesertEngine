@@ -1,6 +1,7 @@
 #include "TerrainRenderer.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
@@ -123,7 +124,8 @@ namespace Desert::Graphic::System
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
             return LandscapeLodFromScreenSize(
                  MakeLandscapeLodSettings( l.QuadsPerTile ),
-                 LandscapeScreenRadiusSquared( center, radius, viewOrigin, projection ) );
+                 Geometry::BoundsScreenRadiusSquared( center, radius,
+                                                      Geometry::LODView{ viewOrigin, projection } ) );
         }
     } // namespace
 
@@ -216,12 +218,11 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::PrepareFrame()
+    void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
-        const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( ( camera == nullptr ) || m_Queue.empty() )
+        if ( m_Queue.empty() )
             return;
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
@@ -250,11 +251,9 @@ namespace Desert::Graphic::System
         m_FrameDraws.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
-        const glm::vec3 viewOrigin = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
         for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] =
-                 TileLod( t.Landscape, viewOrigin, camera->GetProjectionMatrix() );
+            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, frame.CameraPosition, frame.Projection );
 
         for ( const auto& t : m_Queue )
         {
@@ -330,12 +329,11 @@ namespace Desert::Graphic::System
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
         TerrainUB ub{};
-        ub.View       = camera->GetViewMatrix();
-        ub.Projection = camera->GetProjectionMatrix();
+        ub.View       = frame.View;
+        ub.Projection = frame.Projection;
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
-        const auto* viewFrame = m_SceneRenderer->GetViewFrame();
-        ub.ViewProjection     = viewFrame->ViewProjection;
-        ub.PrevViewProjection = viewFrame->PrevViewProjection;
+        ub.ViewProjection     = frame.ViewProjection;
+        ub.PrevViewProjection = frame.PrevViewProjection;
 
         for ( const auto& group : m_FrameGroups )
         {
@@ -436,35 +434,34 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::RegisterPasses( RenderGraphBuilder& builder )
+    SystemRasterPass TerrainRenderer::GeometryPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb || !m_Pipeline )
-            return;
+            return {};
 
-        // Same Geometry phase + scene framebuffer as the meshes: merges into the open render pass
-        // (depth shared, no clear) so terrain and meshes depth-resolve against each other.
-        builder
-             .AddPass( "TerrainPass", RenderPhase::Geometry,
-                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
-                       {
-                           // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
-                           // and lit by the composite; drawing it here too would light the ground twice, two
-                           // different ways.
-                           if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
-                               return BOOLSUCCESS;
-                           const auto* camera = m_SceneRenderer->GetMainCamera();
-                           if ( ( camera == nullptr ) || m_FrameDraws.empty() )
-                               return BOOLSUCCESS;
-                           // Through the blocks declared below (the scene/view inputs Terrain.shader samples - the
-                           // cloud shadow map - are entries of them).
-                           (void)refs;
-                           return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
-                                               camera->GetProjectionMatrix() * camera->GetViewMatrix() );
-                       },
-                       m_Pipeline->GetSpecification(), targetFb,
-                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        // Right after the meshes in AddFrameBasePass, on the same scene framebuffer: merges into the open render
+        // pass (depth shared, no clear) so terrain and meshes depth-resolve against each other.
+        SystemRasterPass pass{ .Name        = "TerrainPass",
+                               .ExecuteFunc = [this]( RDG::PassContext&     context,
+                                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                               {
+                                   // Forward path only. In Deferred the terrain is in the G-buffer
+                                   // (RenderGBufferManual) and lit by the composite; drawing it here too would
+                                   // light the ground twice, two different ways.
+                                   if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+                                       return BOOLSUCCESS;
+                                   const auto* camera = m_SceneRenderer->GetMainCamera();
+                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() )
+                                       return BOOLSUCCESS;
+                                   // Through the blocks declared below (the scene/view inputs Terrain.shader
+                                   // samples - the cloud shadow map - are entries of them).
+                                   (void)refs;
+                                   return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
+                                                       m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
+                               },
+                               .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
@@ -477,6 +474,7 @@ namespace Desert::Graphic::System
             (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
                                       GroupExecutors( &ProgramMaterials::Forward ), &view );
         };
+        return pass;
     }
 
     Common::BoolResultStr TerrainRenderer::RenderGBufferManual( const RDG::PassContext& context )
@@ -490,7 +488,7 @@ namespace Desert::Graphic::System
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         // Through the blocks DeclareGBufferDraws declared.
         return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
@@ -516,10 +514,16 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,
                                                                 uint32_t /*cascade*/, const uint32_t firstBlock,
-                                                                const glm::mat4& cascadeViewProj )
+                                                                const glm::mat4&         cascadeViewProj,
+                                                                const CascadeCasterBias& bias )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
+        // The cascade's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
+        // like the matrix beside it, so the one shadow material per group still serves every cascade. The
+        // constant part is already in cascadeViewProj (Graphic::CasterViewProj).
+        for ( const auto& group : m_FrameGroups )
+            m_Materials.at( group.Key ).Shadow->SetShadowSlopeBias( bias.SlopeBias, bias.SlopeClamp );
         // Its own row inside the cascade's: the terrain's share of the shadow cost, summed over cascades.
         DESERT_PROFILE_PASS( "TerrainShadowCascade" );
         // Through the blocks DeclareShadowCascade declared on this cascade's node.

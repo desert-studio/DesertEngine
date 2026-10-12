@@ -3,8 +3,8 @@
 // (password, max length, filter, single-line) refuse what they say they refuse, and the keys map to the
 // operations UE's FSlateEditableTextLayout maps them to.
 
-#include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UITextEditState.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <UI/UITextEditState.hpp>
 
 #include <gtest/gtest.h>
 

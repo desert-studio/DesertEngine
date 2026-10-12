@@ -55,6 +55,10 @@ namespace Desert::Assets::Serialization
     inline constexpr std::string_view kVFXLocalPrefix     = "local:";
     inline constexpr std::string_view kVFXUserPrefix      = "User.";
     inline constexpr std::string_view kVFXParticlesPrefix = "Particles.";
+    /// "DataChannel.<channel>" names a scene data channel (a `.dfxch` by file stem),
+    /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, engine:SpawnFromChannel;
+    /// VFX/VFXDataChannel.hpp).
+    inline constexpr std::string_view kVFXDataChannelPrefix = "DataChannel.";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.

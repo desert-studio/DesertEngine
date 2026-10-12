@@ -49,6 +49,7 @@
 // the source for a census has precedent here: Desert/Tests/Engine/DeviceLostCensus does the same thing
 // for the same reason, and shares the reader this file includes.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
@@ -398,50 +399,6 @@ TEST( PreferenceOwnership, ReChoosingTheStepAlreadySetDoesNotRewriteTheFile )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 4. THE ONE MIGRATION THIS FILE CARRIES
-// ---------------------------------------------------------------------------------------------------
-
-// Load() raises a metre-era TranslateSnap to centimetres once and writes it back, and until now nothing
-// tested it — which matters more than it looks, because it is the only code in the editor that can
-// change a preference the user did not touch in that session, and it is therefore the one legitimate
-// exception to this suite's headline. It earns the exception by being a MIGRATION: it fires on a value
-// this build cannot produce, it says so in the log, and it persists the new form so it never fires
-// again. Contract §4.4 asks a migration to be tested; this is that test.
-TEST( PreferenceOwnership, AMetreEraSnapIsRaisedToCentimetresOnceAndWrittenBack )
-{
-    FreshInstall();
-
-    // 0.5 "world units" from when a unit was a metre — half a metre, meant as 50 cm.
-    EditorPreferences::Get().TranslateSnap = 0.5f;
-    ASSERT_TRUE( EditorPreferences::Save() );
-
-    EditorPreferences::Get() = EditorPreferences{};
-    EditorPreferences::Load();
-    EXPECT_FLOAT_EQ( Gizmo::TranslateSnap(), 50.0f );
-
-    // Written back in the new form, so the SECOND launch reads 50 and the migration does not fire on it
-    // again — a migration that ran every launch would multiply by a hundred every time.
-    EditorPreferences::Get() = EditorPreferences{};
-    EditorPreferences::Load();
-    EXPECT_FLOAT_EQ( Gizmo::TranslateSnap(), 50.0f );
-}
-
-// The other half, and the one that says the rule is not "anything small is metres": 1 cm is the
-// smallest step the editor offers, so the migration's window is strictly below it and a legitimate
-// centimetre value must pass through untouched.
-TEST( PreferenceOwnership, ACentimetreEraSnapIsLeftAlone )
-{
-    FreshInstall();
-
-    EditorPreferences::Get().TranslateSnap = 1.0f;
-    ASSERT_TRUE( EditorPreferences::Save() );
-
-    EditorPreferences::Get() = EditorPreferences{};
-    EditorPreferences::Load();
-    EXPECT_FLOAT_EQ( Gizmo::TranslateSnap(), 1.0f );
-}
-
-// ---------------------------------------------------------------------------------------------------
 // 5. К8 — ONE WRITE PER FINISHED EDIT, AND NOT ONE MORE
 // ---------------------------------------------------------------------------------------------------
 
@@ -531,31 +488,6 @@ TEST( PreferenceOwnership, AFailedWriteIsNotRememberedAsASuccessfulOne )
     EditorPreferences::Get() = EditorPreferences{};
     EditorPreferences::Load();
     EXPECT_FLOAT_EQ( EditorPreferences::Get().CameraSpeed, 9.0f );
-}
-
-// Load() writes in exactly one case — a migration — and the migration itself is a pure function of the
-// struct (contract §4.4). Asserted directly, with no file anywhere near it, which is the whole point of
-// extracting it: the old code did the raise inline in Load() and called Save() from it, so the only way
-// to test the arithmetic was to write and re-read a file.
-TEST( PreferenceOwnership, TheMigrationIsAPureFunctionAndNamesWhatItRaised )
-{
-    EditorPreferences metreEra;
-    metreEra.TranslateSnap = 0.5f;
-
-    const auto raised = EditorPreferences::MigrateLoaded( metreEra );
-    ASSERT_EQ( raised.size(), 1u );
-    EXPECT_NE( raised.front().find( "TranslateSnap" ), std::string::npos )
-         << "a migration line that does not name the field it moved: " << raised.front();
-    EXPECT_FLOAT_EQ( metreEra.TranslateSnap, 50.0f );
-
-    // Idempotent: run on its own output it has nothing left to do. A migration that fired twice would
-    // multiply by a hundred every launch.
-    EXPECT_TRUE( EditorPreferences::MigrateLoaded( metreEra ).empty() );
-
-    EditorPreferences centimetreEra;
-    centimetreEra.TranslateSnap = 1.0f;
-    EXPECT_TRUE( EditorPreferences::MigrateLoaded( centimetreEra ).empty() );
-    EXPECT_FLOAT_EQ( centimetreEra.TranslateSnap, 1.0f );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -1151,65 +1083,25 @@ TEST( PreferenceOwnershipUnknownKeys, TheReReadTakesKeysItCannotNameAndNoValueIt
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 7b. THE OTHER HALF OF THE RULE: A DELETION STILL FINISHES
+// 7b. LOADING NEVER WRITES — there is no retired-key list and no load-time migration
 // ---------------------------------------------------------------------------------------------------
 //
-// Preserving unknown keys is one edit away from "this file never loses anything", which is contract §4's
-// legacy-forever failure wearing a safety feature's clothes. The line between them is WHO decided: a key
-// another build owns is preserved, a key this project retired is dropped BY NAME, once, with a log line.
-// К1 deleted `PhotogrammetryCaptureCommand` and `PhotogrammetryMode` — both dead settings read by nothing
-// — and until К9 they needed no migration because the next save dropped them for free. It no longer does.
+// A key this build does not declare is carried in UnknownKeys whatever its history: one that a build
+// deleted on purpose is treated exactly like one a newer build added. Load() names them in a WARN and
+// writes nothing; the bytes on disk after a launch are the bytes before it.
 
-TEST( PreferenceOwnershipUnknownKeys, ARetiredKeyIsDroppedAndAnotherBuildsKeyIsNot )
-{
-    EditorPreferences carrying;
-    // std::string, not a literal: rfl::Object overloads insert() for both std::string and
-    // std::string_view, so a bare const char* is ambiguous.
-    carrying.UnknownKeys.insert( std::string( "PhotogrammetryMode" ),
-                                 Common::Json::Value( std::string( "Object" ) ) );
-    carrying.UnknownKeys.insert( std::string( "ANewerBuildsSetting" ), Common::Json::Value( true ) );
-    carrying.UnknownKeys.insert( std::string( "PhotogrammetryCaptureCommand" ),
-                                 Common::Json::Value( std::string( "capture {photos}" ) ) );
-
-    const auto raised = EditorPreferences::MigrateLoaded( carrying );
-
-    ASSERT_EQ( raised.size(), 2u ) << "the migration did not report exactly the two keys it retired";
-    EXPECT_NE( raised[0].find( "PhotogrammetryMode" ), std::string::npos ) << raised[0];
-    EXPECT_NE( raised[1].find( "PhotogrammetryCaptureCommand" ), std::string::npos ) << raised[1];
-
-    ASSERT_EQ( carrying.UnknownKeys.size(), 1u );
-    EXPECT_TRUE( carrying.UnknownKeys.get( "ANewerBuildsSetting" ).has_value() )
-         << "the retirement took a key that belongs to somebody else with it";
-
-    // Idempotent, like the unit migration beside it: run on its own output there is nothing left to do,
-    // so a second launch neither writes nor logs.
-    EXPECT_TRUE( EditorPreferences::MigrateLoaded( carrying ).empty() );
-}
-
-// The same thing through the file, because "dropped from the struct" and "gone from disk" are two claims
-// and only the second is what a retirement means. Load() writes back exactly when the migration raised
-// something, which is the mechanism that makes it fire once.
-TEST( PreferenceOwnershipUnknownKeys, LoadingWritesTheFileBackWithoutTheRetiredKeys )
+TEST( PreferenceOwnershipUnknownKeys, LoadingCarriesEveryUndeclaredKeyAndWritesNothing )
 {
     FreshInstall();
-    WriteWholeFile( PrefsPath(), PrefsFileWith( R"("PhotogrammetryMode":"Object","ANewerBuildsSetting":42)" ) );
+    const std::string onDisk = PrefsFileWith( R"("PhotogrammetryMode":"Object","ANewerBuildsSetting":42)" ) + "\n";
+    WriteWholeFile( PrefsPath(), onDisk );
 
     EditorPreferences::Get() = EditorPreferences{};
     EditorPreferences::Load();
 
-    const std::string afterLoad = ReadWholeFile( PrefsPath() );
-    EXPECT_EQ( ValueOf( afterLoad, "PhotogrammetryMode" ), "<missing>" )
-         << "a key this project retired is still on disk after a load that was supposed to drop it";
-    EXPECT_EQ( ValueOf( afterLoad, "ANewerBuildsSetting" ), "42" );
-
-    // And it does not fire again: the second launch has nothing to raise, so nothing is written and the
-    // bytes are exactly what the first launch left. A marker appended to the file survives iff no write
-    // happened, which is the probe the К8 tests above use for the same question.
-    const std::string marked = afterLoad + "\n";
-    WriteWholeFile( PrefsPath(), marked );
-    EditorPreferences::Get() = EditorPreferences{};
-    EditorPreferences::Load();
-    EXPECT_EQ( ReadWholeFile( PrefsPath() ), marked ) << "the retirement fires on every launch";
+    EXPECT_EQ( ReadWholeFile( PrefsPath() ), onDisk ) << "a load rewrote the preferences file";
+    EXPECT_TRUE( EditorPreferences::Get().UnknownKeys.get( "PhotogrammetryMode" ).has_value() );
+    EXPECT_TRUE( EditorPreferences::Get().UnknownKeys.get( "ANewerBuildsSetting" ).has_value() );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -1764,88 +1656,11 @@ TEST( PreferenceOwnershipSource, NoSaveOfThePreferencesIsFencedByARestoredField 
 // not in any census — the rule "a per-user value is a field of EditorPreferences" was stated by the
 // header above it and enforced only over the fields that were already there.
 //
-// What is asserted here is the migration and the two properties the new shape has and the file did not:
-// a pin belongs to a PROJECT, and it names a folder RELATIVE to that project rather than a place on this
-// machine's disk. Those are relations (desert-engine-verify §4) — the stored string and the assets root
-// have to agree, and the whole defect was that the string alone was taken as the answer.
-
-namespace
-{
-    // The assets root of an imaginary project, as a path. Nothing here touches the disk: the migration is
-    // pure and classifies lines lexically, which is what lets it judge a folder that was deleted years ago.
-    const std::filesystem::path kRootA = "/home/dev/ProjectA/Assets";
-    const std::filesystem::path kRootB = "/elsewhere/B/Content";
-} // namespace
-
-TEST( PreferenceOwnershipFavourites, TheLegacyFileFoldsIntoTheOpenProjectAndForeignLinesAreNamedNotGuessed )
-{
-    EditorPreferences p;
-
-    const std::vector<std::string> legacy = {
-         "/home/dev/ProjectA/Assets/Scenes",         // inside — migrates
-         "/home/dev/ProjectA/Assets/Textures/UI",    // inside, nested — migrates
-         "",                                         // the file's trailing newline
-         "/home/dev/SomeOtherProject/Assets/Meshes", // ANOTHER project's folder, and the file said so nowhere
-         "/home/dev/ProjectA/Assets/Scenes",         // the legacy file deduplicated nothing
-    };
-
-    const auto raised = EditorPreferences::MigrateFavouritesFile( p, "ProjectA", kRootA, legacy );
-
-    const std::vector<std::string> expected = { "Scenes", "Textures/UI" };
-    EXPECT_EQ( p.FavouriteFolders["ProjectA"], expected )
-         << "the folders inside the project did not arrive relative, in file order and deduplicated";
-
-    // THE FOREIGN LINE IS THE POINT OF THE TEST. Attributing it to the open project would be inventing the
-    // answer the retired file never recorded — and it would put a folder of somebody else's project in
-    // this one's sidebar, which is the defect being migrated away from, carried across by the migration.
-    EXPECT_EQ( std::count( p.FavouriteFolders["ProjectA"].begin(), p.FavouriteFolders["ProjectA"].end(),
-                           "../../SomeOtherProject/Assets/Meshes" ),
-               0 );
-
-    bool named = false;
-    for ( const std::string& line : raised )
-        named = named || line.find( "SomeOtherProject" ) != std::string::npos;
-    EXPECT_TRUE( named ) << "a dropped pin was not named; a migration that discards silently is §1.4's "
-                            "empty successful answer";
-}
-
-// THE RELATION THE ABSOLUTE PATH COULD NOT HOLD. One project, two places on disk — a clone, a worktree,
-// a machine with a different home — and the stored form must be the same, because it is a fact about the
-// project and not about the disk. With absolute paths the second column here was a different string and
-// every pin silently stopped matching.
-TEST( PreferenceOwnershipFavourites, TheSameFolderInTwoCheckoutsIsTheSameStoredPin )
-{
-    EditorPreferences here;
-    EditorPreferences there;
-
-    EditorPreferences::MigrateFavouritesFile( here, "P", kRootA, { kRootA.generic_string() + "/Scenes/Levels" } );
-    EditorPreferences::MigrateFavouritesFile( there, "P", kRootB, { kRootB.generic_string() + "/Scenes/Levels" } );
-
-    EXPECT_EQ( here.FavouriteFolders["P"], there.FavouriteFolders["P"] );
-    EXPECT_EQ( here.FavouriteFolders["P"], ( std::vector<std::string>{ "Scenes/Levels" } ) );
-}
-
-// The assets root itself is pinnable from the tree's own context menu, and "" is not a path. It round
-// trips as ".", which CurrentFavouriteFolders resolves back to the root rather than to `root/`.
-TEST( PreferenceOwnershipFavourites, TheAssetsRootItselfIsStorableAndIsNotAnEmptyString )
-{
-    EditorPreferences p;
-    EditorPreferences::MigrateFavouritesFile( p, "P", kRootA, { kRootA.generic_string() } );
-    EXPECT_EQ( p.FavouriteFolders["P"], ( std::vector<std::string>{ "." } ) );
-}
-
-// A key with nothing behind it is not "a project with no pins", it is residue — and residue accumulating
-// for ever was the fourth of the four defects. A file holding only another project's folders leaves none.
-TEST( PreferenceOwnershipFavourites, AFileWithNothingToMigrateLeavesNoKeyBehind )
-{
-    EditorPreferences p;
-    EditorPreferences::MigrateFavouritesFile( p, "P", kRootA, { "/somewhere/else/Assets/Scenes" } );
-    EXPECT_EQ( p.FavouriteFolders.count( "P" ), 0u );
-
-    EditorPreferences empty;
-    EXPECT_TRUE( EditorPreferences::MigrateFavouritesFile( empty, "P", kRootA, {} ).empty() );
-    EXPECT_EQ( empty.FavouriteFolders.count( "P" ), 0u );
-}
+// What is asserted here are the two properties the new shape has and the file did not: a pin belongs
+// to a PROJECT, and it names a folder RELATIVE to that project rather than a place on this machine's
+// disk. Those are relations (desert-engine-verify §4) — the stored string and the assets root have to
+// agree, and the whole defect was that the string alone was taken as the answer. The old file is not
+// read by anything.
 
 // TWO PROJECTS, TWO LISTS, AND THE FILE IS THE THING THAT HAS TO KEEP THEM APART. The retired store had
 // one list for all of them, so opening a second project drew the first one's folders in its sidebar; this
@@ -1940,8 +1755,7 @@ TEST( PreferenceOwnershipFavourites, OnlyOnePlaceInTheEditorAndTheEngineComposes
     ASSERT_FALSE( root.empty() );
 
     std::vector<std::string> composers;
-    for ( const char* tree :
-          { "Editor/Source", "Desert/Desert/Source", "Desert/Common/Source", "Runtime/Source" } )
+    for ( const std::string& tree : Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
         for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + tree ) )
         {
             if ( !entry.is_regular_file() )

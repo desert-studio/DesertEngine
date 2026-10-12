@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -64,8 +65,8 @@ namespace Desert::Editor::ShaderGraph
             // they were added: Albedo/Emission/Alpha first, then the three the shared lit texts need
             // (Mesh/AmbientIBL.glslh and Mesh/DirectLighting.glslh both take metalness and roughness,
             // and the ambient takes an occlusion factor). APPENDED and never reordered — a saved
-            // .dgraph stores pins positionally, and MigrateToCatalogue below can only grow a node
-            // whose stored pins are still a prefix of this list.
+            // .dgraph is reconstructed against this list on load (ReconstructNodes), and keeping
+            // the order keeps the files' pin order equal to the catalogue's.
             { "SurfaceOutput", "Surface Output", RGBA( 150, 90, 60, 255 ),
               { { "Albedo", ValueType::Color },
                 { "Emission", ValueType::Color },
@@ -243,6 +244,23 @@ namespace Desert::Editor::ShaderGraph
             // the Cloud Sample node already hands out.
             { "Time", "Time", RGBA( 60, 140, 150, 255 ), {},
               { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
+            // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
+            // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
+            // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
+            // and every mesh cell fills with neutral values. A graph using one must be UsedWithParticleSprites
+            // (ReadsParticleInputs; ValidateGraph refuses it by name otherwise).
+            { "ParticleColor", "Particle Color", RGBA( 170, 110, 50, 255 ), {},
+              { { "RGBA", ValueType::Color } }, false, false, false, SURFACE, kParticlesCategory },
+            // The flipbook cell the particle is at over its life (DesertParticleSubUV): UV0 the current cell, UV1
+            // the next, Blend the fraction between them — sample both and mix by Blend for a frame blend.
+            { "ParticleSubImage", "Particle SubImage", RGBA( 170, 110, 50, 255 ),
+              { { "UV", ValueType::Vec2 }, { "Columns", ValueType::Float }, { "Rows", ValueType::Float } },
+              { { "UV0", ValueType::Vec2 }, { "UV1", ValueType::Vec2 }, { "Blend", ValueType::Float } },
+              false, false, false, SURFACE, kParticlesCategory },
+            { "ParticleRandom", "Particle Random", RGBA( 170, 110, 50, 255 ), {},
+              { { "Random", ValueType::Float } }, false, false, false, SURFACE, kParticlesCategory },
+            { "ParticleRelativeTime", "Particle Relative Time", RGBA( 170, 110, 50, 255 ), {},
+              { { "RelativeTime", ValueType::Float } }, false, false, false, SURFACE, kParticlesCategory },
         };
         return s_Specs;
     }
@@ -254,6 +272,12 @@ namespace Desert::Editor::ShaderGraph
             if ( kind == spec.Kind )
                 return &spec;
         return nullptr;
+    }
+
+    bool ReadsParticleInputs( const std::string& kind )
+    {
+        return kind == "ParticleColor" || kind == "ParticleSubImage" || kind == "ParticleRandom" ||
+               kind == "ParticleRelativeTime";
     }
 
     // clang-format off
@@ -511,7 +535,9 @@ namespace Desert::Editor::ShaderGraph
                 // and Cloud Noise Volume one component per pin. All three are "one variable, several
                 // fields", so the pin's INDEX picks the suffix rather than the node emitting seven
                 // statements nobody reads.
-                if ( src->Kind == "CloudSample" || src->Kind == "SplitVec3" || src->Kind == "CloudNoise" )
+                // Particle SubImage is a SurfaceSubUV whose members are named as its pins (UV0, UV1, Blend).
+                if ( src->Kind == "CloudSample" || src->Kind == "SplitVec3" || src->Kind == "CloudNoise" ||
+                     src->Kind == "ParticleSubImage" )
                 {
                     for ( size_t i = 0; i < src->Outputs.size(); ++i )
                     {
@@ -570,7 +596,13 @@ namespace Desert::Editor::ShaderGraph
                 if ( node.Kind == "TextureSample" )
                 {
                     const std::string uv = EmitInput( node, 0, "v_UV" );
-                    decl = std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
+                    // A surface graph fetches through the template contract's one material fetch, which carries
+                    // the view's mip bias (Mesh/Surface/SurfaceTypes.glslh); a post-process graph's textures are
+                    // read at the implicit level.
+                    decl = doc.DomainEnum() == Domain::Surface
+                                ? std::format( "vec4 {} = SurfaceSampleMaterial( {}, {} );", var, node.ParamName,
+                                               uv )
+                                : std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
                 }
                 else if ( node.Kind == "MediumTexture" )
                 {
@@ -794,6 +826,22 @@ namespace Desert::Editor::ShaderGraph
                     decl = doc.DomainEnum() == Domain::Surface
                                 ? std::format( "float {} = i.Time;", var )
                                 : std::format( "float {} = timeUB.TimeData.x;", var );
+                // The particle nodes read SurfaceInput.Particle — `i` is EvaluateSurface's argument, and only
+                // a UsedWithParticleSprites graph gets here with one (ValidateGraph).
+                else if ( node.Kind == "ParticleColor" )
+                    decl = std::format( "vec4 {} = i.Particle.Color;", var );
+                else if ( node.Kind == "ParticleRandom" )
+                    decl = std::format( "float {} = i.Particle.Random;", var );
+                else if ( node.Kind == "ParticleRelativeTime" )
+                    decl = std::format( "float {} = i.Particle.RelativeTime;", var );
+                else if ( node.Kind == "ParticleSubImage" )
+                {
+                    const std::string uv      = EmitInput( node, 0, "v_UV" );
+                    const std::string columns = EmitInput( node, 1, "1.0" );
+                    const std::string rows    = EmitInput( node, 2, "1.0" );
+                    decl = std::format( "SurfaceSubUV {} = DesertParticleSubUV( i.Particle, {}, {}, {} );", var,
+                                        uv, columns, rows );
+                }
                 else
                 {
                     // ValidateGraph has already rejected kinds that are not in the catalogue, so
@@ -899,6 +947,15 @@ namespace Desert::Editor::ShaderGraph
                     return std::format( "node {} is not available in the {} domain", NodeLabel( node ),
                                         DomainName( domain ) );
 
+                // UE's "material must be used with particle sprites": only the ParticleSprite cell fills
+                // SurfaceInput.Particle, so in a material without that usage the node would read the mesh
+                // cells' neutral constants — a node that silently does nothing. Refused by name instead.
+                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites )
+                    return std::format( "node {} reads the particle sprite inputs, but material '{}' is not used "
+                                        "with particle sprites: tick 'Used with Particle Sprites' (Usage "
+                                        "ParticleSprites) or remove the node",
+                                        NodeLabel( node ), doc.Name );
+
                 // THE BAKE/MARCH SPLIT, MADE UNEXPRESSIBLE. About half of the cloud material's values are
                 // inputs to a CPU bake that runs for seconds and produces the volume this graph reads the
                 // RESULT of; they are not in the shader's scope at all. Refused BY NAME here, listing what
@@ -920,6 +977,33 @@ namespace Desert::Editor::ShaderGraph
                              NodeLabel( node ), node.ParamName, readableNames );
                     }
                 }
+
+                // AN ORPHANED PIN (ReconstructNodes): a stored pin its kind no longer declares, kept only
+                // because a link still uses it. Named before the count check below, which it would
+                // otherwise trip with a message that does not say which pin is the problem.
+                const auto orphan = [&]( const std::vector<Pin>&               pins,
+                                         const std::vector<NodeSpec::PinSpec>& declared,
+                                         const char*                           side ) -> std::optional<std::string>
+                {
+                    for ( const auto& pin : pins )
+                        if ( std::none_of( declared.begin(), declared.end(),
+                                           [&]( const NodeSpec::PinSpec& d ) {
+                                               return d.Name == pin.Name && static_cast<int>( d.Type ) == pin.Type;
+                                           } ) )
+                            return std::format(
+                                 "node {}: {} '{}' is not declared by kind '{}' (renamed or retyped "
+                                 "in the catalogue) and a link still uses it; reconnect the link",
+                                 NodeLabel( node ), side, pin.Name, node.Kind );
+                    return std::nullopt;
+                };
+                // An orphan sits AFTER the catalogue's pins, so it only exists where the list is longer;
+                // a same-length list with a wrong name is answered positionally further down.
+                if ( node.Inputs.size() > spec->Inputs.size() )
+                    if ( auto error = orphan( node.Inputs, spec->Inputs, "input" ) )
+                        return *error;
+                if ( node.Outputs.size() > spec->Outputs.size() )
+                    if ( auto error = orphan( node.Outputs, spec->Outputs, "output" ) )
+                        return *error;
 
                 // A node whose pin list disagrees with its kind is the crash case, not just a bad
                 // message: the emitter indexes node.Inputs[i] positionally for every kind it knows,
@@ -944,12 +1028,11 @@ namespace Desert::Editor::ShaderGraph
                 // the new name happened to be another member of the struct, it compiled into a
                 // silently different value with the scope check never firing.
                 //
-                // REFUSED RATHER THAN REPAIRED, which is the answer MigrateToCatalogue already gives:
-                // a stored pin list that is not a PREFIX of the catalogue is left exactly as it is
-                // there rather than guessed at. A renamed pin is either a corrupt document or one
-                // written against a different catalogue, and substituting the catalogue's name for it
-                // would change what the graph MEANS with nothing to show for it. A catalogue rename
-                // travels as an explicit migration over the files, like every other format change here.
+                // REFUSED RATHER THAN REPAIRED, the answer ReconstructNodes gives too: a stored pin that
+                // matches no catalogue pin by name and type is never rebound to another pin. A renamed
+                // pin is either a corrupt document or one written against a different catalogue, and
+                // substituting the catalogue's name for it would change what the graph MEANS with
+                // nothing to show for it.
                 for ( size_t i = 0; i < node.Inputs.size(); ++i )
                 {
                     if ( node.Inputs[i].Name != spec->Inputs[i].Name )
@@ -1397,6 +1480,10 @@ namespace Desert::Editor::ShaderGraph
         // the Unlit pass headers, which name no lighting text and declare no lighting resource.
         out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
 
+        // UE's bUsedWithParticleSprites: the parser adds the ParticleSprite.Forward cell after every mesh cell.
+        if ( doc.UsedWithParticleSprites )
+            out << "    Usage ParticleSprites\n\n";
+
         out << "    Surface\n    {\n";
         out << "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n";
         // The graph's nodes read the mesh UV under the name every node emitter uses.
@@ -1426,27 +1513,43 @@ namespace Desert::Editor::ShaderGraph
         return Common::MakeSuccess( out.str() );
     }
 
-    // ---------------------------------------------------------------- migration ---------------
-    int MigrateToCatalogue( Document& doc )
+    // ---------------------------------------------------------------- reconstruction ----------
+    // Port of UK2Node::ReconstructNode + RewireOldPinsToNewPins (K2Node.cpp:703-758) onto the document
+    // model: the pins are reallocated from the catalogue and the stored ones rewired onto them.
+    void ReconstructNodes( Document& doc )
     {
-        int added = 0;
-
-        // Appends the pins of @p catalogue that @p stored does not have yet, but ONLY while what is
-        // stored is a prefix of the catalogue: same names, same types, in the same order. Anything
-        // else is a document this function must not touch (see the header).
-        const auto grow = [&]( std::vector<Pin>& stored, const std::vector<NodeSpec::PinSpec>& catalogue )
+        std::unordered_set<uint64_t> linked;
+        for ( const auto& link : doc.Links )
         {
-            if ( stored.size() >= catalogue.size() )
-                return;
-            for ( size_t i = 0; i < stored.size(); ++i )
-                if ( stored[i].Name != catalogue[i].Name ||
-                     stored[i].Type != static_cast<int>( catalogue[i].Type ) )
-                    return;
-            for ( size_t i = stored.size(); i < catalogue.size(); ++i )
+            linked.insert( link.From );
+            linked.insert( link.To );
+        }
+
+        const auto reconstruct = [&]( std::vector<Pin>& stored, const std::vector<NodeSpec::PinSpec>& catalogue )
+        {
+            std::vector<Pin>  pins;
+            std::vector<bool> taken( stored.size(), false );
+            pins.reserve( catalogue.size() );
+            for ( const auto& spec : catalogue )
             {
-                stored.push_back( { doc.NextId++, catalogue[i].Name, static_cast<int>( catalogue[i].Type ) } );
-                ++added;
+                const int  type  = static_cast<int>( spec.Type );
+                const auto match = std::find_if( stored.begin(), stored.end(),
+                                                 [&]( const Pin& pin ) {
+                                                     return !taken[static_cast<size_t>( &pin - stored.data() )] &&
+                                                            pin.Name == spec.Name && pin.Type == type;
+                                                 } );
+                if ( match != stored.end() )
+                {
+                    taken[static_cast<size_t>( match - stored.begin() )] = true;
+                    pins.push_back( *match );
+                }
+                else
+                    pins.push_back( { doc.NextId++, spec.Name, type } );
             }
+            for ( size_t i = 0; i < stored.size(); ++i )
+                if ( !taken[i] && linked.contains( stored[i].Id ) )
+                    pins.push_back( stored[i] ); // orphan: its link stays, ValidateGraph refuses it
+            stored = std::move( pins );
         };
 
         for ( auto& node : doc.Nodes )
@@ -1454,23 +1557,22 @@ namespace Desert::Editor::ShaderGraph
             const NodeSpec* spec = FindSpec( node.Kind );
             if ( !spec )
                 continue; // unknown kind: ValidateGraph names it; inventing pins for it would not help
-            grow( node.Inputs, spec->Inputs );
-            grow( node.Outputs, spec->Outputs );
+            reconstruct( node.Inputs, spec->Inputs );
+            reconstruct( node.Outputs, spec->Outputs );
         }
-        return added;
     }
 
     // ---------------------------------------------------------------- serialization -----------
-    Common::ResultStr<Loaded> Deserialize( const std::string& json )
+    Common::ResultStr<Document> Deserialize( const std::string& json )
     {
         // The BYTES are the engine's business and the CATALOGUE is this file's; the two steps are named
         // separately because only the second one can change what the artist authored.
         auto parsed = ::Desert::Assets::Serialization::ShaderGraph::ParseShaderGraph( json );
         if ( !parsed )
-            return Common::MakeError<Loaded>( parsed.GetError() );
+            return Common::MakeError<Document>( parsed.GetError() );
 
-        Loaded loaded{ parsed.ExtractValue(), 0 };
-        loaded.MigratedPins = MigrateToCatalogue( loaded.Doc );
-        return Common::MakeSuccess( std::move( loaded ) );
+        Document doc = parsed.ExtractValue();
+        ReconstructNodes( doc );
+        return Common::MakeSuccess( std::move( doc ) );
     }
 } // namespace Desert::Editor::ShaderGraph

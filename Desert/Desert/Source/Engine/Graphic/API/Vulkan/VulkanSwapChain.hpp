@@ -175,6 +175,8 @@ namespace Desert::Graphic::API::Vulkan
 
         VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
         VkSurfaceKHR   m_Surface   = VK_NULL_HANDLE;
+        // The instance the surface was created on, kept for vkDestroySurfaceKHR in the destructor.
+        VkInstance m_Instance = VK_NULL_HANDLE;
 
         VkFormat        m_ColorFormat;
         VkColorSpaceKHR m_ColorSpace;

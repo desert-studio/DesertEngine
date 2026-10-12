@@ -30,6 +30,14 @@ namespace Desert::Graphic::API::Vulkan
     VulkanSwapChain::~VulkanSwapChain()
     {
         Release();
+        // The surface outlives every Release() (a resize rebuilds the swapchain on the same surface) and dies
+        // only here, before the platform window it was made from: the window's destructor resets this
+        // swapchain ahead of glfwDestroyWindow. Without a renderer context the instance is already gone and
+        // took the surface with it.
+        if ( m_Surface != VK_NULL_HANDLE && m_Instance != VK_NULL_HANDLE &&
+             EngineContext::GetInstance().GetRendererContext() )
+            vkDestroySurfaceKHR( m_Instance, m_Surface, nullptr );
+        m_Surface = VK_NULL_HANDLE;
     }
 
     void VulkanSwapChain::Init( const VkInstance instance, const std::shared_ptr<Engine::Device>& device )
@@ -53,6 +61,7 @@ namespace Desert::Graphic::API::Vulkan
             const VkResult surfaced = glfwCreateWindowSurface( instance, window, nullptr, &m_Surface );
             DESERT_VERIFY( surfaced == VK_SUCCESS, "glfwCreateWindowSurface failed: {}",
                            VkResultToString( surfaced ) );
+            m_Instance = instance;
         }
     }
 

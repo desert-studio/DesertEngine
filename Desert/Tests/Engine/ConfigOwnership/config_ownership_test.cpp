@@ -389,6 +389,9 @@ namespace
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
+         // The viewport's own Screen Percentage override (UE's per-viewport r.ScreenPercentage): one view's
+         // render scale, never the game config.
+         { "ScreenPercentage", Owner::Machine },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -511,6 +514,10 @@ namespace
          // What Play spawns at this level's PlayerStart (SPAWN1): a property of the level, as UE's
          // per-level GameMode override is.
          { "DefaultPawn", Owner::Level },
+         // The controller Play spawns before that pawn, and the delay before a dead pawn is replaced (GameMode):
+         // both are the level's rules of play, as UE's per-level GameMode override is.
+         { "PlayerController", Owner::Level },
+         { "RespawnDelay", Owner::Level },
     };
 
     constexpr FileCensus kFiles[] = {
@@ -1228,20 +1235,6 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
 // HOME IS NOT TOUCHED: the store is written to a temp file this test owns, through the path parameter
 // that exists precisely so a caller can say where. That parameter is why this assertion is runnable at
 // all — a store that computed its own location could only be tested against the developer's own config.
-namespace
-{
-    // The shipped level table: MachineSettings::Load needs the High values to migrate retired keys.
-    Common::Scalability::ScalabilityTable ShippedTable()
-    {
-        const std::string text =
-             ReadAll( std::filesystem::path( RepoRoot() ) / "Editor/Resources/Config/Scalability.json" );
-        EXPECT_FALSE( text.empty() ) << "Editor/Resources/Config/Scalability.json was not found";
-        auto table = Common::Scalability::ScalabilityTable::Parse( text );
-        EXPECT_TRUE( table.IsSuccess() );
-        return table.IsSuccess() ? table.ExtractValue() : Common::Scalability::ScalabilityTable{};
-    }
-} // namespace
-
 TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySceneFile )
 {
     const std::string root = RepoRoot();
@@ -1262,7 +1255,7 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
     const std::filesystem::path store =
          std::filesystem::temp_directory_path() / "desert_configownership_machine.json";
     std::filesystem::remove( store, ec );
-    Common::Settings::MachineSettings::Load( store, ShippedTable() );
+    Common::Settings::MachineSettings::Load( store );
 
     auto& quality = Common::Settings::MachineSettings::Get();
     quality.Quality.emplace();
@@ -1365,150 +1358,6 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     EXPECT_TRUE( CallsFunction( layer, {}, "SetQuality" ) )
          << "the packaged game loads the machine's quality and never gives it to a renderer";
 }
-// SCAL1: every retired quality key becomes an override on an all-High selection - unless it equals the
-// High table value, so a machine that never touched a knob comes out with zero overrides. One test per key.
-namespace
-{
-    using Common::Scalability::Parameter;
-
-    struct Migrated
-    {
-        Common::Settings::MachineSettings                      Settings;
-        Common::Settings::MachineSettings::RetiredKeyMigration Report;
-    };
-
-    const Common::Scalability::ScalabilityTable& Table()
-    {
-        static const Common::Scalability::ScalabilityTable table = ShippedTable();
-        return table;
-    }
-
-    Migrated Migrate( const std::string& raw )
-    {
-        auto parsed = Common::Json::Read<Common::Settings::MachineSettings>( raw );
-        EXPECT_TRUE( parsed.IsSuccess() ) << raw;
-        Migrated out{ parsed.IsSuccess() ? parsed.ExtractValue() : Common::Settings::MachineSettings{}, {} };
-        out.Report = Common::Settings::MachineSettings::MigrateRetiredKeys( out.Settings, raw, Table() );
-        return out;
-    }
-
-    std::string KeyOf( Parameter parameter )
-    {
-        return std::string( Common::Scalability::ParameterSpecs()[static_cast<std::size_t>( parameter )].Key );
-    }
-
-    int HighOf( Parameter parameter )
-    {
-        return Table().ValueAt( parameter, Common::Scalability::Level::High );
-    }
-
-    bool HasOverride( const Migrated& m, Parameter parameter, int value )
-    {
-        const Common::Scalability::ParameterOverride wanted{ KeyOf( parameter ), value };
-        const auto&                                  quality = m.Settings.Quality;
-        if ( !quality.has_value() )
-            return false;
-        const auto& overrides = quality->Overrides;
-        return std::find( overrides.begin(), overrides.end(), wanted ) != overrides.end();
-    }
-
-    // The one override the migration wrote, or none.
-    void ExpectOnly( const Migrated& m, std::optional<Common::Scalability::ParameterOverride> expected )
-    {
-        const auto& quality = m.Settings.Quality;
-        if ( !quality.has_value() )
-            FAIL() << "a migrated file must hold the selection it migrated into";
-        EXPECT_EQ( quality->Levels, Common::Settings::MachineSettings::HighSelection().Levels );
-        EXPECT_TRUE( m.Settings.UnknownKeys.empty() ) << "a retired key was carried into the next save";
-        if ( !expected )
-        {
-            EXPECT_TRUE( quality->Overrides.empty() );
-            EXPECT_EQ( m.Report.Overrides, 0 );
-            return;
-        }
-        ASSERT_EQ( quality->Overrides.size(), 1u );
-        EXPECT_EQ( quality->Overrides[0], *expected );
-        EXPECT_EQ( m.Report.Overrides, 1 );
-    }
-
-    const char* MethodName( int method )
-    {
-        constexpr const char* kNames[] = { "None", "FXAA", "SMAA", "MSAA" };
-        return kNames[method];
-    }
-} // namespace
-
-TEST( ConfigOwnership, RetiredAAMethodBecomesTheMethodOverride )
-{
-    const int high  = HighOf( Parameter::AntiAliasingMethod );
-    const int other = high == 2 ? 0 : 2; // None or SMAA, never MSAA (that would pull Samples in)
-    ExpectOnly( Migrate( std::format( R"({{"AAMethod":"{}"}})", MethodName( other ) ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::AntiAliasingMethod ), other } );
-    ExpectOnly( Migrate( std::format( R"({{"AAMethod":"{}"}})", MethodName( high ) ) ), std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredMSAASamplesMigratesOnlyUnderMsaa )
-{
-    const int other = HighOf( Parameter::AntiAliasingSamples ) == 2 ? 4 : 2;
-    EXPECT_TRUE( HasOverride( Migrate( std::format( R"({{"AAMethod":"MSAA","MSAASamples":{}}})", other ) ),
-                              Parameter::AntiAliasingSamples, other ) );
-    // Under the High method (not MSAA) the count meant nothing, so it moves nothing.
-    const auto plain = Migrate( std::format( R"({{"AAMethod":"{}","MSAASamples":{}}})",
-                                             MethodName( HighOf( Parameter::AntiAliasingMethod ) ), other ) );
-    EXPECT_EQ( plain.Report.KeysMoved, 2 );
-    ExpectOnly( plain, std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredTextureFilterModeBecomesTheFilterOverride )
-{
-    constexpr const char* kNames[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
-    const int             high     = HighOf( Parameter::TextureFilter );
-    const int             other    = high == 0 ? 1 : 0;
-    ExpectOnly( Migrate( std::format( R"({{"TextureFilterMode":"{}"}})", kNames[other] ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::TextureFilter ), other } );
-    ExpectOnly( Migrate( std::format( R"({{"TextureFilterMode":"{}"}})", kNames[high] ) ), std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredAnisotropyBecomesTheAnisotropyOverride )
-{
-    const int high  = HighOf( Parameter::Anisotropy );
-    const int other = high == 2 ? 4 : 2;
-    ExpectOnly( Migrate( std::format( R"({{"Anisotropy":{}}})", other ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::Anisotropy ), other } );
-    ExpectOnly( Migrate( std::format( R"({{"Anisotropy":{}}})", high ) ), std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredMeshLODBecomesTheMeshLODOverride )
-{
-    const int high = HighOf( Parameter::MeshLOD );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "false" : "true" ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::MeshLOD ), high != 0 ? 0 : 1 } );
-    ExpectOnly( Migrate( std::format( R"({{"MeshLOD":{}}})", high != 0 ? "true" : "false" ) ), std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredCloudQualityTierBecomesTheCloudOverride )
-{
-    constexpr const char* kNames[] = { "Low", "Medium", "High" };
-    const int             high     = HighOf( Parameter::CloudQuality );
-    const int             other    = high == 0 ? 1 : 0;
-    ExpectOnly( Migrate( std::format( R"({{"CloudQualityTier":"{}"}})", kNames[other] ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::CloudQuality ), other } );
-    ExpectOnly( Migrate( std::format( R"({{"CloudQualityTier":"{}"}})", kNames[high] ) ), std::nullopt );
-}
-
-TEST( ConfigOwnership, RetiredPostAAStandsInForAAMethodOnlyWhenAAMethodIsAbsent )
-{
-    const int high  = HighOf( Parameter::AntiAliasingMethod );
-    const int other = high == 2 ? 0 : 2;
-    ExpectOnly( Migrate( std::format( R"({{"AA":"{}"}})", MethodName( other ) ) ),
-                Common::Scalability::ParameterOverride{ KeyOf( Parameter::AntiAliasingMethod ), other } );
-    // An older build's `AA` never overrides the AAMethod a newer build wrote beside it.
-    ExpectOnly(
-         Migrate( std::format( R"({{"AAMethod":"{}","AA":"{}"}})", MethodName( high ), MethodName( other ) ) ),
-         std::nullopt );
-    // `AA` with a count above one was MSAA.
-    EXPECT_TRUE( HasOverride( Migrate( R"({"AA":"None","MSAASamples":4})" ), Parameter::AntiAliasingMethod, 3 ) );
-}
 
 // FIRST RUN (UE auto-detect): no saved selection -> the benchmark's recommendation when its cache key is this
 // device's, else all High; a saved selection always wins over a recommendation.
@@ -1553,7 +1402,7 @@ TEST( ConfigOwnership, VSyncIsSavedInMachineJsonAndDefaultsToTheLowestLatencyMod
          std::filesystem::temp_directory_path() / "desert_configownership_vsync.json";
     std::filesystem::remove( store, ec );
     MachineSettings::Get() = {};
-    MachineSettings::Load( store, ShippedTable() );
+    MachineSettings::Load( store );
     EXPECT_FALSE( MachineSettings::Get().Display.VSync ) << "VSync must default off (UE r.VSync=0)";
 
     Common::Scalability::CapabilityCatalog catalog;
@@ -1564,51 +1413,12 @@ TEST( ConfigOwnership, VSyncIsSavedInMachineJsonAndDefaultsToTheLowestLatencyMod
     MachineSettings::Get().Display.VSync = true;
     ASSERT_TRUE( MachineSettings::Save() );
     MachineSettings::Get() = {};
-    MachineSettings::Load( store, ShippedTable() );
+    MachineSettings::Load( store );
     EXPECT_TRUE( MachineSettings::Get().Display.VSync ) << "VSync did not survive machine.json";
     EXPECT_EQ( Common::Scalability::ResolvePresentMode( MachineSettings::Get().Display, catalog ).Mode,
                PresentMode::Fifo );
     MachineSettings::Get() = {};
     std::filesystem::remove( store, ec );
-}
-
-TEST( ConfigOwnership, AFileThatAlreadyHasQualityOnlyDropsTheRetiredKeys )
-{
-    Common::Settings::MachineSettings written;
-    written.Quality.emplace();
-    written.Quality->Levels.fill( Common::Scalability::Level::Low );
-    std::string raw = Common::Json::Write( written );
-    ASSERT_EQ( raw.back(), '}' );
-    raw.pop_back();
-    raw += R"(,"AAMethod":"None","Anisotropy":2})";
-
-    const auto m = Migrate( raw );
-    EXPECT_EQ( m.Report.KeysMoved, 2 );
-    EXPECT_EQ( m.Report.Overrides, 0 );
-    EXPECT_TRUE( m.Settings.UnknownKeys.empty() );
-    EXPECT_EQ( m.Settings.Quality, written.Quality );
-}
-
-TEST( ConfigOwnership, AnUnreadableRetiredValueWritesNoOverride )
-{
-    const auto m = Migrate( R"({"TextureFilterMode":"Sharpest","MeshLOD":7})" );
-    EXPECT_EQ( m.Report.KeysMoved, 2 );
-    ExpectOnly( m, std::nullopt );
-}
-
-TEST( ConfigOwnership, AnUntouchedDefaultFileMigratesWithZeroOverrides )
-{
-    constexpr const char* kFilters[] = { "Nearest", "Bilinear", "Trilinear", "Anisotropic" };
-    constexpr const char* kClouds[]  = { "Low", "Medium", "High" };
-    const std::string     raw        = std::format(
-         R"({{"AAMethod":"{}","MSAASamples":{},"TextureFilterMode":"{}","Anisotropy":{},"MeshLOD":{},)"
-                    R"("CloudQualityTier":"{}"}})",
-         MethodName( HighOf( Parameter::AntiAliasingMethod ) ), HighOf( Parameter::AntiAliasingSamples ),
-         kFilters[HighOf( Parameter::TextureFilter )], HighOf( Parameter::Anisotropy ),
-         HighOf( Parameter::MeshLOD ) != 0 ? "true" : "false", kClouds[HighOf( Parameter::CloudQuality )] );
-    const auto m = Migrate( raw );
-    EXPECT_EQ( m.Report.KeysMoved, 6 );
-    ExpectOnly( m, std::nullopt );
 }
 
 TEST( ConfigOwnership, RenderPathSupportsMsaaOnlyOnForward )

@@ -16,22 +16,31 @@
 //   engine:SpawnRate   Input SpawnRate float  — particles per second while a loop is active
 //   engine:SpawnBurst  Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
+//   engine:SpawnFromChannel (VFX-10, UE "Spawn From Data Channel"; VFX/VFXDataChannel.hpp)
+//                      Channel           Binding DataChannel.<channel>
+//                      ParticlesPerEntry Int >= 1, MaxEntriesPerFrame Int >= 1, MaxDistance Float cm >= 0
+//                      (optional) Position / Direction Vec3 Binding DataChannel.<channel>.<field> (optional)
+//                      Filter Float Binding DataChannel.<channel>.<field> with FilterOp Int (VFXChannelFilterOp)
+//                      and FilterValue Float (all three or none)
 // An input is a Value or a User.* binding (read from the system's UserParams). A curve over emitter time, a
 // random range or a Particles.* binding have no meaning on the CPU side yet and are refused by name.
 
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXClock.hpp>
+#include <Engine/VFX/VFXDataChannel.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace Desert::VFX
 {
     inline constexpr std::string_view kVFXSpawnRateModule  = "engine:SpawnRate";
     inline constexpr std::string_view kVFXSpawnBurstModule = "engine:SpawnBurst";
+    inline constexpr std::string_view kVFXSpawnFromChannelModule = "engine:SpawnFromChannel";
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst
@@ -48,6 +57,8 @@ namespace Desert::VFX
         Assets::Serialization::VFXEmitterLifecycle Lifecycle;
         double                                     Rate = 0.0; ///< the sum of every SpawnRate module, per second
         std::vector<VFXSpawnBurst>                 Bursts;
+        /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
+        std::optional<VFXChannelSpawnModule> Channel;
 
         [[nodiscard]] bool operator==( const VFXSpawnPlan& ) const = default;
     };

@@ -5,9 +5,11 @@
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include "Errors/MeshError.hpp"
 #include "MeshTypes.hpp"
+#include <Engine/Geometry/LODSelection.hpp>
 
 #include <Common/Core/ResultWithCodes.hpp>
 
+#include <optional>
 #include <unordered_map>
 
 namespace Desert
@@ -27,6 +29,24 @@ namespace Desert
         [[nodiscard]] virtual const std::vector<Submesh>& GetSubmeshes() const
         {
             return m_Submeshes;
+        }
+
+        // THE SCREEN SIZE AT WHICH EACH LEVEL OF THIS MESH BEGINS (UE FStaticMeshRenderData::ScreenSize): one
+        // entry per level the mesh draws, resolved from its asset's authored values (MeshService, at build) or
+        // the automatic rule. Every LOD pick of this mesh - renderer, ISM instances, shadows, Details - walks it.
+        [[nodiscard]] const std::vector<float>& GetLODScreenSizes() const
+        {
+            return m_LODScreenSizes;
+        }
+        [[nodiscard]] const std::optional<std::vector<float>>& GetAuthoredLODScreenSizes() const
+        {
+            return m_AuthoredLODScreenSizes;
+        }
+        // The asset's per-LOD values (nullopt = computed); re-resolved against the levels this mesh has.
+        void SetAuthoredLODScreenSizes( std::optional<std::vector<float>> authored )
+        {
+            m_AuthoredLODScreenSizes = std::move( authored );
+            ResolveLODScreenSizes();
         }
         [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetVertexBuffer() const
         {
@@ -70,6 +90,15 @@ namespace Desert
             m_GpuStale = true;
         }
         bool m_GpuStale = false;
+
+        // Called by every subclass that (re)builds its LOD chain: the resolved sizes follow the level count.
+        void ResolveLODScreenSizes()
+        {
+            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( Geometry::MaxAvailableLOD( m_Submeshes ) + 1,
+                                                                m_AuthoredLODScreenSizes );
+        }
+        std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
+        std::vector<float>                m_LODScreenSizes;
 
         // Protected data accessible by derived classes
         std::shared_ptr<Graphic::VertexBuffer>  m_VertexBuffer;

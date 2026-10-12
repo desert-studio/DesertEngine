@@ -87,6 +87,13 @@ namespace Desert::Editor
                 CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile, folder );
             }
 
+            // UE's Skeletal Mesh Asset Actions > Create > Physics Asset.
+            if ( entry.Type == FileType::SkinnedMesh && m_On.CanCreatePhysicsAsset() )
+            {
+                ImGui::Separator();
+                CommandMenuItem( ContentBrowserCommand::CreatePhysicsAsset, folder );
+            }
+
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
             if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && m_ThumbnailEdit.CanCapture() )
             {
@@ -470,6 +477,20 @@ namespace Desert::Editor
                 if ( !target )
                     return Common::MakeError<bool>( target.GetError() );
                 return m_ThumbnailEdit.Enter( *target.GetValue(), label );
+            }
+            case ContentBrowserCommand::CreatePhysicsAsset:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || entry.Type != FileType::SkinnedMesh || !m_On.CanCreatePhysicsAsset() )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' is not a skeletal mesh", label,
+                                                             entry.AssetPath );
+                const auto created = m_On.OnCreatePhysicsAsset( entry.AssetPath );
+                if ( !created )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
+                return Common::MakeSuccess( true );
             }
             case ContentBrowserCommand::ClearSelection:
                 break; // answered above: it needs no selection

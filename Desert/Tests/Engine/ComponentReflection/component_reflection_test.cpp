@@ -103,7 +103,7 @@ namespace
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------
-// SkyAtmosphereData — 47 fields: the 24 artistic-gradient fields in their original order, then the 23
+// SkyAtmosphereData — 42 fields: the 19 artistic-gradient fields in their original order, then the 23
 // physical-atmosphere fields (UE parameter names and grouping, Docs/Sky/UE_SKYATMOSPHERE_RESEARCH.md
 // section 1.7, plus Aerial Perspective Distance, which UE keeps as an engine cvar and this engine has
 // to author per scene — see the field's own comment), appended so the migration counters and the
@@ -127,11 +127,6 @@ TEST( SkyAtmosphereReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "SunsetColor",
          "SunsetIntensity",
          "StarIntensity",
-         "DriveSunFromTimeOfDay",
-         "TimeOfDay",
-         "DayLengthSeconds",
-         "Latitude",
-         "NorthOffset",
          "AutoRebakeEnvironment",
          "RebakeSunAngleThreshold",
          "EnvironmentResolution",
@@ -163,7 +158,7 @@ TEST( SkyAtmosphereReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     };
 
     const TypeInfo& sky = Type( "SkyAtmosphereData" );
-    EXPECT_EQ( sky.Fields.size(), 47u );
+    EXPECT_EQ( sky.Fields.size(), 42u );
     EXPECT_EQ( FieldNames( sky ), expected );
 }
 
@@ -188,7 +183,7 @@ TEST( SkyAtmosphereReflection, CategoriesAndTypesMatchTheSpecification )
     EXPECT_EQ( CountInCategory( sky, "Sky Color" ), 4u ); // the four palette colours
     EXPECT_EQ( CountInCategory( sky, "Sun" ), 6u );
     EXPECT_EQ( CountInCategory( sky, "Night Sky" ), 1u );
-    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 5u );
+    EXPECT_EQ( CountInCategory( sky, "Time Of Day" ), 0u ); // TOD-SPLIT: TimeOfDayData owns the clock
     EXPECT_EQ( CountInCategory( sky, "Environment Lighting" ), 3u );
 
     // The physical-atmosphere groups, mirroring UE's Details panel grouping.
@@ -320,16 +315,33 @@ TEST( SkyAtmosphereReflection, PresetAndResolutionAreEnumsWithEveryEnumerator )
     EXPECT_EQ( model->EnumValues.front().Name, "ArtisticGradient" );
 }
 
-TEST( SkyAtmosphereReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
+TEST( SkyAtmosphereReflection, RebakeAngleIsGatedByAutoRebake )
 {
     const TypeInfo& sky = Type( "SkyAtmosphereData" );
+    EXPECT_EQ( Find( sky, "RebakeSunAngleThreshold" )->Meta.EditCondition, "AutoRebakeEnvironment" );
+}
+
+// TOD-SPLIT: the clock is its own component (UE's SunSky), and its rows are gated by its own switch.
+TEST( TimeOfDayReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
+{
+    const TypeInfo& clock = Type( "TimeOfDayData" );
+    ASSERT_NE( Find( clock, "DriveSunFromTimeOfDay" ), nullptr );
     for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
     {
-        const FieldInfo* f = Find( sky, name );
+        const FieldInfo* f = Find( clock, name );
         ASSERT_NE( f, nullptr ) << name;
         EXPECT_EQ( f->Meta.EditCondition, "DriveSunFromTimeOfDay" ) << name;
     }
-    EXPECT_EQ( Find( sky, "RebakeSunAngleThreshold" )->Meta.EditCondition, "AutoRebakeEnvironment" );
+}
+
+// TOD-SPLIT: none of the clock's five fields is left on the sky - a second copy would be a second clock
+// that the driver does not read.
+TEST( SkyAtmosphereReflection, TheSkyCarriesNoTimeOfDayField )
+{
+    const TypeInfo& sky = Type( "SkyAtmosphereData" );
+    for ( const char* name :
+          { "DriveSunFromTimeOfDay", "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
+        EXPECT_EQ( Find( sky, name ), nullptr ) << "SkyAtmosphereData still declares " << name;
 }
 
 // SKY-35: the sky's sun numbers and the light's sun numbers are different physical quantities, and each
@@ -480,12 +492,10 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "MaxSteps",
          "StopTransmittance",
          "VolumeResolution",
-         "WindDirection",
-         "WindSpeed",
     };
 
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
-    EXPECT_EQ( cloud.Fields.size(), 23u );
+    EXPECT_EQ( cloud.Fields.size(), 21u );
     EXPECT_EQ( FieldNames( cloud ), expected );
 
     // SIX Cloud Layer rows since О11: the sixth is the SCENE's own lift of the deck. It is not a sixth
@@ -516,7 +526,7 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     // different times by different views — a preview wants a small bake and a full march, a level the
     // reverse.
     EXPECT_EQ( CountInCategory( cloud, "Quality" ), 3u );
-    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 2u );
+    EXPECT_EQ( CountInCategory( cloud, "Animation" ), 0u ); // WIND-SRC: the drift is the scene's WindSource
 
     // THE SEAM ITSELF: one material handle, hidden from the reflected pass because its row is the
     // terrain-style New/Edit/Clear widget in ComponentEditorRegistrations.cpp.
@@ -662,9 +672,9 @@ TEST( VolumetricCloudReflection, DefaultsAreTheOnesTheComponentArguesFor )
     EXPECT_FLOAT_EQ( Find( cloud, "VolumeResolution" )->Meta.RangeMin,
                      static_cast<float>( Desert::Assets::kCloudProceduralVolumeSideMin ) );
 
-    // Animation: 30 m/s along +X.
-    EXPECT_EQ( DefaultOf<glm::vec3>( cloud, "WindDirection" ), glm::vec3( 1.0f, 0.0f, 0.0f ) );
-    EXPECT_FLOAT_EQ( DefaultOf<float>( cloud, "WindSpeed" ), 3000.0f );
+    // The layer states no wind (WIND-SRC): its drift is the scene's WindSource, read through ECS::WindAt.
+    EXPECT_EQ( Find( cloud, "WindDirection" ), nullptr );
+    EXPECT_EQ( Find( cloud, "WindSpeed" ), nullptr );
 }
 
 // A RELATION BETWEEN TWO DEFAULTS, and the one that Docs/Clouds/CALIBRATION.md section 4 was written
@@ -1294,9 +1304,8 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
 {
     const TypeInfo& cloud = Type( "VolumetricCloudData" );
 
-    for ( const char* name :
-          { "MaxViewDistance", "TracingStartDistance", "TracingStartMaxDistance", "RegionSize",
-            "NearFadeStartDistance", "NearFadeEndDistance", "LightMarchDistance", "WindSpeed" } )
+    for ( const char* name : { "MaxViewDistance", "TracingStartDistance", "TracingStartMaxDistance", "RegionSize",
+                               "NearFadeStartDistance", "NearFadeEndDistance", "LightMarchDistance" } )
         EXPECT_TRUE( Find( cloud, name )->Meta.IsLength ) << name;
 
     // The one that is NOT world units, and says which unit it is instead. Marking it as a length would
@@ -1315,8 +1324,6 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
     // The dimensionless ones stay dimensionless.
     for ( const char* name : { "ShadowStrength", "StopTransmittance" } )
         EXPECT_FALSE( Find( cloud, name )->Meta.IsLength ) << name;
-
-    EXPECT_EQ( Find( cloud, "WindDirection" )->Type, FieldType::Vec3 );
 
     for ( const auto& f : cloud.Fields )
     {
@@ -1377,7 +1384,8 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
                ( std::vector<std::string>{ "Color", "Intensity", "AtmosphereSunLight", "AtmosphereSunLightIndex",
                                            "AffectedByAtmosphereTransmittance", "LightShaftBloom", "BloomScale",
                                            "BloomThreshold", "BloomMaxBrightness", "BloomTint", "CastShadows",
-                                           "ShadowBias", "CascadeSplitLambda" } ) );
+                                           "ShadowBias", "ShadowSlopeBias", "ShadowCascadeBiasDistribution",
+                                           "CascadeSplitLambda" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so
@@ -1717,4 +1725,66 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
     EXPECT_FLOAT_EQ( loaded.LayerAltitudeOffset, 9.0f )
          << "a missing key OVERWROTE the field, so loading an old scene would move every cloud layer in "
             "the repository";
+}
+
+// GP1: the local player's Enhanced Input component (UE: the LocalPlayer subsystem's default contexts). Two
+// fields and no more: the contexts as `.deinputcontext` handles, highest priority first, and where that list
+// sits among the contexts scripts add. A per-entry priority field would be a second answer to the order.
+TEST( EnhancedInputPlayerReflection, ExposesTheContextHandlesAndTheBasePriorityOnly )
+{
+    const TypeInfo& player = Type( "EnhancedInputPlayerData" );
+    EXPECT_EQ( FieldNames( player ), ( std::vector<std::string>{ "Contexts", "BasePriority" } ) );
+    const FieldInfo* contexts = Find( player, "Contexts" );
+    ASSERT_NE( contexts, nullptr );
+    EXPECT_TRUE( contexts->Meta.IsAsset );
+    EXPECT_EQ( contexts->Meta.AssetType, "InputMappingContextAsset" );
+    EXPECT_EQ( CountInCategory( player, "Input" ), 2u );
+}
+
+// GP2a: the playable character's movement settings are UE CharacterMovementComponent's, in centimetres. The
+// list is the census: a field added without a reader in CharacterMovement.cpp, or the old metre-era Gravity
+// coming back next to GravityScale, turns this red.
+TEST( CharacterControllerReflection, ExposesTheUeMovementSettingsInCentimetres )
+{
+    const TypeInfo& cc = Type( "CharacterControllerData" );
+    EXPECT_EQ( FieldNames( cc ),
+               ( std::vector<std::string>{ "Radius", "Height", "MaxSlopeDeg", "MaxWalkSpeed", "MaxAcceleration",
+                                           "BrakingDecelerationWalking", "GroundFriction", "BrakingFrictionFactor",
+                                           "JumpZVelocity", "AirControl", "GravityScale", "MaxWalkSpeedCrouched",
+                                           "CrouchedHeight", "MaxSwimSpeed", "CollisionProfile" } ) );
+    for ( const char* name : { "Radius", "Height", "CrouchedHeight" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_TRUE( Find( cc, name )->Meta.IsLength ) << name << " is a capsule length in centimetres";
+    }
+    for ( const char* name : { "MaxWalkSpeed", "JumpZVelocity", "MaxWalkSpeedCrouched", "MaxSwimSpeed" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_EQ( Find( cc, name )->Meta.Units, "cm/s" ) << name;
+    }
+    for ( const char* name : { "MaxAcceleration", "BrakingDecelerationWalking" } )
+    {
+        ASSERT_NE( Find( cc, name ), nullptr ) << name;
+        EXPECT_EQ( Find( cc, name )->Meta.Units, "cm/s2" ) << name;
+    }
+    EXPECT_EQ( Find( cc, "Gravity" ), nullptr ) << "gravity is the scene's; the character only scales it";
+}
+
+// GP2a: UE USpringArmComponent's authored settings, lengths in centimetres. The transient lagged origin and
+// current arm length live on SpringArmComponent, outside the reflected data.
+TEST( SpringArmReflection, ExposesTheArmCollisionAndLagSettingsOnly )
+{
+    const TypeInfo& arm = Type( "SpringArmData" );
+    EXPECT_EQ( FieldNames( arm ),
+               ( std::vector<std::string>{ "TargetArmLength", "SocketOffset", "DoCollisionTest", "ProbeSize",
+                                           "EnableCameraLag", "CameraLagSpeed" } ) );
+    for ( const char* name : { "TargetArmLength", "SocketOffset", "ProbeSize" } )
+    {
+        ASSERT_NE( Find( arm, name ), nullptr ) << name;
+        EXPECT_TRUE( Find( arm, name )->Meta.IsLength ) << name;
+    }
+    EXPECT_FALSE( Find( arm, "CameraLagSpeed" )->Meta.IsLength ) << "a per-second fraction, not a distance";
+    EXPECT_EQ( CountInCategory( arm, "Camera" ), 2u );
+    EXPECT_EQ( CountInCategory( arm, "Camera Collision" ), 2u );
+    EXPECT_EQ( CountInCategory( arm, "Lag" ), 2u );
 }

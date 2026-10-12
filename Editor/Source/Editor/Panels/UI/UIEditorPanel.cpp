@@ -8,8 +8,8 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/UI/UILayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <UI/UILayout.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <Common/Core/Logger.hpp>
 

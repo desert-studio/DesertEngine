@@ -3,7 +3,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
-#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp> //TODO: maybe fix?
+#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp> // the type this service caches by handle
 
 namespace Desert::Runtime
 {

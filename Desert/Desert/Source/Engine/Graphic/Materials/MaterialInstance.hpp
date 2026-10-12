@@ -128,7 +128,8 @@ namespace Desert::Graphic
         }
 
         // Drops every instance override so the instance renders with the parent material's values
-        // again — the inverse of SetParamFromVec4 (exposed to scripts as clearMaterialParams()).
+        // again — the inverse of SetParamFromVec4. NOT what a script's clearMaterialParams() does: that drops the
+        // mesh's slot instances so they rebuild, keeping a material-instance asset's own overrides.
         void ResetOverrides()
         {
             m_Properties.ResetToDefaults();

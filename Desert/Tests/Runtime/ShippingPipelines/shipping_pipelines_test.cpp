@@ -62,6 +62,7 @@
 // COMMENTS ARE STRIPPED BEFORE ANYTHING IS SEARCHED FOR — this file's own prose names every token it
 // looks for, and a census that shoots at prose gets switched off, twice here already.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Core/DeveloperOnlyShaders.hpp>
 
 #include <gtest/gtest.h>
@@ -203,8 +204,7 @@ namespace
     // packaged game.
     const std::vector<std::string>& PlayerSourceRoots()
     {
-        static const std::vector<std::string> roots = { "Desert/Desert/Source", "Desert/Common/Source",
-                                                        "Runtime/Source" };
+        static const std::vector<std::string> roots = Desert::TestSupport::LibraryRootsAnd( { "Runtime/Source" } );
         return roots;
     }
 
@@ -399,6 +399,10 @@ namespace
                "MeshRenderer::CullPermutation — the CullMode None twin of a mesh pipeline, built the first time a "
                "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
                "it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererMorph.cpp", "kMorphShader",
+               Verdict::Shipped,
+               "the morph-target compute pass: an imported mesh with blend shapes deforms through it in the "
+               "product" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
@@ -454,6 +458,8 @@ namespace
                "TerrainPipeline (forward path) and TerrainGBufferPipeline (deferred path) from one helper" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
                "\"TerrainShadowPipeline\"", Verdict::Shipped, "the terrain as a cascade caster (LS-5)" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Water/WaterRenderer.cpp",
+               "\"WaterSurfacePipeline\"", Verdict::Shipped, "the water surface's deferred node (WATER-W6)" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
                "kMarchShaderName", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
@@ -472,6 +478,8 @@ namespace
              // ── deferred shading and its screen-space passes ────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", "\"Copy\"",
                Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp",
+               "\"VelocityView\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
                "\"DeferredLighting\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DepthExpandRenderer.hpp",
@@ -512,12 +520,24 @@ namespace
                Verdict::Shipped, "" },
 
              // ── particles ───────────────────────────────────────────────────────────────────────────
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleSimulate\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleAdd\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleAlpha\"", Verdict::Shipped, "" },
+             // VFX-07b/VFX-08: the scene pool's simulation kernels, and one pipeline per material sprite cell.
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "name",
+               Verdict::Shipped, "the particle simulation/sort kernels, named by the kernel table" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "cellShader",
+               Verdict::Shipped, "a material's ParticleSprite cell, named by its shader" },
+
+             // ── the view's temporal and lens chain (TAA1, DOF, motion blur, upscalers) ─────────────────
+             { "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp", "name", Verdict::Shipped,
+               "the six DOF kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/MotionBlur.cpp", "name", Verdict::Shipped,
+               "the four motion-blur kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/SpatialUpscale.cpp", "ShaderName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp", "pipelineName", Verdict::Shipped,
+               "one per TAA variant define" },
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp", "kResolveShaderName",
+               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp",
+               "\"PopulateSceneDepth\"", Verdict::Shipped, "" },
 
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"", Verdict::Shipped,

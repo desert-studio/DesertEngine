@@ -56,6 +56,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( probe.FsrAvailable )
             catalog.Upscalers.push_back( Upscaler::FSR );
         catalog.Upscalers.push_back( Upscaler::TAAU );
+        catalog.Upscalers.push_back( Upscaler::Spatial ); // ours, needs nothing beyond the required feature set
         catalog.Upscalers.push_back( Upscaler::None );
 
         // AA methods in enum order: there is no single quality order across methods (MSAA vs SMAA depends on

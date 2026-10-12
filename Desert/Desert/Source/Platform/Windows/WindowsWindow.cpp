@@ -1,4 +1,5 @@
 #include <Platform/Windows/WindowsWindow.hpp>
+#include <Engine/Core/GlfwWindowMode.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Events/MouseEvents.hpp>
@@ -18,13 +19,15 @@ namespace Desert::Platform::Windows
         LOG_ERROR( "GLFW Error: ({}: {})", error, description );
     }
 
-    static bool s_GLFWInitialized = false;
+    // GLFW is one library-wide state behind every window: glfwInit by the first window that opens, glfwTerminate
+    // by the last that closes. Counted rather than flagged, because a flag cannot tell the last window from the
+    // first, and terminating under a live window frees its native handle out from under it.
+    static int s_GLFWWindows = 0;
 
     Common::ResultStr<bool> WindowsWindow::Init()
     {
-        if ( !s_GLFWInitialized )
+        if ( s_GLFWWindows == 0 )
         {
-            // TODO: glfwTerminate on system shutdown
             int success = glfwInit();
             if ( !success )
             {
@@ -32,7 +35,11 @@ namespace Desert::Platform::Windows
             }
 
             glfwSetErrorCallback( GLFWErrorCallback );
-            s_GLFWInitialized = true;
+        }
+        if ( !m_HoldsGLFW )
+        {
+            ++s_GLFWWindows;
+            m_HoldsGLFW = true;
         }
 
         if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
@@ -54,13 +61,15 @@ namespace Desert::Platform::Windows
 
         int        posX = 0, posY = 0;
         bool       setPos       = false;
-        const bool coverTaskbar = m_Data.Specification.Fullscreen && m_Data.Specification.FullscreenCoverTaskbar;
+        const bool coverTaskbar = m_Data.Specification.Mode == WindowMode::WindowedFullscreen;
+        // The two modes whose size is the monitor's, not the specification's.
+        const bool fillsMonitor = m_Data.Specification.Mode == WindowMode::Maximized || coverTaskbar;
 
         // Covering the taskbar means the window has no frame whatever the specification says: there is
         // nowhere on the monitor to put one.
         const bool wantsFrame = m_Data.Specification.Decorated && !coverTaskbar;
 
-        if ( m_Data.Specification.Fullscreen && monitor && mode )
+        if ( fillsMonitor && monitor && mode )
         {
             if ( coverTaskbar )
             {
@@ -110,12 +119,27 @@ namespace Desert::Platform::Windows
         if ( !wantsFrame && m_GLFWWindow )
         {
             glfwSetWindowAttrib( m_GLFWWindow, GLFW_DECORATED, GLFW_FALSE );
-            if ( m_Data.Specification.Fullscreen && !coverTaskbar && m_Data.Specification.Visible )
+            if ( fillsMonitor && !coverTaskbar && m_Data.Specification.Visible )
                 glfwMaximizeWindow( m_GLFWWindow );
         }
 
         if ( setPos && m_GLFWWindow )
             glfwSetWindowPos( m_GLFWWindow, posX, posY );
+
+        // EXCLUSIVE FULLSCREEN is the one mode glfwCreateWindow is not asked for: the window is created at its
+        // size and then handed the monitor through the one door that changes a mode (Core/GlfwWindowMode.hpp).
+        // Without a monitor the window stays windowed, and GetWindowMode says so.
+        if ( m_GLFWWindow && m_Data.Specification.Mode == WindowMode::Fullscreen )
+        {
+            if ( const auto moved =
+                      ApplyGlfwWindowMode( m_GLFWWindow, WindowMode::Fullscreen, width, height, m_RequestedFrame );
+                 !moved )
+            {
+                LOG_ERROR( "Exclusive fullscreen {}x{} refused, the window stays windowed: {}", width, height,
+                           moved.GetError() );
+                m_Data.Specification.Mode = WindowMode::Windowed;
+            }
+        }
 
         // The open size differs from the restore size whenever the window was maximized or undecorated
         // above -> sync the spec to the real client size so the swapchain/camera use the correct
@@ -239,6 +263,7 @@ namespace Desert::Platform::Windows
     WindowsWindow::WindowsWindow( const WindowSpecification& specification )
     {
         m_Data.Specification = specification;
+        m_RequestedFrame     = specification.Decorated;
     }
 
     // The cache catching up, not a second owner of the size — the reason one frame of staleness matters is
@@ -252,6 +277,20 @@ namespace Desert::Platform::Windows
             m_Data.Specification.Width  = (uint32_t)w;
             m_Data.Specification.Height = (uint32_t)h;
         }
+    }
+
+    Common::BoolResultStr WindowsWindow::SetWindowMode( WindowMode mode, uint32_t width, uint32_t height )
+    {
+        const Common::BoolResultStr moved =
+             ApplyGlfwWindowMode( m_GLFWWindow, mode, width, height, m_RequestedFrame );
+        if ( !moved )
+            return moved;
+        m_Data.Specification.Mode      = mode;
+        m_Data.Specification.Decorated = WindowModeHasFrame( mode, m_RequestedFrame );
+        RefreshCachedSize();
+        if ( m_SwapChain )
+            m_SwapChain->RequestRebuild( m_Data.Specification.Width, m_Data.Specification.Height );
+        return moved;
     }
 
     void WindowsWindow::SetTitle( const std::string& title )
@@ -377,6 +416,17 @@ namespace Desert::Platform::Windows
 
     WindowsWindow::~WindowsWindow()
     {
+        // In the order the objects were made from one another: the swapchain and its VkSurface were built
+        // FROM this native window, so they go first (Vulkan forbids a surface outliving its window), then the
+        // window, then GLFW itself once no window is left.
+        m_SwapChain.reset();
+        if ( m_GLFWWindow != nullptr )
+        {
+            glfwDestroyWindow( m_GLFWWindow );
+            m_GLFWWindow = nullptr;
+        }
+        if ( m_HoldsGLFW && --s_GLFWWindows == 0 )
+            glfwTerminate();
     }
 
     std::string WindowsWindow::GetClipboardText() const

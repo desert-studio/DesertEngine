@@ -80,6 +80,11 @@ namespace Common::Content
         VFXSystem,
         Fracture,
         WaterWaves,
+        InputAction,
+        InputMappingContext,
+        PhysicsAsset,
+        Sound,
+        VFXDataChannel,
         COUNT,
     };
 
@@ -171,6 +176,17 @@ namespace Common::Content
              /* Fracture             */ { "Fracture", ".dfrac", &P::FRACTURE_PATH },
              // UE's UWaterWavesAsset: a seeded Gerstner generator (Engine/Assets/Serialization/WaterWaves.hpp).
              /* WaterWaves           */ { "WaterWaves", ".dwaves", &P::WATER_WAVES_PATH },
+             // UE's UInputAction and UInputMappingContext (Engine/Assets/Serialization/InputAssets.hpp).
+             /* InputAction          */ { "InputAction", ".deinputaction", &P::INPUT_PATH },
+             /* InputMappingContext  */ { "InputMappingContext", ".deinputcontext", &P::INPUT_PATH },
+             // UE's UPhysicsAsset: a DPHA payload in the asset envelope (Physics/PhysicsAssetFormat.hpp).
+             /* PhysicsAsset         */ { "PhysicsAsset", ".dephysasset", &P::PHYSICS_ASSET_PATH },
+             // UE's USoundWave: a text asset naming its imported audio source beside it (SoundAsset.hpp). Under
+             // the assets root, as a texture is: a sound sits beside whatever uses it.
+             /* Sound                */ { "Sound", ".desound", &P::ASSETS_PATH },
+             // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
+             // (Engine/Assets/Serialization/VFXDataChannel.hpp).
+             /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
         } };
     }
 

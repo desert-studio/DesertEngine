@@ -26,7 +26,6 @@ namespace Desert::Graphic
     {
         const glm::mat4* CascadeVP            = nullptr; // [Count] light view-proj matrices
         uint32_t         Count                = 0;
-        float            Bias                 = 0.005f;
         bool             Enabled              = true;
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
     };
@@ -107,9 +106,10 @@ namespace Desert::Graphic
             // buffers (DeferredLightingRenderer::UploadLights, Builder::QueueBufferUpload) and binds them as
             // block entries, so the PointLight / SpotLight storage properties stay unwritten and the route fill
             // leaves those slots to the pass. Only the counts the shader loops to are written here.
-            const uint32_t counts[3] = { 0u, pointCount, spotCount };
+            const ShaderProtocols::LightsMetadata counts{
+                 .DirectionLightsCount = 0U, .PointLightsCount = pointCount, .SpotLightsCount = spotCount };
             if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
-                meta->SetRawData( (std::byte*)counts, sizeof( counts ) );
+                meta->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
 
             UploadRegisteredProperties();
             // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here. ShadowUB,
@@ -127,7 +127,8 @@ namespace Desert::Graphic
             struct ShadowUBData
             {
                 glm::mat4 LightViewProj[4];
-                glm::vec4 Params;            // x = bias, y = enabled, z = debug mode, w = cascade count
+                glm::vec4 Params; // x reserved (0: the casters carry the bias), y = enabled, z = debug mode, w =
+                                  // cascade count
                 glm::vec4 DebugParams;
                 glm::vec4 CascadeTexelWorld;
             } data;
@@ -135,7 +136,7 @@ namespace Desert::Graphic
             const uint32_t n = shadow.Count < 4u ? shadow.Count : 4u;
             for ( uint32_t i = 0; i < 4u; ++i )
                 data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
-            data.Params = glm::vec4( shadow.Bias, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
+            data.Params = glm::vec4( 0.0f, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
             data.DebugParams       = glm::vec4( 0.0f );
             data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
 

@@ -4,13 +4,13 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
-#include <Engine/UI/UICanvasContext.hpp>
+#include <UI/UICanvasContext.hpp>
 
 namespace Desert::Editor::Render
 {
     // Draws the scene's UI canvas with the engine's own 2D batcher (Render2D) instead of ImGui — a
     // UI-phase pass into the scene HDR target, composited on top via a load pass. Installed like the
-    // grid, through the Editor Pass API (Scene::RegisterExternalPass). This is the migration vehicle:
+    // grid, through the Editor Pass API (Scene::RegisterExtensionPass). This is the migration vehicle:
     // it starts with flat-colour panels and grows toward full parity, after which the ImGui UI overlay
     // is retired.
     class EditorUIPass
@@ -59,6 +59,9 @@ namespace Desert::Editor::Render
         // The engine resources this view draws with; declared first, so it outlives the view built on it.
         ::Desert::UI::RegistryUICanvasResources m_UIResources;
         ::Desert::UI::UIViewContext             m_UIView{ m_UIResources };
+        // `--ui-press` under `--play`: walks seen with the scene in Play. The press waits for the second, whose
+        // `Hot` was elected over the rows gameplay filled on the first (see the press gate in Declare).
+        int m_CliPlayWalks = 0;
 
         // The offscreen worlds behind this view's render-texture elements. By value in the pass for the
         // same reason m_UIView is: closing the document destroys the pass, and destroying this is what

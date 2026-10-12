@@ -9,6 +9,7 @@
 // What is deliberately NOT tested: the on-disk .deproj format and the folders a new project is
 // scaffolded with — that census lives with the project format and has its own suite.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
@@ -116,7 +117,7 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
     // Byte-for-byte the spellings below a project's assets root. Every asset registry, cooked file and
     // saved scene of every project depends on these exact strings; a census edit that shifts one is a
     // data migration, not a refactor, and must fail here first.
-    const std::array<std::pair<const fs::path*, const char*>, 27> expected = { {
+    const std::array<std::pair<const fs::path*, const char*>, 29> expected = { {
          { &Path::ASSETS_PATH, "Content/" },
          { &Path::MESH_PATH, "Content/Meshes/" },
          { &Path::MATERIAL_PATH, "Content/Materials/" },
@@ -143,6 +144,8 @@ TEST( PathCensus, TheProjectLayoutIsPinned )
          { &Path::VFX_PATH, "Content/VFX/" },
          { &Path::FRACTURE_PATH, "Content/Fractures/" },
          { &Path::WATER_WAVES_PATH, "Content/Water/Waves/" },
+         { &Path::INPUT_PATH, "Content/Input/" },
+         { &Path::PHYSICS_ASSET_PATH, "Content/PhysicsAssets/" },
          { &Path::COOKED_PATH, "Cooked/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,
@@ -360,8 +363,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
 
     const std::set<std::string> extensions = { ".hpp", ".cpp", ".h", ".inl", ".mm" };
     std::set<std::string>       found;
-    for ( const char* top :
-          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+    for ( const std::string& top :
+          Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
     {
         std::error_code ec;
         if ( !fs::exists( repo / top, ec ) )

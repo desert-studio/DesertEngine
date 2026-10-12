@@ -16,6 +16,11 @@
 #include <utility>
 #include <vector>
 
+namespace Desert::Graphic
+{
+    struct ViewFrame;
+}
+
 namespace Desert::Graphic::System
 {
     // One landscape tile's render parameters, submitted per frame from the ECS (LandscapeECSSystem ->
@@ -54,15 +59,21 @@ namespace Desert::Graphic::System
         using RenderSystem::RenderSystem;
 
         virtual Common::BoolResultStr Initialize() override;
-        void                          RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
+        // shared, so terrain and meshes resolve against each other). Empty (no TargetFramebuffer) without a target
+        // or pipeline.
+        [[nodiscard]] SystemRasterPass GeometryPass();
 
         // The caster pipeline is built against the cascade targets, which the mesh renderer owns and makes.
         // Under a zero-cascade budget there are none and none is built (RecordShadowCascade is never reached).
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
-        // Before the render graph records: resolves every queued terrain's material, packs the rows and
-        // uploads them. Nothing may draw a terrain this frame before it ran.
-        void PrepareFrame();
+        // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
+        // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
+        // matrices — the same view every other pass of the frame draws for. Nothing may draw a terrain this
+        // frame before it ran.
+        void PrepareFrame( const ViewFrame& frame );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -72,8 +83,9 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
-                                                                 uint32_t         firstBlock,
-                                                                 const glm::mat4& cascadeViewProj ) override;
+                                                                 uint32_t                 firstBlock,
+                                                                 const glm::mat4&         cascadeViewProj,
+                                                                 const CascadeCasterBias& bias ) override;
 
         void Submit( const TerrainDrawData& data )
         {

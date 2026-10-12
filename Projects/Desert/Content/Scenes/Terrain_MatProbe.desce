@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "588ea69bc9d0cce516b7f46047dd2a1e",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 50,
             "UNIT": 1
         },
         "Dependencies": []
@@ -29,7 +29,9 @@
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
-                "ShadowBias": 0.004999999888241291,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
                 "CascadeSplitLambda": 0.6000000238418579
             }
         },
@@ -55,11 +57,6 @@
                 "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
-                "DriveSunFromTimeOfDay": false,
-                "TimeOfDay": 12.0,
-                "DayLengthSeconds": 600.0,
-                "Latitude": 45.0,
-                "NorthOffset": 0.0,
                 "AutoRebakeEnvironment": true,
                 "RebakeSunAngleThreshold": 5.0,
                 "EnvironmentResolution": 1,
@@ -97,6 +94,13 @@
                 "Intensity": 1.0,
                 "Rotation": 0.0,
                 "Tint": [1.0, 1.0, 1.0]
+            },
+            "TimeOfDay": {
+                "DriveSunFromTimeOfDay": false,
+                "TimeOfDay": 12.0,
+                "DayLengthSeconds": 600.0,
+                "Latitude": 45.0,
+                "NorthOffset": 0.0
             }
         },
         {
@@ -150,7 +154,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/821007510419511429.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/821007510419511429.dlht"
             }
         },
         {
@@ -161,7 +165,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/1786889910194905687.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/1786889910194905687.dlht"
             }
         },
         {
@@ -172,7 +176,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3327386937639270483.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/3327386937639270483.dlht"
             }
         },
         {
@@ -183,7 +187,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3779615529345712631.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/3779615529345712631.dlht"
             }
         },
         {
@@ -194,7 +198,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3930759967389139878.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/3930759967389139878.dlht"
             }
         },
         {
@@ -205,7 +209,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/3975560381801537963.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/3975560381801537963.dlht"
             }
         },
         {
@@ -216,7 +220,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/5477478537151188644.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/5477478537151188644.dlht"
             }
         },
         {
@@ -227,7 +231,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/6731081083105531597.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/6731081083105531597.dlht"
             }
         },
         {
@@ -238,7 +242,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7020694119001523850.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/7020694119001523850.dlht"
             }
         },
         {
@@ -249,7 +253,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/7121608721554957564.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/7121608721554957564.dlht"
             }
         },
         {
@@ -260,7 +264,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/8695778658748216640.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/8695778658748216640.dlht"
             }
         },
         {
@@ -271,7 +275,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/9056216440443355854.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/9056216440443355854.dlht"
             }
         },
         {
@@ -282,7 +286,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10015438807432692167.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/10015438807432692167.dlht"
             }
         },
         {
@@ -293,7 +297,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/10110104546615557682.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/10110104546615557682.dlht"
             }
         },
         {
@@ -304,7 +308,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11126006401806181125.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/11126006401806181125.dlht"
             }
         },
         {
@@ -315,7 +319,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11626354900979982395.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/11626354900979982395.dlht"
             }
         },
         {
@@ -326,7 +330,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/11821066194761549165.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/11821066194761549165.dlht"
             }
         },
         {
@@ -337,7 +341,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/12416981232610661863.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/12416981232610661863.dlht"
             }
         },
         {
@@ -348,7 +352,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/13210505574733904040.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/13210505574733904040.dlht"
             }
         },
         {
@@ -359,7 +363,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 0,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14124908903545180833.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/14124908903545180833.dlht"
             }
         },
         {
@@ -370,7 +374,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/14651609588595186388.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/14651609588595186388.dlht"
             }
         },
         {
@@ -381,7 +385,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 2,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/15849646365648934700.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/15849646365648934700.dlht"
             }
         },
         {
@@ -392,7 +396,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 4,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16193500395362112396.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/16193500395362112396.dlht"
             }
         },
         {
@@ -403,7 +407,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 3,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/16785752076158628301.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/16785752076158628301.dlht"
             }
         },
         {
@@ -414,7 +418,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Resources/Assets/Scenes/Terrain_MatProbe_Landscape/17759845638711099902.dlht"
+                "HeightFile": "Content/Scenes/Terrain_MatProbe_Landscape/17759845638711099902.dlht"
             }
         },
         {
@@ -434,7 +438,7 @@
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "EnableSSR": true,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "Tonemapper": 0,
@@ -450,6 +454,13 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
@@ -477,6 +488,11 @@
             "Guid": "",
             "Path": ""
         },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
         "SplashSprite": {
             "Guid": "",
             "Path": ""

@@ -175,6 +175,8 @@ namespace
         doc        = SG::Document{};
         doc.Domain = static_cast<int>( domain );
         doc.Name   = "DeterminismProbe";
+        // The Particles nodes are refused in a material without the sprite usage; the probe is about pin order.
+        doc.UsedWithParticleSprites = SG::ReadsParticleInputs( kind );
         marks.clear();
 
         SG::Node       outputNode = SG::MakeNode( doc, SG::OutputKind( domain ) );
@@ -593,13 +595,13 @@ TEST( ShaderGraphDeterminism, EveryCommittedGraphCompilesToTheSameTextTwice )
         const auto loaded = SG::Deserialize( ReadAll( entry.path() ) );
         ASSERT_TRUE( loaded.IsSuccess() ) << entry.path().string() << ": " << loaded.GetError();
 
-        const auto first = SG::CompileToDShader( loaded.GetValue().Doc );
+        const auto first = SG::CompileToDShader( loaded.GetValue() );
         if ( !first.IsSuccess() )
             continue; // the corpus gate next door owns "does it compile"; this one owns "is it stable"
 
         const auto second = SG::Deserialize( ReadAll( entry.path() ) );
         ASSERT_TRUE( second.IsSuccess() );
-        SG::Document shuffled = second.GetValue().Doc;
+        SG::Document shuffled = second.GetValue();
         std::reverse( shuffled.Links.begin(), shuffled.Links.end() );
 
         const auto again = SG::CompileToDShader( shuffled );

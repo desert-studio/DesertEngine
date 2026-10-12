@@ -1,5 +1,7 @@
 #include "GraphCanvas.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace Desert::Editor::Graph
@@ -48,6 +50,8 @@ namespace Desert::Editor::Graph
     ElementKind KindOf( ElementId id )
     {
         const uint64_t raw = Raw( id );
+        if ( raw >= kCommentBase && raw < kEndOfIds )
+            return ElementKind::Comment;
         if ( raw >= kLinkBase )
             return ElementKind::Link;
         if ( raw >= kPinBase )
@@ -63,10 +67,48 @@ namespace Desert::Editor::Graph
                 return kPinBase;
             case ElementKind::Link:
                 return kLinkBase;
+            case ElementKind::Comment:
+                return kCommentBase;
             case ElementKind::Node:
             default:
                 return kNodeBase;
         }
+    }
+
+    std::optional<CanvasRect> EncloseRects( std::span<const CanvasRect> rects, float padding )
+    {
+        if ( rects.empty() )
+            return std::nullopt;
+        float minX = rects.front().X;
+        float minY = rects.front().Y;
+        float maxX = rects.front().X + rects.front().Width;
+        float maxY = rects.front().Y + rects.front().Height;
+        for ( const CanvasRect& rect : rects )
+        {
+            minX = std::min( minX, rect.X );
+            minY = std::min( minY, rect.Y );
+            maxX = std::max( maxX, rect.X + rect.Width );
+            maxY = std::max( maxY, rect.Y + rect.Height );
+        }
+        return CanvasRect{ minX - padding, minY - padding, maxX - minX + 2.0f * padding,
+                           maxY - minY + 2.0f * padding };
+    }
+
+    std::vector<size_t> FindMatches( std::span<const std::string> names, std::string_view query )
+    {
+        const auto  lower = []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); };
+        std::string needle( query );
+        std::transform( needle.begin(), needle.end(), needle.begin(), lower );
+
+        std::vector<size_t> matches;
+        for ( size_t i = 0; i < names.size(); ++i )
+        {
+            std::string hay = names[i];
+            std::transform( hay.begin(), hay.end(), hay.begin(), lower );
+            if ( hay.find( needle ) != std::string::npos )
+                matches.push_back( i );
+        }
+        return matches;
     }
 
     // ── ElementLedger ─────────────────────────────────────────────────────────────────────────────────

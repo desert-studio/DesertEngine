@@ -62,7 +62,9 @@ namespace Common::Scalability
     };
 
     // The upscaler of axis 2. `None` is the only legal value at render scale >= 100 % (native / SSAA), and an
-    // illegal one below 100 %.
+    // illegal one below 100 %. Below 100 % a temporal AA method upscales temporally (TAAU or a vendor's), and a
+    // method without history (None / FXAA / SMAA) is brought to the output by `Spatial` (UE: the secondary,
+    // spatial upscale). Values are stored by name (kUpscalerNames), so a new one is appended.
     enum class Upscaler : int
     {
         None = 0,
@@ -71,6 +73,7 @@ namespace Common::Scalability
         DLSS,    // NVIDIA DLSS via NGX/Streamline — NVIDIA RTX + the runtime DLL loaded; never on Mac
         XeSS,    // Intel XeSS — offered once its SDK is integrated
         MetalFX, // Apple MetalFX temporal scaler — Mac only, reached through the MoltenVK/Metal interop
+        Spatial, // the engine's edge-adaptive spatial upscale (FSR1 EASU port) — always offered, no history
     };
 
     // How rays may be traced on this device. Reader: the ray-traced shadows / reflections / GI parameters
@@ -148,12 +151,12 @@ namespace Common::Scalability
     // enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
                                                                                "TAA",  "FSRNative", "DLAA" };
-    inline constexpr std::array<std::string_view, 6> kUpscalerNames{ "None", "TAAU", "FSR",
-                                                                     "DLSS", "XeSS", "MetalFX" };
+    inline constexpr std::array<std::string_view, 7> kUpscalerNames{ "None", "TAAU",    "FSR",    "DLSS",
+                                                                     "XeSS", "MetalFX", "Spatial" };
     inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
                                                                            "RayTracingPipeline" };
     static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
-    static_assert( static_cast<std::size_t>( Upscaler::MetalFX ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( Upscaler::Spatial ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
 
@@ -171,7 +174,8 @@ namespace Common::Scalability
         // ascending, always starting with 1. Mac: Apple GPUs report 1/2/4 (8 on some), MoltenVK passes them on.
         std::vector<int> MSAACounts;
 
-        // Reader: ResolutionScale group (Upscaler parameter). Always contains None and TAAU. Mac: None, TAAU,
+        // Reader: ResolutionScale group (Upscaler parameter). Always contains None, Spatial and TAAU. Mac: None,
+        // Spatial, TAAU,
         // MetalFX (macOS 13+ on Apple Silicon), FSR once integrated; never DLSS / XeSS.
         std::vector<Upscaler> Upscalers;
 

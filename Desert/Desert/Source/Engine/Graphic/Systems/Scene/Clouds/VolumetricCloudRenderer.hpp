@@ -63,9 +63,9 @@ namespace Desert::Graphic::System
      *                  inside or below the layer with one fetch. See Common/CloudShadowMap.glslh for the
      *                  encoding and Engine/Graphic/Clouds/CloudShadowPayload.hpp for the projection.
      *                  Independent of S1 and S2: it needs no scene depth and no view.
-     *   S3  COMPOSITE  a fullscreen triangle registered in RenderPhase::Transparency at
-     *                  RenderPassOrder::FarField — ABOVE the height fog and BELOW everything else the
-     *                  phase composites, so particles land over the clouds rather than under them. It
+     *   S3  COMPOSITE  a fullscreen triangle (CompositePass), added by SceneRenderer::AddFrameTranslucency
+     *                  right after the height fog apply and BEFORE everything else it composites, so
+     *                  particles land over the clouds rather than under them. It
      *                  upsamples the HALF-resolution reconstruction, unchanged by mode 0.
      *
      * WHERE IT RUNS. S0, S1 and S2 are in-frame compute dispatches and must be issued OUTSIDE an open
@@ -94,7 +94,11 @@ namespace Desert::Graphic::System
         ~VolumetricCloudRenderer() override;
 
         Common::BoolResultStr Initialize() override;
-        void                  RegisterPasses( RenderGraphBuilder& builder ) override;
+
+        // The S3 composite as one raster pass on the scene target: its body, pipeline and declared reads. Not
+        // registered with the builder: its place in the frame is the call that adds it
+        // (SceneRenderer::AddFrameTranslucency). No target framebuffer when the system failed to initialize.
+        SystemRasterPass CompositePass();
 
         // Drops the temporal reconstruction's history — see IRenderSystem::OnSceneReplaced, kind 1. Every
         // other cache in this system is content-keyed already (the modelling volume and the noise bakes
@@ -123,6 +127,8 @@ namespace Desert::Graphic::System
          *                   deleted mid-session must take its clouds with it.
          * @param windOffset the drift the ECS accumulated, world units. Owned there because that is where
          *                   the timestep is.
+         * @param windDirection unit, the scene's wind at the layer (ECS::WindAt; +X in still air): the axis the
+         *                   species' placement lattice is laid along.
          * @param heroClouds this frame's sculpted bodies — slot A of the seam. Empty is the ordinary case
          *                   and means the march's authored loop does not run at all.
          * @param quality    this machine's cloud quality tier, taken from Common::Settings::MachineSettings each
@@ -132,7 +138,7 @@ namespace Desert::Graphic::System
          *                   other.
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                               Common::Settings::CloudQuality        quality,
+                               const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
                                const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
@@ -769,6 +775,7 @@ namespace Desert::Graphic::System
 
         ECS::VolumetricCloudData m_Data{};
         glm::vec3                m_WindOffset{ 0.0f };
+        glm::vec3                m_WindDirection{ 1.0f, 0.0f, 0.0f };
 
         /// The frame's resolved cloud LOOK — CloudRaymarch schema defaults with the `.demat` chain of
         /// m_Data.Material applied over them (O1). Filled by ResolveMaterial() from SetCloudSettings,

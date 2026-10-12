@@ -32,6 +32,8 @@
 #include <format>
 #include <string>
 #include <cctype>
+#include <span>
+#include <system_error>
 #include <cmath>
 
 #include <Common/Core/Constants.hpp>
@@ -56,8 +58,8 @@ namespace Desert::Editor
         // at all for noise. All three need to know WHAT A TEXTURE IS FOR, which is not in the pixels.
         // The cook now has two independent answers to that question and uses both:
         //
-        //   THE AUTHORED ONE decides WHICH format is attempted, or that none is. It is a `.detex`
-        //   beside the source (`TextureIntentFile.hpp`) run through `BlockPolicyForIntent`.
+        //   THE AUTHORED ONE decides WHICH format is attempted, or that none is. It is the texture
+        //   asset's Intent setting (IMPT of the `.detex`) run through `BlockPolicyForIntent`.
         //
         //   THE MEASURED ONE decides whether the attempt is KEPT. The cook encodes, DECODES ITS OWN
         //   OUTPUT and compares over the channels the format promised, against the two gates below.
@@ -545,13 +547,14 @@ namespace Desert::Editor
         std::vector<stbi_uc> stbSource( asset.Source.size() );
         std::memcpy( stbSource.data(), asset.Source.data(), stbSource.size() );
         const uint64_t                    sourceHash = asset.Import.SourceHash;
-        TextureIntentRead                 authored;
-        authored.Intent = asset.Import.Settings.Intent;
-        authored.Where  = authored.Intent == Fmt::TextureIntent::Unspecified ? TextureIntentSource::NotAuthored
-                                                                             : TextureIntentSource::Authored;
+        // The asset's Intent setting; Unspecified = nobody said (the cook then measures).
+        const Fmt::TextureIntent           authoredIntent = asset.Import.Settings.Intent;
         const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion };
         const uint64_t                     ddcKey = Assets::TextureDerivedDataKey( sourceHash, buildSettings );
-        const uint64_t                     cookSignature = CookSignature( kBlockEncoderVersion, authored.Intent );
+        // Bit 48 folds the colour space in: a texture re-marked sRGB/Linear is a different cook.
+        const uint64_t cookSignature =
+             CookSignature( kBlockEncoderVersion, authoredIntent ) |
+             ( asset.Import.Settings.ColorSpace == Fmt::TextureColorSpace::SRGB ? ( 1ull << 48 ) : 0ull );
 
         // A SOURCE FORMAT IS AN INPUT, NOT A STORAGE FORMAT — `Docs/Textures/T2_CONTAINER_DECISION.md`.
         // This is the ONE place in the project that decodes one, and everything downstream reads the
@@ -586,6 +589,13 @@ namespace Desert::Editor
         // THE ONE TAIL OF EVERY BUILD THAT SUCCEEDED, whether its levels were encoded here or taken from a DDS.
         auto store = [&]( const Assets::Serialization::TextureAssetData& built ) -> TextureCookResult
         {
+            if ( built.ColorSpace == Fmt::TextureColorSpace::SRGB && !Fmt::HasSRGBVariant( built.Format ) )
+            {
+                LOG_ERROR( "[TextureImporter] '{0}' is marked sRGB but was cooked to format {1}, which has no "
+                           "sRGB view (intent {2}). Mark it Linear or change its intent; nothing is cached.",
+                           abs, static_cast<uint32_t>( built.Format ), Fmt::TextureIntentName( authoredIntent ) );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
             // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
             // runtime finds it; a build that could not be Put would be a texture nobody can load.
             const std::string encoded = Assets::Serialization::EncodeTextureBinary( built );
@@ -627,7 +637,7 @@ namespace Desert::Editor
             }
             w = exr.w;
             h = exr.h;
-            if ( authored.Intent == Fmt::TextureIntent::NormalMap )
+            if ( authoredIntent == Fmt::TextureIntent::NormalMap )
             {
                 base = QuantiseToUnorm8( exr.Rgba );
             }
@@ -654,10 +664,10 @@ namespace Desert::Editor
             if ( chain.Nearest != Fmt::ImageFormat::Count )
             {
                 ddsBlockSource = true;
-                if ( authored.Intent == Fmt::TextureIntent::Unspecified )
+                if ( authoredIntent == Fmt::TextureIntent::Unspecified )
                     ddsTarget = chain.Nearest;
                 else if ( const Fmt::BlockPolicy policy =
-                               Fmt::BlockPolicyForIntent( authored.Intent, Fmt::ImageFormat::RGBA8F );
+                               Fmt::BlockPolicyForIntent( authoredIntent, Fmt::ImageFormat::RGBA8F );
                           policy.Verdict == Fmt::BlockPolicyVerdict::Encode )
                     ddsTarget = policy.Format;
             }
@@ -669,7 +679,7 @@ namespace Desert::Editor
                 taken.Width             = chain.Width;
                 taken.Height            = chain.Height;
                 taken.Format            = ddsTarget;
-                taken.Intent            = authored.Intent;
+                taken.Intent            = authoredIntent;
                 taken.EncoderHash       = cookSignature;
                 auto table = Assets::Serialization::BuildLevelTable( chain.Width, chain.Height, chain.LevelCount,
                                                                      1, ddsTarget, chain.Images, taken.Pixels );
@@ -685,7 +695,7 @@ namespace Desert::Editor
                      "[TextureImporter] '{0}' keeps its DDS blocks ({1}, {2} levels, {3} bytes): they are the "
                      "format its intent {4} asks for.",
                      abs, chain.SourceName, chain.LevelCount, taken.Pixels.size(),
-                     Fmt::TextureIntentName( authored.Intent ) );
+                     Fmt::TextureIntentName( authoredIntent ) );
                 return store( taken );
             }
             auto dds = DecodeDdsSource( stbSource.data(), stbSource.size() );
@@ -703,7 +713,7 @@ namespace Desert::Editor
             {
                 base = std::move( image.Rgba8 );
             }
-            else if ( authored.Intent == Fmt::TextureIntent::NormalMap )
+            else if ( authoredIntent == Fmt::TextureIntent::NormalMap )
             {
                 base = QuantiseToUnorm8( image.RgbaF );
             }
@@ -776,8 +786,8 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
-        auto chain =
-             Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels );
+        auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
+                                                           asset.Import.Settings.ColorSpace );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -786,7 +796,8 @@ namespace Desert::Editor
             return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         data.Levels      = chain.ExtractValue();
-        data.Intent      = authored.Intent;
+        data.Intent      = authoredIntent;
+        data.ColorSpace  = asset.Import.Settings.ColorSpace;
         data.EncoderHash = cookSignature;
 
         // ── THE TWO SOURCES MEET HERE ────────────────────────────────────────────────────────────
@@ -811,14 +822,14 @@ namespace Desert::Editor
             {
                 LOG_INFO( "[TextureImporter] '{0}' is kept uncompressed: it is authored as {1}, which forbids a "
                           "block format.",
-                          abs, Fmt::TextureIntentName( authored.Intent ) );
+                          abs, Fmt::TextureIntentName( authoredIntent ) );
             }
             else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget ); encoded.Encoded )
             {
                 // NO GATE: the grade is against blocks already decoded once, so it is reported, not obeyed.
                 LOG_INFO( "[TextureImporter] '{0}' (DDS blocks of another format) is re-encoded as format {1} for "
                           "intent {2}: {3:.2f} dB against the decoded source, worst texel off by {4}.",
-                          abs, static_cast<uint32_t>( ddsTarget ), Fmt::TextureIntentName( authored.Intent ),
+                          abs, static_cast<uint32_t>( ddsTarget ), Fmt::TextureIntentName( authoredIntent ),
                           encoded.Grade.Psnr, encoded.Grade.MaxAbsoluteDelta );
                 data.Format = ddsTarget;
                 data.Levels = std::move( encoded.Levels );
@@ -833,7 +844,7 @@ namespace Desert::Editor
         }
         else if ( data.Format == Fmt::ImageFormat::RGBA8F )
         {
-            const Fmt::BlockPolicy policy = Fmt::BlockPolicyForIntent( authored.Intent, data.Format );
+            const Fmt::BlockPolicy policy = Fmt::BlockPolicyForIntent( authoredIntent, data.Format );
 
             // THE MEASUREMENT'S OWN VERDICT, TAKEN WHATEVER THE AUTHOR SAID. This is the second,
             // independent opinion; it is about the format the cook would reach for with nobody to ask,
@@ -870,24 +881,13 @@ namespace Desert::Editor
                     {
                         LOG_WARN( "[TextureImporter] '{0}' is marked {1} and could not be encoded as the "
                                   "format that intent asks for: {2}",
-                                  abs, Fmt::TextureIntentName( authored.Intent ), chosen.Problem );
+                                  abs, Fmt::TextureIntentName( authoredIntent ), chosen.Problem );
                     }
                 }
             }
             const Attempt& stored = chosenIsProbe ? probe : chosen;
 
-            if ( authored.Where == TextureIntentSource::Malformed )
-            {
-                // AN INSTRUCTION WE COULD NOT READ IS NOT PERMISSION. Somebody wrote a `.detex` and the
-                // cook does not know what it says; falling through to the measurement would be guessing
-                // past a person, which is the one thing the authored field exists to stop. So the
-                // texture is stored uncompressed — always correct, never silent — and the ERROR naming
-                // the file was already logged above.
-                LOG_WARN( "[TextureImporter] '{0}' is kept uncompressed because its authored intent could "
-                          "not be read; the cook does not guess past a '{1}' that exists.",
-                          abs, assetPath.filename().string() );
-            }
-            else if ( authored.Where != TextureIntentSource::Authored )
+            if ( authoredIntent == Fmt::TextureIntent::Unspecified )
             {
                 // NOBODY SAID. Exactly the behaviour this cook had before the field existed, and the
                 // log line says on what authority — an unmarked texture is not a cross-checked one, and
@@ -897,8 +897,8 @@ namespace Desert::Editor
                 {
                     LOG_INFO( "[TextureImporter] '{0}' is stored as BC7 on a measurement alone ({1:.2f} dB, "
                               "worst texel off by {2}, {3} bytes instead of {4}): no intent is authored "
-                              "for it, so there is nothing to cross-check the choice against. Put a "
-                              R"('{{"Intent": "..."}}' in '{5}' to say what it is for.)",
+                              "for it, so there is nothing to cross-check the choice against. Set Intent in "
+                              "the Details of '{5}' to say what it is for.",
                               abs, probe.Grade.Psnr, probe.Grade.MaxAbsoluteDelta, probe.Pixels.size(),
                               data.Pixels.size(), assetPath.filename().string() );
                     data.Format = probeFormat;
@@ -928,7 +928,7 @@ namespace Desert::Editor
                               "have given {3:.2f} dB with a worst texel off by {4} — inside both gates. "
                               "The authored refusal stands and the texture is stored uncompressed; if "
                               "the intent is wrong, '{5}' is where to change it.",
-                              abs, Fmt::TextureIntentName( authored.Intent ), policy.Because, probe.Grade.Psnr,
+                              abs, Fmt::TextureIntentName( authoredIntent ), policy.Because, probe.Grade.Psnr,
                               probe.Grade.MaxAbsoluteDelta, assetPath.filename().string() );
                 }
                 else
@@ -936,7 +936,7 @@ namespace Desert::Editor
                     LOG_INFO( "[TextureImporter] '{0}' is kept uncompressed: it is authored as {1} ({2}), "
                               "and the measurement agrees — BC7 gives {3:.2f} dB with a worst texel off "
                               "by {4}.",
-                              abs, Fmt::TextureIntentName( authored.Intent ), policy.Because, probe.Grade.Psnr,
+                              abs, Fmt::TextureIntentName( authoredIntent ), policy.Because, probe.Grade.Psnr,
                               probe.Grade.MaxAbsoluteDelta );
                 }
             }
@@ -944,7 +944,7 @@ namespace Desert::Editor
             {
                 LOG_INFO( "[TextureImporter] '{0}' is authored as {1} and stored as format {2} ({3}): "
                           "{4:.2f} dB, worst texel off by {5}, {6} bytes instead of {7}.",
-                          abs, Fmt::TextureIntentName( authored.Intent ), static_cast<uint32_t>( policy.Format ),
+                          abs, Fmt::TextureIntentName( authoredIntent ), static_cast<uint32_t>( policy.Format ),
                           policy.Because, stored.Grade.Psnr, stored.Grade.MaxAbsoluteDelta, stored.Pixels.size(),
                           data.Pixels.size() );
                 data.Format = policy.Format;
@@ -962,7 +962,7 @@ namespace Desert::Editor
                           "which asks for format {2} ({3}), and that encode measures {4:.2f} dB (floor "
                           "{5:.2f}) with a worst texel off by {6} (ceiling {7}). The measurement stands "
                           "and the texture is stored uncompressed.",
-                          abs, Fmt::TextureIntentName( authored.Intent ), static_cast<uint32_t>( policy.Format ),
+                          abs, Fmt::TextureIntentName( authoredIntent ), static_cast<uint32_t>( policy.Format ),
                           policy.Because, stored.Grade.Psnr, kBlockPsnrFloorDb, stored.Grade.MaxAbsoluteDelta,
                           kBlockMaxDeltaCeiling );
             }
@@ -991,8 +991,7 @@ namespace Desert::Editor
         const std::string      sourceKey = Common::AssetHandle::StableKeyForPath( source );
 
         // REIMPORT keeps the asset's identity (GUID -> handle) and settings and re-takes only a source whose
-        // CONTENT changed (Assets::WriteTextureSource, the one rule). The authored intent below is read only for
-        // a FIRST import: at an existing asset's path it would be the asset itself, not a sidecar.
+        // CONTENT changed (Assets::WriteTextureSource, the one rule).
         if ( Assets::IsTextureSourceAssetFile( assetPath ) )
         {
             const auto kept = Assets::WriteTextureSource( assetPath, Common::Content::ContentKind::Texture,
@@ -1002,28 +1001,33 @@ namespace Desert::Editor
             return Common::MakeSuccess( assetPath );
         }
 
+        // A FILE AT THE ASSET'S PATH THAT IS NOT A TEXTURE ASSET is refused by path, never overwritten and never
+        // read leniently (UE LinkerLoad.cpp:1537-1546: a package older than the oldest loadable version is a load
+        // error naming the file). The pre-asset JSON `{"Intent": ...}` sidecar is the case this exists for.
+        {
+            std::error_code ec;
+            if ( fs::exists( assetPath, ec ) )
+            {
+                const auto occupant = Common::Utils::FileSystem::ReadFileContent( assetPath );
+                const bool legacy =
+                     occupant.IsSuccess() &&
+                     Assets::IsLegacyTextureIntentSidecar( std::as_bytes( std::span( occupant.GetValue() ) ) );
+                return Common::MakeError<fs::path>(
+                     legacy ? std::format( "'{}' is {}", assetPath.generic_string(),
+                                           Assets::kLegacyTextureIntentSidecarRefusal )
+                            : std::format( "'{}' is in the texture asset's place and is not a texture asset; "
+                                           "move it aside to import '{}'",
+                                           assetPath.generic_string(), source.generic_string() ) );
+            }
+        }
+
         // FIRST IMPORT. A fresh GUID is minted into the header; the handle is its fold (HandleForGuid), so
-        // nothing about the source's place enters the identity. A legacy `{"Intent": ...}` sidecar at the asset's
-        // path is the authored setting and is folded into ImportInfo; the asset replaces it.
+        // nothing about the source's place enters the identity. The intent is the material slot's word, or
+        // Unspecified when nobody said; it is edited afterwards in the asset's Details.
         Assets::TextureImportSettings settings;
-        const TextureIntentRead       authored = ReadTextureIntent( source );
-        if ( authored.Where == TextureIntentSource::Authored )
-        {
-            settings.Intent = authored.Intent;
-        }
-        else if ( authored.Where == TextureIntentSource::Malformed )
-        {
-            // The old cook kept such a texture uncompressed rather than guess; `Data` is that same outcome
-            // written down, so the choice survives the sidecar being replaced.
-            LOG_ERROR( "[TextureImporter] '{0}' has an authored intent file that was not used: {1}. The asset "
-                       "is imported as Data (uncompressed); set its intent to change that.",
-                       assetPath.string(), authored.Problem );
-            settings.Intent = Fmt::TextureIntent::Data;
-        }
-        else
-        {
-            settings.Intent = slotIntent; // the material slot's word, or Unspecified when nobody said
-        }
+        settings.Intent = slotIntent;
+        settings.ColorSpace =
+             Assets::DefaultTextureColorSpace( settings.Intent, std::as_bytes( std::span( bytes ) ) );
         const fs::path rel =
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
@@ -1067,7 +1071,8 @@ namespace Desert::Editor
                 // two hand-written copies that had already drifted before it existed.
                 if ( ext == Assets::kTextureAssetExtension )
                 {
-                    // A legacy JSON sidecar is not an asset; its image is listed below and imports it.
+                    // A `.detex` that is not a texture asset (the pre-asset JSON sidecar) is not listed: its
+                    // image is, and that image's import refuses it by path (ImportSourceAsset).
                     if ( Assets::IsTextureSourceAssetFile( entry.path() ) )
                         sources.push_back( entry.path() );
                     continue;

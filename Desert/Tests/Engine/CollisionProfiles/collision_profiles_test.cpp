@@ -130,7 +130,7 @@ TEST( CollisionProfiles, TheTestRegisterAndTheProjectRegisterBuild )
     for ( const std::string_view engine :
           { Physics::EngineProfiles::kBlockAll, Physics::EngineProfiles::kBlockAllDynamic,
             Physics::EngineProfiles::kPhysicsActor, Physics::EngineProfiles::kPawn,
-            Physics::EngineProfiles::kDestructible } )
+            Physics::EngineProfiles::kDestructible, Physics::EngineProfiles::kRagdoll } )
         EXPECT_TRUE( read.GetValue().Resolve( engine ).IsSuccess() ) << engine;
 }
 
@@ -183,7 +183,7 @@ TEST( CollisionProfiles, BuildRefusesEachBrokenRowByName )
     for ( const std::string_view engine :
           { Physics::EngineProfiles::kBlockAll, Physics::EngineProfiles::kBlockAllDynamic,
             Physics::EngineProfiles::kPhysicsActor, Physics::EngineProfiles::kPawn,
-            Physics::EngineProfiles::kDestructible } )
+            Physics::EngineProfiles::kDestructible, Physics::EngineProfiles::kRagdoll } )
     {
         auto withoutEngineProfile = good;
         std::erase_if( withoutEngineProfile.Profiles,
@@ -370,7 +370,8 @@ TEST( CollisionProfiles, APawnStandsOnABlockingFloorAndFallsThroughATrigger )
         for ( int i = 0; i < 120; ++i )
         {
             world.Physics.Step( kStep );
-            world.Physics.UpdateCharacter( pawn.GetValue(), { 0.0f, -500.0f, 0.0f }, kStep );
+            world.Physics.UpdateCharacter( pawn.GetValue(), { 0.0f, -500.0f, 0.0f }, world.Physics.GetGravity(),
+                                           kStep );
         }
         const float y = world.Physics.GetCharacterPosition( pawn.GetValue() ).y;
         if ( blocks )

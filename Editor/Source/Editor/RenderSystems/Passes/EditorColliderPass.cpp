@@ -57,7 +57,7 @@ namespace Desert::Editor::Render
     EditorColliderPass::~EditorColliderPass()
     {
         if ( const auto scene = m_Scene.lock() )
-            scene->UnregisterExternalPass( "EditorColliders" );
+            scene->UnregisterExtensionPass( "EditorColliders" );
     }
 
     Common::BoolResultStr EditorColliderPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
@@ -87,12 +87,10 @@ namespace Desert::Editor::Render
 
         m_Material = std::make_unique<Graphic::MaterialDebugLine>();
 
-        Graphic::ExternalPassSpecification pass;
+        Graphic::ExtensionPass pass;
         pass.Name                  = "EditorColliders";
-        pass.Phase                 = Graphic::RenderPhase::Debug;
-        pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
-        pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+        pass.Point                 = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             // Asked of the RENDERER, not the scene — see EditorGridPass for why. This flag in particular:
@@ -120,7 +118,7 @@ namespace Desert::Editor::Render
             return BOOLSUCCESS;
         };
 
-        scene->RegisterExternalPass( std::move( pass ) );
+        scene->RegisterExtensionPass( std::move( pass ) );
         return BOOLSUCCESS;
     }
 

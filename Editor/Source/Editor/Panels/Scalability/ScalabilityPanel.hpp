@@ -3,10 +3,11 @@
 #include "../IPanel.hpp"
 
 #include <memory>
+#include <optional>
 
 namespace Desert::Editor
 {
-    // Machine quality (AA, MSAA, texture filtering, cloud tier) — Common::Settings::MachineSettings.
+    // Machine quality (AA, MSAA, render scale, texture filtering, cloud tier) — Common::Settings::MachineSettings.
     class ScalabilityPanel final : public IPanel
     {
     public:
@@ -22,5 +23,7 @@ namespace Desert::Editor
 
     private:
         std::weak_ptr<Desert::Core::Scene> m_Scene;
+        // The render-scale slider's value while it is dragged; applied (and saved) once, on release.
+        std::optional<int> m_DraggedRenderScale;
     };
 } // namespace Desert::Editor

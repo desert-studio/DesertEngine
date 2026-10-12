@@ -358,6 +358,32 @@ namespace Desert::Scripting
                          std::format( "{} {}", target.Script, function ) );
     }
 
+    Common::BoolResultStr LuauRuntime::CallWithEntity( LuauSlot slot, const char* function,
+                                                       entt::registry& registry, entt::entity entity,
+                                                       std::span<const Reflection::Value> after )
+    {
+        Impl& impl  = *m_Impl;
+        auto  found = impl.Slots.find( slot );
+        if ( found == impl.Slots.end() )
+            return Common::MakeError<bool>( std::format( "slot {} does not exist", slot ) );
+        const Impl::Slot& target = found->second;
+        lua_State*        thread = target.Thread;
+
+        lua_getglobal( thread, function );
+        if ( !lua_isfunction( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            return Common::MakeError<bool>(
+                 std::format( "{}: defines no function '{}'", target.Script, function ) );
+        }
+        LuauBinder::PushEntity( thread, registry, entity );
+        for ( const Reflection::Value& arg : after )
+            LuauBinder::PushValue( thread, arg );
+        return impl.Run( thread, 1 + static_cast<int>( after.size() ), 0,
+                         impl.Scripts.at( target.Script ).Category,
+                         std::format( "{} {}", target.Script, function ) );
+    }
+
     Common::BoolResultStr LuauRuntime::CallFrom( LuauSlot slot, const char* function, lua_State* from, int first,
                                                  int count )
     {
@@ -464,6 +490,42 @@ namespace Desert::Scripting
         }
         lua_pop( thread, 1 );
         return entries;
+    }
+
+    Common::ResultStr<std::vector<std::string>> LuauRuntime::ReadStringList( LuauSlot    slot,
+                                                                             const char* table ) const
+    {
+        using Names = std::vector<std::string>;
+        auto found  = m_Impl->Slots.find( slot );
+        if ( found == m_Impl->Slots.end() )
+            return Common::MakeFormattedError<Names>( "no script slot {} to read '{}' from", slot, table );
+        lua_State* thread = found->second.Thread;
+        lua_getglobal( thread, table );
+        if ( lua_isnil( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            return Common::MakeSuccess( Names{} );
+        }
+        if ( !lua_istable( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            return Common::MakeFormattedError<Names>( "'{}' is not a list of names", table );
+        }
+        Names     names;
+        const int count = lua_objlen( thread, -1 );
+        for ( int i = 1; i <= count; ++i )
+        {
+            lua_rawgeti( thread, -1, i );
+            if ( lua_type( thread, -1 ) != LUA_TSTRING )
+            {
+                lua_pop( thread, 2 );
+                return Common::MakeFormattedError<Names>( "'{}' entry {} is not a name", table, i );
+            }
+            names.emplace_back( lua_tostring( thread, -1 ) );
+            lua_pop( thread, 1 );
+        }
+        lua_pop( thread, 1 );
+        return Common::MakeSuccess( std::move( names ) );
     }
 
     Common::BoolResultStr LuauRuntime::Eval( const std::string& code, std::string& output )

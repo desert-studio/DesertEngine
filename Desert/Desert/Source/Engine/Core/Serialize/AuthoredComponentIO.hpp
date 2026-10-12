@@ -2,7 +2,7 @@
 
 // THE FILE FORM OF THE COMPONENTS THAT ARE AUTHORED BY HAND AND HAVE NO REFLECTED DATA BLOCK.
 //
-// THE DEFECT. Foliage, Locomotion, Morph, Socket and Projectile each have a full Details editor and
+// THE DEFECT. Foliage, Locomotion, Morph, Socket and Projectile each had a full Details editor and
 // none of them had a line in ComponentRegistry.cpp. So the sliders worked, the values were read by
 // their systems, and the next `Open Scene` threw the lot away — with no error, no warning and no
 // mark. It is the same defect VisibilityComponent had (U11) and the same one LockComponent had
@@ -10,8 +10,10 @@
 // than the scene file, because EVERY subtree copy in this editor goes through the same registry —
 // delete-undo, Ctrl+C/Ctrl+V, prefab instancing and the Play/Stop snapshot all lose the same values.
 //
-// WHY THESE FIVE ARE NOT `MakeReflected`. A reflected component serializes itself for free, and that
-// is the right answer whenever the component HAS a `Data` block. These five do not, deliberately:
+// (Projectile has since become a reflected ProjectileData block, LEG-PROJECTILE.)
+//
+// WHY THESE FOUR ARE NOT `MakeReflected`. A reflected component serializes itself for free, and that
+// is the right answer whenever the component HAS a `Data` block. These four do not, deliberately:
 // each is edited by a bespoke widget (a bone picker fed by the target's skeleton, a clip picker fed
 // by the animation library, one slider per blendshape of the mesh) and PROPERTY metadata for a widget
 // nobody builds from it would be dead metadata plus a second spelling of every display name.
@@ -88,37 +90,10 @@ namespace Desert::Core::Serialize
         }
     } // namespace AuthoredIO
 
-    // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────
-    // The state -> clip mapping LocomotionSystem reads. The clip NAMES are the whole point: a lost
-    // name is a character that silently stops walking, because SystemRules falls back to the default
-    // spellings ("Idle"/"Walk"/"Run") which the character's own library may not contain.
-    inline Common::Json::Object WriteComponent( const ECS::LocomotionComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "IdleClip", c.IdleClip )
-             .Set( "WalkClip", c.WalkClip )
-             .Set( "RunClip", c.RunClip )
-             .Set( "JumpClip", c.JumpClip )
-             .Set( "WalkSpeed", c.WalkSpeed )
-             .Set( "RunSpeed", c.RunSpeed )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::LocomotionComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "IdleClip", c.IdleClip, issues );
-        from.ReadInto( "WalkClip", c.WalkClip, issues );
-        from.ReadInto( "RunClip", c.RunClip, issues );
-        from.ReadInto( "JumpClip", c.JumpClip, issues );
-        from.ReadInto( "WalkSpeed", c.WalkSpeed, issues );
-        from.ReadInto( "RunSpeed", c.RunSpeed, issues );
-    }
-
     // ── MORPH TARGETS ──────────────────────────────────────────────────────────────────────────────
-    // `AppliedWeights` is NOT written and must not be: it is the last set the runtime blended into the
-    // geometry, kept so a per-frame apply can skip work. Writing it would put a frame of cache into
-    // every `.desce` and make a saved scene differ from itself depending on when it was saved.
+    // `Revision` is NOT written and must not be: it counts the changes of Weights in THIS session so the
+    // renderer re-blends only on a change. Writing it would put a session's edit count into every `.desce`
+    // and make a saved scene differ from itself depending on how often it was edited.
     //
     // Weights and TargetNames are index-aligned by the component's own contract, and this is where
     // that stops being a comment: a file whose two lists disagree is repaired on read and reported,
@@ -126,7 +101,7 @@ namespace Desert::Core::Serialize
     inline Common::Json::Object WriteComponent( const ECS::MorphComponent& c )
     {
         return Common::Json::ObjectBuilder()
-             .Set( "Weights", c.Weights )
+             .Set( "Weights", c.GetWeights() )
              .Set( "TargetNames", c.TargetNames )
              .Build();
     }
@@ -134,22 +109,26 @@ namespace Desert::Core::Serialize
     inline void ReadComponent( const Common::Json::Node& from, ECS::MorphComponent& c,
                                Common::Json::Issues& issues )
     {
-        AuthoredIO::ReadList( from, "Weights", c.Weights, issues );
+        // Through the setter: it moves the Revision when the read changed a weight, so a component the
+        // renderer already blended is re-blended.
+        std::vector<float> weights = c.GetWeights();
+        AuthoredIO::ReadList( from, "Weights", weights, issues );
+        c.SetWeights( std::move( weights ) );
         AuthoredIO::ReadList( from, "TargetNames", c.TargetNames, issues );
 
-        if ( c.TargetNames.size() != c.Weights.size() )
+        if ( c.TargetNames.size() != c.GetWeights().size() )
         {
             LOG_WARN( "[Scene] {0} carries {1} weights against {2} target names; the names were aligned to the "
                       "weights.",
-                      from.Where().ToString(), c.Weights.size(), c.TargetNames.size() );
-            c.TargetNames.resize( c.Weights.size() );
+                      from.Where().ToString(), c.GetWeights().size(), c.TargetNames.size() );
+            c.TargetNames.resize( c.GetWeights().size() );
         }
     }
 
     // ── SOCKET ATTACHMENT ──────────────────────────────────────────────────────────────────────────
     // `Target` is a reference to another ENTITY of the same scene, written as its UUID (rule 2 above).
     // It is deliberately NOT remapped on duplicate or on prefab instancing — no entity reference in
-    // this engine is, ProjectileComponent::Owner included — so a copied weapon follows the same
+    // this engine is — so a copied weapon follows the same
     // character the original followed. That is right for a weapon and wrong for a prefab that
     // contains both ends; the general remap is a separate piece of work and is named in U13's report.
     // A refused id keeps the old reference: a weapon that stays in the hand is a visible wrong, a weapon
@@ -158,7 +137,7 @@ namespace Desert::Core::Serialize
     {
         return Common::Json::ObjectBuilder()
              .Set( "Target", c.Target )
-             .Set( "BoneName", c.BoneName )
+             .Set( "SocketName", c.SocketName )
              .Set( "OffsetTranslation", c.OffsetTranslation )
              .Set( "OffsetRotation", c.OffsetRotation )
              .Set( "OffsetScale", c.OffsetScale )
@@ -169,41 +148,12 @@ namespace Desert::Core::Serialize
                                Common::Json::Issues& issues )
     {
         from.ReadInto( "Target", c.Target, issues );
-        from.ReadInto( "BoneName", c.BoneName, issues );
+        from.ReadInto( "SocketName", c.SocketName, issues );
         from.ReadInto( "OffsetTranslation", c.OffsetTranslation, issues );
         from.ReadInto( "OffsetRotation", c.OffsetRotation, issues );
         from.ReadInto( "OffsetScale", c.OffsetScale, issues );
     }
 
-    // ── PROJECTILE ─────────────────────────────────────────────────────────────────────────────────
-    // Written down as transient until U13 measured the claim. The reason on the exemption was "spawned
-    // by a script during Play, so there is no authored projectile to save" — but the Details panel
-    // offers `Add Component > Projectile` and then four editable fields, and the normal way to author
-    // a bullet is exactly that: an entity carrying velocity/gravity/lifetime/damage, saved as a PREFAB
-    // for the firing script to spawn. Prefabs go through this same registry, so that bullet lost its
-    // damage; so did every Ctrl+C of it, and so did Play/Stop, whose snapshot is the same code path.
-    // `Owner` is stamped by the script at spawn and is null in an authored one — it is written anyway
-    // because a block that carries all of a component is one fewer thing to reason about.
-    inline Common::Json::Object WriteComponent( const ECS::ProjectileComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "Velocity", c.Velocity )
-             .Set( "GravityScale", c.GravityScale )
-             .Set( "LifeRemaining", c.LifeRemaining )
-             .Set( "Damage", c.Damage )
-             .Set( "Owner", c.Owner )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::ProjectileComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "Velocity", c.Velocity, issues );
-        from.ReadInto( "GravityScale", c.GravityScale, issues );
-        from.ReadInto( "LifeRemaining", c.LifeRemaining, issues );
-        from.ReadInto( "Damage", c.Damage, issues );
-        from.ReadInto( "Owner", c.Owner, issues );
-    }
     // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────
     // Hand-mapped for the reason the file header gives: the tile's `Landscape` is a Common::UUID, which is
     // not a reflectable field type, and the tile carries loaded heights that must NOT be written. The root

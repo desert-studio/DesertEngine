@@ -39,9 +39,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer>
-        GetUniformBufferModels() const override; // don't use it often! TODO: cache
+        GetUniformBufferModels() const override; // flattened per call; read once per ShaderResourcesManager
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer>
-        GetStorageBufferModels() const override; // don't use it often! TODO: cache
+        GetStorageBufferModels() const override; // flattened per call; read once per ShaderResourcesManager
         virtual const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> GetUniformImageCubeModels() const override;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>   GetUniformImage2DModels() const override;
 

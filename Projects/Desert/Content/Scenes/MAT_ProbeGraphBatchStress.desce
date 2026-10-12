@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b966c401a84137d2e2e40fd8c38b9f57",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 50,
             "UNIT": 1
         },
         "Dependencies": []
@@ -23635,11 +23635,6 @@
                 "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
-                "DriveSunFromTimeOfDay": false,
-                "TimeOfDay": 12.0,
-                "DayLengthSeconds": 600.0,
-                "Latitude": 45.0,
-                "NorthOffset": 0.0,
                 "AutoRebakeEnvironment": true,
                 "RebakeSunAngleThreshold": 5.0,
                 "EnvironmentResolution": 1,
@@ -23678,6 +23673,13 @@
                 "Rotation": 0.0,
                 "Tint": [1.0, 1.0, 1.0]
             },
+            "TimeOfDay": {
+                "DriveSunFromTimeOfDay": false,
+                "TimeOfDay": 12.0,
+                "DayLengthSeconds": 600.0,
+                "Latitude": 45.0,
+                "NorthOffset": 0.0
+            },
             "VolumetricCloud": {
                 "Enabled": false,
                 "Material": "Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat",
@@ -23699,9 +23701,7 @@
                 "ShadowStrength": 1.0,
                 "MaxSteps": 256,
                 "StopTransmittance": 0.004999999888241291,
-                "VolumeResolution": 256,
-                "WindDirection": [1.0, 0.0, 0.0],
-                "WindSpeed": 3000.0
+                "VolumeResolution": 256
             }
         },
         {
@@ -23723,7 +23723,9 @@
                 "BloomMaxBrightness": 20.0,
                 "BloomTint": [1.0, 0.949999988079071, 0.8500000238418579],
                 "CastShadows": true,
-                "ShadowBias": 0.004999999888241291,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
                 "CascadeSplitLambda": 0.6000000238418579
             }
         },
@@ -23744,7 +23746,7 @@
                     "EnableSSAO": false,
                     "GlobalIllumination": 1,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "EnableSSR": true,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "Tonemapper": 0,
@@ -23760,6 +23762,13 @@
                     "BloomThreshold": 1.0,
                     "BloomIntensity": 0.3499999940395355,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
@@ -23787,6 +23796,11 @@
             "Guid": "",
             "Path": ""
         },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
         "SplashSprite": {
             "Guid": "",
             "Path": ""

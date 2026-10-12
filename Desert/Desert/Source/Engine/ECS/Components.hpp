@@ -24,6 +24,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/AudioVoices.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -31,8 +32,8 @@
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
-#include <Engine/UI/Args/UIArgs.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
+#include <UI/Args/UIArgs.hpp>
 
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
@@ -41,12 +42,17 @@
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
+#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
+#include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <string_view>
 
 namespace Desert::Geometry
 {
@@ -134,6 +140,14 @@ namespace Desert::ECS
         bool Visible = true;
     };
 
+    // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
+    // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
+    struct MaterialParamOverride
+    {
+        std::string Name;
+        glm::vec4   Value = glm::vec4( 0.0f );
+    };
+
     struct StaticMeshComponent
     {
         Assets::AssetHandle              MeshHandle;
@@ -156,10 +170,14 @@ namespace Desert::ECS
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.
         std::shared_ptr<DynamicMesh>           RuntimeMesh;
         bool                                   OutlineDraw = false;
-        int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
+        int                                    ForcedLOD   = -1; // -1 = auto (by screen size); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // UE's LDMaxDrawDistance: cm from the camera beyond which the mesh is not drawn, measured to its bounds'
+        // centre and scaled by the view's lens (Graphic::DrawDistanceScale: a narrower FOV draws farther).
+        // 0 = drawn at any distance. A culled mesh casts no shadow either.
+        float MaxDrawDistance = 0.0f;
         // Translucency pass order override (UE's TranslucencySortPriority): a LOWER value draws first, i.e.
         // behind a higher one whatever their distances; within one value the pass sorts back to front
         // (Graphic::System::TranslucentSortOrder). Only meaningful for a Translucent-blend material.
@@ -170,6 +188,13 @@ namespace Desert::ECS
         // Transient: MaterialService invalidation stamp the runtime instances were built against;
         // a mismatch forces a rebuild (see MeshECSSystem) so parent Material* can never dangle.
         uint32_t SeenMaterialsVersion = 0;
+        // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
+        // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
+        // clearMaterialParams (Scripting/MaterialBindings.cpp). Held HERE, on the mesh that owns the slot, so a
+        // write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it) is not lost,
+        // and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem applies the list
+        // to every slot-0 instance it builds. The authored slots stay the source of truth for everything else.
+        std::vector<MaterialParamOverride> ScriptSlotParams;
     };
 
     // World-space SDF text. FontService bakes the .ttf into an SDF atlas; TextECSSystem lays the
@@ -226,6 +251,12 @@ namespace Desert::ECS
         // scene wants to take out of the cascades, and it was the only thing that could not be.
         bool CastShadows = true;
 
+        // UE's LDMaxDrawDistance, per INSTANCE here: cm from the camera beyond which an instance is not drawn,
+        // scaled by the view's lens like the static twin's. Per instance and not by the component's bounds
+        // because one ISM spans a whole field: its centre says nothing about where its far instances are.
+        // A foliage type's CullDistance fade is clipped to it (Graphic::ClipToMaxDrawDistance). 0 = no limit.
+        float MaxDrawDistance = 0.0f;
+
         // Transient runtime state (not serialized): generated mesh for primitives, the material instance,
         // and a dirty flag so the renderer re-uploads the instance SSBO only when the transforms change.
         std::optional<Geometry::PrimitiveType>    Primitive;
@@ -273,14 +304,45 @@ namespace Desert::ECS
 
     // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
     // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
-    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
-    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, PlayRate,
+    // BindingOverrides} (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
     struct LevelSequenceComponent
     {
         Assets::AssetHandle                       Sequence;
         Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
         bool                                      AutoPlay = true;
+        // Sequence seconds per game second (UE: FMovieSceneSequencePlaybackSettings::PlayRate). Read every
+        // frame by ApplyLevelSequencePlaySettings, so a change while playing takes effect on the next step; a
+        // negative rate plays backwards, 0 holds the current frame.
+        double                                    PlayRate = 1.0;
         std::vector<LevelSequenceBindingOverride> BindingOverrides;
+    };
+
+    // THE LOCAL PLAYER'S INPUT CONTEXTS (GP1b; UE: the AddMappingContext calls a pawn makes on its local
+    // player's UEnhancedInputLocalPlayerSubsystem at BeginPlay). When Play begins, ScriptSystem's
+    // Input::LocalPlayerInput adds every context named here to the player's EnhancedInputSubsystem; scripts
+    // add and remove more at run time (Lua Input.addContext / removeContext).
+    struct EnhancedInputPlayerData
+    {
+        REFLECT()
+
+        // The `.deinputcontext`s, HIGHEST PRIORITY FIRST: entry i is added at BasePriority + (count - 1 - i),
+        // so the list reads top-down the way the stack consumes keys. The order is the priority because a
+        // reflected vector holds handles, not (handle, priority) pairs, and two parallel vectors would be two
+        // answers to one question.
+        PROPERTY( DisplayName( "Mapping Contexts" ), Category( "Input" ), Asset<InputMappingContextAsset> )
+        std::vector<Assets::AssetHandle> Contexts;
+
+        // Where this list sits among contexts scripts add (Input.addContext's priority): the LAST entry gets
+        // exactly this priority.
+        PROPERTY( DisplayName( "Base Priority" ), Category( "Input" ) )
+        int32_t BasePriority = 0;
+    };
+
+    struct EnhancedInputPlayerComponent
+    {
+        COMPONENT( Key( "EnhancedInputPlayer" ), Block( Data ), Run( ActorsAndUI ) )
+        EnhancedInputPlayerData Data;
     };
 
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
@@ -366,15 +428,7 @@ namespace Desert::ECS
         std::optional<World::Landscape::LandscapeTileData> Heights;
     };
 
-    // One overridden material parameter (keyed by the shader's #pragma param name). vec4 stores any
-    // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
-    struct MaterialParamOverride
-    {
-        std::string Name;
-        glm::vec4   Value = glm::vec4( 0.0f );
-    };
-
-    // One overridden texture param (keyed by the shader's #pragma param texture2D name) -> texture asset.
+    // One overridden texture param (keyed by the shader's Texture2D property name) -> texture asset.
     struct MaterialTextureOverride
     {
         std::string Name;
@@ -382,16 +436,17 @@ namespace Desert::ECS
     };
 
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
-    // parameters edited generically in Details (built from the shader's #pragma param schema). The
+    // parameters edited generically in Details (built from the shader's Properties block). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
     // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role StandardSurface`, resolved from
-    // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
-    // draws its lit material slots and Params are only the slot-0 hand-off buffer. No decision compares it
-    // to a template's name.
+    // the template's handle by whoever sets it (scene load, a role lookup). Params and Textures belong to THAT
+    // shader and to nothing else: a lit mesh's per-entity parameters are its slot instances' (script writes land
+    // on StaticMeshComponent::ScriptSlotParams), and a scene block carrying Params with no Shader is refused at
+    // load with its path. No decision compares ShaderName to a template's name.
     struct MaterialComponent
     {
         std::string                          ShaderName;
-        std::vector<MaterialParamOverride>   Params;   // scalar/vector overrides (on top of #pragma defaults)
+        std::vector<MaterialParamOverride>   Params; // scalar/vector overrides (on top of the Properties defaults)
         std::vector<MaterialTextureOverride> Textures; // texture2D overrides (unset -> backend fallback)
     };
 
@@ -419,7 +474,7 @@ namespace Desert::ECS
         // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
         // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
         // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
-        // pixel is a TODO wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
+        // pixel is a stub wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
         // than a half-implementation. Reopening it is a feature with a design question attached — whether
         // the delta drives the TransformComponent or the character controller, and what a crossfade between
         // two clips with different root motion means — and that question belongs with the locomotion work,
@@ -719,34 +774,72 @@ namespace Desert::ECS
         RetargetData Data;
     };
 
-    // Data-driven state -> clip mapping for LocomotionSystem, so the SYSTEM holds NO clip knowledge (no clip
-    // names or instances baked in). The system maps planar speed / on-ground to one of these clip NAMES and
-    // hands it to AnimationComponent.CurrentClip; the clips themselves come from the AnimationLibrary (imported
-    // assets or the procedural humanoid's built-in clips). LocomotionSystem falls back to a default-constructed
-    // instance of THIS struct when the component is absent, so the defaults live in data, not in the system.
-    struct LocomotionComponent
-    {
-        std::string IdleClip  = "Idle";
-        std::string WalkClip  = "Walk";
-        std::string RunClip   = "Run";
-        std::string JumpClip  = "Jump";
-        float       WalkSpeed = 0.2f; // planar speed above which -> walk
-        float       RunSpeed  = 6.5f; // planar speed above which -> run
-    };
-
-    // Blendshape / morph-target weights for the entity's mesh. Weights[k] (0..1, though over/undershoot is
-    // allowed) scales morph target k of the mesh asset; the CPU blend is base + Σ(weight·delta) (see
-    // Geometry::ApplyMorphTargets). TargetNames mirrors the mesh's target names for the Details UI and stays
-    // index-aligned with Weights. Non-reflected (like AnimationComponent) — edited via the Morph widget.
+    // Blendshape / morph-target weights for the entity's mesh. Weight k (0..1, though over/undershoot is
+    // allowed) scales morph target k of the mesh asset; the blend is base + Σ(weight·delta) BEFORE skinning
+    // (UE GPUMorphUpdateCS: Programs/Compute/MorphTargets.shader, run by MeshRenderer's morph update for a
+    // skinned mesh; Geometry::ApplyMorphTargets is its CPU twin). TargetNames mirrors the mesh's target names
+    // for the Details UI and stays index-aligned with the weights. Non-reflected (like AnimationComponent) —
+    // edited via the Morph widget.
+    //
+    // The weights are CLOSED: they are written only through SetWeight / SetWeights (UE
+    // USkinnedMeshComponent::SetMorphTarget), and the setter itself moves Revision when a value changes. Every
+    // writer — the Details sliders, ReadComponent, and any future Lua / Sequencer binding — goes through it,
+    // so no writer can forget to tell the renderer.
     struct MorphComponent
     {
-        std::vector<float>       Weights;
         std::vector<std::string> TargetNames;
 
-        // Last weights the runtime blended into the entity's geometry — lets a per-frame apply skip work
-        // when nothing changed. Transient (not serialized).
-        std::vector<float> AppliedWeights;
+        const std::vector<float>& GetWeights() const;
+        // Weight of target @p index, or 0 when the component holds no weight for it.
+        float GetWeight( std::size_t index ) const;
+        // Sets the weight of target @p index, growing the list with zeros if it is shorter.
+        void     SetWeight( std::size_t index, float weight );
+        void     SetWeights( std::vector<float> weights );
+        uint64_t GetRevision() const;
+
+    private:
+        std::vector<float> Weights;
+
+        // THE REVISION OF Weights (UE FMorphVertexBuffer's revision number): moved by the setters on every
+        // change, and the renderer re-blends a component's morphed vertices only when the revision it blended
+        // last differs - one integer compare per frame instead of a copy of the weights. Transient (not
+        // serialized): a freshly read component has no blend yet, so the renderer blends it once whatever the
+        // number is.
+        uint64_t Revision = 0;
     };
+
+    inline const std::vector<float>& MorphComponent::GetWeights() const
+    {
+        return Weights;
+    }
+
+    inline float MorphComponent::GetWeight( std::size_t index ) const
+    {
+        return index < Weights.size() ? Weights[index] : 0.0f;
+    }
+
+    inline void MorphComponent::SetWeight( std::size_t index, float weight )
+    {
+        if ( index >= Weights.size() )
+            Weights.resize( index + 1, 0.0f );
+        else if ( Weights[index] == weight )
+            return;
+        Weights[index] = weight;
+        ++Revision;
+    }
+
+    inline void MorphComponent::SetWeights( std::vector<float> weights )
+    {
+        if ( weights == Weights )
+            return;
+        Weights = std::move( weights );
+        ++Revision;
+    }
+
+    inline uint64_t MorphComponent::GetRevision() const
+    {
+        return Revision;
+    }
 
     struct TransformComponent
     {
@@ -851,8 +944,29 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
         bool CastShadows = true;
 
-        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 0.05f ) )
-        float ShadowBias = 0.005f;
+        // THE CASTER'S DEPTH BIAS, IN WORLD CENTIMETRES (UE: ULightComponent::ShadowBias / ShadowSlopeBias,
+        // UDirectionalLightComponent::ShadowCascadeBiasDistribution). Applied where the caster writes its
+        // depth (MeshRenderer::FitShadowCascades -> the caster matrix and CameraUB.ShadowSlopeBias), never
+        // at the receiver: a bias in a cascade's NDC depth was 26 cm in the nearest cascade and 10 m in the
+        // farthest, and erased every awning, lamp and window frame past the first. Both lengths are what
+        // the NEAREST cascade gets; Distribution scales the farther ones by their texel size relative to it.
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 50.0f ),
+                  Units( "cm" ),
+                  Tooltip( "How far the caster's depth is pushed away from the sun, in the nearest cascade. "
+                           "Larger hides self-shadow acne and detaches contact shadows." ) )
+        float ShadowBias = 1.0f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 50.0f ),
+                  Units( "cm" ),
+                  Tooltip( "Extra depth bias of a caster surface at 45 degrees to the sun (and steeper, "
+                           "clamped there), in the nearest cascade." ) )
+        float ShadowSlopeBias = 2.0f;
+
+        PROPERTY( DisplayName( "Cascade Bias Distribution" ), Category( "Cascaded Shadow Maps" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "0 = every cascade gets the same centimetres; 1 = a cascade's bias grows with its "
+                           "texel size, as UE's Shadow Cascade Bias Distribution." ) )
+        float ShadowCascadeBiasDistribution = 1.0f;
 
         PROPERTY( DisplayName( "Cascade Split Lambda" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 1.0f ),
                   Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
@@ -944,14 +1058,6 @@ namespace Desert::ECS
         SpotLightData Data;
     };
 
-    // How particle billboards composite into the scene. Additive = glowing FX (fire/sparks/magic);
-    // AlphaBlend = soft opaque puffs (smoke/dust). Reflected enum -> editor combo + serialization.
-    enum class ParticleBlendMode
-    {
-        Additive,
-        AlphaBlend
-    };
-
     // GPU-simulated billboard particle emitter. The reflected fields below are the AUTHORING parameters
     // (Details UI + scene serialization are generated from them); the actual simulation runs in a compute
     // shader and the quads are drawn camera-facing in the Transparency phase (ParticleRenderer). Emits from
@@ -982,7 +1088,7 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Lifetime Variance" ), Category( "Particle" ), Range( 0.0f, 1.0f ) )
         float LifetimeVariance = 0.2f;
 
-        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 100.0f ) )
+        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 5000.0f ), Units( "cm/s" ) )
         float StartSpeed = 200.0f;
 
         PROPERTY( DisplayName( "Speed Variance" ), Category( "Motion" ), Range( 0.0f, 1.0f ) )
@@ -994,7 +1100,8 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cone Angle" ), Category( "Motion" ), Range( 0.0f, 180.0f ), Units( "deg" ) )
         float ConeAngle = 45.0f; // degrees of spread around Direction (wide enough to read from any angle)
 
-        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ) )
+        // An acceleration, as Niagara's Gravity Force (whose default is Earth's -980 cm/s2 on the up axis).
+        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ), Range( -2000.0f, 2000.0f ), Units( "cm/s2" ) )
         glm::vec3 Gravity = glm::vec3( 0.0f, -200.0f, 0.0f );
 
         PROPERTY( DisplayName( "Start Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
@@ -1021,13 +1128,23 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "End Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
         float EndAlpha = 0.0f;
 
-        // AlphaBlend (over) by default: it shows the particle colour against ANY background. Additive glow
-        // washes out against bright/lit surfaces — looked down at a sunlit floor the fountain "disappeared"
-        // even though it was drawn, while it popped against the dark sky from below. Fire/sparks presets in
-        // the Particle Editor still switch this to Additive where the scene behind them is dark.
-        PROPERTY( DisplayName( "Blend" ), Category( "Look" ) )
-        ParticleBlendMode Blend = ParticleBlendMode::AlphaBlend;
+        // The surface material each sprite is shaded with (UE: the sprite renderer's Material). Its template must
+        // declare `Usage ParticleSprites` (it draws through the template's ParticleSprite.Forward cell,
+        // MeshVertexPath::ParticleSprite), and its BLEND MODE is how the sprite composites: Translucent = laid
+        // over the scene (smoke, dust), Additive = added to it (fire, sparks;
+        // Engine/Materials/M_ParticleAdditive). Empty = the engine's translucent sprite template,
+        // ParticleSpriteDefault. A material that cannot draw sprites is named in the log and drawn as that
+        // default. Replaces the emitter's own Blend switch (scene v42, SceneMigration.hpp
+        // kSceneVersionParticleSpriteMaterial).
+        PROPERTY( DisplayName( "Material" ), Category( "Look" ), Asset<MaterialAsset> )
+        Assets::AssetHandle Material;
     };
+
+    // The engine's additive sprite material (Editor/Resources/Engine/Materials/M_ParticleAdditive.demat) by its
+    // stable key - the one the scene migrator writes (SceneMigration.hpp kParticleAdditiveMaterialPath) and the
+    // Particle Editor's glowing presets pick; its handle is Assets::AssetHandle::FromKey of this key.
+    inline constexpr std::string_view kParticleAdditiveMaterialKey =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
 
     struct ParticleEmitterComponent
     {
@@ -1042,7 +1159,7 @@ namespace Desert::ECS
 
     // ============================================================
     // UI — Godot-Control-style screen-space UI (2D). The authored data lives in the framework
-    // (Engine/UI/Args, namespace Desert::UI); the ECS stores each one in the component that wraps it.
+    // (Desert/UI/Source/UI/Args, namespace Desert::UI); the ECS stores each one in the component that wraps it.
     // ============================================================
 
     struct UILayoutGroupComponent
@@ -1084,6 +1201,16 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "UIListView" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIListViewData Data;
+    };
+    struct UITileViewComponent
+    {
+        COMPONENT( Key( "UITileView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITileViewData Data;
+    };
+    struct UITreeViewComponent
+    {
+        COMPONENT( Key( "UITreeView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITreeViewData Data;
     };
     struct UIInputFieldComponent
     {
@@ -1145,6 +1272,11 @@ namespace Desert::ECS
         // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
         // (UI/Ecs/UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
         std::optional<Animation::Timeline::Player> Playback;
+
+        // The clip's Audio sections sounding at the playhead, as the driving view's LAST frame evaluated them
+        // (UIAnimationPlayback.hpp; empty while paused, stopped or scrubbed backwards). RUNTIME only, never
+        // serialized: AudioECSSystem consumes and clears it every frame and turns it into voices.
+        std::vector<Animation::Timeline::SoundingVoice> Sounding;
     };
     struct UIAnimComponent
     {
@@ -1159,6 +1291,13 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "UIScreenStack" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIScreenStackData Data;
+    };
+    // A tab bar: the ShowScreen buttons below it select themselves from the switcher they drive
+    // (UI::UITabsData, UI/UIScreenMachine.hpp). A modifier on a container element; draws nothing itself.
+    struct UITabsComponent
+    {
+        COMPONENT( Key( "UITabs" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITabsData Data;
     };
     struct UIPointerEventsComponent
     {
@@ -1372,8 +1511,10 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Clip" ), Category( "Audio" ), Summary )
-        std::string Clip; // audio file (wav/mp3/flac), absolute or Assets-relative
+        // The SOUND asset (`.desound`, UE's USoundWave) by its GUID's handle: the audio file is the asset's to
+        // name (SoundAsset::ResolveSourceFile), so moving the pair moves no reference. Unset = silent.
+        PROPERTY( DisplayName( "Sound" ), Category( "Audio" ), Summary, Asset<SoundAsset> )
+        Assets::AssetHandle Sound;
 
         PROPERTY( DisplayName( "Volume" ), Category( "Audio" ), Range( 0.0f, 2.0f ) )
         float Volume = 1.0f;
@@ -1445,61 +1586,151 @@ namespace Desert::ECS
         Physics::BodyHandle RuntimeBody = Physics::kInvalidBody;
     };
 
-    // Playable character controller params (reflected -> Details UI + serialization). Drives a Jolt
-    // CharacterVirtual capsule (walks slopes/steps, blocked by world geometry) via WASD + jump.
+    // THE PLAYABLE CHARACTER'S MOVEMENT (GP2a; UE: ACharacter's UCapsuleComponent + UCharacterMovementComponent in
+    // MOVE_Walking / MOVE_Falling, crouch included). Drives a Jolt CharacterVirtual capsule (walks slopes/steps,
+    // blocked by world geometry); the model itself - acceleration, braking, friction, air control, jump, the
+    // crouch shrink and the can-uncrouch overlap - is ECS/System/CharacterMovement.cpp. Every speed is cm/s,
+    // every acceleration cm/s^2, every length cm. The INPUT is not here: the pawn's script reads the Enhanced
+    // Input actions (IA_Move / IA_Look / IA_Jump / IA_Crouch) and calls self:move / jump / crouch.
     struct CharacterControllerData
     {
         REFLECT()
 
-        // PHYSICS / capsule only. The control FEEL (move/sprint/look/jump speed) lives in the controller
-        // SCRIPT's Properties — not here — so there's a single source of truth for behavior. See ScriptComponent.
-        PROPERTY( DisplayName( "Radius" ), Category( "Character" ), Range( 5.0f, 500.0f ), Length )
-        float Radius = 30.0f;
+        PROPERTY( DisplayName( "Radius" ), Category( "Capsule" ), Range( 5.0f, 500.0f ), Length )
+        float Radius = 34.0f;
 
-        PROPERTY( DisplayName( "Height" ), Category( "Character" ), Range( 20.0f, 1000.0f ), Length )
-        float Height = 180.0f; // total capsule height (HalfHeight = (Height - 2*Radius) / 2)
+        // Total standing capsule height, caps included (cylinder half-height = (Height - 2*Radius) / 2).
+        PROPERTY( DisplayName( "Height" ), Category( "Capsule" ), Range( 20.0f, 1000.0f ), Length )
+        float Height = 176.0f;
 
-        PROPERTY( DisplayName( "Max Slope" ), Category( "Character" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
+        PROPERTY( DisplayName( "Max Slope" ), Category( "Capsule" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
         float MaxSlopeDeg = 50.0f;
 
-        // Fall acceleration (m/s^2). Default ~2x real gravity so the jump arc feels SNAPPY (real 9.81 reads as
-        // floaty). Authorable per-character instead of a baked engine constant — a moon level just lowers it.
-        PROPERTY( DisplayName( "Gravity" ), Category( "Character" ), Range( 0.0f, 6000.0f ), Units( "cm/s2" ),
-                  Advanced )
-        float Gravity = 2000.0f;
+        // UE MaxWalkSpeed: the ground speed a full stick reaches.
+        PROPERTY( DisplayName( "Max Walk Speed" ), Category( "Walking" ), Range( 0.0f, 5000.0f ), Units( "cm/s" ),
+                  Summary )
+        float MaxWalkSpeed = 600.0f;
+
+        // UE MaxAcceleration: how fast input changes the velocity (ground; times Air Control in the air).
+        PROPERTY( DisplayName( "Max Acceleration" ), Category( "Walking" ), Range( 0.0f, 20000.0f ),
+                  Units( "cm/s2" ) )
+        float MaxAcceleration = 2048.0f;
+
+        // UE BrakingDecelerationWalking: the constant deceleration with no input on the ground.
+        PROPERTY( DisplayName( "Braking Deceleration" ), Category( "Walking" ), Range( 0.0f, 20000.0f ),
+                  Units( "cm/s2" ) )
+        float BrakingDecelerationWalking = 2048.0f;
+
+        // UE GroundFriction: turning friction while accelerating, and (times Braking Friction Factor) the
+        // velocity-proportional part of braking.
+        PROPERTY( DisplayName( "Ground Friction" ), Category( "Walking" ), Range( 0.0f, 100.0f ), Advanced )
+        float GroundFriction = 8.0f;
+
+        // UE BrakingFrictionFactor (default 2): ground friction is multiplied by this while braking.
+        PROPERTY( DisplayName( "Braking Friction Factor" ), Category( "Walking" ), Range( 0.0f, 10.0f ), Advanced )
+        float BrakingFrictionFactor = 2.0f;
+
+        // UE JumpZVelocity: the upward launch speed; the apex is JumpZVelocity^2 / (2 * gravity).
+        PROPERTY( DisplayName( "Jump Z Velocity" ), Category( "Jumping / Falling" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ), Summary )
+        float JumpZVelocity = 700.0f;
+
+        // UE AirControl: the fraction of Max Acceleration the input has while falling (0 = none, 1 = as on
+        // the ground).
+        PROPERTY( DisplayName( "Air Control" ), Category( "Jumping / Falling" ), Range( 0.0f, 1.0f ) )
+        float AirControl = 0.35f;
+
+        // UE GravityScale: times the scene's gravity (the physics world's), not a gravity of its own.
+        PROPERTY( DisplayName( "Gravity Scale" ), Category( "Jumping / Falling" ), Range( 0.0f, 10.0f ) )
+        float GravityScale = 1.0f;
+
+        // UE MaxWalkSpeedCrouched.
+        PROPERTY( DisplayName( "Max Walk Speed Crouched" ), Category( "Crouching" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ) )
+        float MaxWalkSpeedCrouched = 300.0f;
+
+        // Total crouched capsule height, caps included (UE CrouchedHalfHeight x 2). The radius stays.
+        PROPERTY( DisplayName( "Crouched Height" ), Category( "Crouching" ), Range( 20.0f, 1000.0f ), Length )
+        float CrouchedHeight = 120.0f;
+
+        // UE MaxSwimSpeed: horizontal and vertical speed while the script says the body is swimming.
+        PROPERTY( DisplayName( "Max Swim Speed" ), Category( "Swimming" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ) )
+        float MaxSwimSpeed = 300.0f;
 
         // The capsule's profile in Config/CollisionProfiles.json (UE: the capsule's Collision Presets, "Pawn").
         PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
         std::string CollisionProfile = "Pawn";
     };
 
-    // A WASD-driven player. The follow camera is NOT here — parent a child entity with a CameraComponent
-    // (offset behind = 3rd person, at the head = 1st person); it tracks the player via the hierarchy.
+    // A playable character. The follow camera is NOT here - a child entity with a SpringArmComponent and its
+    // camera child (third person), or a camera child at the head (first person).
     struct CharacterControllerComponent
     {
         COMPONENT( Key( "CharacterController" ), Block( Data ), Run( ActorsAndUI ) )
         CharacterControllerData Data;
 
-        // Transient (Play only): the live Jolt character + the integrated vertical velocity (gravity/jump).
+        // Transient (Play only): the live Jolt character and the movement state.
         Physics::CharacterHandle RuntimeCharacter = Physics::kInvalidCharacter;
-        float                    VerticalVelocity = 0.0f;
-        float                    CurrentSpeed     = 0.0f; // planar move speed this frame (drives locomotion anim)
+        glm::vec3                Velocity         = { 0.0f, 0.0f, 0.0f }; // cm/s, what the model asked of Jolt
+        float                    CurrentSpeed     = 0.0f;  // planar |Velocity|, cm/s (drives locomotion)
+        bool                     OnGround         = false; // last physics result (self:isOnGround())
+        bool                     IsCrouched       = false; // UE bIsCrouched: the capsule IS the crouched one
 
-        // Move INTENT, set by the controller SCRIPT each frame (the engine only executes the physics). This is
-        // the mechanism/behavior split: the script reads input + decides where to go; PhysicsECSSystem turns
-        // this into a camera-relative velocity and steps Jolt.
-        glm::vec2 MoveInput     = { 0.0f, 0.0f }; // x = strafe (right), y = forward; each -1..1
-        float     DesiredSpeed  = 0.0f;           // m/s the script asked for (sprint etc. is script policy)
-        bool      JumpRequested = false;          // set by script:jump(strength), consumed + cleared by physics
-        float     JumpStrength  = 5.0f;           // launch velocity the script passed to self:jump()
-        bool      OnGround      = false;          // last physics result, exposed to scripts (self:isOnGround())
-        glm::vec2 AirVelocity   = { 0.0f, 0.0f }; // horizontal velocity locked at takeoff (no air control)
+        // INTENT, written by the pawn's script each frame and executed by PhysicsECSSystem (UE: AddMovementInput,
+        // Jump, Crouch / UnCrouch). MoveInput is camera-relative (x = right, y = forward), length clamped to 1.
+        glm::vec2 MoveInput       = { 0.0f, 0.0f };
+        bool      JumpRequested   = false; // one-shot, consumed by the next physics step
+        bool      CrouchRequested = false; // UE bWantsToCrouch: held; standing up waits for head room
 
-        // Swimming (set by the controller SCRIPT when it detects the body is below the water level). While
-        // swimming, PhysicsECSSystem replaces gravity with buoyancy, gives full 3D control, and drives the
-        // vertical from SwimVertical (+1 = up, -1 = down) instead of jump/gravity.
+        // Swimming (set by the controller SCRIPT when it detects the body is below the water level): gravity is
+        // replaced by the swim intent (+1 up, -1 down) at Max Swim Speed.
         bool  Swimming     = false;
-        float SwimVertical = 0.0f; // -1..1 swim up/down intent (script)
+        float SwimVertical = 0.0f;
+    };
+
+    // UE USpringArmComponent: on a child entity of the pawn, whose rotation is the arm's (scripts pitch it, the
+    // pawn yaws). Each frame PhysicsECSSystem places the arm's CAMERA child TargetArmLength behind the arm's
+    // origin (along the arm's +Z, the camera's back) plus SocketOffset in arm space; with Do Collision Test a
+    // sphere of Probe Size is swept from the origin to that point and the camera is pulled in to the first hit,
+    // and it goes back out when the obstacle is gone. Camera Lag smooths the ORIGIN the arm hangs from (UE
+    // bEnableCameraLag), never the collision. The solve is ECS/System/SpringArm.cpp.
+    struct SpringArmData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Target Arm Length" ), Category( "Camera" ), Range( 0.0f, 5000.0f ), Length,
+                  Summary )
+        float TargetArmLength = 300.0f;
+
+        // Arm-space offset of the camera at the arm's end (UE SocketOffset): (0, 60, 0) lifts it over the head.
+        PROPERTY( DisplayName( "Socket Offset" ), Category( "Camera" ), Length )
+        glm::vec3 SocketOffset = { 0.0f, 0.0f, 0.0f };
+
+        PROPERTY( DisplayName( "Do Collision Test" ), Category( "Camera Collision" ) )
+        bool DoCollisionTest = true;
+
+        // Radius of the swept probe sphere (UE ProbeSize): how far the camera keeps from the wall it meets.
+        PROPERTY( DisplayName( "Probe Size" ), Category( "Camera Collision" ), Range( 0.0f, 200.0f ), Length )
+        float ProbeSize = 12.0f;
+
+        PROPERTY( DisplayName( "Enable Camera Lag" ), Category( "Lag" ) )
+        bool EnableCameraLag = false;
+
+        // UE CameraLagSpeed: the origin closes this fraction of its distance per second (VInterpTo).
+        PROPERTY( DisplayName( "Camera Lag Speed" ), Category( "Lag" ), Range( 0.0f, 1000.0f ) )
+        float CameraLagSpeed = 10.0f;
+    };
+
+    struct SpringArmComponent
+    {
+        COMPONENT( Key( "SpringArm" ), Block( Data ), Run( ActorsAndUI ) )
+        SpringArmData Data;
+
+        // Transient: the lagged origin (valid once HasLaggedOrigin) and the length the last solve reached.
+        glm::vec3 LaggedOrigin     = { 0.0f, 0.0f, 0.0f };
+        bool      HasLaggedOrigin  = false;
+        float     CurrentArmLength = 0.0f;
     };
 
     // UE's APlayerStart: where Play puts the player's pawn (SceneSettings::DefaultPawn). Its transform is
@@ -1547,6 +1778,33 @@ namespace Desert::ECS
                   Tooltip( "Higher loads first when several sources want cells; it never changes which cells "
                            "load." ) )
         int Priority = 0;
+
+        // The shape the world loads within (UE's FStreamingSourceShape): a circle of the range, or a sector of
+        // it, placed in the entity's frame (Rules::StreamingSourceShape).
+        PROPERTY( DisplayName( "Sector" ), Category( "Streaming Source" ),
+                  Tooltip( "On = only a slice of the circle, Sector Angle wide around the entity's forward "
+                           "(turned by Shape Yaw), loads." ) )
+        bool IsSector = false;
+
+        PROPERTY( DisplayName( "Sector Angle" ), Category( "Streaming Source" ), Units( "deg" ),
+                  Range( 0.0f, 360.0f ), EditCondition( "IsSector" ),
+                  Tooltip( "How wide the slice is; 360 is the whole circle." ) )
+        float SectorAngle = 360.0f;
+
+        PROPERTY( DisplayName( "Shape Offset" ), Category( "Streaming Source" ), Length,
+                  Tooltip( "Where the shape's centre sits from the entity, in its own axes (cm): X right, Z "
+                           "backward. Height is ignored." ) )
+        glm::vec3 ShapeOffset = glm::vec3( 0.0f );
+
+        PROPERTY( DisplayName( "Shape Yaw" ), Category( "Streaming Source" ), Units( "deg" ),
+                  Range( -180.0f, 180.0f ),
+                  Tooltip( "How far the shape's axis is turned from the entity's forward, about its up axis." ) )
+        float ShapeYaw = 0.0f;
+
+        PROPERTY( DisplayName( "Use Velocity For Cell Sorting" ), Category( "Streaming Source" ),
+                  Tooltip( "On = cells the entity is moving toward load first (UE's "
+                           "bUseVelocityContributionToCellsSorting); it never changes which cells load." ) )
+        bool UseVelocityForSorting = false;
     };
 
     struct StreamingSourceComponent
@@ -1609,15 +1867,30 @@ namespace Desert::ECS
         std::vector<Scripting::ScriptProperty> Properties;
 
         bool Started = false; // transient: OnStart already called for this instance
+        // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read
+        // from the file each time the slot loads; ScriptSystem reads those properties back after the script ran.
+        std::vector<std::string> SaveGameProperties;
     };
 
     // One entity can run MANY scripts (EnTT allows only one component of a type per entity, so multiple
     // behaviors live as a LIST of slots inside this one component — the same composition UE gets from
     // multiple ActorComponents). Each slot is an independent sandbox (its own env + properties + lifecycle);
     // all slots share the same `self` entity. ScriptSystem ticks every slot; entity:call() broadcasts to all.
+    /// A level sequence Event key's CallScript action (UE: an event endpoint on the bound actor): Lua function
+    /// `Function` is called on every started slot with the key's name, by ScriptSystem in its next update.
+    struct SequenceScriptCall
+    {
+        std::string Function;
+        std::string EventName;
+    };
+
     struct ScriptComponent
     {
         std::vector<ScriptSlot> Scripts;
+
+        // Transient, like AnimationComponent::PendingNotifies: queued by LevelSequenceEntityHost::Fire, drained
+        // (each call once) by ScriptSystem. Not serialized.
+        std::vector<SequenceScriptCall> PendingSequenceCalls;
     };
 
     // UE-style SOCKET attachment: makes this entity follow a BONE of another (skinned) entity, not just its
@@ -1630,23 +1903,82 @@ namespace Desert::ECS
         // The skinned-mesh entity whose bone we follow. Null = detached, and it starts detached: a socket
         // that has not been pointed at anything must not claim to follow a target that does not exist.
         Common::UUID Target = Common::UUID::Null();
-        std::string  BoneName; // bone/socket name on the target's skeleton (e.g. "mixamorig:RightHand")
+        // UE's AttachSocketName: a SOCKET of the target's skeleton (Skeleton::FindSocket - its bone and its local
+        // transform come from the rig) or, when the rig has no socket of that name, a bone (UE
+        // USkinnedMeshComponent::GetSocketTransform: socket first, then bone). E.g. "hand_r_grip",
+        // "mixamorig:Head".
+        std::string SocketName;
 
-        // Grip alignment relative to the bone (the weapon almost never sits exactly on the bone origin).
+        // This attachment's own alignment ON TOP of the socket (or of the bone when the name is a bone) - UE's
+        // relative transform of an attached component. The grip shared by every weapon belongs on the socket.
         glm::vec3 OffsetTranslation = { 0.0f, 0.0f, 0.0f };
         glm::vec3 OffsetRotation    = { 0.0f, 0.0f, 0.0f }; // euler radians
         glm::vec3 OffsetScale       = { 1.0f, 1.0f, 1.0f };
     };
 
-    // A flying projectile (bullet/grenade/arrow): integrated each frame by ProjectileSystem (Play only). On a
-    // swept hit it delivers "OnHit" to the struck entity's script and is destroyed; it also dies on lifetime.
-    // Mechanism (movement + collision) is C++; the DECISION to fire + what a hit MEANS stay in Lua.
+    // A FLYING PROJECTILE (bullet / grenade / arrow) — UE UProjectileMovementComponent
+    // (ProjectileMovementComponent.cpp). ECS/System/ProjectileMovement.cpp moves it in Play, after the physics
+    // step: velocity Verlet with the world's gravity times Gravity Scale, swept as a sphere through the physics
+    // world in sub-steps of at most kMaxSimulationTimeStep; a blocking hit either bounces it (Should Bounce) or
+    // stops it (UE StopSimulating). Every blocking hit is a Hit fact of the frame's PhysicsEventQueue for BOTH
+    // sides (UE DispatchBlockingHit -> ReceiveHit), so the scripts of the projectile and of what it struck get
+    // OnHit(other, point, normal, impulse). Mechanism here; what a hit MEANS (damage, despawn) is the script's.
+    // Speeds are cm/s, lengths cm.
+    struct ProjectileData
+    {
+        REFLECT()
+
+        // UE Velocity: the world-space velocity it is launched with (and, in Play, the current one).
+        PROPERTY( DisplayName( "Velocity" ), Category( "Projectile" ), Units( "cm/s" ), Summary )
+        glm::vec3 Velocity = { 0.0f, 0.0f, 0.0f };
+
+        // UE MaxSpeed: the speed the velocity is clamped to; 0 = no limit.
+        PROPERTY( DisplayName( "Max Speed" ), Category( "Projectile" ), Range( 0.0f, 100000.0f ), Units( "cm/s" ) )
+        float MaxSpeed = 0.0f;
+
+        // UE ProjectileGravityScale: times the physics world's gravity (0 = a straight line).
+        PROPERTY( DisplayName( "Gravity Scale" ), Category( "Projectile" ), Range( 0.0f, 10.0f ), Summary )
+        float GravityScale = 1.0f;
+
+        // The radius of the sphere swept through the world (UE: the UpdatedComponent's collision sphere).
+        PROPERTY( DisplayName( "Collision Radius" ), Category( "Projectile" ), Range( 0.1f, 500.0f ), Length )
+        float CollisionRadius = 2.0f;
+
+        // UE bRotationFollowsVelocity: the entity faces along its velocity (its -Z, the engine's forward).
+        PROPERTY( DisplayName( "Rotation Follows Velocity" ), Category( "Projectile" ) )
+        bool RotationFollowsVelocity = false;
+
+        // UE InitialLifeSpan: seconds after Play / spawn before the entity is destroyed; 0 = it lives on.
+        PROPERTY( DisplayName( "Life Span" ), Category( "Projectile" ), Range( 0.0f, 600.0f ), Units( "s" ) )
+        float LifeSpan = 5.0f;
+
+        // UE bShouldBounce: a blocking hit reflects the velocity instead of stopping the projectile.
+        PROPERTY( DisplayName( "Should Bounce" ), Category( "Projectile Bounces" ) )
+        bool ShouldBounce = false;
+
+        // UE Bounciness: the fraction of the velocity along the hit normal kept after a bounce.
+        PROPERTY( DisplayName( "Bounciness" ), Category( "Projectile Bounces" ), Range( 0.0f, 1.0f ) )
+        float Bounciness = 0.6f;
+
+        // UE Friction: the fraction of the velocity along the surface lost in a bounce.
+        PROPERTY( DisplayName( "Friction" ), Category( "Projectile Bounces" ), Range( 0.0f, 1.0f ) )
+        float Friction = 0.2f;
+
+        // UE BounceVelocityStopSimulatingThreshold: below this speed after a bounce it stops.
+        PROPERTY( DisplayName( "Bounce Stop Speed" ), Category( "Projectile Bounces" ), Range( 0.0f, 1000.0f ),
+                  Units( "cm/s" ), Advanced )
+        float BounceVelocityStopSimulatingThreshold = 5.0f;
+    };
+
     struct ProjectileComponent
     {
-        glm::vec3    Velocity      = { 0.0f, 0.0f, 0.0f }; // world units/s
-        float        GravityScale  = 0.0f;                 // 0 = straight line, 1 = full gravity (arc)
-        float        LifeRemaining = 5.0f;                 // seconds before auto-despawn
-        float        Damage        = 10.0f;
-        Common::UUID Owner         = Common::UUID::Null(); // shooter (so we can skip self-hits); null = unowned
+        COMPONENT( Key( "Projectile" ), Block( Data ), Run( ActorsAndUI ) )
+        ProjectileData Data;
+
+        // Transient (Play only). UE GetInstigator / MoveIgnoreActors: the shooter, whose bodies the sweep goes
+        // through; stamped by the firing script (entity:launch). Null = nothing ignored.
+        entt::entity Instigator = entt::null;
+        float        Age        = 0.0f;  // seconds since Play / spawn, against Life Span
+        bool         Stopped    = false; // UE HasStoppedSimulation: a blocking hit ended the flight
     };
 } // namespace Desert::ECS

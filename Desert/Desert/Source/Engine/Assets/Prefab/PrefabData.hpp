@@ -48,6 +48,7 @@ namespace Desert::Assets
         std::optional<bool>                         ReceiveShadows;
         std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
+        std::optional<float>                        MaxDrawDistance; // cm; written only when set (> 0)
     };
 
     struct SkinnedMeshComponentSer
@@ -79,6 +80,8 @@ namespace Desert::Assets
         // Absent = component default (true), and written only when false — the same shape the static
         // and skinned mirrors use, so no existing `.desce` changes a byte and no schema version moves.
         std::optional<bool> CastShadows;
+        // cm; absent = 0 (no limit), written only when set, the same shape as CastShadows.
+        std::optional<float> MaxDrawDistance;
     };
 
     // MaterialComponent (generic data-driven material) mirror. Param values reflect directly (glm::vec4 via

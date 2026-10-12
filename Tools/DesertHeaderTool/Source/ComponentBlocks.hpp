@@ -1,7 +1,7 @@
 #pragma once
 
 // COMPONENT(...) — the marker that registers an ECS component's block in a scene record
-// (Engine/Reflection/ReflectionMacros.hpp). The header tool reads the marker inside the struct, reads the
+// (CoreReflection/ReflectionMacros.hpp). The header tool reads the marker inside the struct, reads the
 // Block member's declared type from the struct body, and resolves that type against the REFLECT() registry;
 // the resolved, key-ordered rows become Engine/Generated/ReflectedComponentBlocks.gen.hpp.
 

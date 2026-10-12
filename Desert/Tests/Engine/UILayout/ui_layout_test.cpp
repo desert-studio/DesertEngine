@@ -1,9 +1,10 @@
 // Unit tests for the Godot-Control-style UI layout solver (anchors + offsets + min-size, and the letterboxed
 // canvas fit). Pure math — no GPU / ECS.
 
-#include <Engine/UI/UILayout.hpp>
+#include <UI/UILayout.hpp>
 
 #include <gtest/gtest.h>
+#include <vector>
 
 using Desert::UI::CanvasRect;
 using Desert::UI::Rect;

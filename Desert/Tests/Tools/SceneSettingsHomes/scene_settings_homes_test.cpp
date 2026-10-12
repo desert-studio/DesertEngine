@@ -21,7 +21,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <string>
+#include <string_view>
 
 using namespace Desert;
 
@@ -139,9 +142,12 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     // value() throws when Settings is absent, and gtest fails the test on it: that IS the check.
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const auto settings = scene.Settings.value().to_object().value();
-    EXPECT_EQ( settings.size(), 2u );
+    // The two GameMode keys are stamped by the later SCNE 45 step (MigrateGameModeSettingsV44ToV45).
+    EXPECT_EQ( settings.size(), 4u );
     EXPECT_TRUE( settings.get( "RenderingPath" ).has_value() );
     EXPECT_TRUE( settings.get( "Gravity" ).has_value() );
+    EXPECT_TRUE( settings.get( "PlayerController" ).has_value() );
+    EXPECT_TRUE( settings.get( "RespawnDelay" ).has_value() );
 
     const auto* volume = FindTag( scene, "PostProcessVolume" );
     ASSERT_NE( volume, nullptr );
@@ -157,7 +163,8 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     const auto light =
          Read<ECS::DirectionalLightData>( *FindTag( scene, "Sun" ), "DirectionLight", "DirectionalLightData" );
     EXPECT_FALSE( light.CastShadows );
-    EXPECT_EQ( light.ShadowBias, 0.0125f );
+    EXPECT_EQ( light.ShadowBias, Migration::kShadowBiasCentimetresDefault )
+         << "the moved NDC fraction is re-stated as centimetres (MigrateShadowBiasCentimetresV48ToV49)";
     EXPECT_EQ( light.CascadeSplitLambda, 0.85f );
     EXPECT_EQ( light.Intensity, 2.0f ) << "the light's own keys survive the stamp";
 
@@ -213,13 +220,26 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     stated.LensFlareChromaShift = 0.9f;
 
     auto scene        = Parse( kSceneV32 );
-    auto block        = Reflection::SerializeReflected( *type, &stated );
+    const auto all          = Reflection::SerializeReflected( *type, &stated );
+    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur): no Settings block ever stated them, so
+    // the step has no key for them. A field added to the grade must be added to the step or named here.
+    constexpr std::array<std::string_view, 7> kBornAfterTheStep = {
+         "DepthOfFieldFocalDistance", "DepthOfFieldFstop", "DepthOfFieldSensorWidth", "DepthOfFieldMaxBokehSize",
+         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS" };
+    for ( const std::string_view key : kBornAfterTheStep )
+        ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
+    rfl::Generic::Object block;
+    for ( const auto& [key, value] : all )
+        if ( std::ranges::find( kBornAfterTheStep, std::string_view( key ) ) == kBornAfterTheStep.end() )
+            block[key] = value;
     block["Gravity"]  = rfl::Generic( 700.0 );
     scene.Settings    = rfl::Generic( block );
     const auto report = Migration::MigrateScene( scene, "", "" );
     ASSERT_TRUE( report.Refused.empty() );
-    EXPECT_EQ( static_cast<std::size_t>( report.SceneSettingsHomes.PostKeysMoved ), type->Fields.size() );
-    EXPECT_EQ( scene.Settings.value().to_object().value().size(), 1u ) << "only Gravity stays";
+    EXPECT_EQ( static_cast<std::size_t>( report.SceneSettingsHomes.PostKeysMoved ),
+               type->Fields.size() - kBornAfterTheStep.size() );
+    EXPECT_EQ( scene.Settings.value().to_object().value().size(), 3u )
+         << "only Gravity stays, beside the two keys the SCNE 45 GameMode step stamps";
 
     const entt::registry             reg      = RegistryOf( scene );
     const Graphic::FinalViewSettings resolved = Graphic::ResolveViewSettings( reg, glm::vec3( 1.0e6f ) );
@@ -246,7 +266,7 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
     EXPECT_FALSE( v.Shadows.Enabled );
-    EXPECT_EQ( v.Shadows.Bias, 0.0125f );
+    EXPECT_EQ( v.Shadows.Bias.BiasCm, Migration::kShadowBiasCentimetresDefault );
     EXPECT_EQ( v.Shadows.CascadeSplitLambda, 0.85f );
 }
 

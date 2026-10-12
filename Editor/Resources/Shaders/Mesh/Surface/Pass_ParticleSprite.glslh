@@ -1,0 +1,32 @@
+// Surface cell pass: particle SPRITES — the Forward cell of the ParticleSprite vertex path (DShaderParser
+// kSurfaceParticleSpritePassInclude). Drawn by ParticleRenderer::DrawPass in the translucency, depth-TESTED against
+// the scene depth and never writing it. The material's own surface function shades the sprite UNLIT (UE's default
+// for particle materials): the colour is BaseColor + Emissive, the coverage is Opacity — a graph that wants soft
+// particles multiplies its opacity through Depth Fade (SurfaceTypes.glslh DesertDepthFade, which reads the scene
+// depth this cell declares at binding 26). Translucent templates blend it over the scene (sorted back to front per
+// view); Opaque and Masked write it as a solid card, Masked discarding below the material's clip value.
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 12 ) in flat vec4 v_ParticleColor;
+layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
+
+layout( location = 0 ) out vec4 oColor;
+
+void main()
+{
+    SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                         v_Surface.UV1, v_Surface.VertexColor );
+    i.Particle.Color        = v_ParticleColor;
+    i.Particle.RelativeTime = v_ParticleTimeRandom.x;
+    i.Particle.Random       = v_ParticleTimeRandom.y;
+
+    const SurfaceOutput s = EvaluateSurface( i );
+    DESERT_SURFACE_CLIP( s );
+#ifdef DESERT_SURFACE_TRANSLUCENT
+    if ( s.Opacity <= 0.0 )
+        discard;
+    oColor = vec4( s.BaseColor + s.Emissive, clamp( s.Opacity, 0.0, 1.0 ) );
+#else
+    oColor = vec4( s.BaseColor + s.Emissive, 1.0 );
+#endif
+}

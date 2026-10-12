@@ -451,7 +451,20 @@ namespace Desert::Graphic::RDG
                                       consumes } );
                     continue;
                 }
-                RdgSubUse& existing = uses[static_cast<size_t>( slot[sub] )];
+                RdgSubUse&     existing = uses[static_cast<size_t>( slot[sub] )];
+                const uint32_t mask     = existing.AccessMask | ( 1u << static_cast<uint32_t>( use.Usage ) );
+                if ( IsDepthReadSampledPair( mask ) )
+                {
+                    existing.State        = MergeReadStates( existing.State, state );
+                    existing.State.Layout = ImageLayout::DepthStencilReadOnly;
+                    existing.AccessMask   = mask;
+                    continue;
+                }
+                // The rule is the subresource's state, not the entry count: one shader-resource access stated by
+                // several binding blocks of the pass (the particle nodes' one block per emitter over the scene's
+                // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
+                if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
+                    continue;
                 if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || existing.State.Layout != state.Layout )
                 {
                     error = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one pass may hold a "

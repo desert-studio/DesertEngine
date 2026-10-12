@@ -644,23 +644,32 @@ namespace Common::Content
                 return "mesh binary";
             }
 
-            // Only a version that states a GUID is claimed: a v1/v2 mesh states no header, as before.
+            // EVERY VERSION IS CLAIMED, so that ReadHeader refuses an older or later one by name. A v1/v2 mesh
+            // (no GUID) passed over as "states no header" kept a path-derived handle with nothing in the log;
+            // UE LinkerLoad.cpp:1537-1546 makes a too-old package a load error naming the file instead.
             bool Recognises( std::span<const std::byte> leading ) const override
             {
                 return leading.size() >= 16 && std::memcmp( leading.data(), kMeshBinaryMagic, 8 ) == 0 &&
-                       LoadU32( leading, 8 ) == kMeshBinaryByteOrderTag && LoadU32( leading, 12 ) >= 3;
+                       LoadU32( leading, 8 ) == kMeshBinaryByteOrderTag;
             }
 
             ResultStr<AssetHeader> ReadHeader( std::istream& in, const AssetHeaderReadContext& ) const override
             {
                 std::string prefix( kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
-                // AN OLDER GENERATION IS REFUSED BY ITS VERSION, before anything is read at v5 offsets: a v3-4
-                // mesh has a 64-byte header, so its GUID is not where ReadMeshHeaderGuid looks and "null GUID"
-                // would name a defect the file does not have. Recognises() already read the version.
+                // AN OLDER GENERATION IS REFUSED BY ITS VERSION, before anything is read at v5 offsets: a v1-2
+                // mesh states no GUID at all and a v3-4 mesh has a 64-byte header, so its GUID is not where
+                // ReadMeshHeaderGuid looks and "null GUID" would name a defect the file does not have.
+                // Recognises() already read the version; a file shorter than the prefix still has its first 16
+                // bytes, so the version is read from what arrived.
                 {
                     uint32_t version = 0;
                     std::memcpy( &version, prefix.data() + offsetof( MeshBinaryFileHeader, Version ), 4 );
+                    if ( version < 3 )
+                        return MakeFormattedError<AssetHeader>( "mesh header: mesh version {} states no identity "
+                                                                "(GUID), this build reads only version "
+                                                                "{} - re-import it from its source",
+                                                                version, kMeshBinaryVersion );
                     if ( version < kMeshBinaryVersion )
                         return MakeFormattedError<AssetHeader>(
                              "mesh header: mesh version {}, this build reads only version {} - raise it with "
@@ -672,7 +681,7 @@ namespace Common::Content
                                                             in.gcount(), kMeshBinaryPrefixSize );
                 MeshBinaryFileHeader header{};
                 std::memcpy( &header, prefix.data(), sizeof( header ) );
-                // Recognises() claims every version from 3 up, so that a later mesh is REFUSED here by name
+                // Recognises() claims every version, so that a later mesh is REFUSED here by name
                 // rather than passed over as "states no header": nothing says a later layout keeps the GUID
                 // at byte 64, and reading it from there would state an identity the file never wrote.
                 if ( header.Version > kMeshBinaryVersion )

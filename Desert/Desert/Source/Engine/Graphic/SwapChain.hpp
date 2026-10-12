@@ -19,7 +19,6 @@ namespace Desert::Graphic
         }
         virtual ~SwapChain() = default;
 
-        // TODO: Custom result value like VkResult
         virtual Common::ResultStr<bool> CreateSwapChain( const std::shared_ptr<Engine::Device>& device,
                                                       uint32_t* width, uint32_t* height ) = 0;
 

@@ -3,38 +3,21 @@ deps = include('Dependencies.lua')
 -- and Desert/Dependencies.lua was already included by the engine projects.
 local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
-project "Editor"
-    kind "ConsoleApp"
-    DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
-
-    -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
-    -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
-    debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
-    debugargs { "--project ../Projects/Desert/Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
-
-    -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
-    -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
-    dependson { "DesertHeaderTool" }
-    prebuildcommands {
-        DesertPlatform.BuiltToolPath("DesertHeaderTool")
-            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-            .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
-    }
-
-    files { 
-        -- Engine 
-        "Source/**.cpp", 
-        "Source/**.hpp",
-        "ThirdParty/ImGuizmo/ImGuizmo.cpp",
-
-    }
-
+-- THE EDITOR IS TWO PROJECTS, AS UNREAL'S IS (BLD-EDITORCORE). EditorCore is every editor source but the
+-- entry point, built once as a static library -- UnrealEd's place: the executable and the test runner both
+-- LINK it. Before, Editor was an executable and nothing could link it, so Desert/Tests/premake5.lua kept a
+-- hand-written list of the editor sources its suites test and compiled them a second time (67 TUs, each a
+-- list entry somebody had to remember). Editor is now Sandbox.cpp -- CreateApplication and the engine's
+-- main (Engine/EntryPoint.hpp) -- plus the link, which takes EditorCore WHOLE (DesertPlatform.LinkWholeArchive).
+--
+-- Compiling a translation unit that includes editor headers takes the same paths and macros in both
+-- projects, so they are written once, here.
+local function EditorCompileSettings()
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source/",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/",
 
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
@@ -82,8 +65,98 @@ project "Editor"
     -- the '#' turns the rest of the DEFINES line into a comment in gmake makefiles.
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
 
+    -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present
+    -- at ThirdParty/dlib (clone it there). Absent => Editor/Widgets/FaceTracker compiles as a no-op stub,
+    -- so CI and fresh checkouts build without it. The library itself is linked by the executables.
+    if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
+        defines     { "DESERT_WITH_DLIB" }
+        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/dlib/" }
+    end
+
+    filter "configurations:Debug"
+        defines { "DESERT_CONFIG_DEBUG" }
+        symbols "On"
+
+    filter "configurations:Release"
+        defines { "DESERT_CONFIG_RELEASE" }
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+        -- EditorLayer.cpp aggregates the Details rendering for every reflected component; the sky's
+        -- physical-atmosphere fields pushed its Debug object file past COFF's 65k-section limit
+        -- (error C1128). /bigobj lifts the format cap and costs nothing at runtime.
+        buildoptions { "/bigobj" }
+
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+
+    filter {}
+end
+
+project "EditorCore"
+    kind "StaticLib"
+    DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
+
+    -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
+    -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
+    -- Desert too, though a static library links nothing: the editor sources compile against what the
+    -- engine's prebuild generates, an order the executable used to get from its `links` and a library does not.
+    dependson { "DesertHeaderTool", "Desert" }
+    prebuildcommands {
+        DesertPlatform.BuiltToolPath("DesertHeaderTool")
+            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/CoreReflection/Source"'
+            .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
+    }
+
+    files { 
+        -- Engine 
+        "Source/**.cpp", 
+        "Source/**.hpp",
+        "ThirdParty/ImGuizmo/ImGuizmo.cpp",
+
+    }
+    -- The entry point is the executable's (project "Editor" below), never the library's: a test runner
+    -- that links EditorCore has its own main.
+    removefiles { "Source/Sandbox.cpp", "Source/Sandbox.hpp" }
+
+    EditorCompileSettings()
+
+    -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
+    -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
+    -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
+    -- The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow the same shape.
+    filter "system:not windows"
+        removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
+
+    filter "system:macosx"
+        files { "Source/Editor/Splash/MacOS/**.mm", "Source/Editor/Platform/MacOS/**.mm" }
+
+    filter {}
+
+project "Editor"
+    kind "ConsoleApp"
+
+    -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
+    -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
+    debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
+    debugargs { "--project ../Projects/Desert/Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+
+    files { "Source/Sandbox.cpp", "Source/Sandbox.hpp" }
+
+    EditorCompileSettings()
+
     links{
+        "EditorCore", -- every editor source but this entry point (project above); first, so gmake resolves it before what it uses
         "Desert",
+        "DesertUI",
+        "Render2DCore",
         "GLFW",
         "Optick",
         "MeshOptimizer",
@@ -104,13 +177,11 @@ project "Editor"
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }
+    -- ALL of EditorCore, not what Sandbox.cpp happens to reach: the component editors register from static
+    -- initialisers nothing references (BuildScripts/Platform.lua, LinkWholeArchive).
+    DesertPlatform.LinkWholeArchive( "EditorCore" )
 
-    -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present
-    -- at ThirdParty/dlib (clone it there). Absent => Editor/Widgets/FaceTracker compiles as a no-op stub,
-    -- so CI and fresh checkouts build without it.
     if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
-        defines     { "DESERT_WITH_DLIB" }
-        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/dlib/" }
         links       { "Dlib" }
     end
 
@@ -130,19 +201,7 @@ project "Editor"
         links { path }
     end
 
-    filter "configurations:Debug"
-        defines { "DESERT_CONFIG_DEBUG" }
-        symbols "On"
-
-    filter "configurations:Release"
-        defines { "DESERT_CONFIG_RELEASE" }
-
     filter "system:windows"
-        defines { "DESERT_PLATFORM_WINDOWS" }
-        -- EditorLayer.cpp aggregates the Details rendering for every reflected component; the sky's
-        -- physical-atmosphere fields pushed its Debug object file past COFF's 65k-section limit
-        -- (error C1128). /bigobj lifts the format cap and costs nothing at runtime.
-        buildoptions { "/bigobj" }
         -- No console window at start: a Windows-subsystem program that keeps main() as its entry point.
         -- `--console` opens one on demand (Engine/EntryPoint.hpp).
         kind "WindowedApp"
@@ -159,17 +218,7 @@ project "Editor"
         -- Editor/Platform/DesktopPlatform.hpp.
         links { "comdlg32", "shell32", "ole32" }
 
-    -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
-    -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
-    -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
-    -- The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow the same shape.
-    filter "system:not windows"
-        removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
-
     filter "system:macosx"
-        defines { "DESERT_PLATFORM_MACOS" }
-        files { "Source/Editor/Splash/MacOS/**.mm", "Source/Editor/Platform/MacOS/**.mm" }
-
         -- Unlike Visual Studio, gmake does not link static-lib dependencies
         -- transitively — the executable has to pull in everything the engine
         -- libraries use, plus the Apple frameworks GLFW/MoltenVK rely on.
