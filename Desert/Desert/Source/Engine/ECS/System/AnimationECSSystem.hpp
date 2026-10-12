@@ -216,14 +216,40 @@ namespace Desert::ECS
                             norm = anim.Animator->GetCurrentTime() / dur;
 
                         const auto res = anim.GraphEvaluator->Update( norm );
-                        if ( res.Current )
+                        if ( res.Current && res.Current->BlendSpace )
+                        {
+                            // A state that plays a Blend Space 1D: every sample resolved (null while loading),
+                            // entered by the machine's transition as a clip state is; the row already on top
+                            // only takes the clips (Animator::PlayBlendSpace).
+                            const auto& samples = res.Current->BlendSpace->Space.Samples;
+                            std::vector<const Animation::AnimationClip*> clips( samples.size(), nullptr );
+                            for ( size_t s = 0; s < samples.size(); ++s )
+                            {
+                                const auto found = m_AnimationLibrary->FindForMesh( clipRig, samples[s].Clip );
+                                if ( found )
+                                    clips[s] = &found.GetValue()->GetClip();
+                                else if ( !m_AnimationLibrary->HasPending( samples[s].Clip ) )
+                                    ReportUnplayableState( clipRig, res.Current->Name, samples[s].Clip,
+                                                           found.GetError() );
+                            }
+                            if ( const auto entering = anim.GraphEvaluator->EnteringTransition() )
+                                anim.Animator->CrossFadeBlendSpace( *res.Current->BlendSpace, clips,
+                                                                    entering->Duration, entering->Curve,
+                                                                    entering->Elapsed );
+                            else
+                                anim.Animator->PlayBlendSpace( *res.Current->BlendSpace, clips );
+                            anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
+                        }
+                        else if ( res.Current )
                         {
                             const auto found = m_AnimationLibrary->FindForMesh( clipRig, res.Current->Clip );
                             if ( found )
                             {
                                 const auto& clip = found.GetValue()->GetClip();
                                 const auto* cur  = anim.Animator->GetCurrentClip();
-                                if ( !cur || cur->AnimationName != clip.AnimationName )
+                                // A blend space on top is never this clip, even when its heaviest sample is.
+                                if ( !cur || anim.Animator->GetCurrentBlendSpace() != nullptr ||
+                                     cur->AnimationName != clip.AnimationName )
                                 {
                                     // THE ANIMATOR'S FADE IS THE MACHINE'S TRANSITION, read from the machine
                                     // and not from the one tick it fired on (`res.Changed`): a clip that was
@@ -354,19 +380,8 @@ namespace Desert::ECS
         void RequestGraphClips( const Animation::Graph::AnimGraph&     graph,
                                 const Animation::MeshSkeletonIdentity& rig )
         {
-            const auto request = [&]( const std::string& clip )
-            {
-                if ( !clip.empty() )
-                    static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
-            };
-            for ( const Animation::Graph::PoseNode& node : graph.Nodes )
-            {
-                if ( node.Machine )
-                    for ( const Animation::Graph::State& state : node.Machine->States )
-                        request( state.Clip );
-                if ( node.Sequence )
-                    request( node.Sequence->Clip );
-            }
+            for ( const std::string& clip : Animation::Graph::GraphClipNames( graph ) )
+                static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
         }
 
         void DrainGraphParams( ECS::AnimationComponent& anim )
@@ -480,7 +495,22 @@ namespace Desert::ECS
                 anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
             for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
-                const AG::PoseNode* node  = &graph.Nodes[n];
+                const AG::PoseNode* node = &graph.Nodes[n];
+                // A blend space plays every sample at once (UE: the Blend Space Player's samples are all
+                // resident): each sample's clip resolved by name, reported under "<node>.<clip>".
+                if ( node->BlendSpace )
+                {
+                    for ( size_t i = 0; i < node->BlendSpace->Samples.size(); ++i )
+                    {
+                        const std::string& sampleClip = node->BlendSpace->Samples[i].Clip;
+                        const auto         found      = m_AnimationLibrary->FindForMesh( clipRig, sampleClip );
+                        if ( found )
+                            anim.Animator->SetPoseGraphBlendSample( n, i, found.GetValue()->GetClip() );
+                        else if ( !m_AnimationLibrary->HasPending( sampleClip ) )
+                            ReportUnplayableState( clipRig, node->Name, sampleClip, found.GetError() );
+                    }
+                    continue;
+                }
                 std::string         clip  = node->Sequence ? node->Sequence->Clip : std::string();
                 std::string         owner = node->Name;
                 bool                loop  = node->Sequence ? node->Sequence->Loop : true;

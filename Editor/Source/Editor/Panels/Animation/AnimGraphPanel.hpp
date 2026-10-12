@@ -274,6 +274,10 @@ namespace Desert::Editor
         /// A parameter pin's binding as a combo of the declared parameters ("unbound" = the pin's default).
         bool DrawPinBinding( Animation::Graph::AnimGraph& graph, Animation::Graph::PoseNode& node,
                              const std::string& pin );
+        /// A Blend Space 1D row's widgets (sample clip + value rows, Add Sample, Weight Speed, Loop): ONE
+        /// spelling for the BlendSpace1D node and a state that plays a blend space. True when edited.
+        static bool DrawBlendSpaceRow( Animation::Graph::BlendSpace1DNode& space,
+                                       const std::vector<std::string>&     clipNames );
 
         // THE PREVIEW INSTANCE (UE: the editor's preview AnimInstance): owned by this document, never a
         // scene entity's component — editing a graph must not need, or disturb, a character in the level.
