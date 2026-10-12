@@ -230,4 +230,13 @@ namespace Desert::Animation::Timeline
      */
     [[nodiscard]] Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
                                                       FrameTime at, LocalPose& pose );
+
+    /**
+     * @brief `EvaluatePose` for ONE bone: every unmuted Transform track bound to @p bone folded over @p acc
+     * (seeded by the caller with that bone's rest, as `EvaluatePose` is). What root-motion extraction samples
+     * twice per clock step (UE UAnimSequence::ExtractRootTrackTransform) without sampling the whole rig.
+     * Refuses a table built for another `Sequence::Revision`, as `EvaluatePose` does.
+     */
+    [[nodiscard]] Common::BoolResultStr EvaluateBone( const Sequence& sequence, const BoneBindingTable& table,
+                                                      FrameTime at, uint32_t bone, BoneTransform& acc );
 } // namespace Desert::Animation::Timeline

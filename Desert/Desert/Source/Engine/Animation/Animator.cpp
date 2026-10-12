@@ -363,7 +363,12 @@ namespace Desert::Animation
                 if ( source.IsValid() )
                     UpdatePlayback( source, deltaTime );
 
+        // THE ONE EVALUATION WHOSE CLOCK STEPS ARE PLAYED TIME: only this one extracts root motion.
+        m_ExtractingStep = true;
         EvaluatePipeline();
+        m_ExtractingStep = false;
+        if ( m_RootMotionMode == RootMotionMode::RootMotionFromEverything )
+            m_RootMotion = AccumulateRootMotion( m_RootMotion, m_StepRootMotion );
         // After the evaluation, which is what weighed every source this tick — the base players included.
         StepBaseNotifies( true );
         StepGraphNotifies( true );
@@ -394,6 +399,7 @@ namespace Desert::Animation
             m_EvaluatedPose = m_BindPose;
             m_Component.Reset( m_EvaluatedPose.Size() );
         }
+        m_StepRootMotion = NoRootMotion();
 
         for ( const PoseStage stage : m_Stages )
         {
@@ -424,7 +430,9 @@ namespace Desert::Animation
     {
         if ( !m_Retarget )
         {
-            BlendedBasePose( TargetSampling(), pose );
+            const RigSampling rig = TargetSampling();
+            BlendedBasePose( rig, pose );
+            m_StepRootMotion = BlendedBaseRootMotion( rig );
             return;
         }
 
@@ -434,6 +442,8 @@ namespace Desert::Animation
         const RigSampling rig        = SourceSampling();
         LocalPose&        sourcePose = m_Retarget->SourceScratch();
         BlendedBasePose( rig, sourcePose );
+        // ON THE SOURCE RIG, where the clip's root track lives; RootMotionBetween scales it to this one.
+        m_StepRootMotion = BlendedBaseRootMotion( rig );
 
         // A REFUSAL LEAVES `pose` AS THE LAST FRAME LEFT IT, and `Run` has already said why, once per
         // distinct message. Falling back to the bind pose instead would look like a character snapping to
@@ -453,6 +463,7 @@ namespace Desert::Animation
             if ( !playback.IsValid() )
             {
                 out.Pose = m_BindPose; // a source with no clip yet (still loading) stands in the bind pose
+                LockRoot( TargetSampling(), out.Pose );
                 return;
             }
             // ITS CURVES TRAVEL WITH ITS POSE (UE FPoseContext::Curve): the clip's Float tracks, named by
@@ -474,20 +485,26 @@ namespace Desert::Animation
                 const RigSampling rig        = SourceSampling();
                 LocalPose&        sourcePose = m_Retarget->SourceScratch();
                 SampleClipPose( rig, playback.Clip, playback.Time, sourcePose );
+                LockRoot( rig, sourcePose );
+                out.RootMotion = ClockRootMotion( rig, playback );
                 // THE BIND POSE, NOT THE SOURCE RIG'S TRANSFORMS: `Run` has reported the reason, and source-rig
                 // local transforms written onto target bones are the proportion defect a retarget removes.
                 if ( !m_Retarget->Run( m_Skeleton, sourcePose, out.Pose ) )
                     out.Pose = m_BindPose;
                 return;
             }
-            SampleClipPose( TargetSampling(), playback.Clip, playback.Time, out.Pose );
+            const RigSampling rig = TargetSampling();
+            SampleClipPose( rig, playback.Clip, playback.Time, out.Pose );
+            LockRoot( rig, out.Pose );
+            out.RootMotion = ClockRootMotion( rig, playback );
         };
         sources.Sample = [&]( size_t node, Graph::GraphPose& out )
         {
             // THE BASE SOURCE IS THE SOURCE STAGE: its crossfade, notifies and root motion are the Animator's.
             if ( static_cast<int>( node ) == state.BaseSource )
             {
-                out.Pose = pose;
+                out.Pose               = pose;
+                out.RootMotion         = m_StepRootMotion;
                 const auto addCurvesOf = [&]( const ClipPlayback& player )
                 {
                     if ( player.IsValid() )
@@ -520,7 +537,12 @@ namespace Desert::Animation
 
         state.Instance.Evaluate( sources, m_Skeleton, state.Out );
         if ( state.Out.Pose.Size() == n )
+        {
             pose = state.Out.Pose;
+            // THE GRAPH'S ROOT MOTION IS THE FRAME'S: every source carried its own and the nodes weighed them
+            // as they weighed the poses (a layered blend by the root bone's weight, an additive not at all).
+            m_StepRootMotion = state.Out.RootMotion;
+        }
     }
 
     void Animator::EvaluateControls( LocalPose& pose )
@@ -680,6 +702,85 @@ namespace Desert::Animation
             for ( uint32_t b = 0; b < out.Size(); ++b )
                 out[b] = Blend( out[b], m_BlendScratch[b], alpha );
         }
+        // Every clip's root sat at its own place; the pose shows it at the reference (all locked alike, so
+        // locking once after the blend is locking each before it).
+        LockRoot( rig, out );
+    }
+
+    uint32_t Animator::RootBoneOf( const Skeleton& rig )
+    {
+        const auto count = static_cast<uint32_t>( rig.GetBones().size() );
+        for ( uint32_t b = 0; b < count; ++b )
+            if ( rig.ResolveParent( b ) == Skeleton::NO_PARENT )
+                return b;
+        return Skeleton::NO_PARENT;
+    }
+
+    void Animator::LockRoot( const RigSampling& rig, LocalPose& pose ) const
+    {
+        if ( !LocksRoot( m_RootMotionMode ) )
+            return;
+        const uint32_t root = RootBoneOf( rig.Rig );
+        if ( root < pose.Size() && root < rig.Rest.Size() )
+            pose[root] = rig.Rest[root]; // UE ERootMotionRootLock::RefPose
+    }
+
+    BoneTransform Animator::ClockRootMotion( const RigSampling& rig, const ClipPlayback& playback )
+    {
+        if ( !m_ExtractingStep || m_RootMotionMode != RootMotionMode::RootMotionFromEverything ||
+             !playback.IsValid() )
+            return NoRootMotion();
+        const uint32_t root = RootBoneOf( rig.Rig );
+        if ( root >= rig.Rest.Size() )
+            return NoRootMotion();
+
+        const AnimationClip&              clip   = *playback.Clip;
+        const Timeline::BoneBindingTable& table  = BindingFor( rig, clip );
+        const BoneTransform&              lock   = rig.Rest[root];
+        const auto                        rootAt = [&]( const FrameTime time )
+        {
+            BoneTransform at = lock; // a clip with no root track holds the root still
+            if ( auto sampled = Timeline::EvaluateBone( clip.Sequence, table, OnSequence( clip, time ), root, at );
+                 !sampled.IsSuccess() )
+            {
+                // BindingFor rebuilt the table for this very revision: a broken invariant, said loudly.
+                LOG_ERROR( "[Animator] root motion of clip '{}' did not sample: {}", clip.AnimationName,
+                           sampled.GetError() );
+                return lock;
+            }
+            return at;
+        };
+        // A retargeted clip walks on the source rig: its strides are scaled to this one by pelvis height
+        // (UE IK Retargeter's root motion follows the pelvis scale the same way).
+        const float scale = &rig.Rig == &m_Skeleton ? 1.0F : m_Retarget->GetRetargeter().GetPelvisHeightScale();
+        const auto  piece = [&]( const FrameTime from, const FrameTime to )
+        { return RootMotionBetween( rootAt( from ), rootAt( to ), lock, scale ); };
+
+        if ( !playback.StepWrapped )
+            return piece( playback.StepFrom, playback.Time );
+        // A WRAPPED LOOP IS TWO PIECES (UE ExtractRootMotion's loop split): to the end and from the start
+        // going forward, to the start and from the end going backward.
+        const FrameTime start{};
+        const FrameTime end{ clip.DurationTicks(), 0.0F };
+        if ( playback.StepBackward )
+            return AccumulateRootMotion( piece( playback.StepFrom, start ), piece( end, playback.Time ) );
+        return AccumulateRootMotion( piece( playback.StepFrom, end ), piece( start, playback.Time ) );
+    }
+
+    BoneTransform Animator::BlendedBaseRootMotion( const RigSampling& rig )
+    {
+        // UE FRootMotionMovementParams::AccumulateWithBlend, nested as BlendedBasePose nests the poses: each
+        // fade mixes its clip's movement over everything below it by its alpha.
+        BoneTransform motion = ClockRootMotion( rig, m_Current );
+        for ( const IncomingFade& fade : m_Fades )
+        {
+            const float alpha = fade.Alpha();
+            if ( !fade.Playback.IsValid() || alpha <= 0.0F )
+                continue;
+            const BoneTransform incoming = ClockRootMotion( rig, fade.Playback );
+            motion                       = alpha >= 1.0F ? incoming : Blend( motion, incoming, alpha );
+        }
+        return motion;
     }
 
     Animator::RigSampling Animator::TargetSampling() const

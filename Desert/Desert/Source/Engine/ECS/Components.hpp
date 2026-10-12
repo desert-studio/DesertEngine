@@ -471,14 +471,15 @@ namespace Desert::ECS
          */
         bool UpdateAnimationInEditor = false;
 
-        // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
-        // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
-        // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
-        // pixel is a stub wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
-        // than a half-implementation. Reopening it is a feature with a design question attached — whether
-        // the delta drives the TransformComponent or the character controller, and what a crossfade between
-        // two clips with different root motion means — and that question belongs with the locomotion work,
-        // not with a checkbox nobody wired.
+        /**
+         * @brief UE ERootMotionMode (Animation/RootMotion.hpp). AUTHORED (scene + prefab block, by name; absent
+         *        = NoExtraction, UE's default). With RootMotionFromEverything the Animator locks the root bone
+         *        and AnimationECSSystem hands its movement, in world space, to the CharacterControllerComponent
+         *        of the entity's parent — consumed by CharacterMovement::Step as the planar velocity, UE
+         *        PhysWalking's root-motion velocity — or, with no controller, moves this entity's
+         *        TransformComponent itself. Play (and UpdateAnimationInEditor) only: a scrub moves nothing.
+         */
+        Animation::RootMotionMode RootMotion = Animation::RootMotionMode::NoExtraction;
 
         // Notify events of the Animator THIS frame (instant markers crossed, notify states begun / ended).
         // Filled by AnimationECSSystem, drained + dispatched to the entity's scripts (OnAnimationNotify /
@@ -1617,6 +1618,16 @@ namespace Desert::ECS
         // replaced by the swim intent (+1 up, -1 down) at Max Swim Speed.
         bool  Swimming     = false;
         float SwimVertical = 0.0f;
+
+        // ROOT MOTION (UE ACharacter::RootMotionParams, consumed by the CharacterMovementComponent). Written by
+        // AnimationECSSystem when this character's skinned child plays with RootMotionFromEverything — this
+        // frame's root movement converted to world space and divided by the animation step (UE
+        // CalcAnimRootMotionVelocity) — and consumed by every fixed step of this frame's physics, where it
+        // REPLACES the planar velocity the input would have produced (gravity and jumps still act). Cleared by
+        // PhysicsECSSystem after the frame's step, so a character whose animation stopped is the input's again.
+        // The root motion's yaw is applied to this entity's TransformComponent by AnimationECSSystem directly.
+        bool      HasRootMotion      = false;
+        glm::vec3 RootMotionVelocity = { 0.0f, 0.0f, 0.0f }; // cm/s, world
     };
 
     // UE USpringArmComponent: on a child entity of the pawn, whose rotation is the arm's (scripts pitch it, the

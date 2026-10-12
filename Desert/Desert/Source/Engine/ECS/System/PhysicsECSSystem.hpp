@@ -288,6 +288,9 @@ namespace Desert::ECS
                  &MeshSkeletonOf );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
+            // This frame's root motion has been stepped; the next frame's animation states it again (or not).
+            for ( auto entity : characters )
+                characters.get<CharacterControllerComponent>( entity ).HasRootMotion = false;
             m_Ragdolls->WriteBackAfterStep( registry );
             PublishEvents( registry );
             // The steps' breaks are destruction's own news, published by its owner into its own queue.

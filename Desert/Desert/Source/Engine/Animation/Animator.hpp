@@ -7,6 +7,7 @@
 #include "AnimationClip.hpp"
 #include "BoneControl.hpp"
 #include "Pose.hpp"
+#include "RootMotion.hpp"
 #include "Graph/PoseGraphInstance.hpp"
 #include "Rig/ControlRigStage.hpp"
 #include "Retarget/RetargetSource.hpp"
@@ -290,6 +291,31 @@ namespace Desert::Animation
             return out;
         }
 
+        // --- Root motion (UE ERootMotionMode / UAnimInstance::ConsumeExtractedRootMotion) -----------------
+        /// How the root bone's movement is treated (RootMotion.hpp). Not NoExtraction: the root is locked to its
+        /// reference in every evaluated pose; RootMotionFromEverything also accumulates its movement.
+        void SetRootMotionMode( const RootMotionMode mode )
+        {
+            m_RootMotionMode = mode;
+        }
+        [[nodiscard]] RootMotionMode GetRootMotionMode() const
+        {
+            return m_RootMotionMode;
+        }
+
+        /**
+         * @brief Returns (and clears) the root movement every `Update` since the last call extracted, in
+         *        COMPONENT space (RootMotion.hpp), blended by weight across a crossfade and through the pose
+         *        graph (UE FRootMotionMovementParams::AccumulateWithBlend). Identity unless the mode is
+         *        RootMotionFromEverything. A scrub (SetTick / SetTime) moves no root: only played time does.
+         */
+        [[nodiscard]] BoneTransform ConsumeRootMotion()
+        {
+            const BoneTransform out = m_RootMotion;
+            m_RootMotion            = NoRootMotion();
+            return out;
+        }
+
         /// The current clip's notify states active at the playhead (UE: the active AnimNotifyStates).
         [[nodiscard]] const std::vector<ActiveNotifyState>& GetActiveNotifyStates() const
         {
@@ -503,6 +529,16 @@ namespace Desert::Animation
         static void SampleClipPose( const RigSampling& rig, const AnimationClip* clip, FrameTime time,
                                     LocalPose& out );
 
+        /// The root bone of @p rig (its first bone with no parent), or NO_PARENT for an empty rig.
+        [[nodiscard]] static uint32_t RootBoneOf( const Skeleton& rig );
+        /// The root of @p pose locked to its reference on @p rig, when the mode locks it.
+        void LockRoot( const RigSampling& rig, LocalPose& pose ) const;
+        /// The component-space root movement of @p playback's last Update step on @p rig (both pieces of a
+        /// wrapped loop); identity outside an Update, or when the mode does not extract.
+        [[nodiscard]] BoneTransform ClockRootMotion( const RigSampling& rig, const ClipPlayback& playback );
+        /// The base players' root movement blended exactly as BlendedBasePose blends their poses.
+        [[nodiscard]] BoneTransform BlendedBaseRootMotion( const RigSampling& rig );
+
         /// The base pose: the current clip, or current -> next blended by BlendAlpha(). The ONE answer to
         /// "what is the base pose right now". NOT static — it reads the playheads, which are the Animator's.
         void BlendedBasePose( const RigSampling& rig, LocalPose& out );
@@ -618,6 +654,15 @@ namespace Desert::Animation
         std::vector<IncomingFade> m_Fades;
 
         float m_PlaybackSpeed = 1.0F;
+
+        RootMotionMode m_RootMotionMode = RootMotionMode::NoExtraction;
+        /// Extracted and not consumed yet (ConsumeRootMotion).
+        BoneTransform m_RootMotion;
+        /// True only while Update evaluates: the one evaluation whose clock steps are played time. A scrub, a
+        /// rebind or an authoring apply evaluates too and must not move the character.
+        bool m_ExtractingStep = false;
+        /// This evaluation's root movement, set by the Source stage and replaced by the Graph stage's output.
+        BoneTransform m_StepRootMotion;
 
         // Notify events of the current clip not yet drained by ConsumeNotifyEvents().
         std::vector<NotifyEvent> m_NotifyEvents;
