@@ -362,8 +362,8 @@ TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionR
     const std::string renderer =
          Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
     ASSERT_FALSE( renderer.empty() );
-    EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Emitters, reg )" ) )
-         << "PrepareTick no longer retires emitters whose entity is gone";
+    EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Systems, reg )" ) )
+         << "PrepareTick no longer retires systems whose entity is gone";
 
     const std::string copy =
          Code( root / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.cpp" );

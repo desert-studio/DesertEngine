@@ -100,11 +100,16 @@ namespace
     // registered, this census would have reported everything fine. It happens to be registered; the
     // hole was in the census, not in the tree, and a census with a hole in it is the more expensive of
     // the two because it reads as an answer.
+    // A component's name holds "Component" past its first letter (UITextComponent2D too); a name that ENDS in
+    // "Data" is a component's data block (VFXComponentData is VFXComponent's Block( Data )), persisted through
+    // the component that holds it, not a component of its own.
     bool NamesAComponent( const std::string& name )
     {
         static const std::string token = "Component";
+        static const std::string data  = "Data";
         const std::size_t        at    = name.find( token );
-        return at != std::string::npos && at > 0;
+        const bool isDataBlock = name.size() > data.size() && name.ends_with( data );
+        return at != std::string::npos && at > 0 && !isDataBlock;
     }
 
     std::string Identifier( const std::string& source, std::size_t& cursor )
