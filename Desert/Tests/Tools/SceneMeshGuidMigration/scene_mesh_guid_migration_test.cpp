@@ -195,7 +195,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionSSRDefaultOn, Migration::kSceneVersionShadowBiasCentimetres );
     EXPECT_LT( Migration::kSceneVersionShadowBiasCentimetres, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionHLODLayers );
+    EXPECT_LT( Migration::kSceneVersionHLODLayers, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionParticleEmittersToVFX );
 }
 
 namespace

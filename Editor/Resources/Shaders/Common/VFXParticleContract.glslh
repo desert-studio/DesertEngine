@@ -24,6 +24,10 @@
 // (plan 02 §3.3-6): a random value is a function of these and of the input slot, never of time or thread
 // order. Spawned = this step created the particle (its attributes start at zero and the spawn group runs);
 // a module sets Kill to retire it.
+// ChannelColor / ChannelScalars are the Spawn from Channel record of a newborn (VFX-10; UE: the Niagara Data Channel
+// read a spawn module makes): the Initialize modules take a bound colour, base-size scale and lifetime from them,
+// AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
+// engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
 struct VFXSim
 {
     float DeltaTime;
@@ -33,6 +37,10 @@ struct VFXSim
     uint  Step;
     bool  Spawned;
     bool  Kill;
+    vec4  ChannelDirection; // xyz start velocity direction, w = 1 when bound
+    vec4  ChannelColor;     // linear rgba, bound when ChannelScalars.z = 1
+    vec4  ChannelScalars;   // x = lifetime s (bound when w = 1), y = base-size scale (1 unbound), z / w = colour /
+                            // lifetime bound
 };
 
 vec4  VFX_Param( uint slot );

@@ -4,8 +4,8 @@
 #include <Editor/Import/MeshDeriver.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
 #include <gtest/gtest.h>
 
@@ -20,7 +20,7 @@ namespace
 {
     // An n x n-quad plane in XZ, 40 cm wide at any n. twoSlots: the first half of the triangles draws slot 0,
     // the rest slot 1.
-    Geometry::EditMeshSer MakePlane( const uint32_t kN, const bool twoSlots )
+    Geometry::MeshSavedForm MakePlane( const uint32_t kN, const bool twoSlots )
     {
         Geometry::RenderMeshData render;
         for ( uint32_t z = 0; z <= kN; ++z )
@@ -39,13 +39,13 @@ namespace
                 render.Indices.push_back( { i, i + kN + 1, i + 1 } );
                 render.Indices.push_back( { i + 1, i + kN + 1, i + kN + 2 } );
             }
-        auto imported = Geometry::FromRenderMesh( render );
+        auto imported = Geometry::DynamicMeshFromRenderMesh( render );
         if ( !imported.IsSuccess() )
         {
             ADD_FAILURE() << imported.GetError();
             return {};
         }
-        Geometry::EditMeshSer mesh = Geometry::ToSerialized( imported.GetValue().Mesh );
+        Geometry::MeshSavedForm mesh = Geometry::ToSerialized( imported.GetValue().Mesh );
         if ( twoSlots )
             for ( size_t t = mesh.MaterialIds.size() / 2; t < mesh.MaterialIds.size(); ++t )
                 mesh.MaterialIds[t] = 1;

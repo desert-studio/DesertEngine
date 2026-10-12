@@ -15,7 +15,7 @@
 #include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -1235,9 +1235,9 @@ namespace Desert::Editor::Tools
             // Collision (GiveBlockoutCollision: the piece's own triangles on a static body, never its bounding
             // box) and then Output: Static Mesh, which makes the blockout a new asset, both before the creation
             // is recorded. ONE undo step for the whole session, with the collider it just got: undo removes the
-            // entity (EditMesh included, through the scene serializer), redo brings it back under the same UUID.
-            // A refused write (or a refused collision) does NOT accept: the session and the tool stay open with
-            // the cells, and the user is told why (BlockoutSession.hpp).
+            // entity (the editable mesh included, through the scene serializer), redo brings it back under the
+            // same UUID. A refused write (or a refused collision) does NOT accept: the session and the tool stay
+            // open with the cells, and the user is told why (BlockoutSession.hpp).
             auto accepted = AcceptBlockout(
                  m_Entity, ms, endTool,
                  [&]( const Common::UUID& piece ) -> Common::BoolResultStr
@@ -1314,20 +1314,20 @@ namespace Desert::Editor::Tools
         auto&       smc    = entity.HasComponent<ECS::StaticMeshComponent>()
                                   ? entity.GetComponent<ECS::StaticMeshComponent>()
                                   : entity.AddComponent<ECS::StaticMeshComponent>();
-        // The quads become an EditMesh - the entity's source of truth, the thing the scene saves - and the
+        // The quads become a DynamicMesh3 - the entity's source of truth, the thing the scene saves - and the
         // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
         // neighbours' into shared topology; the normal, tangent and UV each become a seam exactly where two
         // quads disagree, so a flat face renders the vertices it did before. On a Corner Mode ramp the
         // bitangent is the one thing that changes: the render side derives it as cross(N, T) * sign
-        // (EditMeshConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
-        auto imported  = Geometry::FromRenderMesh( quads );
+        // (DynamicMeshRenderConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
+        auto imported = Geometry::DynamicMeshFromRenderMesh( quads );
         if ( !imported.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        if ( auto set =
-                  Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
+        if ( auto set = ECS::SetEditableMesh( smc, std::make_shared<const Geometry::DynamicMesh3>(
+                                                        std::move( imported.ExtractValue().Mesh ) ) );
              !set.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
