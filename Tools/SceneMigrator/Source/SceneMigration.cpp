@@ -948,6 +948,56 @@ namespace Desert::Migration
         return report;
     }
 
+    SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char* kKey = "EnableSSR";
+        SSRDefaultOnReport    report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            // Only the record's own volume: an override's EnableSSR is a delta against its prefab record,
+            // which the prefab's own migration raises.
+            EditBlock( entity.Components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           rfl::Generic::Object settings;
+                           if ( const auto stated = block.get( "Settings" ); stated.has_value() )
+                           {
+                               auto fields = stated.value().to_object();
+                               if ( !fields.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                     rfl::json::write( stated.value() ) ) );
+                                   return false;
+                               }
+                               settings = std::move( fields.value() );
+                           }
+                           if ( const auto enabled = settings.get( kKey ); enabled.has_value() )
+                           {
+                               const auto flag = enabled.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( enabled.value() ) ) );
+                                   return false;
+                               }
+                               if ( flag.value() )
+                                   return false;
+                               DropKey( settings, kKey );
+                           }
+                           settings[kKey] = rfl::Generic( true );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        }
+        return report;
+    }
+
     UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
     {
         UIAnimationTimelinesReport report;
@@ -2765,6 +2815,18 @@ namespace Desert::Migration
                 report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV46ToV47( entities );
             }
 
+            // SSR is on by default (SSR1B): every volume states true where v47 stated the old default false.
+            if ( statedSceneVersion < kSceneVersionSSRDefaultOn )
+            {
+                report.SSRDefaultOnRaised = true;
+                report.SSRDefaultOn       = MigrateSSRDefaultOnV47ToV48( entities );
+                if ( !report.SSRDefaultOn.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SSRDefaultOn.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3090,7 +3152,7 @@ namespace Desert::Migration
         return report;
     }
 
-    bool MigrateHLODLayersV47ToV48( SceneSerialized& scene )
+    bool MigrateHLODLayersV48ToV49( SceneSerialized& scene )
     {
         if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
              scene.WorldPartition->DefaultHLODLayer.has_value() )
@@ -3175,7 +3237,7 @@ namespace Desert::Migration
         if ( statedSceneVersion < kSceneVersionHLODLayers )
         {
             report.HLODLayersRaised = true;
-            report.HLODLayerStated  = MigrateHLODLayersV47ToV48( scene );
+            report.HLODLayerStated  = MigrateHLODLayersV48ToV49( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

@@ -234,13 +234,22 @@ namespace Desert::Migration
     inline constexpr const char* kParticleAdditiveMaterialPath =
          "engine:Engine/Materials/M_ParticleAdditive.demat";
 
-    //  48 - A WORLD STATES ITS HLOD LAYERS (WP-FAR-7). WorldPartition gains HLODLayers (UE UHLODLayer: Name, Type
+    //  48 - SSR IS ON BY DEFAULT (SSR1B). PostProcessSettings.EnableSSR defaults to true. The generic writer
+    //       stated every field of a volume's Settings, so a v47 "EnableSSR": false is the old default, not a
+    //       choice anyone can be told apart from it: every PostProcessVolume record states true
+    //       (MigrateSSRDefaultOnV47ToV48); a volume without Settings gets {"EnableSSR": true}; a stated true is
+    //       kept. A prefab override's EnableSSR is a delta against its prefab record and is kept as stated. A
+    //       scene that must keep SSR off sets it on its volume AFTER this step, as an authored value. Scenes
+    //       and prefabs alike.
+    inline constexpr int kSceneVersionSSRDefaultOn = 48;
+
+    //  49 - A WORLD STATES ITS HLOD LAYERS (WP-FAR-7). WorldPartition gains HLODLayers (UE UHLODLayer: Name, Type
     //       Instancing / MeshMerge / MeshSimplify, ParentLayer) and DefaultHLODLayer, the layer every cell's HLOD
-    //       is built with; absent = no HLOD. Every v47 partitioned world built an Instancing HLOD for every cell
-    //       with nothing stated, so it now STATES that layer as its default (MigrateHLODLayersV47ToV48, through
+    //       is built with; absent = no HLOD. Every v48 partitioned world built an Instancing HLOD for every cell
+    //       with nothing stated, so it now STATES that layer as its default (MigrateHLODLayersV48ToV49, through
     //       Rules::StateInstancingHLODLayer). A world that already states layers keeps them. Scenes only: a prefab
     //       has no WorldPartition block.
-    inline constexpr int kSceneVersionHLODLayers = 48;
+    inline constexpr int kSceneVersionHLODLayers = 49;
 
     static_assert( kSceneVersionHLODLayers == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
@@ -476,9 +485,20 @@ namespace Desert::Migration
                                                               const std::string&               ownerName,
                                                               const std::filesystem::path&     assetsRoot );
 
+    // What MigrateSSRDefaultOnV47ToV48 did to one file.
+    struct SSRDefaultOnReport
+    {
+        std::size_t              Volumes = 0; // PostProcessVolume records that now state EnableSSR true
+        std::vector<std::string> Refused;     // a volume whose Settings or EnableSSR is not the declared type
+    };
+
+    // States EnableSSR true on every PostProcessVolume record under the rule kSceneVersionSSRDefaultOn
+    // states. PURE.
+    SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
-    bool MigrateHLODLayersV47ToV48( SceneSerialized& scene );
+    bool MigrateHLODLayersV48ToV49( SceneSerialized& scene );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -694,6 +714,9 @@ namespace Desert::Migration
         bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
         ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
+        bool               SSRDefaultOnRaised = false; // below kSceneVersionSSRDefaultOn
+        SSRDefaultOnReport SSRDefaultOn;
+
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
 
@@ -708,7 +731,7 @@ namespace Desert::Migration
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
-                   ParticleSpriteMaterialsRaised || HLODLayersRaised;
+                   ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || HLODLayersRaised;
         }
     };
 
