@@ -760,6 +760,7 @@ namespace Desert::Core
         r.prepare<ECS::DestructibleComponent>();
         r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
+        r.prepare<ECS::WaterZoneComponent>();
         r.prepare<ECS::RadialImpulseFieldComponent>();
         r.prepare<ECS::StrainFieldComponent>();
         r.prepare<ECS::KillFieldComponent>();

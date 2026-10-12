@@ -95,6 +95,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data,
                                      "Destructible" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RagdollComponent, Data, "RagdollData", "Ragdoll" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterZoneComponent, Data, "WaterZoneData", "Water Zone" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )

@@ -891,6 +891,15 @@ namespace
          { "OceanExtents", kWaterBodyGather },
          { "TargetWaveMaskDepth", kWaterBodyGather },
     };
+    // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
+    // water renderer walks.
+    constexpr const char* kWaterZoneSystem = "Desert/Desert/Source/Engine/ECS/System/WaterZoneECSSystem.hpp";
+    constexpr Row         kWaterZoneRows[] = {
+         { "ZoneExtent", kWaterZoneSystem },
+         { "TileSize", kWaterZoneSystem },
+         { "TessellationFactor", kWaterZoneSystem },
+         { "LODScale", kWaterZoneSystem },
+    };
     // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
     constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
     constexpr Row         kRagdollRows[] = {
@@ -1157,6 +1166,7 @@ namespace
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
+         { "WaterZoneData", "WaterZoneComponent", nullptr, CENSUS_ROWS( kWaterZoneRows ) },
          { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
@@ -1379,7 +1389,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
     // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
     // -> 64 with the int/b10 gameplay types (GP1-GP5) merged beside it.
-    EXPECT_EQ( all.size(), 64u );
+    // -> 65 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
+    EXPECT_EQ( all.size(), 65u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
