@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace Desert::ECS
@@ -85,7 +86,7 @@ namespace Desert::ECS
                 continue;
             DestructionEventSource source;
             source.Entity                    = static_cast<int32_t>( entt::to_integral( entity ) &
-                                                                     entt::entt_traits<entt::entity>::entity_mask );
+                                                                     entt::entt_traits<std::underlying_type_t<entt::entity>>::entity_mask );
             source.NotifyBreaks              = component.Data.NotifyBreaks;
             source.NotifyCollisions          = component.Data.NotifyCollisions;
             source.NotifyRemovals            = component.Data.NotifyRemovals;
@@ -141,7 +142,9 @@ namespace Desert::ECS
             auto writer = channels.Write( ChannelOf( kind ), published.size() );
             if ( !writer.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "destruction events: {}", writer.GetError() );
-            VFX::VFXDataChannelWriter& w = writer.GetValue();
+            // A writer is a view onto the channel's reserved range: a copy writes the same entries, and a Result
+            // only hands its value out const.
+            VFX::VFXDataChannelWriter w = writer.GetValue();
             for ( std::size_t i = 0; i < published.size(); ++i )
                 if ( auto written = WriteEntry( w, i, *published[i].first, published[i].second );
                      !written.IsSuccess() )
