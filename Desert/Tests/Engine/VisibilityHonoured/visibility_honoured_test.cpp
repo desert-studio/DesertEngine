@@ -145,6 +145,10 @@ namespace
               "SCR-API-3: it delivers physics contacts and destruction breaks to the scripts subscribed to "
               "the entity they happened to; a hidden body is still simulated (PhysicsECSSystem's verdict), "
               "so its hits must still reach gameplay -- hiding it in the outliner must not mute its events." },
+         Row{ "RagdollLifetime.hpp", Verdict::MustNot,
+              "it puts a character's physics-asset bodies into the physics world and writes the simulated "
+              "pose back; the bodies are simulated like PhysicsECSSystem's, so a ragdoll hidden in the "
+              "outliner must neither leave the simulation nor stop colliding." },
          Row{ "DestructibleLifetime.hpp", Verdict::MustNot,
               "it adds a destructible's fracture to the destruction world on Play and releases it on "
               "destroy; the pieces are simulated like PhysicsECSSystem's bodies, so a destructible hidden "
@@ -169,8 +173,8 @@ namespace
               "outliner must not freeze a cinematic or make its events a function of the outliner "
               "(UE: ALevelSequenceActor ticks regardless of bHidden)." },
          Row{ "LocomotionSystem.hpp", Verdict::MustNot,
-              "picks a clip NAME from a character's speed; hiding a character must not change which "
-              "animation it is playing when it comes back." },
+              "publishes a character's Speed / IsFalling / IsCrouched into its AnimGraph; hiding a "
+              "character must not change the state its graph is in when it comes back." },
          Row{ "MeshECSSystem.hpp", Verdict::Honours,
               "the original three sites (static, instanced, skinned) and the whole reason the flag "
               "appeared to work at all." },
@@ -205,6 +209,23 @@ namespace
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
               "not sink every boat on it." },
+         Row{ "CharacterMovement.hpp", Verdict::MustNot,
+              "the playable character's walking/falling model on its Jolt CharacterVirtual (GP2a); a hidden "
+              "character is still in the simulation (PhysicsECSSystem's verdict), so hiding it must not freeze "
+              "its capsule in mid-air or let it walk through what it stood on." },
+         Row{ "GameModeSystem.hpp", Verdict::MustNot,
+              "it ticks the GameMode: the respawn delay counts down in game time and the restart spawns the "
+              "Default Pawn; a rule of the match, not a picture -- the outliner must not stop a respawn." },
+         Row{ "KinematicBodies.hpp", Verdict::MustNot,
+              "a kinematic body follows its entity's transform (UE: a kinematic body follows its component); a "
+              "hidden moving platform still carries what stands on it, as PhysicsECSSystem's bodies do." },
+         Row{ "SpringArm.hpp", Verdict::MustNot,
+              "UE USpringArmComponent: it places the arm's camera; the camera is the view, never drawn, and "
+              "hiding the pawn it hangs from must not snap the player's view to the arm's origin." },
+         Row{ "WindField.hpp", Verdict::MustNot,
+              "the one wind query over WindSource entities (UE: UWindDirectionalSourceComponent, never drawn); "
+              "a source is a field acting on foliage, clouds and cloth, and hiding it must not still the air -- "
+              "the same argument as DestructionFields." },
     };
 
     // ── ONE ROW PER SITE, NOT PER FILE ──────────────────────────────────────────────────────────────

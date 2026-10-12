@@ -262,6 +262,21 @@ namespace Desert::Animation
         // show the posed skeleton in the viewport.
         void ApplyLocalPose();
 
+        /**
+         * @brief THE PHYSICS POSE OVER THE FINISHED ANIMATION (UE: USkeletalMeshComponent::BlendInPhysics at
+         *        weight 1). @p componentOverrides are the simulated ragdoll's bones in component space
+         *        (Physics::RagdollBoneOverrides, parents first); they are written into the evaluated pose
+         *        through the parent chain and the pose is published to skinning, so what renders this frame is
+         *        the simulation. Bones without a body keep the local the pipeline gave them.
+         *
+         * Runs AFTER the whole pipeline (clips, graph, controls, rig) and after the physics step — not as a
+         * BoneControl: controls run before the rig, and AnimationECSSystem drops controls it does not own.
+         * The next Update evaluates the animation afresh, so nothing of this pose leaks into the next frame's
+         * animated pose. Refuses, naming the bone, what ApplyBoneOverrides refuses; the pose is then unchanged.
+         */
+        [[nodiscard]] Common::BoolResultStr
+        ApplyPhysicsPose( const std::vector<BoneOverride>& componentOverrides );
+
         // Returns (and clears) the notify events since the last call — instant notifies crossed by playback
         // (Fire), and notify states entered / left (Begin / End) by playback, a loop, a scrub (SetTick /
         // SetTime) or a clip change — of the base players (the current clip, the incoming one of a crossfade)
@@ -656,6 +671,8 @@ namespace Desert::Animation
         // m_EvaluatedPose resolved through the parent chain. Declared AFTER m_EvaluatedPose: it holds a
         // reference to it, and a member initialised before its referent is a dangling one.
         ComponentPose m_Component;
+        // ApplyPhysicsPose's pre-write locals, reused so a simulated ragdoll allocates nothing per frame.
+        std::vector<BoneTransform> m_PhysicsScratch;
 
         SkinningMatrices m_Skinning;
     };

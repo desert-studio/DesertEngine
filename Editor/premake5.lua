@@ -21,6 +21,9 @@ project "Editor"
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
             .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
             .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/CoreReflection/Source"'
             .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
     }
@@ -35,6 +38,9 @@ project "Editor"
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source/",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/",
 
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
@@ -84,6 +90,8 @@ project "Editor"
 
     links{
         "Desert",
+        "DesertUI",
+        "Render2DCore",
         "GLFW",
         "Optick",
         "MeshOptimizer",

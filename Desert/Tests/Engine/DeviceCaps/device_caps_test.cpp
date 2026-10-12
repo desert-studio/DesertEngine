@@ -9,6 +9,7 @@
 // file each, and the VkDevice is built from the very object DeviceCapsProbe enabled things on. A raw
 // vkGetPhysicalDeviceFeatures or vkCreateDevice anywhere else would be a second opinion about what the
 // device has, which is what DeviceCaps exists to prevent.
+#include "TestSupport/source_roots.hpp"
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
@@ -71,8 +72,8 @@ namespace
     std::vector<SourceFile> FirstPartySources( const std::string& root )
     {
         std::vector<SourceFile> out;
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+        for ( const std::string& tree :
+              Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) )
         {
             std::error_code ec;
             for ( auto it = fs::recursive_directory_iterator( fs::path( root ) / tree, ec );
@@ -184,6 +185,7 @@ TEST( DeviceCaps, TheRefusalNamesEveryMissingItemAtOnce )
     EXPECT_NE( error.find( "FakeGPU" ), std::string::npos ) << error;
     EXPECT_NE( error.find( "Vulkan 1.1.0 (device reports 1.0.0)" ), std::string::npos ) << error;
     EXPECT_NE( error.find( "tessellationShader" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "independentBlend" ), std::string::npos ) << error;
     EXPECT_NE( error.find( "swapchain (VK_KHR_swapchain)" ), std::string::npos ) << error;
     // Optional rows never make a refusal.
     EXPECT_EQ( error.find( "wideLines" ), std::string::npos ) << error;
@@ -211,8 +213,44 @@ TEST( DeviceCaps, TheRequiredSetIsWhatTheRendererUsesToday )
     for ( const CapabilitySpec& spec : CapabilityTable() )
         if ( spec.Need == CapabilityNeed::Required )
             required.insert( std::string( spec.Name ) );
-    EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "swapchain" } ) );
+    EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "swapchain" } ) );
     EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_1 );
+}
+
+// VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605: the view pipelines give each colour attachment its
+// own blend state (an integer target never blends; a slot the fragment stage does not write keeps write mask 0, so
+// the velocity next to scene colour survives the passes that do not write it). That is legal only with
+// independentBlend ENABLED, so the feature is a required row, probed to the real VkPhysicalDeviceFeatures bit, and
+// a device without it is refused by name. Mutation: drop the row's Required (or the probe's case, or map it to
+// another bit) -> red.
+TEST( DeviceCaps, IndependentBlendIsRequiredBecauseViewPipelinesBlendPerAttachment )
+{
+    EXPECT_EQ( SpecOf( Capability::IndependentBlend ).Name, "independentBlend" );
+    EXPECT_EQ( SpecOf( Capability::IndependentBlend ).Need, CapabilityNeed::Required );
+    EXPECT_EQ( SpecOf( Capability::IndependentBlend ).CoreSince, VK_API_VERSION_1_0 );
+
+    DeviceCaps caps = Plan( VK_API_VERSION_1_2, { VK_KHR_SWAPCHAIN_EXTENSION_NAME } );
+    GrantEveryRoute( caps );
+    caps.Rows[static_cast<std::size_t>( Capability::IndependentBlend )].Present = false;
+    const auto refused                                                          = CheckRequired( caps );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "independentBlend" ), std::string::npos ) << refused.GetError();
+
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string probe =
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/DeviceCapsProbe.cpp" );
+    // The probe enables it as a core 1.0 feature (two needles: the case label and the enabling call).
+    EXPECT_NE( probe.find( "case Capability::IndependentBlend:" ), std::string::npos )
+         << "DeviceCapsProbe has no case for Capability::IndependentBlend";
+    EXPECT_NE( probe.find( "&VkPhysicalDeviceFeatures::independentBlend" ), std::string::npos )
+         << "DeviceCapsProbe must enable Capability::IndependentBlend through "
+            "VkPhysicalDeviceFeatures::independentBlend";
+    // The per-attachment states it exists for: still built per slot.
+    const std::string reflection =
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanShaderReflection.cpp" );
+    EXPECT_NE( reflection.find( ".blendEnable         = ( written && blendPerSlot[slot] ) ? VK_TRUE : VK_FALSE" ),
+               std::string::npos );
 }
 
 // ── Part 2: the census ──────────────────────────────────────────────────────────────────────────────

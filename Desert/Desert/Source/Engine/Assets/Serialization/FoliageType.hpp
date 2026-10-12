@@ -50,7 +50,11 @@ namespace Desert::Assets::Serialization
      *       raises a v5 file (MigrateFoliageTypeV5ToV6) with Kind Mesh, what every v5 type was.
      *   7 - Procedural joins (S1, UE UFoliageType's Procedural category): what the procedural foliage simulation
      *       (World/Foliage/Procedural) grows from the type. SceneMigrator raises a v6 file
-     *       (MigrateFoliageTypeV6ToV7) with UE's defaults. The engine reads v7 only.
+     *       (MigrateFoliageTypeV6ToV7) with UE's defaults.
+     *   8 - Wind.DirectionDegrees leaves (WIND-SRC): the direction is the scene's, ECS::WindAt over its
+     *       WindSource entities (UE: the WindDirectionalSource, not the foliage type); the type keeps only its
+     *       response (Strength, Speed, Height). SceneMigrator raises a v7 file (MigrateFoliageTypeV7ToV8), every
+     *       other value kept. The engine reads v8 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -74,8 +78,9 @@ namespace Desert::Assets::Serialization
     };
 
     /**
-     * @brief How a type's instances sway in the wind (UE: SimpleGrassWind's WindIntensity / WindSpeed and the
-     *        material's height mask, with the direction a WindDirectionalSource would give).
+     * @brief How a type's instances RESPOND to the wind (UE: SimpleGrassWind's WindIntensity / WindSpeed and
+     *        the material's height mask). The wind itself - where it blows, whether it blows - is the scene's
+     *        one query, ECS::WindAt (UE: the WindDirectionalSource); still air sways nothing.
      *
      * Displacement is horizontal, in world centimetres, and grows with the vertex's height in the MESH's own
      * space: zero at and below the pivot (the root), full at Height and above. Graphic::FoliageWindOffset is
@@ -89,8 +94,6 @@ namespace Desert::Assets::Serialization
         float Speed = 0.5f;
         /// Mesh-local height, cm, at which the sway reaches Strength (the root at 0 does not move).
         float Height = 100.0f;
-        /// The direction the wind blows TOWARDS, degrees about the up axis from +X towards +Z.
-        float DirectionDegrees = 0.0f;
 
         [[nodiscard]] bool operator==( const FoliageWind& ) const = default;
     };

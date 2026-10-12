@@ -1,11 +1,14 @@
 #pragma once
 
-#include <Engine/UI/UITree.hpp>
+#include <UI/UITree.hpp>
 
 #include <entt/entt.hpp>
 
 #include <cstdint>
 #include <type_traits>
+#include <optional>
+#include <string_view>
+#include <vector>
 
 // The engine's adapter from its ECS scene to the framework's IUITree — UE's UMG side of the seam: the
 // authored UI lives as UI*Component{Data} on entities, the hierarchy in RelationshipComponent, the name in

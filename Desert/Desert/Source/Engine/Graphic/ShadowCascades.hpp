@@ -61,7 +61,7 @@ namespace Desert::Graphic
 
     // A RENDERER THAT WILL NEVER DRAW A SHADOW, and therefore holds no map to draw one into. Zero is a
     // legal cascade count everywhere the count already travels: ComputeShadowCascades returns 0,
-    // RegisterShadowPass registers no pass, and SceneShadowBind writes 0 into u_ShadowParams.w so the
+    // ShadowCascadePasses hands no pass, and SceneShadowBind writes 0 into u_ShadowParams.w so the
     // shader's own loop selects no cascade and ShadowFactor returns "lit" without sampling a map.
     //
     // WHY THIS, AND NOT `SceneSettings::EnableShadows`. The flag looks like the same decision and is a

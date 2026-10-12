@@ -1,9 +1,10 @@
-#include <Engine/Text/Utf8.hpp>
+#include <Render2DCore/Text/Utf8.hpp>
 
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
+#include <cstdint>
 
 using namespace Desert::Text;
 

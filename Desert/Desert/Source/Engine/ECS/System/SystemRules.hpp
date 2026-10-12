@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Animation/Skeleton.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -18,22 +19,31 @@ namespace Desert::ECS::Rules
     // The DECISIONS the gameplay systems make, as pure functions of their inputs.
     //
     // The systems themselves hold a `Core::Scene*`, and Scene drags in the renderer, so a test that wants
-    // to ask "does a character at 3 m/s pick the walk clip?" would have to link the whole graphics stack
+    // to ask "where does a socketed entity end up?" would have to link the whole graphics stack
     // and stand up a device. The rule is the part worth testing; the system is the part that fetches the
     // arguments. Same split that made the shadow cascades testable.
 
-    // Which locomotion clip a character should be playing. Ordering matters and is the rule itself:
-    // airborne wins over any ground speed, then idle / walk / run by the component's own thresholds.
-    inline const std::string& LocomotionClipFor( const LocomotionComponent& loco, float planarSpeed,
-                                                 bool onGround )
+    // What a SocketAttachmentComponent's name follows on @p skeleton: a SOCKET of the rig first (its bone, and its
+    // local transform composed after the bone's), else a bone of that name with an identity socket transform (UE
+    // USkinnedMeshComponent::GetSocketTransform). Nullopt = neither - the caller reports it.
+    struct AttachPoint
     {
-        if ( !onGround )
-            return loco.JumpClip;
-        if ( planarSpeed < loco.WalkSpeed )
-            return loco.IdleClip;
-        if ( planarSpeed <= loco.RunSpeed )
-            return loco.WalkClip;
-        return loco.RunClip;
+        uint32_t  Bone        = 0;
+        glm::mat4 SocketLocal = glm::mat4( 1.0f );
+    };
+    inline std::optional<AttachPoint> ResolveAttachPoint( const Animation::Skeleton& skeleton,
+                                                          const std::string&         socketName )
+    {
+        if ( const Animation::SkeletonSocket* named = skeleton.FindSocket( socketName ) )
+        {
+            const auto bone = skeleton.FindBoneIndex( named->Bone );
+            if ( !bone )
+                return std::nullopt;
+            return AttachPoint{ *bone, named->LocalTransform() };
+        }
+        if ( const auto bone = skeleton.FindBoneIndex( socketName ) )
+            return AttachPoint{ *bone, glm::mat4( 1.0f ) };
+        return std::nullopt;
     }
 
     // Where a socket-attached entity ends up: the bone's model-space transform lifted into the target's
@@ -78,7 +88,7 @@ namespace Desert::ECS::Rules
     // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
     // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
     // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
-    // MeshRenderer::RegisterShadowPass takes a Mesh* and a transform and has no submesh mask, because
+    // MeshRenderer::ShadowCascadePasses takes a Mesh* and a transform and has no submesh mask, because
     // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
     // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
     // rasterized into every cascade twice, self-shadowing along the seam and paying double.

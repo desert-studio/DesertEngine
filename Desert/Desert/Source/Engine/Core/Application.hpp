@@ -19,6 +19,8 @@
 
 #include "EngineStats.hpp"
 #include <Engine/Core/Window.hpp>
+#include <Engine/Core/DisplaySettings.hpp>
+#include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Device.hpp>
 
 #include <Engine/Core/WindowCloseGate.hpp>
@@ -35,13 +37,9 @@ namespace Desert::Engine
     struct ApplicationInfo
     {
         std::string Title;
-        // Window size. std::nullopt (the default) = start fullscreen at the monitor's native resolution;
-        // set a concrete value for a windowed size.
-        std::optional<uint32_t> Width;
-        std::optional<uint32_t> Height;
-        // Only when starting fullscreen (Width/Height = nullopt): true = cover the taskbar, false = leave
-        // the taskbar visible (fit the monitor work area).
-        bool FullscreenCoverTaskbar = false;
+        // Window mode, size, VSync and frame rate limit at creation. The packaged game passes its
+        // Settings::GameUserSettings::Display (Runtime/Source/Main.cpp); the editor states its own.
+        DisplaySettings Display;
         // false = THIS APPLICATION DRAWS ITS OWN TITLE BAR, and the OS is asked for no frame at all. The
         // editor sets it (its menu bar already carries the project, the level and the window's commands,
         // so the system bar above it was a second title bar over the same window); the packaged Runtime
@@ -109,6 +107,12 @@ namespace Desert::Engine
         const auto& GetWindow() const
         {
             return m_Window;
+        }
+
+        // The frame rate limit Run() holds every frame to — Settings::ApplyGameUserSettings's door to it.
+        [[nodiscard]] FramePacer& GetFramePacer()
+        {
+            return m_FramePacer;
         }
 
         void Run();
@@ -215,6 +219,7 @@ namespace Desert::Engine
 
     protected:
         std::shared_ptr<Window> m_Window;
+        FramePacer              m_FramePacer;
     };
 
     Application* CreateApplicaton( int argc, char** argv );

@@ -4,8 +4,9 @@
 // foliage with a world-position offset authored in the material and widens the primitive's bounds by a
 // user-set BoundsScale so culling and shadows do not clip the moving tips. Here the offset is ONE function
 // shared by every instanced vertex stage (Common/FoliageWind.glslh, the GPU twin of FoliageWindOffset below),
-// its parameters come from the foliage type (FOLT 4 Wind), and the bounds are widened by exactly the largest
-// offset the function can produce - derived, not a knob. Time is the scene's accumulated GAMEPLAY time (the
+// its response comes from the foliage type (FOLT 8 Wind), its direction from the scene's one wind query
+// (ECS::WindAt), and the bounds are widened by exactly the largest offset the function can produce - derived,
+// not a knob. Time is the scene's accumulated GAMEPLAY time (the
 // fixed step under --play, zero while editing), so the same time is the same pose on every machine.
 
 #include <Common/Core/Math/AABB.hpp>
@@ -47,13 +48,17 @@ namespace Desert::Graphic
                                                                     static_cast<double>( speed ) ) );
     }
 
-    /// The wind of a type from its authored numbers (cm, Hz, cm, degrees) at @p gameplaySeconds.
+    /// The wind of a type from its response (cm, Hz, cm) and the scene's wind where it stands (@p windXZ: the
+    /// world XZ components of ECS::WindAt's velocity, cm/s) at @p gameplaySeconds. The direction is the scene's,
+    /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength.
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
-                                                        float directionDegrees, double gameplaySeconds )
+                                                        const glm::vec2& windXZ, double gameplaySeconds )
     {
         InstanceWind wind;
-        const float  radians = glm::radians( directionDegrees );
-        wind.Direction       = { std::cos( radians ), std::sin( radians ) };
+        const float  horizontal = glm::length( windXZ );
+        if ( !( horizontal > 1e-6f ) )
+            return wind;
+        wind.Direction       = windXZ / horizontal;
         wind.Strength        = strength;
         wind.Speed           = speed;
         wind.Height          = height;

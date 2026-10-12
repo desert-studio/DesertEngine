@@ -11,7 +11,7 @@ namespace Desert::Editor::Render
     EditorGridPass::~EditorGridPass()
     {
         if ( const auto scene = m_Scene.lock() )
-            scene->UnregisterExternalPass( "EditorGrid" );
+            scene->UnregisterExtensionPass( "EditorGrid" );
     }
 
     Common::BoolResultStr EditorGridPass::Install( const std::shared_ptr<::Desert::Core::Scene>& scene )
@@ -39,13 +39,11 @@ namespace Desert::Editor::Render
 
         m_Material = std::make_unique<Graphic::MaterialGrid>();
 
-        Graphic::ExternalPassSpecification pass;
+        Graphic::ExtensionPass pass;
         pass.Name                  = "EditorGrid";
-        pass.Phase                 = Graphic::RenderPhase::Transparency;
-        pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
-        pass.PipelineSpecification = m_Pipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext&          context ) -> Common::BoolResultStr
+        pass.Point                 = Graphic::RDG::ExtensionPoint::AfterTranslucency;
+        pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
+                               Graphic::RDG::PassContext&           context ) -> Common::BoolResultStr
         {
             // The flag is asked of the RENDERER this pass is drawing into, not of the scene and not of a
             // global: it is what THIS view is showing (Graphic/DebugViewState.hpp). A scene rendered into
@@ -69,13 +67,13 @@ namespace Desert::Editor::Render
         // frame the pass exists: the block names no graph resource, and the exec opens it only when it draws.
         // The material's VALUES stay per view (Update( camera ) in the exec): one pass object serves every view of
         // the scene.
-        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& )
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& )
         {
             declared.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                m_Material->GetMaterialExecutor()->GetRouteFill() );
         };
 
-        scene->RegisterExternalPass( std::move( pass ) );
+        scene->RegisterExtensionPass( std::move( pass ) );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Render

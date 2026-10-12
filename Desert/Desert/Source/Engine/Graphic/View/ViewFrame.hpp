@@ -64,12 +64,13 @@ namespace Desert::Graphic
     // and the build disagree).
     enum class TemporalMethod : uint8_t
     {
-        None, // FXAA / SMAA / MSAA / None at Native or Supersample: no jitter, no history, no temporal pass
+        None, // FXAA / SMAA / MSAA / None at Native or Supersample, and None / FXAA / SMAA under Upscaler
+              // Spatial below 100 %: no jitter, no history, no temporal pass
         TAA,  // AntiAliasingMethod::TAA at Native or Supersample: same-extent temporal resolve
         TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
     };
 
-    // TAA QUALITY. Read by the TAA/TAAU resolve shader as a specialization constant (no permutation machinery):
+    // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):
     // each level is a different history-rejection filter, never a different jitter length, so a quality change
     // does not reset the history.
     //   Low    — 5-tap plus neighbourhood min/max clamp, bilinear history fetch;
@@ -86,10 +87,11 @@ namespace Desert::Graphic
     };
 
     // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
-    // Upscale and the upscaler is TAAU; None for a non-temporal method at Native/Supersample. An Upscale split
-    // with Upscaler::None, or any vendor upscaler (FSR / DLSS / XeSS / MetalFX: no implementation in this build)
-    // is an error naming the value — SCAL1's Resolve never produces either, so it is a contract break, not a
-    // fallback.
+    // Upscale and the upscaler is TAAU; None for a non-temporal method at Native/Supersample, and for one under
+    // Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split with Upscaler::None,
+    // Spatial under a temporal method, or any vendor upscaler (FSR / DLSS / XeSS / MetalFX: no implementation in
+    // this build) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
+    // not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
                           Common::Scalability::Upscaler upscaler );
@@ -179,9 +181,11 @@ namespace Desert::Graphic
         TemporalMethod    Method  = TemporalMethod::None;
         TemporalAAQuality Quality = TemporalAAQuality::Medium;
 
-        // Texture LOD bias every material sampler adds while Split.Mode is Upscale: log2(Render.Width /
-        // Output.Width) (negative), so textures are sampled at the detail of the OUTPUT pixel the upscaler
-        // reconstructs (UE: the screen-percentage mip bias). 0 at Native and Supersample.
+        // Texture LOD bias every material sampler adds while a temporal method upscales (Split.Mode Upscale,
+        // Method not None): log2(Render.Width / Output.Width) (negative), so textures are sampled at the detail of
+        // the OUTPUT pixel the upscaler reconstructs (UE: the screen-percentage mip bias). 0 at Native,
+        // Supersample and under the spatial upscale (one sample per render pixel: nothing reconstructs the finer
+        // mip).
         float MaterialMipBias = 0.0f;
 
         // Time of this frame and of the view's previous frame, seconds. Readers: foliage/grass wind evaluated at

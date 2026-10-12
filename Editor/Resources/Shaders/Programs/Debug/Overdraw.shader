@@ -24,7 +24,7 @@ Shader "Overdraw"
 
         void main()
         {
-            gl_Position = cameraUB.Projection * cameraUB.View * m_PushConstants.Transform * vec4(a_Position, 1.0);
+            gl_Position = cameraUB.JitteredViewProjection * m_PushConstants.Transform * vec4(a_Position, 1.0);
         }
     }
 

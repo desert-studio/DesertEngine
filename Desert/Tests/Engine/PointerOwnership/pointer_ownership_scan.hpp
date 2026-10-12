@@ -28,6 +28,7 @@
 // went blind at the first quote inside a character literal and silently under-counted, so there is
 // exactly one implementation of "what is code" in this repository and this file uses it.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <algorithm>
@@ -104,15 +105,15 @@ namespace Desert::Tests::PointerCensus
     // a lifetime mistake there is a use-after-free of a device object or of a loaded asset, which is
     // the most expensive kind this engine has. Widening the list is how the next stage lands, and it
     // is one line plus the rows it brings.
-    inline std::vector<const char*> ScannedTrees()
+    inline std::vector<std::string> ScannedTrees()
     {
-        return { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" };
+        return Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source" } );
     }
 
     inline std::vector<fs::path> ScannedSources( const std::string& root )
     {
         std::vector<fs::path> out;
-        for ( const char* tree : ScannedTrees() )
+        for ( const std::string& tree : ScannedTrees() )
         {
             std::error_code ec;
             const fs::path  base = fs::path( root ) / tree;
@@ -156,8 +157,7 @@ namespace Desert::Tests::PointerCensus
         out.Unique.push_back( "Unique" );
         out.Shared.push_back( "Asset" );
 
-        for ( const char* tree :
-              { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+        for ( const std::string& tree : ScannedTrees() )
         {
             std::error_code ec;
             const fs::path  base = fs::path( root ) / tree;

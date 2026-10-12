@@ -35,7 +35,7 @@
 
 namespace Desert::Animation::Timeline
 {
-    /// A channel kind, or one of the two non-channel section contents. STORED AS AN INTEGER: append only;
+    /// A channel kind, or one of the non-channel section contents. STORED AS AN INTEGER: append only;
     /// the first six are `ChannelKind` value for value, so a channel track's kind converts without a table.
     enum class TrackKind : uint8_t
     {
@@ -47,6 +47,12 @@ namespace Desert::Animation::Timeline
         Event     = 5,
         Animation = 6,
         CameraCut = 7,
+        /// UE's Audio track (UMovieSceneAudioTrack): each section plays one sound asset in step with the
+        /// playhead. A master-binding track; its sections hold `AudioSectionContent`.
+        Audio = 8,
+        /// UE's Subsequence track (UMovieSceneSubTrack): each section plays another `.dseq` by GUID. A
+        /// master-binding track; its sections hold `SubsequenceSectionContent`.
+        Subsequence = 9,
     };
 
     [[nodiscard]] const char* ToString( TrackKind kind );

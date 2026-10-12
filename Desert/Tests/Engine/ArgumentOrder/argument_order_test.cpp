@@ -4,7 +4,9 @@
 // instance this suite was written for. In one line: that one opens one file and looks for one function
 // NAME; the side effect here is spelled `std::move`, in a file it never opens.
 //
-// The live defect, `SceneRenderer::RegisterExternalPass`:
+// The defect it was written for, in the former `SceneRenderer::RegisterExternalPass` (the function and its
+// keyed registry were deleted by ARCH1b-2: extension passes now live in one list on the Scene, so that site
+// is gone; the census stays because the shape it flags is the language's, not that function's):
 //
 //     TrackRenderSystem( ExternalSystemKey( spec.Name ),
 //                        std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
@@ -97,7 +99,8 @@ TEST( ArgumentOrder, EverySourceRootItClaimsToCoverExists )
     }
 
     // And the two files that carry the known instances of this defect's history must be inside the reach,
-    // by path: the emitter Г24 fixed, and the renderer this suite was written for.
+    // by path: the emitter Г24 fixed, and the renderer this suite was written for (its defect site is deleted,
+    // the file stays in reach because it is where the frame build hands systems their passes).
     for ( const char* covered : { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
                                   "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp" } )
     {

@@ -551,7 +551,10 @@ namespace Desert::Editor
                                                                              : TextureIntentSource::Authored;
         const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion };
         const uint64_t                     ddcKey = Assets::TextureDerivedDataKey( sourceHash, buildSettings );
-        const uint64_t                     cookSignature = CookSignature( kBlockEncoderVersion, authored.Intent );
+        // Bit 48 folds the colour space in: a texture re-marked sRGB/Linear is a different cook.
+        const uint64_t cookSignature =
+             CookSignature( kBlockEncoderVersion, authored.Intent ) |
+             ( asset.Import.Settings.ColorSpace == Fmt::TextureColorSpace::SRGB ? ( 1ull << 48 ) : 0ull );
 
         // A SOURCE FORMAT IS AN INPUT, NOT A STORAGE FORMAT — `Docs/Textures/T2_CONTAINER_DECISION.md`.
         // This is the ONE place in the project that decodes one, and everything downstream reads the
@@ -586,6 +589,13 @@ namespace Desert::Editor
         // THE ONE TAIL OF EVERY BUILD THAT SUCCEEDED, whether its levels were encoded here or taken from a DDS.
         auto store = [&]( const Assets::Serialization::TextureAssetData& built ) -> TextureCookResult
         {
+            if ( built.ColorSpace == Fmt::TextureColorSpace::SRGB && !Fmt::HasSRGBVariant( built.Format ) )
+            {
+                LOG_ERROR( "[TextureImporter] '{0}' is marked sRGB but was cooked to format {1}, which has no "
+                           "sRGB view (intent {2}). Mark it Linear or change its intent; nothing is cached.",
+                           abs, static_cast<uint32_t>( built.Format ), Fmt::TextureIntentName( authored.Intent ) );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
             // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
             // runtime finds it; a build that could not be Put would be a texture nobody can load.
             const std::string encoded = Assets::Serialization::EncodeTextureBinary( built );
@@ -776,8 +786,8 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
-        auto chain =
-             Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels );
+        auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
+                                                           asset.Import.Settings.ColorSpace );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -787,6 +797,7 @@ namespace Desert::Editor
         }
         data.Levels      = chain.ExtractValue();
         data.Intent      = authored.Intent;
+        data.ColorSpace  = asset.Import.Settings.ColorSpace;
         data.EncoderHash = cookSignature;
 
         // ── THE TWO SOURCES MEET HERE ────────────────────────────────────────────────────────────
@@ -1024,6 +1035,8 @@ namespace Desert::Editor
         {
             settings.Intent = slotIntent; // the material slot's word, or Unspecified when nobody said
         }
+        settings.ColorSpace =
+             Assets::DefaultTextureColorSpace( settings.Intent, std::as_bytes( std::span( bytes ) ) );
         const fs::path rel =
              fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";

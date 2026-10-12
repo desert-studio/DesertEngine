@@ -13,6 +13,7 @@
 // census, and `EveryFieldOfTheSpecificationIsAccountedFor` states the count out loud so adding one to the
 // struct without deciding about the key fails here.
 
+#include "TestSupport/source_roots.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -646,7 +647,7 @@ TEST( PipelineBlendState, EveryColourSlotWalkerSkipsAnUnusedSlot )
     const std::set<std::string> walkers = { "SceneRendererFrame.hpp", "Pipeline.hpp", "Framebuffer.hpp",
                                             "VulkanFramebuffer.hpp", "VulkanFramebuffer.cpp" };
     std::vector<std::string>    unnamed;
-    for ( const char* dir : { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" } )
+    for ( const std::string& dir : Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime/Source" } ) )
     {
         if ( !std::filesystem::exists( root / dir ) )
             continue;
@@ -762,17 +763,19 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::MaterialComplexity ), 9 );
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::ShadingModel ), 10 );
     EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::SunShadowReceive ), 11 );
+    EXPECT_EQ( static_cast<int>( Desert::Graphic::DeferredDebugMode::Velocity ), 12 );
 
     // C++: the only binding of the word by name, fed from G-buffer slot 2.
     std::vector<std::string> binders;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / "Desert/Desert/Source" ) )
-    {
-        const auto ext = entry.path().extension();
-        if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" ) )
-            continue;
-        if ( read( entry.path() ).find( "\"u_GBufferShadingWord\"" ) != std::string::npos )
-            binders.push_back( entry.path().filename().string() );
-    }
+    for ( const std::string& tree : Desert::TestSupport::EngineRoots() )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( root / tree ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" ) )
+                continue;
+            if ( read( entry.path() ).find( "\"u_GBufferShadingWord\"" ) != std::string::npos )
+                binders.push_back( entry.path().filename().string() );
+        }
     EXPECT_EQ( binders, std::vector<std::string>{ "DeferredLightingRenderer.hpp" } );
     const std::string renderer = strip( read(
          root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );

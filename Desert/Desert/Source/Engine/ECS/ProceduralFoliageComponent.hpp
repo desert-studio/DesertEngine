@@ -9,7 +9,7 @@
 // ITS fields and nothing the brush painted.
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <Common/Core/UUID.hpp>
 

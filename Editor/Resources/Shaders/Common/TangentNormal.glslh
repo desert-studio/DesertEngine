@@ -37,15 +37,22 @@
 // the other a rigged mesh — and both are still held only by the census in
 // `Desert/Tests/Engine/ShippedShaderPasses`, which also fails if no scene draws a bound normal map.
 
-// The tangent-space normal a normal map holds at @p uv, ready for the TBN multiply.
+// The tangent-space normal a normal-map texel's R and G encode, ready for the TBN multiply.
 //
 // `max(0, ...)` GUARDS THE ROOT rather than trusting the data: a texel whose X and Y leave the unit disc
 // — a compression artifact at a steep edge, or an authored map that was never unit length — would
 // otherwise take the square root of a negative number, which is undefined and on some drivers is a NaN
 // that propagates through the whole lighting term.
-vec3 SampleTangentNormal(sampler2D normalMap, vec2 uv)
+vec3 DecodeTangentNormal(vec2 texelRG)
 {
-	vec2 xy = 2.0 * texture(normalMap, uv).rg - 1.0;
+	vec2 xy = 2.0 * texelRG - 1.0;
 	float z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
 	return normalize(vec3(xy, z));
+}
+
+// The decode of a texel fetched at @p uv with the implicit level. A MATERIAL's normal map is fetched through
+// Mesh/Surface/SurfaceTypes.glslh SurfaceSampleTangentNormal instead, which carries the view's mip bias.
+vec3 SampleTangentNormal(sampler2D normalMap, vec2 uv)
+{
+	return DecodeTangentNormal(texture(normalMap, uv).rg);
 }

@@ -139,6 +139,26 @@ namespace Desert::Animation
     /// defect `kSpaceKinds` in the `.derig` layer already has a comment about.
     [[nodiscard]] std::optional<RigControlSpace> RigControlSpaceFromText( std::string_view text );
 
+    /**
+     * @brief Which program of a rig a graph is — UE Control Rig's three solve events.
+     *
+     *   Construction - run ONCE before the first forwards solve (and again after it is replaced): sets the
+     *                  controls up from the pose the rig first sees (UE `PrepareForExecution`).
+     *   Forwards     - every frame: controls -> bones (UE `Forwards Solve`).
+     *   Backwards    - on request (`ControlRigStage::SolveBackwards`): bones -> controls, what a bake of an
+     *                  animation onto the rig's controls runs (UE `Backwards Solve`).
+     */
+    enum class RigEvent : uint8_t
+    {
+        Construction = 0,
+        Forwards,
+        Backwards,
+    };
+    inline constexpr size_t kRigEventCount = 3;
+
+    [[nodiscard]] std::string_view        ToString( RigEvent event );
+    [[nodiscard]] std::optional<RigEvent> RigEventFromText( std::string_view text );
+
     /// What a node's `Target` names, if anything. Data, so the format can refuse `"GetBone"` naming a
     /// control without a second table of its own.
     enum class RigNodeTargetKind : uint8_t

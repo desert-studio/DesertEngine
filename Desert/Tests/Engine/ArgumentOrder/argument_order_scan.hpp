@@ -18,8 +18,8 @@
 //
 //   * its REACH is one file. `SceneRenderer.cpp` was never opened by it, and neither is anything else;
 //   * its SUBJECT is a name. Even pointed at the whole tree it would have found nothing, because
-//     `RegisterExternalPass` calls no function called `EmitInput` — the consuming side effect there is
-//     spelled `std::move`, and the reading side effect is a plain member access.
+//     `RegisterExternalPass` (since deleted) called no function called `EmitInput` — the consuming side effect
+//     there is spelled `std::move`, and the reading side effect is a plain member access.
 //
 // So the two censuses are complementary and both are kept. Г24's covers a side effect that has a NAME in
 // one emitter; this one covers the side effect the language itself spells, everywhere.
@@ -27,7 +27,8 @@
 // WHAT IS FLAGGED, EXACTLY. Inside one call's argument list, one top-level argument contains
 // `std::move( X … )` / `std::forward( X … )` and a DIFFERENT top-level argument of the SAME list mentions
 // `X`. The scan walks outward through every enclosing call, which is what catches the nesting that the
-// live defect had — the move sat two calls deep:
+// live defect had (the former SceneRenderer::RegisterExternalPass, deleted by ARCH1b-2) — the move sat
+// two calls deep:
 //
 //     TrackRenderSystem( ExternalSystemKey( spec.Name ),
 //                        std::make_shared<ExternalPassSystem>( this, std::move( spec ) ) );
@@ -46,6 +47,7 @@
 // `static_cast<T&&>`. The first two are what Г24's name-based census exists for; the third has no
 // instance in this tree and would be caught by review, because nobody writes it by accident.
 
+#include "TestSupport/source_roots.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <algorithm>
@@ -393,8 +395,8 @@ namespace Desert::Tests::ArgumentOrder
     /// stopped being scanned is the exact way Г24's census went blind.
     inline std::vector<std::string> SourceRoots()
     {
-        return { "Desert/Desert/Source", "Desert/Common/Source", "Desert/Tests",
-                 "Editor/Source",        "Runtime/Source",       "Tools" };
+        return Desert::TestSupport::LibraryRootsAnd(
+             { "Desert/Tests", "Editor/Source", "Runtime/Source", "Tools" } );
     }
 
     inline std::vector<Finding> ScanRepository( const std::string& root, ScanCounts& counts )

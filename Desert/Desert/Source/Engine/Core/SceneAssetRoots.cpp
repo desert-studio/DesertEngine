@@ -35,6 +35,8 @@ namespace Desert::Core
         // Play instantiates it when the button is pressed (Core::SpawnDefaultPawn), long after the scene-load
         // sweep: unrooted, the sweep released it and Play found a prefab with no entities.
         roots.Mark( scene.GetSettings().DefaultPawn, "the scene's Default Pawn" );
+        // The same for the controller Play spawns once before the pawn (Core::SpawnPlayerController).
+        roots.Mark( scene.GetSettings().PlayerController, "the scene's Player Controller" );
 
         // ── GEOMETRY ──────────────────────────────────────────────────────────────────────────────────
         //
@@ -117,6 +119,11 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
                         "a foliage field is painted with it" );
+        // The local player adds its mapping contexts when Play begins (UE: AddMappingContext at BeginPlay).
+        for ( const auto entity : registry.view<ECS::EnhancedInputPlayerComponent>() )
+            for ( const Assets::AssetHandle context :
+                  registry.get<ECS::EnhancedInputPlayerComponent>( entity ).Data.Contexts )
+                roots.Mark( context, "the local player maps its keys with it" );
         // A level sequence actor plays its `.dseq` (UE: ALevelSequenceActor::LevelSequenceAsset).
         for ( const auto entity : registry.view<ECS::LevelSequenceComponent>() )
             roots.Mark( registry.get<ECS::LevelSequenceComponent>( entity ).Sequence,
@@ -181,6 +188,9 @@ namespace Desert::Core
             roots.Mark( button.HoverSprite, "a UI button draws it on hover" );
             roots.Mark( button.PressedSprite, "a UI button draws it while pressed" );
         }
+
+        for ( const auto entity : registry.view<ECS::AudioSourceComponent>() )
+            roots.Mark( registry.get<ECS::AudioSourceComponent>( entity ).Data.Sound, "an audio source plays it" );
     }
 
     Assets::AssetRootSet CollectAssetRootsFromLiveScenes()

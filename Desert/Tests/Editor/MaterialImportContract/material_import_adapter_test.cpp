@@ -213,7 +213,9 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     expectParam( "AlbedoColor", { 0.5f, 0.25f, 0.125f, 1.0f }, 4 );
     expectParam( "MetallicFactor", { 0.75f, 0, 0, 0 }, 1 );
     expectParam( "RoughnessFactor", { 0.4f, 0, 0, 0 }, 1 );
-    expectParam( "OcclusionStrength", { 0.6f, 0, 0, 0 }, 1 );
+    // glTF occlusionStrength lands in the ONE AO parameter, UE's Ambient Occlusion input; no second home.
+    expectParam( "AOStrength", { 0.6f, 0, 0, 0 }, 1 );
+    EXPECT_EQ( Param( fill, "OcclusionStrength" ), nullptr );
     expectParam( "NormalScale", { 1.5f, 0, 0, 0 }, 1 );
     expectParam( "EmissiveColor", { 1.0f, 0.5f, 0.0f, 1.0f }, 4 );
     expectParam( "EmissiveIntensity", { 4.0f, 0, 0, 0 }, 1 );
@@ -234,9 +236,23 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     expectSlot( "u_NormalTexture", "nrm.png" );
     expectSlot( "u_EmissiveTexture", "emi.png" );
 
+    // TEX-SRGB: each slot carries the colour space its source key states -- colour keys sRGB, data Linear --
+    // and that is what the importer writes into a newly created `.detex`.
+    using CS               = Desert::Core::Formats::TextureColorSpace;
+    const auto expectSpace = [&]( const char* name, CS space )
+    {
+        const ImportedTextureSlot* s = Slot( fill, name );
+        ASSERT_NE( s, nullptr ) << name << " was not bound";
+        EXPECT_EQ( s->ColorSpace, space ) << name;
+    };
+    expectSpace( "u_AlbedoTexture", CS::SRGB );
+    expectSpace( "u_EmissiveTexture", CS::SRGB );
+    expectSpace( "u_NormalTexture", CS::Linear );
+
     // ORM: metallic-roughness (.gb) and occlusion (.r) are different images -> one packed image.
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
+    EXPECT_EQ( orm->ColorSpace, CS::Linear ) << "metallic/roughness/occlusion are data, never sRGB";
     ASSERT_EQ( orm->Parts.size(), 2u );
     EXPECT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );
@@ -250,6 +266,36 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     // parameter and not an unread key.
     EXPECT_TRUE( fill.TwoSided );
     EXPECT_EQ( std::ranges::find( fill.UnreadKeys, "gltf.doubleSided" ), fill.UnreadKeys.end() );
+}
+
+// MAT-AO-ONEHOME: the surface templates have ONE ambient-occlusion parameter, AOStrength (UE's Ambient Occlusion
+// input), and it is applied ONCE — as the strength of the ORM map's R inside SurfaceResolveORM. The AO the surface
+// writes is that result untouched, so a strength of 0.5 on a fully occluded texel gives 0.5, not 0.5 * 0.5 = 0.25.
+TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurfaceTemplate )
+{
+    const std::string resolve = RepoFile( "Editor/Resources/Shaders/Common/SurfaceInputs.glslh" );
+    ASSERT_FALSE( resolve.empty() );
+    EXPECT_NE( resolve.find( "float occlusion = 1.0 + occlusionStrength * (ormTexel.x - 1.0);" ),
+               std::string::npos )
+         << "SurfaceResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
+
+    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader" } )
+    {
+        const std::string text = RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) );
+        ASSERT_FALSE( text.empty() ) << file;
+        EXPECT_EQ( text.find( "OcclusionStrength" ), std::string::npos ) << file << " keeps a second AO parameter";
+        EXPECT_NE( text.find( "Float       AOStrength (\"Ambient Occlusion\"" ), std::string::npos ) << file;
+
+        size_t uses = 0;
+        for ( size_t at = text.find( "u_Material.AOStrength" ); at != std::string::npos;
+              at        = text.find( "u_Material.AOStrength", at + 1 ) )
+            ++uses;
+        EXPECT_EQ( uses, 1u ) << file << ": AOStrength must be read once, as SurfaceResolveORM's strength";
+        EXPECT_NE( text.find( "SurfaceResolveORM( " ), std::string::npos ) << file;
+        EXPECT_NE( text.find( "( u_ORMTexture, uv ).rgb, u_Material.AOStrength," ), std::string::npos ) << file;
+        EXPECT_NE( text.find( "s.AmbientOcclusion  = orm.x;" ), std::string::npos )
+             << file << ": the resolved occlusion must reach the surface unscaled";
+    }
 }
 
 TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclusion )
@@ -497,7 +543,8 @@ namespace
         return ReadSourceMaterial( mat, SourceFormatOf( file ), "M",
                                    [&]( const std::string& ref )
                                    {
-                                       const auto resolved = ResolveSourceTexture( *scene, file, ref );
+                                       const auto resolved =
+                                            ResolveSourceTexture( *scene, file, ref, ImportPass::Import );
                                        EXPECT_TRUE( resolved.IsSuccess() )
                                             << ( resolved.IsSuccess() ? "" : resolved.GetError() );
                                        if ( !resolved.IsSuccess() )
@@ -574,7 +621,7 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     std::error_code ec;
     fs::remove_all( dir, ec );
     fs::create_directories( dir );
-    const auto resolved = ResolveSourceTexture( scene, dir / "chair.fbx", "*0" );
+    const auto resolved = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Import );
     scene.mTextures     = nullptr; // the scene does not own them
     scene.mNumTextures  = 0;
     texture.pcData      = nullptr;
@@ -596,6 +643,43 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     const std::vector<uint8_t> got( rgba, rgba + 8 );
     stbi_image_free( rgba );
     EXPECT_EQ( got, ( std::vector<uint8_t>{ 30, 20, 10, 255, 60, 50, 40, 128 } ) );
+}
+
+// SELF-COOK: opening the editor wrote base_basic_pbr_<n>.detex into a clean checkout, because the boot cook ran
+// the import's extraction. A cook reads the texture asset the import left and writes nothing into Content.
+TEST( MaterialImportAdapter, ACookWritesNoEmbeddedTextureAsset )
+{
+    aiTexel   texels[1] = { { 10, 20, 30, 255 } };
+    aiTexture texture;
+    texture.mWidth    = 1;
+    texture.mHeight   = 1;
+    texture.pcData    = texels;
+    aiTexture* list[] = { &texture };
+    aiScene    scene;
+    scene.mNumTextures = 1;
+    scene.mTextures    = list;
+
+    const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / "embedded-cook";
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+    fs::create_directories( dir );
+    const auto never       = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Cook );
+    const bool wroteOnCook = fs::exists( dir / "chair_0.detex" );
+    const auto imported    = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Import );
+    const auto stamp       = fs::last_write_time( dir / "chair_0.detex", ec );
+    const auto cooked      = ResolveSourceTexture( scene, dir / "chair.fbx", "*0", ImportPass::Cook );
+    scene.mTextures        = nullptr; // the scene does not own them
+    scene.mNumTextures     = 0;
+    texture.pcData         = nullptr;
+
+    EXPECT_FALSE( never.IsSuccess() ) << "a cook of a never-imported source answered as if its texture existed";
+    EXPECT_FALSE( wroteOnCook ) << "a cook wrote the embedded texture's asset into the source's folder";
+    ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
+    ASSERT_TRUE( cooked.IsSuccess() ) << cooked.GetError();
+    EXPECT_EQ( cooked.GetValue().Path, dir / "chair_0.detex" );
+    ASSERT_TRUE( cooked.GetValue().Extracted.has_value() );
+    EXPECT_EQ( *cooked.GetValue().Extracted, PackOutcome::Unchanged );
+    EXPECT_EQ( fs::last_write_time( dir / "chair_0.detex", ec ), stamp ) << "a cook rewrote the imported asset";
 }
 
 TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )

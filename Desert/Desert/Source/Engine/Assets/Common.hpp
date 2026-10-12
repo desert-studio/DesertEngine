@@ -91,7 +91,8 @@ namespace Desert::Assets
         FoliageType,
         // A LANDSCAPE LAYER INFO (`.delayerinfo`): UE's ULandscapeLayerInfoObject — the name a landscape's
         // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
-        // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
+        // "Grass" is ONE file every landscape painting it shares — see
+        // Engine/Assets/LandscapeLayerInfoAsset.hpp.
         LandscapeLayerInfo,
         // A LEVEL SEQUENCE (`.dseq`): UE's ULevelSequence — a Timeline::Sequence (host LevelSequence) whose
         // Entity bindings name entities of the scene that places it through a LevelSequenceComponent. See
@@ -107,6 +108,24 @@ namespace Desert::Assets
         // A WATER WAVE SET (`.dwaves`): UE's UWaterWavesAsset — a seeded Gerstner generator whose waves every
         // water body naming it shares. See Engine/Assets/WaterWavesAsset.hpp.
         WaterWaves,
+        // AN INPUT ACTION (`.deinputaction`): UE's UInputAction — what the player can do (Jump, Move), its value
+        // type and whether it consumes the keys mapped to it. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputAction,
+        // AN INPUT MAPPING CONTEXT (`.deinputcontext`): UE's UInputMappingContext — keys mapped to actions with
+        // their modifier and trigger stacks. See Engine/Assets/EnhancedInputAssets.hpp.
+        InputMappingContext,
+        // A PHYSICS ASSET (`.dephysasset`): UE's UPhysicsAsset — one sphere / box / capsule body per bone and the
+        // swing-twist joints between them, naming its skeleton by GUID (Engine/Physics/PhysicsAssetFormat.hpp).
+        // See Engine/Assets/PhysicsAsset.hpp.
+        PhysicsAsset,
+        // A SOUND (`.desound`): UE's USoundWave — a text asset naming its imported source file (.wav/.ogg/
+        // .mp3/.flac beside it) under a GUID. Every reference to a sound (a sequence's Audio section, an
+        // AudioSourceComponent) names this GUID; the source path lives only here — see
+        // Engine/Assets/SoundAsset.hpp.
+        Sound,
+        // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
+        // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
+        VFXDataChannel,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -203,6 +222,22 @@ namespace Desert::Assets
             // A WAVE SET IS SCENE-SCOPED for the retarget's reason: the water body that names it holds its
             // `AssetHandle`, and a wave set no live entity names displaces nothing.
             case AssetTypeID::WaterWaves:
+            // A MAPPING CONTEXT IS SCENE-SCOPED for the retarget's reason: the player's
+            // EnhancedInputPlayerComponent names it by `AssetHandle` (UE: the contexts a pawn adds at BeginPlay).
+            case AssetTypeID::InputMappingContext:
+            // AN INPUT ACTION IS SCENE-SCOPED with the context that maps it: the subsystem copies the action's
+            // data when the context is added, so an action no live context names has nothing left to drive.
+            case AssetTypeID::InputAction:
+            // A PHYSICS ASSET IS SCENE-SCOPED for the retarget's reason: the ragdolled entity names it through an
+            // `AssetHandle` (UE's USkeletalMeshComponent::PhysicsAssetOverride), so it lives as long as that
+            // entity.
+            case AssetTypeID::PhysicsAsset:
+            // A SOUND IS SCENE-SCOPED for the retarget's reason: `AudioSourceData::Sound` is an `AssetHandle`
+            // held by a live entity.
+            case AssetTypeID::Sound:
+            // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
+            // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
+            case AssetTypeID::VFXDataChannel:
             case AssetTypeID::Count:
                 return false;
         }
@@ -275,6 +310,16 @@ namespace Desert::Assets
                 return "Fracture";
             case AssetTypeID::WaterWaves:
                 return "WaterWaves";
+            case AssetTypeID::InputAction:
+                return "InputAction";
+            case AssetTypeID::InputMappingContext:
+                return "InputMappingContext";
+            case AssetTypeID::PhysicsAsset:
+                return "PhysicsAsset";
+            case AssetTypeID::Sound:
+                return "Sound";
+            case AssetTypeID::VFXDataChannel:
+                return "VFXDataChannel";
             case AssetTypeID::Count:
                 return "Count";
         }

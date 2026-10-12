@@ -83,6 +83,9 @@ namespace Desert::Animation
                 Timeline::Section section;
                 section.Start   = clip.Sequence.Start;
                 section.End     = clip.Sequence.End;
+                // The label every clip's one covering section carries (the clip migration's EnsureStatedSections,
+                // ClipGeneration3.hpp), so the committed Humanoid_*.anim regenerate byte-identical.
+                section.Name    = "Whole clip";
                 section.Content = Timeline::Channel{ std::move( channel ) };
                 Timeline::Track track;
                 track.Binding = binding.Guid;

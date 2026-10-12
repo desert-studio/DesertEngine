@@ -4,7 +4,7 @@
 
 #include <Common/Core/Units.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
 {
@@ -152,6 +152,17 @@ namespace Desert::Core
         // player (Core::BeginPlay). Unset = a level without a player — a cinematic, a benchmark.
         PROPERTY( DisplayName( "Default Pawn" ), Category( "Game Mode" ), Asset<PrefabAsset> )
         Assets::AssetHandle DefaultPawn;
+
+        // UE's GameMode PlayerControllerClass: a prefab Play spawns ONCE (Core::SpawnPlayerController) and that
+        // outlives every pawn — what must survive a death (pause/menu input contexts, a controller script that
+        // drives gameMode.pawn()) goes on it. Unset = the pawn carries the player's input and scripts itself.
+        PROPERTY( DisplayName( "Player Controller" ), Category( "Game Mode" ), Asset<PrefabAsset> )
+        Assets::AssetHandle PlayerController;
+
+        // Seconds between the player's pawn dying (Core::GameMode::Kill, Lua gameMode.kill) and RestartPlayer
+        // spawning a new one at the PlayerStart. Game time: a paused Play does not count down.
+        PROPERTY( DisplayName( "Respawn Delay" ), Category( "Game Mode" ), Range( 0.0f, 60.0f ) )
+        float RespawnDelay = 3.0f;
 
         PROPERTY( DisplayName( "Splash Sprite" ), Category( "Splash" ), Asset<TextureAsset> )
         Assets::AssetHandle SplashSprite;

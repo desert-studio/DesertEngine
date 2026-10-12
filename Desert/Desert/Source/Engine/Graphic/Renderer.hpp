@@ -72,6 +72,11 @@ namespace Desert::Graphic
                                                                     const ComputePipeline&   pipeline,
                                                                     uint32_t groupCountX, uint32_t groupCountY,
                                                                     uint32_t groupCountZ );
+        // DispatchCompute with its group counts in a graph buffer the pass declared Access::IndirectArgs
+        // (RendererAPI::DispatchComputeIndirect): the particle Spawn+Update and Compact, sized by the GPU counts.
+        [[nodiscard]] static Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
+                                                                            const ComputePipeline&   pipeline,
+                                                                            RDG::BufferRef args, uint64_t offset );
         // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
         // (Common/FullscreenTriangle.glslh), drawn inside the render pass the graph opened for this pass (its
         // ColorTarget / DepthTarget declarations). @p material supplies uniform values and asset textures only;
@@ -86,6 +91,12 @@ namespace Desert::Graphic
                                                                    const GraphicsPipeline&  pipeline,
                                                                    const MaterialExecutor*  material,
                                                                    uint32_t vertexCount, uint32_t instanceCount );
+        // DrawProcedural with its counts in a graph buffer (RendererAPI::DrawProceduralIndirect): the particle
+        // billboards, whose vertex count is six per particle the compact found alive.
+        [[nodiscard]] static Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
+                                                                           const GraphicsPipeline&  pipeline,
+                                                                           const MaterialExecutor*  material,
+                                                                           RDG::BufferRef args, uint64_t offset );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.

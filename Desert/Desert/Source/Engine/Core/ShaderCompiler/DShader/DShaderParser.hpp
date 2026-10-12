@@ -82,6 +82,18 @@ namespace Desert::Core::Preprocess
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
     inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
+    // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
+    // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into
+    // SurfaceInput.Particle) and the sprite pass header (depth-tested, unlit, Depth Fade over the scene depth). No
+    // other pass: a sprite is drawn by the particle pass alone. Both stages of the cell get
+    // kSurfaceParticleSpriteDefine.
+    inline constexpr std::string_view kSurfaceParticleSpritePath        = "ParticleSprite";
+    inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
+    inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
+    inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
+    inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
     // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
     inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
@@ -110,6 +122,10 @@ namespace Desert::Core::Preprocess
     // the headers hand it to the generated dispatch (ShadingModels/ShadingModelRegistry.hpp). A template that does
     // not assign one of its model's Inputs in the surface function is refused, naming the field.
     inline constexpr std::string_view kSurfaceShadingModelDefine = "DESERT_SHADING_MODEL_INDEX";
+    // Defined in the fragment stage of a cell that evaluates the surface (not in an opaque depth cell, never in a
+    // vertex stage): Mesh/Surface/SurfaceTypes.glslh then declares the material fetch, which carries the view's
+    // mip bias (CameraUB MaterialMipBias).
+    inline constexpr std::string_view kSurfaceSamplesMaterialDefine = "DESERT_SURFACE_SAMPLES_MATERIAL";
 
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
@@ -132,6 +148,7 @@ namespace Desert::Core::Preprocess
     {
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
+        bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
     };

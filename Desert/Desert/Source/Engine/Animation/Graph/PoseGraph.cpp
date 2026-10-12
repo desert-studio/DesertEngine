@@ -1,6 +1,7 @@
 #include "AnimGraph.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <cstdint>
 #include <format>
@@ -59,6 +60,8 @@ namespace Desert::Animation::Graph
                 return "TwoBoneIK";
             case PoseNodeKind::LookAt:
                 return "LookAt";
+            case PoseNodeKind::BlendSpace1D:
+                return "BlendSpace1D";
         }
         return "?";
     }
@@ -90,6 +93,12 @@ namespace Desert::Animation::Graph
             case PoseNodeKind::LinkedInputPose:
                 // The caller's pose: a leaf of the layer graph.
                 return PoseNodePins{ .PoseInputs = 0, .ParameterPins = {} };
+            case PoseNodeKind::BlendSpace1D:
+            {
+                // A leaf like the sequence player: its samples play on their own clocks; X is the axis.
+                static constexpr std::array<const char*, 1> kPins{ kBlendSpaceAxisPin.data() };
+                return PoseNodePins{ .PoseInputs = 0, .ParameterPins = kPins };
+            }
             case PoseNodeKind::TwoBoneIK:
             case PoseNodeKind::LookAt:
             {
@@ -104,6 +113,103 @@ namespace Desert::Animation::Graph
     bool IsSourceKind( PoseNodeKind kind )
     {
         return kind == PoseNodeKind::StateMachine || kind == PoseNodeKind::SequencePlayer;
+    }
+
+    std::string BlendSpace1DError( const BlendSpace1DNode& node )
+    {
+        if ( node.Samples.empty() )
+            return "it has no sample, so it plays nothing";
+        for ( size_t i = 0; i < node.Samples.size(); ++i )
+        {
+            const BlendSample& sample = node.Samples[i];
+            if ( sample.Clip.empty() )
+                return std::format( "sample {} names no clip", i );
+            if ( !std::isfinite( sample.Value ) )
+                return std::format( "sample {} ('{}') has a value that is not a number", i, sample.Clip );
+            if ( i > 0 && !( sample.Value > node.Samples[i - 1].Value ) )
+                return std::format(
+                     "sample {} ('{}', {}) does not lie above sample {} ('{}', {}); the samples are "
+                     "a row on the axis, strictly ascending",
+                     i, sample.Clip, sample.Value, i - 1, node.Samples[i - 1].Clip, node.Samples[i - 1].Value );
+        }
+        if ( !std::isfinite( node.WeightSpeed ) || node.WeightSpeed < 0.0F )
+            return std::format( "its weight speed {} is not a speed (0 = no smoothing, else weight per second)",
+                                node.WeightSpeed );
+        return {};
+    }
+
+    void BlendSpace1DTargetWeights( const BlendSpace1DNode& node, const float x, const std::span<float> out )
+    {
+        std::fill( out.begin(), out.end(), 0.0F );
+        const size_t count = std::min( out.size(), node.Samples.size() );
+        if ( count == 0 )
+            return;
+        if ( !( x > node.Samples.front().Value ) ) // also a NaN axis: the row's start
+        {
+            out[0] = 1.0F;
+            return;
+        }
+        if ( x >= node.Samples[count - 1].Value )
+        {
+            out[count - 1] = 1.0F;
+            return;
+        }
+        for ( size_t i = 1; i < count; ++i )
+        {
+            const float upper = node.Samples[i].Value;
+            if ( x > upper )
+                continue;
+            const float lower = node.Samples[i - 1].Value;
+            const float alpha = ( x - lower ) / ( upper - lower );
+            out[i - 1]        = 1.0F - alpha;
+            out[i]            = alpha;
+            return;
+        }
+    }
+
+    void InterpolateBlendWeights( const std::span<float> weights, const std::span<const float> target,
+                                  const float speedPerSecond, const float seconds )
+    {
+        const size_t count = std::min( weights.size(), target.size() );
+        if ( speedPerSecond <= 0.0F )
+        {
+            std::copy_n( target.begin(), count, weights.begin() );
+            return;
+        }
+        const float step  = speedPerSecond * std::max( seconds, 0.0F );
+        float       total = 0.0F;
+        for ( size_t i = 0; i < count; ++i )
+        {
+            weights[i] += std::clamp( target[i] - weights[i], -step, step );
+            total += weights[i];
+        }
+        if ( total <= 0.0F )
+        {
+            std::copy_n( target.begin(), count, weights.begin() );
+            return;
+        }
+        for ( size_t i = 0; i < count; ++i )
+            weights[i] /= total;
+    }
+
+    float AdvanceSyncedPhase( const float phase, const std::span<const float> weights,
+                              const std::span<const float> lengthSeconds, const float seconds, const bool loop )
+    {
+        float weighted = 0.0F;
+        float total    = 0.0F;
+        for ( size_t i = 0; i < std::min( weights.size(), lengthSeconds.size() ); ++i )
+            if ( weights[i] > 0.0F && lengthSeconds[i] > 0.0F )
+            {
+                weighted += weights[i] * lengthSeconds[i];
+                total += weights[i];
+            }
+        if ( total <= 0.0F )
+            return phase;
+        const float next = phase + seconds / ( weighted / total );
+        if ( !loop )
+            return std::clamp( next, 0.0F, 1.0F );
+        const float wrapped = next - std::floor( next );
+        return wrapped < 1.0F ? wrapped : 0.0F;
     }
 
     std::string LayerWeightPin( size_t layer )
@@ -399,6 +505,22 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
                                     node.LookAt ? "carries a look-at setup, which only a LookAt node has"
                                                 : "is a LookAt node with no look-at setup in it" );
+            if ( ( kind == PoseNodeKind::BlendSpace1D ) != node.BlendSpace.has_value() )
+                return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
+                                    node.BlendSpace ? "carries a blend space, which only a BlendSpace1D node has"
+                                                    : "is a BlendSpace1D node with no samples setup in it" );
+            if ( node.BlendSpace )
+            {
+                if ( std::string error = BlendSpace1DError( *node.BlendSpace ); !error.empty() )
+                    return std::format( "AnimGraph '{}': BlendSpace1D node '{}': {}", graph.Name, node.Name,
+                                        error );
+                // A layer graph's sources are sampled by the link's own clocks (SampleLinked), which play one clip
+                // per node; a blend space there would stand in the bind pose, so it is refused by name instead.
+                if ( scope == GraphScope::Layer )
+                    return std::format( "AnimGraph '{}': BlendSpace1D node '{}' is in a layer graph; blend spaces "
+                                        "play in the host graph only",
+                                        graph.Name, node.Name );
+            }
             if ( std::string linked = LinkedKindError( graph, node, scope ); !linked.empty() )
                 return linked;
             if ( kind == PoseNodeKind::SequencePlayer && node.Sequence->Clip.empty() )

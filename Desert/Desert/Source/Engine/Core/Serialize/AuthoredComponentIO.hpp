@@ -88,33 +88,6 @@ namespace Desert::Core::Serialize
         }
     } // namespace AuthoredIO
 
-    // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────
-    // The state -> clip mapping LocomotionSystem reads. The clip NAMES are the whole point: a lost
-    // name is a character that silently stops walking, because SystemRules falls back to the default
-    // spellings ("Idle"/"Walk"/"Run") which the character's own library may not contain.
-    inline Common::Json::Object WriteComponent( const ECS::LocomotionComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "IdleClip", c.IdleClip )
-             .Set( "WalkClip", c.WalkClip )
-             .Set( "RunClip", c.RunClip )
-             .Set( "JumpClip", c.JumpClip )
-             .Set( "WalkSpeed", c.WalkSpeed )
-             .Set( "RunSpeed", c.RunSpeed )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::LocomotionComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "IdleClip", c.IdleClip, issues );
-        from.ReadInto( "WalkClip", c.WalkClip, issues );
-        from.ReadInto( "RunClip", c.RunClip, issues );
-        from.ReadInto( "JumpClip", c.JumpClip, issues );
-        from.ReadInto( "WalkSpeed", c.WalkSpeed, issues );
-        from.ReadInto( "RunSpeed", c.RunSpeed, issues );
-    }
-
     // ── MORPH TARGETS ──────────────────────────────────────────────────────────────────────────────
     // `AppliedWeights` is NOT written and must not be: it is the last set the runtime blended into the
     // geometry, kept so a per-frame apply can skip work. Writing it would put a frame of cache into
@@ -158,7 +131,7 @@ namespace Desert::Core::Serialize
     {
         return Common::Json::ObjectBuilder()
              .Set( "Target", c.Target )
-             .Set( "BoneName", c.BoneName )
+             .Set( "SocketName", c.SocketName )
              .Set( "OffsetTranslation", c.OffsetTranslation )
              .Set( "OffsetRotation", c.OffsetRotation )
              .Set( "OffsetScale", c.OffsetScale )
@@ -169,7 +142,7 @@ namespace Desert::Core::Serialize
                                Common::Json::Issues& issues )
     {
         from.ReadInto( "Target", c.Target, issues );
-        from.ReadInto( "BoneName", c.BoneName, issues );
+        from.ReadInto( "SocketName", c.SocketName, issues );
         from.ReadInto( "OffsetTranslation", c.OffsetTranslation, issues );
         from.ReadInto( "OffsetRotation", c.OffsetRotation, issues );
         from.ReadInto( "OffsetScale", c.OffsetScale, issues );

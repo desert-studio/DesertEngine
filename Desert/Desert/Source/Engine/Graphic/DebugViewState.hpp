@@ -4,6 +4,8 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
+
 namespace Desert::Graphic
 {
     // Directional-shadow debug visualization (CSM). Off = normal lit; ShadowFactor = raw grayscale shadow
@@ -35,6 +37,11 @@ namespace Desert::Graphic
         // and the NO_SUN_SHADOWS bit (green = receives the sun's cascades, red = the material opted out).
         ShadingModel     = 10,
         SunShadowReceive = 11,
+        // The view's velocity (screen-space motion since the previous frame, NDC current - previous, written by
+        // the G-buffer and scene-target passes for TAA): UE's "Velocity" buffer view - the 2D vector as a colour
+        // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
+        // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
+        Velocity = 12,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
@@ -116,6 +123,14 @@ namespace Desert::Graphic
         // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
         // Costs GPU time only, never the picture of a correct graph.
         bool DisablePassCulling = false;
+
+        // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
+        // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent
+        // (Scalability); present = THIS view renders at that percent instead. The viewport menu writes only
+        // values in the device catalog's RenderScale range; ResolveViewResolution refuses (by name) or clamps
+        // what its split cannot do, exactly as for the setting. A view setting, never the game
+        // config: it changes no Scalability value and no packaged game ever has one (nobody pushes it).
+        std::optional<int> ScreenPercentage;
 
         // Keys of editor.json's DebugView block that this build does not declare — a flag a newer build
         // added. Several builds share one editor.json, and Json::Read refuses an undeclared key, so without

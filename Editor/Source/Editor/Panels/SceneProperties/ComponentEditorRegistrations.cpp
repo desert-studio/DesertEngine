@@ -27,8 +27,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UIStyleResolver.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
+#include <UI/UIStyleResolver.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -94,16 +94,21 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
                                      "Destructible" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RagdollComponent, Data, "RagdollData", "Ragdoll" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StrainFieldComponent, Data, "StrainFieldData", "Strain Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::KillFieldComponent, Data, "KillFieldData", "Kill Field" )
+// The scene's wind (UE Wind Directional Source): read by foliage, clouds, cloth and hair through ECS::WindAt.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WindSourceComponent, Data, "WindSourceData", "Wind Source" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AnchorFieldComponent, Data, "AnchorFieldData", "Anchor Field" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
+// UE USpringArmComponent: the third-person camera boom (ECS/System/SpringArm.cpp places its camera child).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpringArmComponent, Data, "SpringArmData", "Spring Arm" )
 // UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // UE's World Partition Streaming Source: the world loads around this entity in Play
@@ -137,6 +142,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIPanelComponent, Data, "UIP
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITextComponent2D, Data, "UITextData", "UI Text" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIButtonComponent, Data, "UIButtonData", "UI Button" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIIconComponent, Data, "UIIconData", "UI Icon" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::EnhancedInputPlayerComponent, Data, "EnhancedInputPlayerData",
+                                     "Enhanced Input Player" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIRenderTextureComponent, Data, "UIRenderTextureData",
                                      "UI Render Texture" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIBindingComponent, Data, "UIBindingData", "UI Binding" )
@@ -190,6 +197,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeroCloudComponent, Data, "H
 // Sky Atmosphere is a CUSTOM entry: the reflected fields PLUS the sky-colour ramp (which needs the scene's
 // sun elevation, and that is not a field) and the IBL bake button. See
 // ComponentWidgets/SkyAtmosphereComponent.cpp.
+// Time Of Day is the plain reflected one-liner (TOD-SPLIT): the clock that used to sit in the sky panel's
+// "Time Of Day" category is its own component, as UE's SunSky is its own actor.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::TimeOfDayComponent, Data, "TimeOfDayData", "Time Of Day" )
 
 namespace Desert::Editor
 {
@@ -1548,9 +1558,9 @@ namespace Desert::Editor
     // the systems, but could only be authored by editing the scene file. One entry each.
     // ============================================================================================
 
-    // UE's "Sockets ▸ Parent Socket": follow a BONE of another skinned entity (weapon in hand, hat on
-    // head). The bone list comes from the TARGET's skeleton, so the name can only ever be one that
-    // exists — typing it by hand was the alternative.
+    // UE's "Sockets ▸ Parent Socket": follow a SOCKET (or a bone) of another skinned entity (weapon in hand,
+    // hat on head). The list comes from the TARGET's skeleton - its sockets first, then its bones, UE's picker
+    // order - so the name can only ever be one that exists; typing it by hand was the alternative.
     static ComponentEditorEntry MakeSocketEntry()
     {
         using C = ::Desert::ECS::SocketAttachmentComponent;
@@ -1594,7 +1604,7 @@ namespace Desert::Editor
                 if ( ImGui::Selectable( "None (detached)" ) )
                 {
                     c.Target = {};
-                    c.BoneName.clear();
+                    c.SocketName.clear();
                 }
                 if ( scene )
                 {
@@ -1610,7 +1620,7 @@ namespace Desert::Editor
                         if ( ImGui::Selectable( name.c_str(), uuid == c.Target ) )
                         {
                             c.Target = uuid;
-                            c.BoneName.clear(); // a bone of the OLD rig means nothing on the new one
+                            c.SocketName.clear(); // a socket of the OLD rig means nothing on the new one
                         }
                     }
                 }
@@ -1618,7 +1628,7 @@ namespace Desert::Editor
             }
             U::ImGuiUtilities::EndPropertyRow();
 
-            // --- Bone: the target's own bone names --------------------------------------------------
+            // --- Socket: the target's own sockets, then its bones -------------------------------------
             const ::Desert::Animation::Skeleton* skeleton = nullptr;
             if ( targetEntity )
             {
@@ -1631,9 +1641,9 @@ namespace Desert::Editor
                     skeleton = &static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
             }
 
-            U::ImGuiUtilities::BeginPropertyRow( "Bone", "Bone on the target's skeleton to follow" );
-            const std::string bonePreview = c.BoneName.empty() ? "None" : c.BoneName;
-            if ( U::ImGuiUtilities::AssetSlot( "socketbone", bonePreview.c_str(), c.BoneName.empty() ) )
+            U::ImGuiUtilities::BeginPropertyRow( "Socket", "Socket (or bone) on the target's skeleton to follow" );
+            const std::string bonePreview = c.SocketName.empty() ? "None" : c.SocketName;
+            if ( U::ImGuiUtilities::AssetSlot( "socketbone", bonePreview.c_str(), c.SocketName.empty() ) )
                 ImGui::OpenPopup( "socket_bone" );
             if ( ImGui::BeginPopup( "socket_bone" ) )
             {
@@ -1646,12 +1656,25 @@ namespace Desert::Editor
                     static ImGuiTextFilter boneFilter;
                     boneFilter.Draw( "##bonesearch", 180.0f );
                     ImGui::Separator();
+                    if ( !skeleton->GetSockets().empty() )
+                    {
+                        ImGui::TextDisabled( "Sockets" );
+                        for ( const auto& named : skeleton->GetSockets() )
+                        {
+                            if ( !boneFilter.PassFilter( named.Name.c_str() ) )
+                                continue;
+                            if ( ImGui::Selectable( named.Name.c_str(), named.Name == c.SocketName ) )
+                                c.SocketName = named.Name;
+                        }
+                        ImGui::Separator();
+                        ImGui::TextDisabled( "Bones" );
+                    }
                     for ( const auto& bone : skeleton->GetBones() )
                     {
                         if ( !boneFilter.PassFilter( bone.Name.c_str() ) )
                             continue;
-                        if ( ImGui::Selectable( bone.Name.c_str(), bone.Name == c.BoneName ) )
-                            c.BoneName = bone.Name;
+                        if ( ImGui::Selectable( bone.Name.c_str(), bone.Name == c.SocketName ) )
+                            c.SocketName = bone.Name;
                     }
                 }
                 ImGui::EndPopup();
@@ -1659,13 +1682,14 @@ namespace Desert::Editor
             U::ImGuiUtilities::EndPropertyRow();
 
             // --- Grip offset (the weapon almost never sits on the bone origin) -----------------------
-            U::ImGuiUtilities::BeginPropertyRow( "Offset Location", "Relative to the bone, in centimetres" );
+            U::ImGuiUtilities::BeginPropertyRow( "Offset Location",
+                                                 "On top of the socket (or bone), in centimetres" );
             U::ImGuiUtilities::VectorField( "sockloc", &c.OffsetTranslation.x, 3, 0.5f, "%.1f" );
             U::ImGuiUtilities::EndPropertyRow();
 
             // Stored in radians like every other rotation in the engine; shown in degrees like every other
             // rotation in the editor.
-            U::ImGuiUtilities::BeginPropertyRow( "Offset Rotation", "Relative to the bone, in degrees" );
+            U::ImGuiUtilities::BeginPropertyRow( "Offset Rotation", "On top of the socket (or bone), in degrees" );
             glm::vec3 socketDegrees = glm::degrees( c.OffsetRotation );
             if ( U::ImGuiUtilities::VectorField( "sockrot", &socketDegrees.x, 3, 0.5f, "%.1f\xc2\xb0" ) )
                 c.OffsetRotation = glm::radians( socketDegrees );
@@ -1677,76 +1701,6 @@ namespace Desert::Editor
 
             if ( targetEntity && !skeleton )
                 ImGui::TextDisabled( ICON_MDI_ALERT "  The target has no built skeleton yet" );
-        };
-        return e;
-    }
-
-    // Locomotion: the state -> clip mapping LocomotionSystem reads. The clip names are picked from the
-    // animation library rather than typed, because a typo here is a character that simply never walks.
-    static ComponentEditorEntry MakeLocomotionEntry()
-    {
-        using C = ::Desert::ECS::LocomotionComponent;
-        ComponentEditorEntry e;
-        e.Name      = "Locomotion";
-        e.CanRemove = true;
-        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
-        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
-        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
-        {
-            namespace U = ::Desert::Editor::Utils;
-            auto& c     = en.GetComponent<C>();
-
-            U::ImGuiUtilities::ResetPropertyRows();
-
-            // The clips that fit THIS character's skeleton, if it has one; otherwise the field is still
-            // editable as free text through the same popup (the library may load later).
-            std::vector<std::string> clipNames;
-            if ( ctx.AnimationLibrary && en.HasComponent<::Desert::ECS::SkinnedMeshComponent>() )
-            {
-                const auto&     smc = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>();
-                ::Desert::Mesh* mesh =
-                     smc.RuntimeMesh
-                          ? static_cast<::Desert::Mesh*>( smc.RuntimeMesh.get() )
-                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
-                if ( mesh && mesh->IsSkinned() )
-                {
-                    for ( const auto& asset : ctx.AnimationLibrary->GetForMesh(
-                               ctx.AnimationLibrary->IdentifyMeshHandle( smc.MeshHandle ) ) )
-                        if ( asset )
-                            clipNames.push_back( asset->GetClip().AnimationName );
-                }
-            }
-
-            const auto clipRow = [&clipNames]( const char* label, std::string& value, const char* id )
-            {
-                U::ImGuiUtilities::BeginPropertyRow( label );
-                if ( U::ImGuiUtilities::AssetSlot( id, value.empty() ? "None" : value.c_str(), value.empty() ) )
-                    ImGui::OpenPopup( id );
-                if ( ImGui::BeginPopup( id ) )
-                {
-                    if ( clipNames.empty() )
-                        ImGui::TextDisabled( "No clips for this skeleton" );
-                    for ( const auto& name : clipNames )
-                        if ( ImGui::Selectable( name.c_str(), name == value ) )
-                            value = name;
-                    ImGui::EndPopup();
-                }
-                U::ImGuiUtilities::EndPropertyRow();
-            };
-
-            clipRow( "Idle Clip", c.IdleClip, "loco_idle" );
-            clipRow( "Walk Clip", c.WalkClip, "loco_walk" );
-            clipRow( "Run Clip", c.RunClip, "loco_run" );
-            clipRow( "Jump Clip", c.JumpClip, "loco_jump" );
-
-            U::ImGuiUtilities::BeginPropertyRow( "Walk Speed", "Planar speed above which the walk clip plays" );
-            ImGui::DragFloat( "##walkspeed", &c.WalkSpeed, 0.01f, 0.0f, 100.0f, "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Run Speed", "Planar speed above which the run clip plays" );
-            ImGui::DragFloat( "##runspeed", &c.RunSpeed, 0.01f, 0.0f, 100.0f, "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
         };
         return e;
     }
@@ -2016,6 +1970,7 @@ namespace Desert::Editor
                 ImGui::EndCombo();
             }
             ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
+            ImGui::DragScalar( "Play Rate", ImGuiDataType_Double, &actor.PlayRate, 0.01F );
 
             // Binding Overrides.
             if ( !U::ImGuiUtilities::SectionHeader( ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )
@@ -2184,8 +2139,9 @@ namespace Desert::Editor
             readOnlyRow( "On Ground", c.OnGround ? "Yes" : "No" );
             std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.CurrentSpeed );
             readOnlyRow( "Planar Speed", buf );
-            std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.VerticalVelocity );
+            std::snprintf( buf, sizeof( buf ), "%.0f cm/s", c.Velocity.y );
             readOnlyRow( "Vertical Velocity", buf );
+            readOnlyRow( "Crouched", c.IsCrouched ? "Yes" : "No" );
             readOnlyRow( "Swimming", c.Swimming ? "Yes" : "No" );
             std::snprintf( buf, sizeof( buf ), "%.2f, %.2f", c.MoveInput.x, c.MoveInput.y );
             readOnlyRow( "Move Input", buf );
@@ -2277,8 +2233,6 @@ namespace
          ::Desert::Editor::MakeCharacterControllerEntry() );
     const int _desert_socket_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeSocketEntry() );
-    const int _desert_locomotion_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLocomotionEntry() );
     const int _desert_projectile_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =

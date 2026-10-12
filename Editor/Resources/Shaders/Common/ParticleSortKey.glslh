@@ -1,0 +1,22 @@
+#ifndef DESERT_PARTICLE_SORT_KEY_GLSLH
+#define DESERT_PARTICLE_SORT_KEY_GLSLH
+
+// The back-to-front sort key of a translucent sprite emitter: Engine/Graphic/Systems/Scene/Particles/ParticleSortKey.hpp
+// is the same function on the CPU, where the test that holds its order lives (VFXEmitterSpawn ParticleSortKey).
+// Ascending keys = descending view depth (far first); a depth behind the camera sorts last; the padding of the
+// power-of-two network is PARTICLE_SORT_PAD_KEY, after every particle.
+
+#define PARTICLE_SORT_PAD_KEY 0xFFFFFFFFu
+
+uint ParticleOrderedFloatBits( float value )
+{
+    uint bits = floatBitsToUint( value );
+    return ( bits & 0x80000000u ) != 0u ? ~bits : ( bits | 0x80000000u );
+}
+
+uint ParticleSortKey( float viewDepthCm )
+{
+    return ~ParticleOrderedFloatBits( viewDepthCm );
+}
+
+#endif

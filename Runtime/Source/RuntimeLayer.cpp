@@ -1,4 +1,4 @@
-#include <Engine/UI/UIWindowClipboard.hpp>
+#include <Engine/UI/Ecs/UIWindowClipboard.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include "RuntimeLayer.hpp"
 
@@ -49,8 +49,10 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/UI/UIDataStore.hpp>
-#include <Engine/UI/UIOverlay.hpp>
+#include <Engine/ECS/System/GameModeSystem.hpp>
+#include <UI/UIDataStore.hpp>
+#include <UI/UIOverlay.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
@@ -75,13 +77,12 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
-#include <Engine/Graphic/Render2D/DrawList2D.hpp>
+#include <Render2DCore/DrawList2D.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
-#include <Engine/UI/UICanvasLayout.hpp>
-#include <Engine/UI/UICanvasRenderer2D.hpp>
+#include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Core/Input.hpp>
@@ -545,6 +546,7 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
+        m_Scene->AddSystem<ECS::GameModeSystem>( m_Scene.get(), m_AssetManager.get() );
         m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );

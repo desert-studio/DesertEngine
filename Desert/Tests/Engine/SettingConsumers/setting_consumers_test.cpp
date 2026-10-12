@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -113,13 +114,6 @@ namespace
          { "SunsetIntensity", kSkySettings },
          { "StarIntensity", kSkySettings },
 
-         // The time-of-day driver turns these five into the sun's transform.
-         { "DriveSunFromTimeOfDay", kTimeOfDay },
-         { "TimeOfDay", kTimeOfDay },
-         { "DayLengthSeconds", kTimeOfDay },
-         { "Latitude", kTimeOfDay },
-         { "NorthOffset", kTimeOfDay },
-
          // Environment-bake policy and size, carried in the same settings block.
          { "AutoRebakeEnvironment", kSkySettings },
          { "RebakeSunAngleThreshold", kSkySettings },
@@ -180,6 +174,13 @@ namespace
     constexpr const char* kFogPayload = "Desert/Desert/Source/Engine/Graphic/Fog/FogPayload.hpp";
     constexpr const char* kFogRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp";
+
+    // The scene's clock (TOD-SPLIT): the time-of-day driver turns these five into the sun's transform.
+    constexpr Row kTimeOfDayRows[] = {
+         { "DriveSunFromTimeOfDay", kTimeOfDay }, { "TimeOfDay", kTimeOfDay },
+         { "DayLengthSeconds", kTimeOfDay },      { "Latitude", kTimeOfDay },
+         { "NorthOffset", kTimeOfDay },
+    };
 
     constexpr Row kFogRows[] = {
          { "Enabled", kFogRenderer }, // the zero-cost gate: off means no allocation and no dispatch
@@ -308,8 +309,6 @@ namespace
          // packer as an offset. WIND STAYS ON THE COMPONENT deliberately (the one named divergence from
          // the UE split): the collector may not touch Runtime::ResourceRegistry, and accumulating in the
          // renderer would let two viewports of one scene drift apart.
-         { "WindDirection", kCloudSystem },
-         { "WindSpeed", kCloudSystem },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -362,24 +361,24 @@ namespace
     // canvas's background additionally keeps the exact-expression assertion further down the file.
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kCanvasRenderer = "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp";
+    constexpr const char* kCanvasRenderer  = "Desert/UI/Source/UI/UICanvasRenderer2D.cpp";
     constexpr const char* kAnimationSystem = "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp";
-    constexpr const char* kCanvasLayout   = "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp";
-    constexpr const char* kUIButton        = "Desert/Desert/Source/Engine/UI/Widgets/Button.cpp";
-    constexpr const char* kUIDropdown      = "Desert/Desert/Source/Engine/UI/Widgets/Dropdown.cpp";
-    constexpr const char* kUIImage         = "Desert/Desert/Source/Engine/UI/Widgets/Image.cpp";
-    constexpr const char* kUIInputField    = "Desert/Desert/Source/Engine/UI/Widgets/InputField.cpp";
-    constexpr const char* kUITextEditRules = "Desert/Desert/Source/Engine/UI/UITextEditState.cpp";
-    constexpr const char* kUIPanel         = "Desert/Desert/Source/Engine/UI/Widgets/Panel.cpp";
-    constexpr const char* kUIPath          = "Desert/Desert/Source/Engine/UI/Widgets/Path.cpp";
-    constexpr const char* kUIProgressBar   = "Desert/Desert/Source/Engine/UI/Widgets/ProgressBar.cpp";
-    constexpr const char* kUIScrollList    = "Desert/Desert/Source/Engine/UI/Widgets/ScrollList.cpp";
-    constexpr const char* kUISlider        = "Desert/Desert/Source/Engine/UI/Widgets/Slider.cpp";
-    constexpr const char* kUIText          = "Desert/Desert/Source/Engine/UI/Widgets/Text.cpp";
-    constexpr const char* kUIToggle        = "Desert/Desert/Source/Engine/UI/Widgets/Toggle.cpp";
-    constexpr const char* kUIRichText      = "Desert/Desert/Source/Engine/UI/UIRichText.cpp";
-    constexpr const char* kUIWalkCtx       = "Desert/Desert/Source/Engine/UI/UIWalkCtx.cpp";
-    constexpr const char* kUIFocus         = "Desert/Desert/Source/Engine/UI/UIFocus.cpp";
+    constexpr const char* kCanvasLayout    = "Desert/UI/Source/UI/UICanvasLayout.cpp";
+    constexpr const char* kUIButton        = "Desert/UI/Source/UI/Widgets/Button.cpp";
+    constexpr const char* kUIDropdown      = "Desert/UI/Source/UI/Widgets/Dropdown.cpp";
+    constexpr const char* kUIImage         = "Desert/UI/Source/UI/Widgets/Image.cpp";
+    constexpr const char* kUIInputField    = "Desert/UI/Source/UI/Widgets/InputField.cpp";
+    constexpr const char* kUITextEditRules = "Desert/UI/Source/UI/UITextEditState.cpp";
+    constexpr const char* kUIPanel         = "Desert/UI/Source/UI/Widgets/Panel.cpp";
+    constexpr const char* kUIPath          = "Desert/UI/Source/UI/Widgets/Path.cpp";
+    constexpr const char* kUIProgressBar   = "Desert/UI/Source/UI/Widgets/ProgressBar.cpp";
+    constexpr const char* kUIScrollList    = "Desert/UI/Source/UI/Widgets/ScrollList.cpp";
+    constexpr const char* kUISlider        = "Desert/UI/Source/UI/Widgets/Slider.cpp";
+    constexpr const char* kUIText          = "Desert/UI/Source/UI/Widgets/Text.cpp";
+    constexpr const char* kUIToggle        = "Desert/UI/Source/UI/Widgets/Toggle.cpp";
+    constexpr const char* kUIRichText      = "Desert/UI/Source/UI/UIRichText.cpp";
+    constexpr const char* kUIWalkCtx       = "Desert/UI/Source/UI/UIWalkCtx.cpp";
+    constexpr const char* kUIFocus         = "Desert/UI/Source/UI/UIFocus.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -480,6 +479,10 @@ namespace
 
          // Play instantiates it at the chosen PlayerStart (SPAWN1, UE's GameMode DefaultPawnClass).
          { "DefaultPawn", kPlayerStart },
+         // Play spawns it once, before the pawn (Core::SpawnPlayerController, UE's GameMode PlayerControllerClass).
+         { "PlayerController", kPlayerStart },
+         // The GameMode's respawn wait (GP2, UE's RespawnDelay).
+         { "RespawnDelay", "Desert/Desert/Source/Engine/Core/GameMode.cpp" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -497,8 +500,10 @@ namespace
     constexpr const char* kPointLight = "Desert/Desert/Source/Engine/ECS/System/PointLightSystem.hpp";
     constexpr const char* kSpotLight  = "Desert/Desert/Source/Engine/ECS/System/SpotLightSystem.hpp";
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
+    // VFX-07b: the scene's GPU particle state snapshots every emitter's settings into its sim push once per
+    // VFXWorld tick (ParticleWorldGpu::PrepareTick); the renderer only draws the pool.
     constexpr const char* kParticles =
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp";
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp";
     // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
     // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
     constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
@@ -509,6 +514,12 @@ namespace
          { "FOV", kScene },
          { "Near", kScene },
          { "Far", kScene },
+    };
+
+    constexpr const char* kPlayerInput               = "Desert/Desert/Source/Engine/Input/LocalPlayerInput.cpp";
+    constexpr Row         kEnhancedInputPlayerRows[] = {
+         { "Contexts", kPlayerInput },
+         { "BasePriority", kPlayerInput },
     };
 
     constexpr Row kLandscapeMaterialRows[] = {
@@ -560,6 +571,13 @@ namespace
          { "LensFlareStreakLength", kSceneRenderer },
          { "LensFlareStreakAngle", kSceneRenderer },
          { "LensFlareChromaShift", kSceneRenderer },
+         { "DepthOfFieldFocalDistance", kSceneRenderer },
+         { "DepthOfFieldFstop", kSceneRenderer },
+         { "DepthOfFieldSensorWidth", kSceneRenderer },
+         { "DepthOfFieldMaxBokehSize", kSceneRenderer },
+         { "MotionBlurAmount", kSceneRenderer },
+         { "MotionBlurMax", kSceneRenderer },
+         { "MotionBlurTargetFPS", kSceneRenderer },
     };
 
     constexpr Row kDirLightRows[] = {
@@ -619,7 +637,9 @@ namespace
          { "EndColor", kParticles },
          { "StartAlpha", kParticles },
          { "EndAlpha", kParticles },
-         { "Blend", kParticles },
+         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the emitter
+         // names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
+         { "Material", kParticles },
     };
 
     // All three reach the frame the same way: SkyboxECSSystem packs them into a Graphic::SkyLook on the
@@ -646,13 +666,27 @@ namespace
          { "CollisionProfile", kPhysicsSystem },
     };
 
-    constexpr Row kCharacterControllerRows[] = {
-         { "Radius", kPhysicsSystem },  { "Height", kPhysicsSystem },           { "MaxSlopeDeg", kPhysicsSystem },
-         { "Gravity", kPhysicsSystem }, { "CollisionProfile", kPhysicsSystem },
+    // GP2a: the movement model (UE CharacterMovementComponent) is the one reader of every field.
+    constexpr const char* kCharacterMovement = "Desert/Desert/Source/Engine/ECS/System/CharacterMovement.cpp";
+    constexpr Row         kCharacterControllerRows[] = {
+         { "Radius", kCharacterMovement },           { "Height", kCharacterMovement },
+         { "MaxSlopeDeg", kCharacterMovement },      { "MaxWalkSpeed", kCharacterMovement },
+         { "MaxAcceleration", kCharacterMovement },  { "BrakingDecelerationWalking", kCharacterMovement },
+         { "GroundFriction", kCharacterMovement },   { "BrakingFrictionFactor", kCharacterMovement },
+         { "JumpZVelocity", kCharacterMovement },    { "AirControl", kCharacterMovement },
+         { "GravityScale", kCharacterMovement },     { "MaxWalkSpeedCrouched", kCharacterMovement },
+         { "CrouchedHeight", kCharacterMovement },   { "MaxSwimSpeed", kCharacterMovement },
+         { "CollisionProfile", kCharacterMovement },
+    };
+
+    constexpr const char* kSpringArm       = "Desert/Desert/Source/Engine/ECS/System/SpringArm.cpp";
+    constexpr Row         kSpringArmRows[] = {
+         { "TargetArmLength", kSpringArm }, { "SocketOffset", kSpringArm },    { "DoCollisionTest", kSpringArm },
+         { "ProbeSize", kSpringArm },       { "EnableCameraLag", kSpringArm }, { "CameraLagSpeed", kSpringArm },
     };
 
     constexpr Row kAudioRows[] = {
-         { "Clip", kAudioSystem },     { "Volume", kAudioSystem },  { "Loop", kAudioSystem },
+         { "Sound", kAudioSystem },    { "Volume", kAudioSystem },  { "Loop", kAudioSystem },
          { "AutoPlay", kAudioSystem }, { "Spatial", kAudioSystem },
     };
 
@@ -857,6 +891,12 @@ namespace
          { "OceanExtents", kWaterBodyGather },
          { "TargetWaveMaskDepth", kWaterBodyGather },
     };
+    // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
+    constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
+    constexpr Row         kRagdollRows[] = {
+         { "PhysicsAsset", kRagdollSync },
+         { "Mode", kRagdollSync },
+    };
     // The four field components (DST-04b): every field is read by ECS::FireDestructionField into the
     // FieldCommand it hands DestructionWorld::ApplyField.
     constexpr const char* kFieldFire = "Desert/Desert/Source/Engine/ECS/System/DestructionFields.cpp";
@@ -864,6 +904,14 @@ namespace
          { "Magnitude", kFieldFire },
          { "Radius", kFieldFire },
          { "Falloff", kFieldFire },
+    };
+    // The scene's wind (WIND-SRC): every field is read by the one query, ECS::WindAtFromSources.
+    constexpr const char* kWindQuery        = "Desert/Desert/Source/Engine/ECS/WindSourceComponent.hpp";
+    constexpr Row         kWindSourceRows[] = {
+         { "Direction", kWindQuery },
+         { "Speed", kWindQuery },
+         { "PointWind", kWindQuery },
+         { "Radius", kWindQuery },
     };
     constexpr Row kStrainFieldRows[] = {
          { "Magnitude", kFieldFire },
@@ -1018,7 +1066,7 @@ namespace
 
     // Overlays (Ю12). Most of the policy is read by the state machine; the scrim is read by the walk that
     // draws it, because the scrim is also the election that makes a modal modal.
-    constexpr const char* kOverlay = "Desert/Desert/Source/Engine/UI/UIOverlay.cpp";
+    constexpr const char* kOverlay = "Desert/UI/Source/UI/UIOverlay.cpp";
 
     constexpr Row kOverlayRows[] = {
          { "Kind", kOverlay },
@@ -1054,7 +1102,7 @@ namespace
     };
 
     // ------------------------------------------------------------------------------------------------
-    // THE CENSUS. Thirty-nine reflected types, thirty-nine entries; adding a fortieth fails
+    // THE CENSUS. Forty-one reflected types, forty-one entries; adding a forty-second fails
     // `EveryReflectedTypeIsUnderThisCensus` before it can reach a Details panel with no reader.
     // ------------------------------------------------------------------------------------------------
 
@@ -1063,6 +1111,7 @@ namespace
     constexpr Census kCensus[] = {
          { "SceneSettings", nullptr, "GetSettings", CENSUS_ROWS( kSceneSettingsRows ) },
          { "SkyAtmosphereData", "SkyAtmosphereComponent", nullptr, CENSUS_ROWS( kSkyRows ) },
+         { "TimeOfDayData", "TimeOfDayComponent", nullptr, CENSUS_ROWS( kTimeOfDayRows ) },
          { "ExponentialHeightFogData", "ExponentialHeightFogComponent", nullptr, CENSUS_ROWS( kFogRows ) },
          { "PostProcessVolumeData", "PostProcessVolumeComponent", nullptr, CENSUS_ROWS( kPostProcessVolumeRows ) },
          { "PostProcessSettings", nullptr, nullptr, CENSUS_ROWS( kPostProcessSettingsRows ) },
@@ -1071,6 +1120,8 @@ namespace
 
          { "CameraData", "CameraComponent", nullptr, CENSUS_ROWS( kCameraRows ) },
          { "LandscapeMaterialData", "LandscapeMaterialComponent", nullptr, CENSUS_ROWS( kLandscapeMaterialRows ) },
+         { "EnhancedInputPlayerData", "EnhancedInputPlayerComponent", nullptr,
+           CENSUS_ROWS( kEnhancedInputPlayerRows ) },
          // NOT `DirectionalLightComponent`. The wrapper dropped the "al", and a census that guessed the
          // spelling would have found no receivers at all and called ten live fields dead.
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },
@@ -1084,6 +1135,7 @@ namespace
          { "RigidBodyData", "RigidBodyComponent", nullptr, CENSUS_ROWS( kRigidBodyRows ) },
          { "CharacterControllerData", "CharacterControllerComponent", nullptr,
            CENSUS_ROWS( kCharacterControllerRows ) },
+         { "SpringArmData", "SpringArmComponent", nullptr, CENSUS_ROWS( kSpringArmRows ) },
          { "AudioSourceData", "AudioSourceComponent", nullptr, CENSUS_ROWS( kAudioRows ) },
 
          { "UICanvasData", "UICanvasComponent", nullptr, CENSUS_ROWS( kCanvasRows ) },
@@ -1105,10 +1157,12 @@ namespace
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
+         { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
          { "StrainFieldData", "StrainFieldComponent", nullptr, CENSUS_ROWS( kStrainFieldRows ) },
          { "KillFieldData", "KillFieldComponent", nullptr, CENSUS_ROWS( kKillFieldRows ) },
+         { "WindSourceData", "WindSourceComponent", nullptr, CENSUS_ROWS( kWindSourceRows ) },
          { "AnchorFieldData", "AnchorFieldComponent", nullptr, CENSUS_ROWS( kAnchorFieldRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIPathData", "UIPathComponent", nullptr, CENSUS_ROWS( kPathRows ) },
@@ -1173,7 +1227,7 @@ namespace
         return {};
     }
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         std::ifstream in( path );
         if ( !in )
@@ -1323,7 +1377,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 58 with WATER-W2's WaterBodyData (kWaterBodyRows: every field read by WaterBodyGather.cpp into the
     // water body state the physics step queries).
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
-    EXPECT_EQ( all.size(), 59u );
+    // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
+    // -> 64 with the int/b10 gameplay types (GP1-GP5) merged beside it.
+    EXPECT_EQ( all.size(), 64u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
@@ -1731,4 +1787,59 @@ TEST( SettingConsumers, TheScatteringSeriesClampsItsOctavesAtTheSameCeilingTheSl
          << "CloudLighting.glslh does not cap the multiple-scattering series at "
          << Desert::ECS::kCloudMultiScatterMaxOctaves << ", which is the ceiling the slider offers and the "
          << "payload packs. Expected to find:\n  " << expected;
+}
+
+// WIND-SRC: the wind is ONE query over the scene's WindSource entities (ECS::WindAt). Red when a consumer stops
+// asking it, or when the cloud layer grows its own wind fields back.
+TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
+{
+    const std::filesystem::path root = RepoRoot();
+    const std::string           cloudSystem =
+         ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/VolumetricCloudECSSystem.hpp" );
+    EXPECT_NE( cloudSystem.find( "ECS::WindAt(" ), std::string::npos )
+         << "the cloud layer's drift must ask ECS::WindAt";
+
+    const std::string cloud = ReadFile( root / "Desert/Desert/Source/Engine/ECS/VolumetricCloudComponent.hpp" );
+    for ( const char* own : { "glm::vec3 WindDirection", "float WindSpeed" } )
+        EXPECT_EQ( cloud.find( own ), std::string::npos ) << "VolumetricCloudData declares its own wind: " << own;
+
+    // Foliage sway: the direction (and whether the air moves at all) is the query's; the foliage type keeps only
+    // its response (Strength, Speed, Height), and MakeInstanceWind takes the scene's wind, not an angle.
+    const std::string meshSystem = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
+    EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
+    // Code only: FoliageType.hpp's version history names the field that left.
+    const std::string foliageType =
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" ) );
+    EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
+         << "FoliageWind declares its own wind direction";
+    const std::string instanceWind =
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" ) );
+    EXPECT_EQ( instanceWind.find( "directionDegrees" ), std::string::npos )
+         << "MakeInstanceWind takes an authored angle instead of the scene's wind";
+
+    // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
+    for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+                               "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
+                               "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
+        EXPECT_NE( ReadFile( root / seam ).find( "ECS::WindAt" ), std::string::npos )
+             << seam << ": WindVelocity must be the answer of ECS::WindAt";
+
+    const std::string query = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/WindField.hpp" );
+    EXPECT_NE( query.find( "WindAtFromSources(" ), std::string::npos ) << "ECS::WindAt must run the one pure core";
+}
+
+// TOD-SPLIT: the driver reads the clock from its own component and never from the sky. A driver that still
+// fetched SkyAtmosphereComponent would compile against a sky with no clock fields only by reading some other
+// sky value as the hour; this pins the source of the clock, comments and literals stripped.
+TEST( SettingConsumers, TheSunIsDrivenFromTheTimeOfDayComponentNotTheSky )
+{
+    const std::string text = StripCommentsAndLiterals( ReadFile(
+         std::filesystem::path( RepoRoot() ) / "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp" ) );
+    ASSERT_FALSE( text.empty() );
+    EXPECT_NE( text.find( "registry.view<ECS::TimeOfDayComponent>" ), std::string::npos )
+         << "TimeOfDayECSSystem does not view TimeOfDayComponent";
+    EXPECT_NE( text.find( "DirectionLightComponent" ), std::string::npos )
+         << "TimeOfDayECSSystem no longer drives the directional light";
+    EXPECT_EQ( text.find( "SkyAtmosphere" ), std::string::npos )
+         << "TimeOfDayECSSystem reads the sky: the clock is TimeOfDayComponent alone";
 }

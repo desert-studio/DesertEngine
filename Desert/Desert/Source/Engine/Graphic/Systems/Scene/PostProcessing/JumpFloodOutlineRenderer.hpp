@@ -35,9 +35,6 @@ namespace Desert::Graphic::System
         virtual Common::BoolResultStr Initialize() override;
 
         // JFA is added to the frame graph by SceneRenderer (AddFrameJumpFlood), not through the phase graph.
-        void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
-        {
-        }
 
         // False: nothing can be recorded this frame (the scene framebuffer is gone); the error is logged.
         [[nodiscard]] bool Prepare() const;

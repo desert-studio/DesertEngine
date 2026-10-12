@@ -1,8 +1,9 @@
 #pragma once
 
-#include <Engine/UI/UICanvasResources.hpp>
+#include <UI/UICanvasResources.hpp>
 #include <Engine/UI/Ecs/LocalizationUITextSource.hpp>
 #include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
+#include <memory>
 
 namespace Desert::UI
 {

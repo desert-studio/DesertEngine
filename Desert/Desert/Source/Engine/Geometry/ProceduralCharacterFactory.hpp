@@ -17,14 +17,15 @@ namespace Desert::Animation
 namespace Desert::Geometry
 {
     // THE BUILT-IN HUMANOID IS ENGINE CONTENT, NOT A RUNTIME MESH. As UE's /Engine mannequin, the character is
-    // three kinds of asset under Resources/Engine/Meshes/Skinned/: Humanoid.skeleton (the rig), Humanoid.skmesh
-    // (the body) and one `.anim` per locomotion clip — each with a GUID its header states. A spawned character
-    // is an ordinary entity that REFERENCES them (SkinnedMesh by the mesh's GUID, Animation by a clip's), so a
-    // Play snapshot, a save and a load carry it like any imported character.
+    // four kinds of asset under Resources/Engine/Meshes/Skinned/: Humanoid.skeleton (the rig), Humanoid.skmesh
+    // (the body), one `.anim` per locomotion clip and PhysicsAssets/Humanoid_PhysicsAsset.dephysasset (its ragdoll
+    // bodies) — each with a GUID its header states. A spawned character is an ordinary entity that REFERENCES them
+    // (SkinnedMesh by the mesh's GUID, Animation by a clip's), so a Play snapshot, a save and a load carry it like
+    // any imported character.
     //
-    // This factory is the GENERATOR of the mesh and the clips, run ONCE by a person (the editor command
-    // "Generate Humanoid Engine Assets") and its output committed; nothing reaches it at runtime. The body is
-    // tapered capsules and joint spheres, each rigid-skinned to one bone, laid over the bind pose the skeleton
+    // This factory is the GENERATOR of the mesh, the physics asset and the clips, run ONCE by a person (the editor
+    // command "Generate Humanoid Engine Assets") and its output committed; nothing reaches it at runtime. The body
+    // is tapered capsules and joint spheres, each rigid-skinned to one bone, laid over the bind pose the skeleton
     // file states — a greybox mannequin, not sculpted art. The GUIDs are fixed below, so a regeneration writes
     // the same identities and every reference already authored keeps resolving.
     inline constexpr Common::Content::AssetGuid kHumanoidMeshGuid{ 0x6d3a1f0e2b8c4e57ULL, 0x9a41c7d25e0b3f18ULL };
@@ -42,6 +43,12 @@ namespace Desert::Geometry
          { "Jump", { 0x6d3a1f0e2b8c4e57ULL, 0x9a41c7d25e0b3f24ULL } },
     } };
 
+    // The humanoid's physics asset (UE's mannequin ships one with its mesh), in the engine mount's PhysicsAssets
+    // folder: generated from the body by Physics::GeneratePhysicsAsset, the generator behind the editor's
+    // "Create Physics Asset", under a fixed GUID as well.
+    inline constexpr Common::Content::AssetGuid kHumanoidPhysicsAssetGuid{ 0x6d3a1f0e2b8c4e57ULL,
+                                                                           0x9a41c7d25e0b3f30ULL };
+
     // The runtime handle of the humanoid mesh: its GUID folded (HandleForGuid), as a scene load resolves it.
     [[nodiscard]] inline Assets::AssetHandle HumanoidMeshHandle()
     {
@@ -54,6 +61,7 @@ namespace Desert::Geometry
     // Engine-content paths (mount relative, like HumanoidSkeletonFile) of the mesh and of one clip by name.
     std::filesystem::path HumanoidMeshFile();
     std::filesystem::path HumanoidClipFile( std::string_view clipName );
+    std::filesystem::path HumanoidPhysicsAssetFile();
 
     class ProceduralCharacterFactory
     {
@@ -63,9 +71,9 @@ namespace Desert::Geometry
         [[nodiscard]] static Common::ResultStr<Assets::Serialization::MeshAssetData>
         BuildHumanoidMesh( const Animation::Skeleton& skeleton, const Common::Content::AssetGuid& skeletonGuid );
 
-        // Reads Humanoid.skeleton, builds the mesh and every clip of kHumanoidClips over it, and writes them
-        // beside the skeleton (HumanoidMeshFile, HumanoidClipFile). Returns the paths written; any failure is
-        // refused naming the file, and nothing is written after it.
+        // Reads Humanoid.skeleton, builds the mesh, its physics asset and every clip of kHumanoidClips over it,
+        // and writes them (HumanoidMeshFile, HumanoidPhysicsAssetFile, HumanoidClipFile). Returns the paths
+        // written; any failure is refused naming the file, and nothing is written after it.
         [[nodiscard]] static Common::ResultStr<std::vector<std::filesystem::path>> WriteEngineAssets();
     };
 } // namespace Desert::Geometry

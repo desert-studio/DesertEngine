@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Import/IAssetImporter.hpp>
 #include <Editor/Import/TextureChannelPack.hpp>
 
 #include <filesystem>
@@ -31,12 +32,14 @@ namespace Desert::Editor
     // texture's own (its bytes are kept as they are), PNG for an uncompressed texel array (encoded at import).
     std::string EmbeddedTextureExtension( const aiTexture& texture );
 
-    // Resolves a reference of the material read from `scene` (imported from `sourcePath`): an embedded texture is
-    // imported into its texture asset by WriteDerivedTexture (re-taken only when its bytes changed, GUID kept)
-    // and the asset's path returned; any other
-    // reference is looked up on disk beside the source (FindSourceTexture). Refuses an embedded texture it cannot
-    // encode or write, or one in a format no texture importer reads, naming it.
+    // Resolves a reference of the material read from `scene` (imported from `sourcePath`); any reference that is
+    // not embedded is looked up on disk beside the source (FindSourceTexture). An embedded texture's asset is
+    // CONTENT, so only `ImportPass::Import` writes it (WriteDerivedTexture: re-taken only when its bytes changed,
+    // GUID kept). `ImportPass::Cook` writes nothing into Content: it returns the asset the import left
+    // (Extracted = Unchanged) and refuses, naming the asset, when the source was never imported with it - the
+    // cure is a re-import, not a file the editor drops into the checkout on start (SELF-COOK). Also refuses an
+    // embedded texture it cannot encode or write, or one in a format no texture importer reads, naming it.
     Common::ResultStr<SourceTextureFile> ResolveSourceTexture( const aiScene&               scene,
                                                                const std::filesystem::path& sourcePath,
-                                                               const std::string&           reference );
+                                                               const std::string& reference, ImportPass pass );
 } // namespace Desert::Editor

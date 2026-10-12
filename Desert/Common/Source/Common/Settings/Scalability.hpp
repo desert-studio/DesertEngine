@@ -112,7 +112,9 @@ namespace Common::Scalability
         ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
-        BloomMips, // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
+        DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget
@@ -299,6 +301,17 @@ namespace Common::Scalability
     // PURE: no log, no globals. Apply() logs.
     [[nodiscard]] ResolvedQuality Resolve( const QualitySelection& selection, const ScalabilityTable& table,
                                            const CapabilityCatalog& catalog );
+
+    // TAA, DLAA and FSRNative: the methods whose temporal pass can also upscale.
+    [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
+
+    // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
+    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> TAAU), and a
+    // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
+    // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
+    // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
+    // cannot disagree.
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing

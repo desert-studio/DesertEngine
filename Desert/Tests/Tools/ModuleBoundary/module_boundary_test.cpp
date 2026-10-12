@@ -194,7 +194,7 @@ TEST( ModuleBoundary, NamedFilesSitInTheirModules )
          { "Desert/Common/Source/Common/Core/ResultStr.hpp", "Common" },
          { "Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.hpp", "CoreReflection" },
          { "Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.hpp", "RenderCore" },
-         { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp", "Render2DCore" },
+         { "Desert/Render2DCore/Source/Render2DCore/DrawList2D.hpp", "Render2DCore" },
          { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp", "Renderer" },
          { "Desert/Desert/Source/Engine/Core/Scene.hpp", "Engine" },
          { "Desert/Desert/Source/Engine/World/Foliage/FoliageCells.hpp", "Foliage" },

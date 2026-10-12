@@ -50,7 +50,8 @@
                         "Y": 0.0,
                         "Transitions": []
                     }
-                ]
+                ],
+                "Comments": []
             },
             "X": 0.0,
             "Y": 0.0
@@ -58,5 +59,6 @@
     ],
     "OutputPose": "StateMachine",
     "OutputPoseX": 260.0,
-    "OutputPoseY": 0.0
+    "OutputPoseY": 0.0,
+    "Comments": []
 }

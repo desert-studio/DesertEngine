@@ -69,6 +69,9 @@ local function DesertRunnerSettings(deps)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         -- Engine suites read header-only editor types (component editors' data, command records).
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
@@ -84,7 +87,7 @@ local function DesertRunnerSettings(deps)
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-    links { "Desert", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
+    links { "Desert", "DesertUI", "Render2DCore", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
@@ -128,6 +131,9 @@ local kRunners = {
             -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
             -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
             "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
+            "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source",
             -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
@@ -173,6 +179,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MaterialAOParam.cpp", -- the retired OcclusionStrength rename (MAT-AO-ONEHOME)
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipMigration.cpp",
             "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
@@ -299,6 +306,7 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InputAssetEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp",
@@ -316,7 +324,11 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MaterialImportContract.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PhysicsAssetEditor/PhysicsAssetEdit.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Retarget/RetargetDocumentModel.cpp",
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ControlRig/ControlRigDocumentModel.cpp", -- the rig editor model (ControlRigDocument suite)
+            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/OutlinerColumn.cpp", -- the Sequencer Outliner column (OutlinerColumn suite)
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/TrackFilter.cpp",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",

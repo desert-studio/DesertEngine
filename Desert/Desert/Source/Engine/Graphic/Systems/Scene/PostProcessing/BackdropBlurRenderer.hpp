@@ -32,8 +32,8 @@ namespace Desert::Graphic::System
     //
     // RDG-A2 P5: the pyramid is a TRANSIENT of the frame graph (SceneRenderer::AddFrameBackdropBlur creates it
     // from GetPyramidDesc, sized from THIS frame's view, so there is no image to resize and nothing that outlives
-    // the frame). The UI glass reads it as FrameTransients::BackdropBlur through the ExternalPassContext it is
-    // handed and binds it by name (u_Backdrop) — no Image2D of it crosses into a pass body.
+    // the frame). The UI glass reads it as FrameTransients::BackdropBlur through the extension pass context it
+    // is handed and binds it by name (u_Backdrop) — no Image2D of it crosses into a pass body.
     class BackdropBlurRenderer final : public RenderSystem
     {
     public:
@@ -52,10 +52,6 @@ namespace Desert::Graphic::System
             m_DownsamplePipeline = built.GetValue();
 
             return BOOLSUCCESS;
-        }
-
-        void RegisterPasses( RenderGraphBuilder& ) override
-        {
         }
 
         // The pyramid of this frame: half the view, mip-capped so the coarsest level is ~1/32 of the screen.

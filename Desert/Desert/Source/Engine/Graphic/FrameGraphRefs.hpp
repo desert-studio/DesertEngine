@@ -63,8 +63,8 @@ namespace Desert::Graphic
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
-    // it (an AddFrame* lambda, a phase pass of RenderGraphBuilder, a system's ComputeNodeDeclaration, an editor
-    // ExternalPassSpecification): this frame's cross-renderer transients and the engine's system textures, as
+    // it (an AddFrame* lambda, a system's SystemRasterPass, a system's ComputeNodeDeclaration, an editor
+    // ExtensionPass): this frame's cross-renderer transients and the engine's system textures, as
     // refs of THIS graph. Its declaration callback gets it to name what it reads (RenderPassDeclaration::Read of
     // a TextureRef), its body gets it with the node's RDG::PassContext to bind those refs by shader name
     // (RDG::PassBindings). The value is taken when the node is added, so a node sees every transient a node

@@ -65,20 +65,7 @@ namespace Desert::Assets
         m_Submeshes.reserve( data.Submeshes.size() );
 
         for ( const auto& v : data.SkinnedVertices )
-        {
-            SkinnedVertex vertex;
-
-            vertex.StaticVertex.Position  = v.Position;
-            vertex.StaticVertex.Normal    = v.Normal;
-            vertex.StaticVertex.Tangent   = v.Tangent;
-            vertex.StaticVertex.Bitangent = v.Bitangent;
-            vertex.StaticVertex.TexCoord  = v.TexCoord;
-
-            vertex.BoneIDs     = v.BoneIDs;
-            vertex.BoneWeights = v.BoneWeights;
-
-            m_Vertices.emplace_back( std::move( vertex ) );
-        }
+            m_Vertices.emplace_back( Serialization::ToSkinnedVertex( v ) );
 
         for ( const auto& i : data.Indices )
         {

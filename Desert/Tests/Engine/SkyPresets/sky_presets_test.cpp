@@ -63,16 +63,11 @@ namespace
                              [&name]( const char* p ) { return name == p; } ) != std::end( kPaletteFields );
     }
 
-    // Everything a preset must leave alone: the time-of-day block, the environment-bake knobs, the planet
-    // radius, the master switch and the preset label itself.
+    // Everything a preset must leave alone: the environment-bake knobs, the planet radius, the master
+    // switch and the preset label itself.
     struct AuthoredState
     {
         bool                     Enabled;
-        bool                     DriveSunFromTimeOfDay;
-        float                    TimeOfDay;
-        float                    DayLengthSeconds;
-        float                    Latitude;
-        float                    NorthOffset;
         bool                     AutoRebakeEnvironment;
         float                    RebakeSunAngleThreshold;
         SkyEnvironmentResolution EnvironmentResolution;
@@ -84,17 +79,9 @@ namespace
 
     AuthoredState CaptureAuthored( const SkyAtmosphereData& d )
     {
-        return AuthoredState{ d.Enabled,
-                              d.DriveSunFromTimeOfDay,
-                              d.TimeOfDay,
-                              d.DayLengthSeconds,
-                              d.Latitude,
-                              d.NorthOffset,
-                              d.AutoRebakeEnvironment,
-                              d.RebakeSunAngleThreshold,
-                              d.EnvironmentResolution,
-                              d.ActivePreset,
-                              d.PlanetRadius };
+        return AuthoredState{
+             d.Enabled,      d.AutoRebakeEnvironment, d.RebakeSunAngleThreshold, d.EnvironmentResolution,
+             d.ActivePreset, d.PlanetRadius };
     }
 
     // A value the field has not got, so "did this edit register?" never depends on luck.
@@ -221,11 +208,6 @@ TEST( SkyPresets, ApplyingAPresetTouchesNothingOutsideThePalette )
     {
         SkyAtmosphereData d{};
         d.Enabled                 = false;
-        d.DriveSunFromTimeOfDay   = true;
-        d.TimeOfDay               = 5.25f;
-        d.DayLengthSeconds        = 1234.0f;
-        d.Latitude                = -12.5f;
-        d.NorthOffset             = 200.0f;
         d.AutoRebakeEnvironment   = false;
         d.RebakeSunAngleThreshold = 17.0f;
         d.EnvironmentResolution   = SkyEnvironmentResolution::High;
@@ -287,12 +269,12 @@ TEST( SkyPresets, EveryPaletteFieldChangesTheDiscriminatorAndNoOtherFieldDoes )
         }
     }
 
-    // 13 palette + 34 authored/quality (the master switch, the five time-of-day rows, the three
-    // environment-bake rows, the preset label, the planet radius, and the 23 physical-atmosphere
-    // fields — a preset is a palette of the GRADIENT model and must leave the physical medium, and the
-    // aerial perspective it feeds, alone) = the component's 47 fields.
+    // 13 palette + 29 authored/quality (the master switch, the three environment-bake rows, the preset
+    // label, the planet radius, and the 23 physical-atmosphere fields — a preset is a palette of the
+    // GRADIENT model and must leave the physical medium, and the aerial perspective it feeds, alone) = the
+    // component's 42 fields. The five time-of-day rows left for the TimeOfDay component (TOD, SCNE 44).
     EXPECT_EQ( palette, 13u );
-    EXPECT_EQ( authored, 34u ) << "the component gained or lost a field without this test being revisited";
+    EXPECT_EQ( authored, 29u ) << "the component gained or lost a field without this test being revisited";
 }
 
 // Dialling the values back by hand restores the name rather than leaving "Custom" behind. This is why the

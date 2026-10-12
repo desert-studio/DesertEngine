@@ -34,6 +34,7 @@
 // (`MeshPath` + a path-derived `MeshGuid` number) is gone with SCNE 28: a scene names a mesh by its header
 // GUID text, so no scene row depends on the path derivation any more.
 
+#include "TestSupport/source_roots.hpp"
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
@@ -495,8 +496,8 @@ TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHe
     std::vector<std::string> offences;
     size_t                   scanned = 0;
 
-    for ( const fs::path& base :
-          { root / "Desert/Desert/Source", root / "Editor/Source", root / "Runtime/Source" } )
+    for ( const fs::path& base : Desert::TestSupport::Under(
+               root, Desert::TestSupport::EngineRootsAnd( { "Editor/Source", "Runtime/Source" } ) ) )
     {
         for ( const fs::path& source : SourcesUnder( base ) )
         {
@@ -536,8 +537,8 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
     std::vector<std::string> offences;
     size_t                   scanned = 0;
 
-    for ( const fs::path& base : { root / "Desert/Desert/Source", root / "Desert/Common/Source",
-                                   root / "Editor/Source", root / "Runtime/Source", root / "Tools" } )
+    for ( const fs::path& base : Desert::TestSupport::Under(
+               root, Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } ) ) )
     {
         for ( const fs::path& source : SourcesUnder( base ) )
         {

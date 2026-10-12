@@ -64,7 +64,18 @@ namespace Desert::Core
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
     // v42 (PHYS-A1): RigidBody / CharacterController state CollisionProfile (a name in the project's
     // Config/CollisionProfiles.json), chosen by body Type (Tools/SceneMigrator, MigrateCollisionProfilesV41ToV42).
-    inline constexpr int kSceneVersion = 42;
+    // v43 (WIND-SRC): VolumetricCloud.WindDirection / WindSpeed are one WindSource record per scene
+    // (Tools/SceneMigrator, MigrateWindSourceV42ToV43).
+    // v44 (TOD-SPLIT): the sky's five clock keys are a TimeOfDay block on the same record (Tools/SceneMigrator,
+    // MigrateTimeOfDayComponentV43ToV44).
+    // v45 (GP3): SceneSettings states PlayerController and RespawnDelay (Tools/SceneMigrator,
+    // MigrateGameModeSettingsV44ToV45).
+    // v46 (SOUND-ASSET): a sound is a `.desound` asset named by GUID — AudioSource.Clip (a file path) is
+    // AudioSource.Sound {Guid, Path}, and a sequence's Audio section names the sound's GUID (Tools/SceneMigrator,
+    // MigrateSoundRefsV45ToV46).
+    // v47 (VFX-08): ParticleEmitter.Blend is gone; a sprite composites by its Material's blend mode
+    // (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV46ToV47).
+    inline constexpr int kSceneVersion = 47;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

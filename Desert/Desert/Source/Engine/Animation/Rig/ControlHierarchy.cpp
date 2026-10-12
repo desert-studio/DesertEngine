@@ -5,10 +5,71 @@
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace Desert::Animation
 {
+    namespace
+    {
+        constexpr std::array<std::string_view, 9> kLimitChannelNames = { "TX", "TY", "TZ", "RX", "RY",
+                                                                         "RZ", "SX", "SY", "SZ" };
+    } // namespace
+
+    std::string_view ToString( ControlLimitChannel channel )
+    {
+        return kLimitChannelNames[static_cast<size_t>( channel )];
+    }
+
+    std::optional<ControlLimitChannel> ControlLimitChannelFromText( std::string_view text )
+    {
+        for ( size_t i = 0; i < kLimitChannelNames.size(); ++i )
+        {
+            if ( kLimitChannelNames[i] == text )
+            {
+                return static_cast<ControlLimitChannel>( i );
+            }
+        }
+        return std::nullopt;
+    }
+
+    BoneTransform ApplyControlLimits( const std::vector<ControlLimit>& limits, const BoneTransform& pose )
+    {
+        if ( limits.empty() )
+        {
+            return pose;
+        }
+        BoneTransform clamped = pose;
+        glm::vec3     euler   = glm::degrees( glm::eulerAngles( pose.Rotation ) );
+        bool          rotated = false;
+        for ( const ControlLimit& limit : limits )
+        {
+            const auto channel = static_cast<uint8_t>( limit.Channel );
+            const auto axis    = static_cast<glm::length_t>( channel % 3 );
+            if ( channel < 3 )
+            {
+                clamped.Translation[axis] = std::clamp( clamped.Translation[axis], limit.Min, limit.Max );
+            }
+            else if ( channel < 6 )
+            {
+                const float inside = std::clamp( euler[axis], limit.Min, limit.Max );
+                rotated            = rotated || inside != euler[axis];
+                euler[axis]        = inside;
+            }
+            else
+            {
+                clamped.Scale[axis] = std::clamp( clamped.Scale[axis], limit.Min, limit.Max );
+            }
+        }
+        // Recomposed ONLY when a rotation limit moved a value: an Euler round trip is not bit-exact, and a
+        // control inside its range must come back as the very quaternion it was given.
+        if ( rotated )
+        {
+            clamped.Rotation = glm::normalize( glm::quat( glm::radians( euler ) ) );
+        }
+        return clamped;
+    }
+
     glm::vec3 ControlSideColor( std::string_view controlName )
     {
         std::string lower( controlName );
@@ -135,6 +196,27 @@ namespace Desert::Animation
                                                          element.Name );
         }
 
+        for ( size_t i = 0; i < element.Limits.size(); ++i )
+        {
+            const ControlLimit& limit = element.Limits[i];
+            if ( !std::isfinite( limit.Min ) || !std::isfinite( limit.Max ) || limit.Min > limit.Max )
+            {
+                return Common::MakeFormattedError<uint32_t>(
+                     "control '{}': limit {} is [{}, {}] — a range must be finite with Min <= Max", element.Name,
+                     ToString( limit.Channel ), limit.Min, limit.Max );
+            }
+            for ( size_t j = 0; j < i; ++j )
+            {
+                if ( element.Limits[j].Channel == limit.Channel )
+                {
+                    return Common::MakeFormattedError<uint32_t>(
+                         "control '{}' limits {} twice; one channel has one range", element.Name,
+                         ToString( limit.Channel ) );
+                }
+            }
+        }
+        element.Pose = ApplyControlLimits( element.Limits, element.Pose );
+
         const auto self = static_cast<uint32_t>( m_Controls.size() );
         for ( const ControlSpace& space : element.Parents )
         {
@@ -235,7 +317,7 @@ namespace Desert::Animation
         {
             return Common::MakeFormattedError<bool>( "control '{}': a non-finite pose", m_Controls[control].Name );
         }
-        m_Controls[control].Pose = pose;
+        m_Controls[control].Pose = ApplyControlLimits( m_Controls[control].Limits, pose );
         Dirty( control );
         return Common::MakeSuccess( true );
     }

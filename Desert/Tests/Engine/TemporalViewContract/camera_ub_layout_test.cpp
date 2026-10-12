@@ -231,3 +231,105 @@ TEST( CameraUBLayout, NothingButMakeCameraUBFillsTheCameraBlock )
     }
     EXPECT_GT( scanned, 100u ) << "the scan found too few sources to mean anything";
 }
+
+// RASTER GEOMETRY IS JITTERED (CameraUB.glslh: "Raster geometry: JitteredViewProjection"). A scene shader that
+// writes gl_Position from the camera's unjittered Projection / View rasterises the same samples every frame, so
+// TAA has nothing to accumulate and TAAU upscales a staircase: exactly what the TAA1-B frame check showed at
+// 604794520 (TAA at 100 % aliased like no AA, TAAU 50 % blocky). Only passes drawn AFTER the temporal resolve may
+// stay unjittered, each named here with the reason. The terrain projects through its push matrix, so its two
+// camera calls are held too.
+TEST( CameraUBLayout, SceneRasterIsJitteredOnlyPostTemporalOverlaysAreNot )
+{
+    namespace fs           = std::filesystem;
+    const fs::path root    = Desert::TestSupport::RepositoryRoot();
+    const fs::path shaders = root / "Editor" / "Resources" / "Shaders";
+    // Not resolved by the temporal pass: drawn after it (Debug phase into TAA.Output) or into a mask TAA never
+    // reads.
+    const std::map<std::string, std::string> postTemporal = {
+         { "Programs/Debug/DebugLine.shader", "editor debug lines: Debug phase, after TAA" },
+         { "Programs/Silhouette/Silhouette.shader", "selection mask for the Jump Flood outline: never temporally "
+                                                    "resolved, unjittered keeps the outline still" },
+         { "Programs/Silhouette/Silhouette_Skinned.shader",
+           "selection mask for the Jump Flood outline: never temporally resolved, unjittered keeps the outline "
+           "still" },
+    };
+    const std::regex unjittered(
+         R"(gl_Position\s*=\s*cameraUB\s*\.\s*(Projection\s*\*\s*cameraUB\s*\.\s*View|ViewProjection)\b)" );
+
+    size_t scanned = 0, jittered = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( shaders ) )
+    {
+        const std::string ext = entry.path().extension().string();
+        if ( !entry.is_regular_file() || ( ext != ".shader" && ext != ".glslh" ) )
+            continue;
+        ++scanned;
+        const std::string rel    = fs::relative( entry.path(), shaders ).generic_string();
+        const std::string source = ReadText( entry.path() );
+        if ( source.find( "cameraUB.JitteredViewProjection" ) != std::string::npos &&
+             source.find( "gl_Position" ) != std::string::npos )
+            ++jittered;
+        if ( postTemporal.count( rel ) != 0 )
+            continue;
+        EXPECT_FALSE( std::regex_search( source, unjittered ) )
+             << rel << " rasterises with the unjittered camera matrix; scene raster uses "
+             << "cameraUB.JitteredViewProjection (only post-temporal overlays are exempt, listed in this test)";
+    }
+    EXPECT_GT( scanned, 50u ) << "the scan found too few shaders to mean anything";
+    EXPECT_GE( jittered, 5u ) << "Vertex_Static/Skinned/Instanced, TextSDF and Overdraw raster jittered";
+
+    const std::string terrain = ReadText( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
+                                          "Systems" / "Scene" / "Terrain" / "TerrainRenderer.cpp" );
+    EXPECT_EQ( terrain.find( "GetProjectionMatrix() * camera->GetViewMatrix()" ), std::string::npos )
+         << "the terrain pushes the unjittered camera matrix; push the view's JitteredViewProjection";
+    EXPECT_NE( terrain.find( "->JitteredViewProjection" ), std::string::npos );
+}
+
+// MATERIAL TEXTURES ARE FETCHED WITH THE VIEW'S MIP BIAS (TAA1-B plan decision 4). Under TAAU at 50 % the
+// render target is half the output, so an implicit-level fetch picks a mip one level blurrier than the output
+// would; SceneViewState sets MaterialMipBias = log2(render / output) (UpscaleBiasesMaterialMipsByTheScale) and
+// the ONE material fetch, SurfaceTypes.glslh SurfaceSampleMaterial, passes it. Every surface template reads its
+// material textures through it, and a surface graph's TextureSample emits it.
+TEST( CameraUBLayout, MaterialTexturesAreFetchedWithTheViewMipBias )
+{
+    namespace fs           = std::filesystem;
+    const fs::path root    = Desert::TestSupport::RepositoryRoot();
+    const fs::path shaders = root / "Editor" / "Resources" / "Shaders";
+    const auto     compact = []( const std::string& text )
+    {
+        std::string out;
+        for ( const char c : text )
+            if ( c != ' ' && c != '\t' && c != '\r' && c != '\n' )
+                out.push_back( c );
+        return out;
+    };
+    const std::string types = compact( ReadText( shaders / "Mesh" / "Surface" / "SurfaceTypes.glslh" ) );
+    EXPECT_NE(
+         types.find( "vec4SurfaceSampleMaterial(sampler2DmaterialTexture,vec2uv){returntexture(materialTexture,uv,"
+                     "cameraUB.MaterialMipBias);}" ),
+         std::string::npos )
+         << "SurfaceSampleMaterial does not pass cameraUB.MaterialMipBias as the texture() bias";
+    EXPECT_NE( types.find( "DecodeTangentNormal(SurfaceSampleMaterial(normalMap,uv).rg)" ), std::string::npos )
+         << "a material normal map is not fetched through SurfaceSampleMaterial";
+
+    std::size_t templates = 0;
+    for ( const auto& entry : fs::directory_iterator( shaders / "Programs" / "Surface" ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        ++templates;
+        const std::string body = compact( ReadText( entry.path() ) );
+        // A material sampler is u_<Name>Texture; textureSize( ..., 0 ) is a size query, not a fetch.
+        static const std::regex direct( R"(texture(Lod)?\(u_\w+Texture,)" );
+        EXPECT_FALSE( std::regex_search( body, direct ) )
+             << entry.path().filename().string()
+             << " fetches a material texture directly instead of through SurfaceSampleMaterial";
+    }
+    EXPECT_GE( templates, 3u );
+
+    const std::string graph =
+         compact( ReadText( root / "Editor" / "Source" / "Editor" / "Panels" / "NodeGraph" / "ShaderGraph.cpp" ) );
+    EXPECT_NE(
+         graph.find( "doc.DomainEnum()==Domain::Surface?std::format(\"vec4{}=SurfaceSampleMaterial({},{});\"" ),
+         std::string::npos )
+         << "a surface graph's TextureSample does not fetch through SurfaceSampleMaterial";
+}

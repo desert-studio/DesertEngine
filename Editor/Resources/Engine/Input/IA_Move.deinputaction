@@ -1,0 +1,12 @@
+{
+    "Header": {
+        "Kind": "InputAction",
+        "Guid": "cc4f358acea646eb8f653102109b9703",
+        "Versions": {
+            "INAC": 1
+        },
+        "Dependencies": []
+    },
+    "ValueType": "Axis2D",
+    "ConsumeInput": true
+}

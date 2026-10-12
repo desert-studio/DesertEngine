@@ -12,8 +12,9 @@
 
 namespace Desert::ECS
 {
-    // Drives the atmosphere sun's transform from the sky's clock, and only while the sky asks for it
-    // (SkyAtmosphereData::DriveSunFromTimeOfDay).
+    // Drives the atmosphere sun's transform from the scene's clock, ECS::TimeOfDayComponent, and only while
+    // the clock asks for it (TimeOfDayData::DriveSunFromTimeOfDay). The clock is its own component, as UE's
+    // SunPosition / SunSky is its own actor: the sky never owns the hour, it reads the light this writes.
     //
     // It writes the LIGHT'S TRANSFORM rather than publishing a direction of its own, because the engine
     // already has exactly one source of truth for where the sun is — the atmosphere sun light — and a
@@ -41,33 +42,33 @@ namespace Desert::ECS
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
                      const Common::Timestep& ts ) override
         {
-            auto atmospheres = registry.view<ECS::SkyAtmosphereComponent>();
-            if ( atmospheres.begin() == atmospheres.end() )
+            auto clocks = registry.view<ECS::TimeOfDayComponent>();
+            if ( clocks.begin() == clocks.end() )
                 return;
 
-            // The same "lowest id wins" rule the sky collector uses, so the clock that drives the sun and
-            // the sky that is drawn are never two different components.
-            std::vector<entt::entity> skyEntities;
-            std::vector<uint64_t>     skyIds;
-            for ( const auto entity : atmospheres )
+            // One clock per scene: the lowest id wins, by the same rule the sky collector picks the primary
+            // sky with, so two clocks never take turns at the same light.
+            std::vector<entt::entity> clockEntities;
+            std::vector<uint64_t>     clockIds;
+            for ( const auto entity : clocks )
             {
-                skyEntities.push_back( entity );
-                skyIds.push_back( EntityId( registry, entity ) );
+                clockEntities.push_back( entity );
+                clockIds.push_back( EntityId( registry, entity ) );
             }
 
-            const auto primarySky = Graphic::SelectPrimarySky( skyIds );
-            if ( !primarySky )
+            const auto primaryClock = Graphic::SelectPrimarySky( clockIds );
+            if ( !primaryClock )
                 return;
 
-            auto& sky = registry.get<ECS::SkyAtmosphereComponent>( skyEntities[*primarySky] );
-            if ( !sky.Data.DriveSunFromTimeOfDay )
+            auto& clock = registry.get<ECS::TimeOfDayComponent>( clockEntities[*primaryClock] ).Data;
+            if ( !clock.DriveSunFromTimeOfDay )
                 return;
 
-            sky.Data.TimeOfDay =
-                 Graphic::AdvanceTimeOfDay( sky.Data.TimeOfDay, ts.GetSeconds(), sky.Data.DayLengthSeconds );
+            clock.TimeOfDay =
+                 Graphic::AdvanceTimeOfDay( clock.TimeOfDay, ts.GetSeconds(), clock.DayLengthSeconds );
 
             const glm::vec3 travel =
-                 Graphic::SunDirectionFromTimeOfDay( sky.Data.TimeOfDay, sky.Data.Latitude, sky.Data.NorthOffset );
+                 Graphic::SunDirectionFromTimeOfDay( clock.TimeOfDay, clock.Latitude, clock.NorthOffset );
 
             const auto sun = FindAtmosphereSun( registry );
             if ( !sun )

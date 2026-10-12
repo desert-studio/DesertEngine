@@ -31,6 +31,9 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <glm/glm.hpp>
 
 #include <array>
 
@@ -184,7 +187,54 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionCollisionProfiles = 42;
 
-    static_assert( kSceneVersionCollisionProfiles == kSceneVersion,
+    //  43 - THE SCENE'S WIND IS A SOURCE (WIND-SRC, UE AWindDirectionalSource). VolumetricCloud.WindDirection /
+    //       WindSpeed are gone; foliage, clouds, cloth and hair read one query, ECS::WindAt, over WindSource
+    //       entities (MigrateWindSourceV42ToV43). A scene whose first ENABLED cloud layer had wind (speed above
+    //       zero, a non-zero direction; missing keys were the old defaults [1, 0, 0] and 3000 cm/s) gains ONE
+    //       directional WindSource record with that direction and speed; a scene with no wind gains nothing. A
+    //       second layer's different wind cannot be kept (one scene, one wind) and is REPORTED. A prefab loses
+    //       the keys and gains no record (a source is the level's, not a prefab's); prefab overrides lose them.
+    inline constexpr int kSceneVersionWindSource = 43;
+
+    //  44 - TIME OF DAY IS ITS OWN COMPONENT (TOD-SPLIT), as UE's SunPosition / SunSky is its own actor. The
+    //       five clock keys a SkyAtmosphere block stated (DriveSunFromTimeOfDay, TimeOfDay, DayLengthSeconds,
+    //       Latitude, NorthOffset) leave the sky and become a TimeOfDay block on the SAME record
+    //       (MigrateTimeOfDayComponentV43ToV44); a sky that stated none of them gets no clock, which is what
+    //       it had (the old default did not drive the sun). A prefab override that states one of them on a
+    //       SkyAtmosphere is refused by name: the override restates part of a block that no longer holds the
+    //       key. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionTimeOfDayComponent = 44;
+
+    //  45 - THE GAME MODE HAS ITS RULES (GP3, UE AGameModeBase PlayerControllerClass + the respawn). SceneSettings
+    //       gains PlayerController (a prefab handle, unset) and RespawnDelay (seconds, the struct's default)
+    //       right after DefaultPawn, where the saver writes them (MigrateGameModeSettingsV44ToV45); a key the
+    //       file already states is kept. Scene-only: a prefab has no settings block and gains only the stamp.
+    inline constexpr int kSceneVersionGameModeSettings = 45;
+
+    //  46 - A SOUND IS AN ASSET (SOUND-ASSET, UE's USoundWave). AudioSource.Clip, an audio FILE path, becomes
+    //       AudioSource.Sound {Guid, Path}: the `.desound` beside that file whose Source names it. Every
+    //       sequence an UIAnim block hosts has each Audio section's Sound path replaced by that GUID, and is
+    //       rewritten by the TMLN writer (which lists the sound in the sequence header's Dependencies). An
+    //       audio file with no `.desound` beside it refuses the file by name — create the asset first.
+    //       (MigrateSoundRefsV45ToV46.) Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSoundAssets = 46;
+
+    //  47 - A PARTICLE SPRITE COMPOSITES BY ITS MATERIAL (VFX-08). ParticleEmitter.Blend (0 Additive, 1
+    //  AlphaBlend,
+    //       missing = AlphaBlend) is removed: how a sprite composites is the blend mode of the material it draws
+    //       with (UE BLEND_Additive), and ParticleEmitter.Material names that material (empty = the engine's
+    //       translucent sprite template ParticleSpriteDefault). MigrateParticleSpriteMaterialsV46ToV47: an
+    //       Additive emitter that names no material gets the shipped additive one (kParticleAdditiveMaterial*);
+    //       an AlphaBlend one stays empty. Prefab overrides alike (an override stating AlphaBlend just loses the
+    //       key, counted). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleSpriteMaterial = 47;
+
+    // The engine's additive particle sprite material: Editor/Resources/Engine/Materials/M_ParticleAdditive.demat.
+    inline constexpr const char* kParticleAdditiveMaterialGuid = "6f2b9c41d8e04a57b3a1c0e9f5d27b86";
+    inline constexpr const char* kParticleAdditiveMaterialPath =
+         "engine:Engine/Materials/M_ParticleAdditive.demat";
+
+    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -227,6 +277,9 @@ namespace Desert::Migration
     // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
     // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
+    // MigrateGameModeSettingsV44ToV45: the number of keys it added to the scene's settings block (0..2).
+    int MigrateGameModeSettingsV44ToV45( SceneSerialized& scene );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -271,6 +324,21 @@ namespace Desert::Migration
     // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
     PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateWindSourceV42ToV43 did to one file.
+    struct WindSourceReport
+    {
+        std::size_t CloudWinds       = 0;     // cloud blocks whose WindDirection / WindSpeed were taken out
+        bool        Created          = false; // a WindSource record was added (scenes only)
+        std::size_t Disagreeing      = 0;     // further cloud layers whose wind differed from the one kept
+        std::size_t OverridesDropped = 0;     // wind keys taken out of prefab overrides
+    };
+
+    // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
+    // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
+    // re-run states the same identity. PURE.
+    WindSourceReport MigrateWindSourceV42ToV43( std::vector<Assets::EntityData>& entities,
+                                                const std::string& fileName, bool createSource );
+
     // What MigrateUIAnimationsV40ToV41 did to one file.
     struct UIAnimationsReport
     {
@@ -294,6 +362,111 @@ namespace Desert::Migration
     // States CollisionProfile on every RigidBody / CharacterController block under the rule
     // kSceneVersionCollisionProfiles states. PURE.
     CollisionProfilesReport MigrateCollisionProfilesV41ToV42( std::vector<Assets::EntityData>& entities );
+    // What MigrateSoundRefsV45ToV46 did to one file.
+    struct SoundRefsReport
+    {
+        std::size_t              Sources  = 0; // AudioSource blocks whose Clip became a Sound reference
+        std::size_t              Sections = 0; // sequence Audio sections whose Sound path became a GUID
+        std::vector<std::string> Refused;      // one line per reference with no `.desound`; nothing written
+    };
+
+    // The `.desound` whose Source names the audio file @p audioFile (absolute): searched beside it, the way
+    // UE keeps the imported source beside its asset. Refuses none and more than one, by name.
+    Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
+    SoundForAudioFile( const std::filesystem::path& audioFile );
+
+    // Raises AudioSource.Clip and every hosted sequence's Audio Sound path to GUID references under the rule
+    // kSceneVersionSoundAssets states. Paths are relative to @p assetsRoot (or absolute). Reads `.desound`s.
+    SoundRefsReport MigrateSoundRefsV45ToV46( std::vector<Assets::EntityData>& entities,
+                                              const std::filesystem::path&     assetsRoot );
+
+    // What MigrateTimeOfDayComponentV43ToV44 did to one file.
+    struct TimeOfDayComponentReport
+    {
+        std::size_t              Clocks    = 0; // TimeOfDay blocks created from a sky's clock keys
+        std::size_t              KeysMoved = 0; // clock keys taken out of SkyAtmosphere blocks
+        std::vector<std::string> Refused;       // one line per record or override that could not move
+    };
+
+    // Moves the five clock keys of every record's SkyAtmosphere block into a TimeOfDay block on the same
+    // record under the rule kSceneVersionTimeOfDayComponent states; refuses a clock key in a prefab
+    // override. PURE.
+    TimeOfDayComponentReport MigrateTimeOfDayComponentV43ToV44( std::vector<Assets::EntityData>& entities );
+    // What MigrateParticleSpriteMaterialsV46ToV47 did to one file.
+    struct ParticleSpriteMaterialsReport
+    {
+        std::size_t Emitters          = 0; // ParticleEmitter blocks on the file's own records
+        std::size_t MovedToAdditive   = 0; // Blend Additive -> Material = the shipped additive material
+        std::size_t OverridesAdditive = 0; // the same, in prefab overrides
+        std::size_t OverridesDropped  = 0; // prefab overrides that stated Blend AlphaBlend: the key goes
+    };
+
+    // Removes ParticleEmitter.Blend under the rule kSceneVersionParticleSpriteMaterial states. PURE.
+    ParticleSpriteMaterialsReport
+    MigrateParticleSpriteMaterialsV46ToV47( std::vector<Assets::EntityData>& entities );
+
+    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
+    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
+    // earlier, the loader's migration would turn every emitter into a block nothing draws).
+    //
+    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
+    // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
+    // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
+    // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
+    // System seed 0: VFXWorld seeds an emitter from (system seed, entity uuid, emitter index), and the old
+    // component's seed was (0, uuid, 0), so every random stream stays the same.
+    inline constexpr const char* kVFXConvertedCategory = "Converted";
+
+    // The v43 ParticleEmitter block's numbers, member for member, with ECS::ParticleEmitterData's v43 defaults
+    // (an absent key meant the default); frozen here because the component is deleted.
+    struct ParticleEmitterV43
+    {
+        bool                 Enabled          = true;
+        int                  MaxParticles     = 2000;
+        float                SpawnRate        = 200.0f;
+        bool                 Looping          = true;
+        bool                 WorldSpace       = true;
+        float                Lifetime         = 3.0f;
+        float                LifetimeVariance = 0.2f;
+        float                StartSpeed       = 200.0f;
+        float                SpeedVariance    = 0.3f;
+        glm::vec3            Direction        = glm::vec3( 0.0f, 1.0f, 0.0f );
+        float                ConeAngle        = 45.0f;
+        glm::vec3            Gravity          = glm::vec3( 0.0f, -200.0f, 0.0f );
+        float                StartSize        = 25.0f;
+        float                SizeCurvePower   = 1.0f;
+        float                EndSize          = 6.0f;
+        glm::vec3            StartColor       = glm::vec3( 1.0f, 0.6f, 0.15f );
+        glm::vec3            EndColor         = glm::vec3( 0.6f, 0.1f, 0.0f );
+        float                StartAlpha       = 1.0f;
+        float                EndAlpha         = 0.0f;
+        Assets::AssetGuidRef Material; ///< empty = the default sprite template
+    };
+
+    // Reads a ParticleEmitter block; a key of the wrong type is an error naming it.
+    Common::ResultStr<ParticleEmitterV43> ReadParticleEmitterV43( const rfl::Generic::Object& block );
+
+    // The size-over-life curve's key count when SizeCurvePower != 1 (Linear keys on t^power, so the curve is
+    // exact at every key; between keys it is the chord, error <= range * max|f''| / (8 * segments^2)).
+    inline constexpr int kVFXConvertedSizeSegments = 16;
+
+    // The system the emitter becomes (no header: the caller stamps it). Material: see REMAINDER-VFX-03 (the
+    // `.dfx` sprite renderer gains its Material in VFXS 2).
+    Assets::Serialization::VFXSystemData VFXSystemFromParticleEmitter( const ParticleEmitterV43& emitter );
+
+    struct ParticleEmittersToVFXReport
+    {
+        std::size_t Emitters = 0; // ParticleEmitter blocks on the file's own records, now VFX blocks
+        std::size_t Shared   = 0; // of those, how many reuse a file an earlier identical emitter minted
+        std::vector<std::pair<std::filesystem::path, std::string>> NewSystems; // absolute path, canonical text
+        // A prefab override stating ParticleEmitter keys (a partial block over the prefab's emitter, which this
+        // file does not hold) or an unreadable block: the whole file is refused, naming each.
+        std::vector<std::string> Refused;
+    };
+
+    ParticleEmittersToVFXReport MigrateParticleEmittersToVFX( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -351,10 +524,11 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
-    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
-    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
-    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
+    // The SKEL 4 text of a SKEL 1, 2 or 3 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3);
+    // Sockets and BoneMasks stated empty (SKEL 4, ANIM-FIX5a: no earlier generation had either). A file that does
+    // not state SKEL 1, 2 or 3 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV4( const std::string& text );
 
     // The ANGR 3 text of an ANGR 2 `.danimgraph`: everything kept, the Output Pose node of the graph and of every
     // implemented layer graph placed where the v2 editor drew it (Animation::Graph::DefaultOutputPosePosition:
@@ -373,13 +547,20 @@ namespace Desert::Migration
     Common::ResultStr<TargetSkeletonRig> ReadTargetSkeletonRig( const std::filesystem::path& path,
                                                                 const std::string&           text );
 
-    // ANGR 3 -> 4, CRIG 2 -> 3, RTGT 3 -> 4 (ANIM-SKELREF): the file gains TargetSkeleton {Guid, Path} - the one
+    // ANGR 3 -> 4, CRIG 2 -> 3 (then -> 4 by MigrateControlRigToV4), RTGT 3 -> 4 (ANIM-SKELREF): the file gains
+    // TargetSkeleton {Guid, Path} - the one
     // rig of @p rigs the file's own statements fit: every bone name it states of its target (keys "Bone",
     // "BoneName",
     // "*Bone", a Kind "Bone" space's "Target"; never under a "Source*" key) is a bone of the rig, and every clip
     // it plays ("Clip", matched by name in @p clipRigs: clip Name -> its Skeleton GUID) is authored on it. No
     // evidence, or not exactly one fitting rig, is an error naming the candidates. The result is re-read and
     // re-written by the engine's own reader/writer of the kind. @p tag is "ANGR", "CRIG" or "RTGT". PURE.
+    // CRIG 3 -> 4 (ANIM-FIX11): the old `Graph` becomes `Graphs[{Event "Forwards"}]`, each of its nodes gets the
+    // `Position` the rig canvas used to invent for node i — (40 + 260 * (i % 4), 40 + 180 * (i / 4)) — and every
+    // control without `Limits` gets an empty one. Re-read and re-written by the engine's own .derig reader and
+    // writer. PURE.
+    Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text );
+
     Common::ResultStr<std::string>
     StateTargetSkeleton( const std::string& text, const std::string& tag,
                          const std::vector<TargetSkeletonRig>&               rigs,
@@ -432,6 +613,12 @@ namespace Desert::Migration
     // what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text );
 
+    // The v8 text of a v7 `.defoliage`: every v7 value kept except Wind.DirectionDegrees, which leaves (the
+    // direction is the scene's WindSource, read through ECS::WindAt; the type keeps Strength, Speed, Height),
+    // the header's GUID kept. A file that does not state FOLT 7 is an error naming what it states. PURE - no
+    // filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV7ToV8( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport
@@ -483,6 +670,17 @@ namespace Desert::Migration
 
         bool                    CollisionProfilesRaised = false; // below kSceneVersionCollisionProfiles
         CollisionProfilesReport CollisionProfiles;
+        bool                     WindSourceRaised = false; // below kSceneVersionWindSource
+        WindSourceReport         WindSource;
+        bool                     TimeOfDayComponentRaised = false; // below kSceneVersionTimeOfDayComponent
+        TimeOfDayComponentReport TimeOfDayComponent;
+        bool                     GameModeSettingsRaised = false; // below kSceneVersionGameModeSettings
+        int                      GameModeKeysAdded      = 0;
+        bool                     SoundRefsRaised        = false; // below kSceneVersionSoundAssets
+        SoundRefsReport          SoundRefs;
+
+        bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
+        ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -493,7 +691,9 @@ namespace Desert::Migration
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
+                   WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
+                   ParticleSpriteMaterialsRaised;
         }
     };
 

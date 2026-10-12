@@ -3,13 +3,14 @@
 // spans are deliberately uneven (a parameter-based reveal would fail the half); and the stroke the draw
 // list emits for it reaches exactly as far as the revealed prefix, with a fringe that fades to nothing.
 
-#include <Engine/Graphic/Render2D/DrawList2D.hpp>
-#include <Engine/UI/UIPathGeometry.hpp>
+#include <Render2DCore/DrawList2D.hpp>
+#include <UI/UIPathGeometry.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <vector>
+#include <cstdint>
 
 using namespace Desert;
 

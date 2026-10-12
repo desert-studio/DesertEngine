@@ -28,13 +28,15 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view ReleaseCall;
     };
 
-    inline constexpr std::array<ComponentHandleRow, 3> kComponentHandles{ {
+    inline constexpr std::array<ComponentHandleRow, 4> kComponentHandles{ {
          { "RigidBodyComponent", "RuntimeBody", "Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp",
            "RemoveBody" },
          { "CharacterControllerComponent", "RuntimeCharacter",
            "Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp", "RemoveCharacter" },
          { "DestructibleComponent", "RuntimeObject",
            "Desert/Desert/Source/Engine/ECS/System/DestructibleLifetime.cpp", "m_World->Remove" },
+         { "RagdollComponent", "RuntimeRagdoll", "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp",
+           "RemoveRagdoll" },
     } };
 
     // How a system-side table keyed by entity drops the rows of destroyed entities.
@@ -60,47 +62,47 @@ namespace Desert::Tests::RuntimeHandles
     };
 
     inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
+         { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp", "m_Live", Release::Listener,
+           "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp", "on_destroy<RagdollComponent>().connect",
+           "RAG1b: the ragdoll's description and rig signature; OnRagdollDestroyed releases the ragdoll and its "
+           "row" },
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
          { "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp", "m_Sources", Release::Sweep,
            "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp", "!registry.valid( it->first )",
            "per-frame sweep destroys the miniaudio source" },
-         { "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp", "m_BoneRefs", Release::Listener,
+         { "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp", "m_Resolved", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp",
            "on_destroy<SocketAttachmentComponent>().connect", "WP6: was erased by nothing" },
-         { "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp", "m_RefRig", Release::Listener,
-           "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp",
-           "on_destroy<SocketAttachmentComponent>().connect", "WP6: was erased by nothing" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases", Release::Sweep,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "tree.Valid( it->first )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases", Release::Sweep,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "tree.Valid( it->first )",
            "RetireDeadCanvases, once per frame" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "HoverT", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "HoverT", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-element float inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TweenT", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "TweenT", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-element float inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TweenSeen", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "TweenSeen", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-element counter inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TextEdit", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "TextEdit", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-input-field caret / selection / undo inside a canvas's context; goes when the canvas does" },
-         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "DropdownHighlight", Release::Sweep,
-           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "DropdownHighlight", Release::Sweep,
+           "Desert/UI/Source/UI/UICanvasContext.hpp",
            "std::erase_if( DropdownHighlight, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
            "view-level keyboard highlight of an open dropdown; RetireDeadCanvases drops rows of dead entities "
            "once per frame (a dropdown destroyed while open never reaches Dropdown.cpp's close erase)" },
-         { "Desert/Desert/Source/Engine/UI/UIFocus.hpp", "Restore", Release::Sweep,
-           "Desert/Desert/Source/Engine/UI/UIFocus.cpp",
+         { "Desert/UI/Source/UI/UIFocus.hpp", "Restore", Release::Sweep, "Desert/UI/Source/UI/UIFocus.cpp",
            "std::erase_if( memory.Restore, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } )",
            "scope -> last focused control; the per-frame focus update drops scopes whose entity is gone" },
-         { "Desert/Desert/Source/Engine/UI/UIWalkCtx.hpp", "MaskOf", Release::OwnerRetired,
-           "Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp",
+         { "Desert/UI/Source/UI/UIWalkCtx.hpp", "MaskOf", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasRenderer2D.cpp",
            "WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };",
            "retainer -> mask element, rebuilt inside the stack-local walk context of one canvas draw; it dies "
            "with the walk, so no entity outlives a frame in it" },
@@ -131,10 +133,11 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", "m_Emitters",
-           Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Emitters",
+           Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
            "RetireDestroyedEmitters( m_Emitters, reg )",
-           "the emitter's particle/step buffers and billboard material; PrepareFrame drops emitters whose entity "
+           "the emitter's step/counter/dispatch buffers in the scene's pool; PrepareTick drops emitters whose "
+           "entity "
            "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
            "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
     } };

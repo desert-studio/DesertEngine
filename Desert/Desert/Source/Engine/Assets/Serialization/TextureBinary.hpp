@@ -286,6 +286,13 @@ namespace Desert::Assets::Serialization
         /// changed `.detex` re-cooks.
         Core::Formats::TextureIntent Intent = Core::Formats::TextureIntent::Unspecified;
 
+        /// THE COLOUR SPACE THE STORED VALUES ARE IN (UE UTexture::SRGB), a record of the authored
+        /// `TextureImportSettings::ColorSpace` like `Intent` above. Travels as header `Flags` bit 0
+        /// (`kTextureFlagSRGB`); every file written before it has 0 there and is Linear, which is what
+        /// those files' values were sampled as. SRGB is valid only for a format with an sRGB view
+        /// (`Core::Formats::HasSRGBVariant`) and the decoder refuses any other pairing.
+        Core::Formats::TextureColorSpace ColorSpace = Core::Formats::TextureColorSpace::Linear;
+
         /// THE SETTINGS THAT PRODUCED THESE PIXELS, or 0 for "none were recorded". It is not how the
         /// bytes are packed — that is the per-level `Codec` — and it is not which file they came from
         /// — that is `SourceContentHash`. It answers the third question a derived asset has: WAS THIS
@@ -332,6 +339,8 @@ namespace Desert::Assets::Serialization
         TextureKind                Kind              = TextureKind::Texture2D;
         /// The authored intent this file was cooked for. See `TextureAssetData::Intent`.
         Core::Formats::TextureIntent Intent = Core::Formats::TextureIntent::Unspecified;
+        /// See `TextureAssetData::ColorSpace`.
+        Core::Formats::TextureColorSpace ColorSpace = Core::Formats::TextureColorSpace::Linear;
         /// Sum of the DECODED level sizes — how big the staging buffer has to be. Padding excluded.
         uint64_t PayloadBytes = 0;
         /// Sum of the STORED level sizes — how many bytes of this file are pixels. Equal to
@@ -409,24 +418,22 @@ namespace Desert::Assets::Serialization
     /// operation the `vkCmdBlitImage` chain it replaces performed with `VK_FILTER_LINEAR` at exactly
     /// half scale, so the pixels this produces are the pixels the GPU was producing.
     ///
-    /// IT FILTERS IN THE STORED VALUES, NOT IN LINEAR LIGHT, and that is a decision rather than an
-    /// oversight: the blit chain filtered in the image's own UNORM values too, and a gamma-correct
-    /// downsample would change every minified texel in every frame on the day mips moved into the file.
-    /// Correct mip generation for sRGB content belongs with an authored colour-space marking, and the
-    /// citation here used to be wrong twice over: it named `PROGRAMME.md` §5 STEP 4, which is the
-    /// ENCODER (§5's order is mips-in-file, block model, authored field, encoder — the field is step
-    /// 3), and step 3 has since landed as `Core/Formats/TextureIntent.hpp` WITHOUT an sRGB bit. That
-    /// was deliberate: colour space has its own consumer (the sampler's view format) and its own
-    /// migration, and folding it into an intent would make one field answer two questions. So this
-    /// filter still works in stored values, and what it waits for is a marking that does not exist
-    /// yet rather than a step that has already happened.
+    /// IT FILTERS IN LINEAR LIGHT. For @p space == SRGB (RGBA8F only) each 2x2 block's colour channels
+    /// are decoded sRGB -> linear, averaged, and re-encoded; alpha is linear coverage and is averaged as
+    /// stored (UE's mip generation does the same for an SRGB texture). A Linear image is averaged in its
+    /// stored values, which ARE linear. Averaging sRGB bytes directly darkens every minified texel, so
+    /// the colour space is an input of the chain and not a property applied after it.
     ///
     /// An odd extent halves DOWN (`max(1, n/2)`, the Vulkan chain rule) and the filter averages the
     /// 2x2 block clamped to the source, so the last row or column of an odd level is not dropped.
     /// @p base must hold exactly `width * height * GetBytesPerPixel(format)` bytes.
     [[nodiscard]] Common::ResultStr<std::vector<TextureLevel>>
     BuildMipChain( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
-                   const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut );
+                   const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut,
+                   Core::Formats::TextureColorSpace space = Core::Formats::TextureColorSpace::Linear );
+
+    /// Header `Flags` bit 0: the stored values are sRGB (`TextureAssetData::ColorSpace`). No other bit is defined.
+    inline constexpr uint32_t kTextureFlagSRGB = 1u;
 
     /// What the cook may do to the levels on the way out. The default is what the cooker uses.
     struct TextureEncodeOptions

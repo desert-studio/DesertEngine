@@ -32,10 +32,8 @@ namespace Desert::Editor
     private:
         // AnimGraph (Phase 4) authoring UI: parameters (with live value controls), states (name/clip/loop/speed
         // + entry), and per-state transitions (target + blend + exit-time + parameter conditions).
-        // @p entity is here for ONE reason: the "Open in Anim Graph" button opens a DOCUMENT, and a
-        // document is asked for by subject — AnimGraphPanel::SubjectFor( the entity's UUID ). The old
-        // button called a static RequestOpen() that meant "reveal the one Anim Graph window", which is all
-        // there was to say while the panel was a singleton.
+        // @p entity names a graph created from here (its tag). The "Open in Anim Graph" button opens a
+        // DOCUMENT, asked for by subject — AnimGraphPanel::SubjectFor( the slot's `.danimgraph` handle ).
         void RenderAnimGraph( ECS::Entity& entity, ECS::AnimationComponent& animation,
                               const std::vector<Assets::Asset<Assets::AnimationAsset>>& clips );
 

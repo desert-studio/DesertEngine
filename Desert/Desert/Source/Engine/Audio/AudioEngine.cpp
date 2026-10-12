@@ -1,10 +1,14 @@
 #include "AudioEngine.hpp"
+#include "AudioMix.hpp"
+
+#include <algorithm>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <miniaudio/miniaudio.h>
 
+#include <array>
 #include <filesystem>
 #include <unordered_map>
 #include <vector>
@@ -50,12 +54,23 @@ namespace Desert::Audio
         ma_engine Engine{};
         bool      Initialized = false;
         bool      InitFailed  = false;
+        // One group per SoundClass, each sound is created INTO its class's group; AudioMix's class volume is
+        // the group's volume and its master the engine's (PushMix).
+        std::array<ma_sound_group, kSoundClassCount> Groups{};
+
+        void PushMix()
+        {
+            const AudioMix& mix = AudioMix::Get();
+            ma_engine_set_volume( &Engine, mix.MasterVolume() );
+            for ( std::size_t i = 0; i < kSoundClassCount; ++i )
+                ma_sound_group_set_volume( &Groups[i], mix.ClassVolume( static_cast<SoundClass>( i ) ) );
+        }
 
         uint32_t                                            NextId = 1;
         std::unordered_map<uint32_t, std::unique_ptr<Sound>> Sounds;
 
-        std::unique_ptr<Sound> LoadSound( const std::string& clipPath, bool loop, bool spatial,
-                                          float volume )
+        std::unique_ptr<Sound> LoadSound( const std::string& clipPath, SoundClass soundClass, bool loop,
+                                          bool spatial, float volume )
         {
             const auto path = ResolveClipPath( clipPath );
             if ( path.empty() )
@@ -79,7 +94,8 @@ namespace Desert::Audio
             sound->DecoderReady = true;
 
             const ma_uint32 flags = spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION;
-            if ( ma_sound_init_from_data_source( &Engine, &sound->Decoder, flags, nullptr,
+            if ( ma_sound_init_from_data_source( &Engine, &sound->Decoder, flags,
+                                                 &Groups[static_cast<std::size_t>( soundClass )],
                                                  &sound->Handle ) != MA_SUCCESS )
             {
                 LOG_WARN( "[Audio] Failed to create sound: {}", clipPath );
@@ -105,9 +121,19 @@ namespace Desert::Audio
 
     AudioEngine::~AudioEngine()
     {
-        m_Impl->Sounds.clear(); // sounds must die before the engine
+        m_Impl->Sounds.clear(); // sounds must die before their groups, the groups before the engine
         if ( m_Impl->Initialized )
+        {
+            AudioMix::Get().SetListener( {} );
+            for ( ma_sound_group& group : m_Impl->Groups )
+                ma_sound_group_uninit( &group );
             ma_engine_uninit( &m_Impl->Engine );
+        }
+    }
+
+    ma_sound* AudioEngine::GetClassGroup( SoundClass soundClass )
+    {
+        return EnsureInitialized() ? &m_Impl->Groups[static_cast<std::size_t>( soundClass )] : nullptr;
     }
 
     ma_engine* AudioEngine::GetNativeEngine()
@@ -131,7 +157,22 @@ namespace Desert::Audio
         }
         LOG_INFO( "[Audio] miniaudio engine initialized ({} Hz)",
                   ma_engine_get_sample_rate( &m_Impl->Engine ) );
+        for ( std::size_t i = 0; i < kSoundClassCount; ++i )
+        {
+            if ( ma_sound_group_init( &m_Impl->Engine, 0, nullptr, &m_Impl->Groups[i] ) != MA_SUCCESS )
+            {
+                LOG_ERROR( "[Audio] the sound group of class {} was not created — sound disabled", i );
+                for ( std::size_t made = 0; made < i; ++made )
+                    ma_sound_group_uninit( &m_Impl->Groups[made] );
+                ma_engine_uninit( &m_Impl->Engine );
+                m_Impl->InitFailed = true;
+                return false;
+            }
+        }
         m_Impl->Initialized = true;
+        // The mix the player set before there was a device is the one it starts with; later changes follow.
+        m_Impl->PushMix();
+        AudioMix::Get().SetListener( [impl = m_Impl.get()] { impl->PushMix(); } );
         return true;
     }
 
@@ -145,11 +186,11 @@ namespace Desert::Audio
         ma_engine_listener_set_world_up( &m_Impl->Engine, 0, up.x, up.y, up.z );
     }
 
-    void AudioEngine::PlayOneShot( const std::string& clipPath, float volume )
+    void AudioEngine::PlayOneShot( const std::string& clipPath, SoundClass soundClass, float volume )
     {
         if ( !EnsureInitialized() )
             return;
-        auto sound = m_Impl->LoadSound( clipPath, /*loop=*/false, /*spatial=*/false, volume );
+        auto sound = m_Impl->LoadSound( clipPath, soundClass, /*loop=*/false, /*spatial=*/false, volume );
         if ( !sound )
             return;
         sound->OneShot = true;
@@ -157,12 +198,12 @@ namespace Desert::Audio
         m_Impl->Sounds.emplace( m_Impl->NextId++, std::move( sound ) );
     }
 
-    uint32_t AudioEngine::CreateSource( const std::string& clipPath, bool loop, bool spatial,
-                                        float volume )
+    uint32_t AudioEngine::CreateSource( const std::string& clipPath, SoundClass soundClass, bool loop,
+                                        bool spatial, float volume )
     {
         if ( !EnsureInitialized() )
             return 0;
-        auto sound = m_Impl->LoadSound( clipPath, loop, spatial, volume );
+        auto sound = m_Impl->LoadSound( clipPath, soundClass, loop, spatial, volume );
         if ( !sound )
             return 0;
         const uint32_t id = m_Impl->NextId++;
@@ -192,6 +233,20 @@ namespace Desert::Audio
         if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
             return ma_sound_is_playing( &it->second->Handle ) == MA_TRUE;
         return false;
+    }
+
+    void AudioEngine::SeekSource( uint32_t id, double seconds )
+    {
+        auto it = m_Impl->Sounds.find( id );
+        if ( it == m_Impl->Sounds.end() )
+            return;
+        ma_uint32 sampleRate = 0;
+        if ( ma_sound_get_data_format( &it->second->Handle, nullptr, nullptr, &sampleRate, nullptr, 0 ) !=
+                  MA_SUCCESS ||
+             sampleRate == 0 )
+            return;
+        const double frame = std::max( seconds, 0.0 ) * static_cast<double>( sampleRate );
+        ma_sound_seek_to_pcm_frame( &it->second->Handle, static_cast<ma_uint64>( frame ) );
     }
 
     void AudioEngine::SetSourcePosition( uint32_t id, const glm::vec3& position )

@@ -57,11 +57,12 @@ namespace Desert::Editor
         if ( m_LayerGraph )
         {
             if ( G::AnimLayerGraph* layer = FindLayerGraph( graph, m_LayerGraph->first, m_LayerGraph->second ) )
-                return { layer->Nodes, layer->OutputPose, layer->OutputPoseX, layer->OutputPoseY,
-                         G::GraphScope::Layer };
+                return { layer->Nodes,       layer->OutputPose, layer->OutputPoseX,
+                         layer->OutputPoseY, layer->Comments,   G::GraphScope::Layer };
             ShowPoseGraph( std::nullopt ); // the layer is gone (renamed, undone): back to the AnimGraph
         }
-        return { graph.Nodes, graph.OutputPose, graph.OutputPoseX, graph.OutputPoseY, G::GraphScope::Host };
+        return { graph.Nodes,       graph.OutputPose, graph.OutputPoseX,
+                 graph.OutputPoseY, graph.Comments,   G::GraphScope::Host };
     }
 
     G::StateMachine* AnimGraphPanel::ResolveMachine( G::AnimGraph& graph )
@@ -82,7 +83,9 @@ namespace Desert::Editor
         if ( m_LayerGraph != layer )
         {
             m_PoseIds = Graph::ElementIdMap{};
+            m_PoseCommentIds = Graph::ElementIdMap{};
             m_Ids     = Graph::ElementIdMap{};
+            m_CommentIds     = Graph::ElementIdMap{};
             m_SelectedPoseNode.clear();
             m_MachineNode.clear();
             m_PoseFrameAll = Graph::DeferredFrameAll{};
@@ -96,6 +99,7 @@ namespace Desert::Editor
         if ( m_MachineNode != node )
         {
             m_Ids      = Graph::ElementIdMap{};
+            m_CommentIds = Graph::ElementIdMap{};
             m_FrameAll = Graph::DeferredFrameAll{};
         }
         m_MachineNode    = node;
@@ -228,6 +232,8 @@ namespace Desert::Editor
         ed::SetCurrentEditor( m_PoseContext );
         ed::Begin( "##poseGraph", canvasSize );
 
+        dirty |= DrawCommentLayer( target.Comments, m_PoseCommentIds, "##renamePoseComment" );
+
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             G::PoseNode&              node    = nodes[i];
@@ -241,6 +247,8 @@ namespace Desert::Editor
             if ( node.Sequence )
                 ImGui::TextDisabled( "%s",
                                      node.Sequence->Clip.empty() ? "<no clip>" : node.Sequence->Clip.c_str() );
+            if ( node.BlendSpace )
+                ImGui::TextDisabled( "%zu samples", node.BlendSpace->Samples.size() );
             if ( node.LinkedLayer )
                 ImGui::TextDisabled( "%s.%s", node.LinkedLayer->Interface.c_str(),
                                      node.LinkedLayer->Layer.c_str() );
@@ -348,6 +356,13 @@ namespace Desert::Editor
             ed::NodeId deletedNode;
             while ( ed::QueryDeletedNode( &deletedNode ) )
             {
+                if ( Graph::KindOf( static_cast<Graph::ElementId>( deletedNode.Get() ) ) ==
+                     Graph::ElementKind::Comment )
+                {
+                    if ( ed::AcceptDeletedItem() )
+                        dirty |= RemoveDeletedComment( target.Comments, m_PoseCommentIds, deletedNode.Get() );
+                    continue;
+                }
                 const int index =
                      Graph::PoseNodeOf( m_PoseCanvas, static_cast<Graph::ElementId>( deletedNode.Get() ) );
                 if ( index < 0 )
@@ -431,6 +446,7 @@ namespace Desert::Editor
                     AddPoseNode( kind, m_PoseMenuAt );
             ImGui::EndPopup();
         }
+        DrawFind( m_PoseFind, m_PoseCanvas.Plan );
         ed::Resume();
 
         ed::End();
@@ -514,6 +530,53 @@ namespace Desert::Editor
                 ImGui::EndCombo();
             }
             dirty |= ImGui::Checkbox( "Loop", &node.Sequence->Loop );
+        }
+
+        if ( node.BlendSpace )
+        {
+            // A thin view over the payload: the plan (PlanPoseGraph) states what is wrong with an edit, e.g.
+            // samples out of order; the axis is the X pin, bound below like any parameter pin.
+            G::BlendSpace1DNode& space = *node.BlendSpace;
+            ImGui::TextUnformatted( "Blend Space 1D samples (axis = X pin)" );
+            int removed = -1;
+            for ( size_t s = 0; s < space.Samples.size(); ++s )
+            {
+                G::BlendSample& sample = space.Samples[s];
+                ImGui::PushID( static_cast<int>( s ) );
+                ImGui::SetNextItemWidth( 140.0f );
+                if ( ImGui::BeginCombo( "##sampleClip", sample.Clip.empty() ? "<no clip>" : sample.Clip.c_str() ) )
+                {
+                    for ( const std::string& clip : clipNames )
+                        if ( ImGui::Selectable( clip.c_str(), clip == sample.Clip ) )
+                        {
+                            sample.Clip = clip;
+                            dirty       = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth( 90.0f );
+                dirty |= ImGui::DragFloat( "##sampleValue", &sample.Value, 1.0f );
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "x" ) )
+                    removed = static_cast<int>( s );
+                ImGui::PopID();
+            }
+            if ( removed >= 0 )
+            {
+                space.Samples.erase( space.Samples.begin() + removed );
+                dirty = true;
+            }
+            if ( ImGui::Button( "Add Sample" ) )
+            {
+                const float next = space.Samples.empty() ? 0.0f : space.Samples.back().Value + 100.0f;
+                space.Samples.push_back(
+                     G::BlendSample{ space.Samples.empty() ? std::string() : space.Samples.back().Clip, next } );
+                dirty = true;
+            }
+            dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpaceAxisPin ) );
+            dirty |= ImGui::DragFloat( "Weight Speed (/s, 0 = none)", &space.WeightSpeed, 0.1f, 0.0f, 100.0f );
+            dirty |= ImGui::Checkbox( "Loop##blendSpace", &space.Loop );
         }
 
         if ( node.LayeredBlend )

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <string>
 #include <vector>
 
@@ -24,4 +26,18 @@ namespace Desert::Scripting
         bool         Bool   = false;
         std::string  Str;
     };
+
+    // The names a script marks SaveGame - UE's SaveGame flag on a Blueprint variable. Declared in the script
+    // beside its `Properties` table, by name:
+    //
+    //     Properties         = { Score = 0, Coins = 0, WalkSpeed = 300 }
+    //     SaveGameProperties = { "Score", "Coins" }
+    //
+    // A SaveGame property is game state, not tuning: what the running script writes to `Properties.<name>` is
+    // read back into its slot (ScriptEngine::ReadBackProperties) and a save game stores it per entity UUID +
+    // script + property name (Core/SaveGame.hpp). Read from the FILE, never stored in the scene: the script is
+    // the one declaration. A script without the list marks none. Refused by name: an unreadable script, a
+    // `SaveGameProperties` that is not a list of strings, a name its `Properties` does not declare.
+    [[nodiscard]] Common::ResultStr<std::vector<std::string>>
+    ReadScriptSaveGameProperties( const std::string& path );
 } // namespace Desert::Scripting

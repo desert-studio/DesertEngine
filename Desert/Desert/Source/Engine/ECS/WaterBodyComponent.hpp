@@ -6,7 +6,7 @@
 // water queries buoyancy, swimming and scripts ask (UE QueryWaterInfoClosestToWorldLocation).
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec2.hpp>
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::ECS
 {

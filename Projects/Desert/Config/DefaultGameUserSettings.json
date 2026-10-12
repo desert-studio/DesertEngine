@@ -1,0 +1,25 @@
+{
+  "Display": {
+    "Mode": "Maximized",
+    "ResolutionX": 1920,
+    "ResolutionY": 1080,
+    "VSync": true,
+    "FrameRateLimit": 0
+  },
+  "Scalability": {
+    "ViewDistance": 3,
+    "Shadows": 3,
+    "PostProcess": 3,
+    "Textures": 3,
+    "Effects": 3,
+    "Foliage": 3
+  },
+  "Audio": {
+    "Master": 1.0,
+    "Music": 1.0,
+    "Effects": 1.0,
+    "Voice": 1.0
+  },
+  "MouseSensitivity": 1.0,
+  "Language": "en"
+}

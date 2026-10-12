@@ -175,6 +175,18 @@ namespace Desert::Animation::Timeline
                          "event {} '{}' at tick {} comes before tick {} (events are sorted by tick)", i, key.Name,
                          key.Tick.Value, channel.Keys[i - 1].Tick.Value );
                 }
+                if ( key.Action )
+                {
+                    // A sound and a script call name their target; an emitter is the bound entity's own.
+                    const bool needsTarget = key.Action->Kind != EventActionKind::ActivateParticles;
+                    if ( needsTarget == key.Action->Target.empty() )
+                    {
+                        return Common::MakeFormattedError<bool>(
+                             "event {} '{}': a {} action {}", i, key.Name,
+                             needsTarget ? "sound / script" : "particle",
+                             needsTarget ? "names no target" : "takes no target (it acts on the bound entity)" );
+                    }
+                }
             }
             return Pass();
         }
@@ -232,7 +244,9 @@ namespace Desert::Animation::Timeline
                 case SequenceHost::AnimationClip:
                     return kind == BindingKind::Bone || kind == BindingKind::Sequence;
                 case SequenceHost::UIAnimation:
-                    return kind == BindingKind::Widget;
+                    // The master binding holds the clip's own Audio tracks (UE: a widget animation's tracks
+                    // on no widget).
+                    return kind == BindingKind::Widget || kind == BindingKind::Sequence;
                 case SequenceHost::LevelSequence:
                     return kind == BindingKind::Sequence || kind == BindingKind::Entity ||
                            kind == BindingKind::Bone;
@@ -245,7 +259,8 @@ namespace Desert::Animation::Timeline
          *
          * Bones take transforms only; the master (Sequence) binding takes the sequence-level tracks — a
          * clip's named float curves and its one notify track, a level sequence's Camera Cut and events;
-         * a skeletal Animation section plays on an entity; a UI clip animates Vector/Float properties.
+         * a skeletal Animation section plays on an entity; a UI clip animates Vector/Float properties and
+         * plays its sounds on Audio tracks of its master binding.
          */
         bool HostHoldsTrack( const SequenceHost host, const BindingKind binding, const TrackKind track )
         {
@@ -259,16 +274,24 @@ namespace Desert::Animation::Timeline
                     return binding == BindingKind::Sequence &&
                            ( track == TrackKind::Float || track == TrackKind::Event );
                 case SequenceHost::UIAnimation:
+                    if ( binding == BindingKind::Sequence )
+                    {
+                        return track == TrackKind::Audio;
+                    }
                     return binding == BindingKind::Widget &&
                            ( track == TrackKind::Vector || track == TrackKind::Float );
                 case SequenceHost::LevelSequence:
                     if ( binding == BindingKind::Sequence )
                     {
-                        return track == TrackKind::CameraCut || track == TrackKind::Event;
+                        return track == TrackKind::CameraCut || track == TrackKind::Event ||
+                               track == TrackKind::Subsequence;
                     }
                     // An actor holds every value kind, Animation, and Event (UE: an Event track on an actor
-                    // binding fires with that actor); only the Camera Cut is the sequence's alone.
-                    return binding == BindingKind::Entity && track != TrackKind::CameraCut;
+                    // binding fires with that actor); the Camera Cut and the Subsequence (UE: a master track —
+                    // it plays a whole sequence, not a property of one object) are the sequence's alone.
+                    // Audio: the LevelSequence host plays no sound yet — refused until it does.
+                    return binding == BindingKind::Entity && track != TrackKind::CameraCut &&
+                           track != TrackKind::Subsequence && track != TrackKind::Audio;
             }
             return false;
         }
@@ -378,7 +401,34 @@ namespace Desert::Animation::Timeline
             }
             if ( const auto* channel = std::get_if<Channel>( &section.Content ) )
             {
+                // An event's Action is the LevelSequence host's vocabulary (a sound, an emitter, a script):
+                // a clip notify or a UI event carrying one would be a setting nothing reads.
+                if ( const auto* events = std::get_if<EventChannel>( channel );
+                     events != nullptr && sequence.Host != SequenceHost::LevelSequence )
+                {
+                    for ( const EventKey& key : events->Keys )
+                    {
+                        if ( key.Action )
+                        {
+                            return Common::MakeFormattedError<bool>(
+                                 "event '{}' carries an action; only a level sequence's events act", key.Name );
+                        }
+                    }
+                }
                 return CheckChannel( *channel );
+            }
+            if ( const auto* sub = std::get_if<SubsequenceSectionContent>( &section.Content ) )
+            {
+                if ( sub->Sequence.IsNull() )
+                {
+                    return Common::MakeFormattedError<bool>( "a Subsequence section names no sequence" );
+                }
+                if ( !std::isfinite( sub->TimeScale ) || !( sub->TimeScale > 0.0 ) )
+                {
+                    return Common::MakeFormattedError<bool>( "time scale {} is not a positive scale",
+                                                             sub->TimeScale );
+                }
+                return Pass();
             }
             if ( const auto* animation = std::get_if<AnimationSectionContent>( &section.Content ) )
             {
@@ -390,6 +440,25 @@ namespace Desert::Animation::Timeline
                 {
                     return Common::MakeFormattedError<bool>( "play rate {} is not a positive rate",
                                                              animation->PlayRate );
+                }
+                return Pass();
+            }
+            if ( const auto* audio = std::get_if<AudioSectionContent>( &section.Content ) )
+            {
+                if ( audio->Sound.IsNull() )
+                {
+                    return Common::MakeFormattedError<bool>( "an Audio section names no sound" );
+                }
+                if ( !std::isfinite( audio->Volume ) || audio->Volume < 0.0F )
+                {
+                    return Common::MakeFormattedError<bool>( "volume {} is not a non-negative gain",
+                                                             audio->Volume );
+                }
+                if ( audio->StartOffset.Value < 0 || audio->FadeIn.Value < 0 || audio->FadeOut.Value < 0 )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "start offset {} / fade in {} / fade out {} ticks: none may be negative",
+                         audio->StartOffset.Value, audio->FadeIn.Value, audio->FadeOut.Value );
                 }
                 return Pass();
             }
@@ -505,5 +574,50 @@ namespace Desert::Animation::Timeline
             return check;
         }
         return CheckTracks( sequence );
+    }
+
+    Common::ResultStr<size_t> AddAudioTrack( Sequence& sequence, const Common::Content::AssetGuid& sound )
+    {
+        if ( sound.IsNull() )
+        {
+            return Common::MakeFormattedError<size_t>( "an Audio track plays a sound: name it ({})",
+                                                       "a .desound GUID" );
+        }
+        if ( !HostHoldsTrack( sequence.Host, BindingKind::Sequence, TrackKind::Audio ) )
+        {
+            return Common::MakeFormattedError<size_t>( "a {} holds no Audio track", ToString( sequence.Host ) );
+        }
+        BindingGuid master;
+        for ( const Binding& binding : sequence.Bindings )
+        {
+            if ( binding.Kind == BindingKind::Sequence )
+            {
+                master = binding.Guid;
+                break;
+            }
+        }
+        if ( master.IsNull() )
+        {
+            Binding binding;
+            binding.Guid  = BindingGuid::Generate();
+            binding.Kind  = BindingKind::Sequence;
+            binding.Label = ToString( sequence.Host );
+            master        = binding.Guid;
+            sequence.Bindings.push_back( std::move( binding ) );
+        }
+        std::string property = "Audio";
+        for ( int n = 2; FindTrack( sequence, master, property ) != nullptr; ++n )
+        {
+            property = std::format( "Audio {}", n );
+        }
+        Track track;
+        track.Binding                                          = master;
+        track.Property                                         = std::move( property );
+        track.Kind                                             = TrackKind::Audio;
+        Section& section                                       = AddSection( track, sequence.Start, sequence.End );
+        std::get<AudioSectionContent>( section.Content ).Sound = sound;
+        sequence.Tracks.push_back( std::move( track ) );
+        ++sequence.Revision;
+        return Common::MakeSuccess( sequence.Tracks.size() - 1 );
     }
 } // namespace Desert::Animation::Timeline

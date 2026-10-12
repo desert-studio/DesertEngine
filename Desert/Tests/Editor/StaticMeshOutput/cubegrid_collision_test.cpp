@@ -15,9 +15,9 @@
 #include <Engine/Geometry/VoxelBlockout.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
-#include <entt/entt.hpp>
-
 #include "../../Engine/PhysicsFixture.hpp"
+
+#include <entt/entt.hpp>
 #include <gtest/gtest.h>
 
 #include <optional>
@@ -76,8 +76,7 @@ namespace
             desc.Center      = collider.Center;
             const auto& body = registry.get<ECS::RigidBodyComponent>( entity ).Data;
             desc.Type        = body.Type;
-            // As PhysicsECSSystem resolves it: the body's profile name in the world's register.
-            desc.Profile = TestSupport::ProfileId( World, body.CollisionProfile );
+            desc.Profile     = TestSupport::ProfileId( World, body.CollisionProfile );
             if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
             {
                 auto gathered = ECS::PhysicsECSSystem::GatherColliderMesh( registry, entity, glm::vec3( 1.0f ) );
