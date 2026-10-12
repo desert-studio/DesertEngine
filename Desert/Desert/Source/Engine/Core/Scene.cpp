@@ -6,6 +6,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -531,77 +532,69 @@ namespace Desert::Core
         // Dir lights
         {
             DESERT_PROFILE_SCOPE( "Scene: DirLights" );
-            auto dirLightGroup =
-                 m_Registry.group<ECS::DirectionLightComponent>( entt::get<ECS::TransformComponent> );
 
-            // WHICH LIGHTS WERE THROWN AWAY, AND WHY ANYONE SHOULD HEAR ABOUT IT.
-            //
-            // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation
-            // (nothing reads a sun's Rotation anywhere in this engine), so a sun authored the way a sun
-            // looks like it should be authored — drop one in, aim it with the rotation gizmo — has a
-            // Translation of (0,0,0), is not a direction, and cannot be collected. It then sits in the
-            // outliner with an intensity slider, casting nothing, and this loop used to say NOTHING
-            // about it. Five lines below, the "too many directional lights" case goes to the trouble of
-            // naming the offending entities; the case where a light contributes zero got silence.
-            std::string degenerate;
-            dirLightGroup.each(
-                 [&]( entt::entity entity, const auto& light, const auto& transform )
-                 {
-                     // A HIDDEN SUN CONTRIBUTES NOTHING, and it is dropped BEFORE the degenerate-direction
-                     // report below: a light the artist deliberately hid is not a light they mis-authored,
-                     // and naming it in that error every frame would train them to ignore the one message
-                     // that tells them a real sun is aimed wrong. SkyboxECSSystem drops the same entity
-                     // from its sun candidates — one hidden light, both of its effects gone.
-                     if ( ECS::IsHidden( m_Registry, entity ) )
-                         return;
-
-                     // ONE gate, shared with the sky (SystemRules.hpp): this site used to open-code
-                     // `length > 0.001f`, ten times kSunDirectionEpsilon, so a light in between was a
-                     // sun to the atmosphere and no light at all to the renderer.
-                     if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
-                     {
-                         sceneRendererInfo.DirLights.DirectionLights.push_back(
-                              { glm::vec4( *travel, 0.0f ),
-                                glm::vec4( light.Data.Color, light.Data.Intensity ) } );
-                         return;
-                     }
-                     if ( m_Registry.has<ECS::TagComponent>( entity ) )
-                         degenerate +=
-                              ( degenerate.empty() ? "" : ", " ) + m_Registry.get<ECS::TagComponent>( entity ).Tag;
-                 } );
-
-            // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR
-            // here would bury the log at 60 lines a second, and a plain once-only flag would go quiet
-            // about the SECOND light to go degenerate. Comparing the text reports each distinct state
-            // once and re-reports when the set changes — including back to empty, which is the line that
-            // tells a user their fix worked.
-            if ( degenerate != m_DegenerateDirLightsReported )
+            // THE SUN, AND ONLY THE SUN. The engine renders exactly one directional light
+            // (DirectionLightsUB is a single struct), and that light is the one the sky stands on:
+            // ECS::PickAtmosphereSun is the rule the sky collector, the shadow settings and the clock all
+            // call. This loop used to push EVERY light in group order and keep the first, so with two lights
+            // the ground was lit and shadowed by one while the atmosphere, the fog's lobe and the clouds
+            // took the other.
+            const ECS::AtmosphereSunPick pick = ECS::PickAtmosphereSun( m_Registry, ECS::SunCandidacy::Lit );
+            if ( const auto sun = pick.Sun() )
             {
-                m_DegenerateDirLightsReported = degenerate;
+                const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *sun );
+                const auto& transform = m_Registry.get<ECS::TransformComponent>( *sun );
+                // Chosen implies DirectionValid, so the gate below cannot refuse; asked anyway, because the
+                // optional is the one place that normalizes a light's Translation.
+                if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
+                    sceneRendererInfo.DirLights.DirectionLights.push_back(
+                         { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+            }
+
+            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
+            //
+            // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation, so a
+            // sun aimed with the rotation gizmo has a Translation of (0,0,0) and cannot be collected; and
+            // every visible light that is not the sun contributes nothing at all. Both used to be silent or
+            // truncated with a different rule than the sky's. Hidden lights are not in the pick: a light
+            // the artist deliberately hid is not one they mis-authored.
+            const auto nameOf = [&]( entt::entity entity ) -> std::string
+            {
+                return m_Registry.has<ECS::TagComponent>( entity )
+                            ? m_Registry.get<ECS::TagComponent>( entity ).Tag
+                            : std::string( "<untagged>" );
+            };
+            std::string degenerate;
+            std::string unused;
+            for ( size_t i = 0; i < pick.Candidates.size(); ++i )
+            {
+                if ( !pick.Candidates[i].DirectionValid )
+                    degenerate += ( degenerate.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
+                else if ( pick.Selection.Chosen != i )
+                    unused += ( unused.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
+            }
+
+            // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
+            // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
+            // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
+            // changes — including back to empty, which is the line that tells a user their fix worked.
+            const std::string report = degenerate + "|" + unused + "|" + ( pick.Sun() ? "sun" : "" );
+            if ( report != m_DirLightsReported )
+            {
+                m_DirLightsReported = report;
                 if ( !degenerate.empty() )
                     LOG_ERROR( "[Scene] directional light(s) {} have a Translation shorter than {} and "
                                "emit NOTHING. A directional light takes its direction from its "
                                "TRANSLATION (the direction the light travels), not from its Rotation.",
                                degenerate, ECS::Rules::kSunDirectionEpsilon );
-            }
-
-            // The engine supports EXACTLY ONE directional light (DirectionLightsUB is a single
-            // struct — a second payload overflows every lit material's UB and aborts). Truncate
-            // loudly instead of crashing; name the extras so the offending entity is findable.
-            if ( sceneRendererInfo.DirLights.DirectionLights.size() > 1 )
-            {
-                std::string names;
-                dirLightGroup.each(
-                     [&]( entt::entity entity, const auto&, const auto& )
-                     {
-                         if ( m_Registry.has<ECS::TagComponent>( entity ) )
-                             names += ( names.empty() ? "" : ", " ) +
-                                      m_Registry.get<ECS::TagComponent>( entity ).Tag;
-                     } );
-                LOG_ERROR( "[Scene] {} directional lights collected ({}) — only ONE is supported; "
-                           "using the first.",
-                           sceneRendererInfo.DirLights.DirectionLights.size(), names );
-                sceneRendererInfo.DirLights.DirectionLights.resize( 1 );
+                if ( !unused.empty() && pick.Sun() )
+                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders one directional "
+                               "light, the atmosphere sun '{}'. Remove them, or mark the one you want as "
+                               "Atmosphere Sun Light (index 0).",
+                               unused, nameOf( *pick.Sun() ) );
+                if ( !pick.Sun() && m_Registry.view<ECS::DirectionLightComponent>().size() > 0 )
+                    LOG_ERROR( "[Scene] no visible directional light with a usable direction: the scene has "
+                               "NO sun — no direct light, no shadows, no atmosphere sun." );
             }
         }
 

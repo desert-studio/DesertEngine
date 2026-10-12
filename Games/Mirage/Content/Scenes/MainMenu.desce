@@ -14,7 +14,7 @@
             "id": 5569072854537872169,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
+            "Translation": [-47.79999923706055, -6.980000019073486, -87.5999984741211],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
@@ -965,6 +965,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -1029,7 +1041,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1165,6 +1178,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -1229,7 +1254,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1365,6 +1391,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -1429,7 +1467,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1792,6 +1831,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -1856,7 +1907,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1992,6 +2044,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -2056,7 +2120,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -2192,6 +2257,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -2256,7 +2333,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -2973,6 +3051,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -3037,7 +3127,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -3350,6 +3441,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -3414,7 +3517,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -3550,6 +3654,18 @@
                 "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
+            },
+            "UITween": {
+                "Property": 3,
+                "From": [1.0, 1.0, 1.0, 1.0],
+                "To": [0.9878000020980835, 0.7530999779701233, 0.3912999927997589, 1.0],
+                "Duration": 0.11999999731779099,
+                "Delay": 0.0,
+                "Easing": 5,
+                "Trigger": 1,
+                "Loop": 0,
+                "Playing": true,
+                "RewindOnHide": true
             }
         },
         {
@@ -3614,7 +3730,8 @@
                 "To": [0.0, 0.0, 0.0, 0.0],
                 "Duration": 0.11999999731779099,
                 "Delay": 0.0,
-                "Easing": 2,
+                "Easing": 5,
+                "Trigger": 1,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true

@@ -204,6 +204,24 @@ namespace Desert::UI::Walk
         }
     }
 
+    // Is the nearest UIButton at or above @p e highlighted on THIS frame? The button records it while it is
+    // drawn, and a button is drawn before its children, so its tweens read the current frame's answer. No
+    // button above: never highlighted (the tween rests at From). The walk is bounded by the tree's size, as
+    // every ancestor walk is: a Parent cycle is authorable.
+    static bool HighlightedThisFrame( WalkCtx& ctx, IUITree& tree, NodeId e )
+    {
+        NodeId n = e;
+        for ( std::size_t guard = 0; n != NodeId::Null && guard <= tree.NodeBound();
+              ++guard, n = tree.Parent( n ) )
+        {
+            if ( !tree.Has<UIButtonData>( n ) )
+                continue;
+            const auto it = ctx.Canvas.HighlightedOn.find( n );
+            return it != ctx.Canvas.HighlightedOn.end() && it->second == ctx.View.FrameIndex;
+        }
+        return false;
+    }
+
     // A generic from->to animation, evaluated here on the way to the screen and NEVER written back
     // into the authored component — so a tween is safe to run in the editor, previews live in Design
     // mode, and stopping it simply restores the authored look. Its playhead therefore lives in the
@@ -223,12 +241,27 @@ namespace Desert::UI::Walk
             clock = 0.0f;
         lastSeen = ctx.View.FrameIndex;
 
-        if ( tw.Playing )
-            clock += ctx.View.FrameDt;
-
         const float dur = std::max( 0.001f, tw.Duration );
-        float       t   = ( clock - tw.Delay ) / dur; // <0 while delayed
-        switch ( tw.Loop )
+        float       t   = 0.0f;
+        if ( tw.Trigger == UITweenTrigger::WhileHighlighted )
+        {
+            // The playhead follows the nearest button at or above this element: forward while it is
+            // highlighted this frame, backward otherwise, held inside [0, Delay + Duration] so leaving
+            // mid-way reverses from where it is instead of jumping.
+            if ( tw.Playing )
+            {
+                const bool lit = HighlightedThisFrame( ctx, tree, e );
+                clock = std::clamp( clock + ( lit ? ctx.View.FrameDt : -ctx.View.FrameDt ), 0.0f, tw.Delay + dur );
+            }
+            t = std::clamp( ( clock - tw.Delay ) / dur, 0.0f, 1.0f );
+        }
+        else
+        {
+            if ( tw.Playing )
+                clock += ctx.View.FrameDt;
+            t = ( clock - tw.Delay ) / dur; // <0 while delayed
+        }
+        switch ( tw.Trigger == UITweenTrigger::WhileHighlighted ? UITweenLoop::Once : tw.Loop )
         {
             case UITweenLoop::Loop:
                 t = t > 0.0f ? std::fmod( t, 1.0f ) : 0.0f;

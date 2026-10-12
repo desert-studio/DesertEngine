@@ -89,6 +89,9 @@ namespace Desert::UI
         // component for the same reason as the overlay state below: two views of one scene edit
         // independently, and moving a caret must not dirty the level.
         std::unordered_map<NodeId, UITextEditState> TextEdit;
+        // FrameIndex a button was last HIGHLIGHTED on (hovered, or holding focus). Written by the button
+        // before its children are drawn, read by their WhileHighlighted tweens in the same frame.
+        std::unordered_map<NodeId, uint64_t> HighlightedOn;
 
         // --- Screens ----------------------------------------------------------------------------------
         // Which of THIS canvas's UIScreen sub-trees is current, and the hand-over running between two of

@@ -61,7 +61,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 22> kEntityTables{ {
          { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp", "m_Live", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp", "on_destroy<RagdollComponent>().connect",
            "RAG1b: the ragdoll's description and rig signature; OnRagdollDestroyed releases the ragdoll and its "
@@ -87,6 +87,9 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/UI/Source/UI/UICanvasContext.hpp", "TweenSeen", Release::OwnerRetired,
            "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-element counter inside a canvas's context; goes when the canvas does" },
+         { "Desert/UI/Source/UI/UICanvasContext.hpp", "HighlightedOn", Release::OwnerRetired,
+           "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+           "per-button counter inside a canvas's context; goes when the canvas does" },
          { "Desert/UI/Source/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
            "Desert/UI/Source/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
