@@ -405,7 +405,8 @@ def self_check():
 # then back to the 09-30 three. Builds stay serialized (one build on the machine at a time), so more agents queue
 # on the build lock instead of OOM-ing the 16 GB machine.
 import datetime as _dt
-MAX_WORKING_AGENTS = 99 if _dt.date.today() < _dt.date(2026, 10, 12) else 3
+# Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
+MAX_WORKING_AGENTS = 99 if _dt.date.today() < _dt.date(2026, 10, 13) else 3
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
 

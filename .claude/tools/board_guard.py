@@ -138,7 +138,7 @@ def main():
 
     if event == "PostToolUse" and tool == "Agent":
         code = code_from_text(str(tin.get("prompt") or ""))
-        m = re.search(r"agentId:\s*([0-9a-z]+)", json.dumps(data.get("tool_response"), ensure_ascii=False))
+        m = re.search(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
         if code and m:
             s["agents"][m.group(1)] = code
             save(s)
