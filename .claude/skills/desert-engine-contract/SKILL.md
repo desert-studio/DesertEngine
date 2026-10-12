@@ -44,6 +44,7 @@ hand over part of it with a REMAINDER, never a compromise in code.
 
 ### 00a. UE is a reference, not the standard (owner, 2026-10-12)
 "If UE implements a feature in a way that is architecturally wrong, you must tell me." We do not copy UE verbatim where the architecture can be better. For every feature taken from UE, check responsibilities (what the engine knows vs. game/data/script), the single source of truth and coupling. Where UE mixes layers, hardcodes, keeps legacy or is shaped by its own history, say so to the owner BEFORE coding: "UE does X; architecturally better is Y, because ...". The owner decides; never copy UE silently and never deviate from it silently.
+**Chose UE's architecture → port the CODE, not just the logic (owner 2026-10-12):** C++ and shaders (.usf/.ush) from ~/Desktop/Programming/UE-reference, adapted to the project's style (std containers, our names, no UE shims). Epic waiver conditions (Docs/LICENCE_RECORD.md): no UNMODIFIED UE binaries in the product; valid until the current commercial project ends. Briefs name the exact UE files to port. Where we chose our own (better) architecture, the code is ours.
 
 ---
 
