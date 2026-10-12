@@ -31,7 +31,8 @@ struct SpotLight {
     float cosInner;    // cos(inner half-angle) — full intensity inside this
     float cosOuter;    // cos(outer half-angle) — zero intensity outside this
     int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    vec2  _pad;
+    float minRadius;   // full intensity within this distance (cm)
+    float _pad;
 };
 
 // Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
@@ -72,7 +73,7 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     const float distance = length( toLight );
     DesertLight light;
     light.L        = normalize( toLight );
-    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, 0.0, source.range, source.falloff ) *
+    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, source.minRadius, source.range, source.falloff ) *
                      SpotConeFactor( source, light.L );
     light.Shadow   = 1.0;
     return light;

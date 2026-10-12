@@ -7,6 +7,7 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <format>
@@ -88,6 +89,49 @@ namespace Desert::Assets::Serialization
                kind == ContentKind::Skeleton || kind == ContentKind::Animation;
     }
 
+    namespace
+    {
+        bool Finite3( const std::array<float, 3>& v )
+        {
+            return std::isfinite( v[0] ) && std::isfinite( v[1] ) && std::isfinite( v[2] );
+        }
+
+        // What is wrong with @p light as a record states it; empty when nothing is.
+        std::string ImportRecordLightDefect( const ImportRecordLight& light )
+        {
+            if ( light.Name.empty() )
+                return "has no Name";
+            const bool known = std::ranges::find( ImportRecordLightTypes, std::string_view( light.Type ) ) !=
+                               ImportRecordLightTypes.end();
+            if ( !known )
+                return std::format( "states Type '{}'; a light is Point, Spot or Directional", light.Type );
+            if ( !Finite3( light.Position ) || !Finite3( light.Direction ) || !Finite3( light.Color ) )
+                return "states a Position, Direction or Color that is not finite";
+            const float length =
+                 std::sqrt( light.Direction[0] * light.Direction[0] + light.Direction[1] * light.Direction[1] +
+                            light.Direction[2] * light.Direction[2] );
+            if ( std::abs( length - 1.0f ) > 1e-3f )
+                return std::format( "states a Direction of length {}, not a unit direction", length );
+            if ( light.Color[0] < 0.0f || light.Color[1] < 0.0f || light.Color[2] < 0.0f )
+                return "states a negative Color";
+            if ( !std::isfinite( light.Intensity ) || light.Intensity < 0.0f )
+                return std::format( "states Intensity {}, not a finite number >= 0", light.Intensity );
+            if ( light.Radius && ( !std::isfinite( *light.Radius ) || *light.Radius <= 0.0f ) )
+                return std::format( "states Radius {}, not a finite number > 0", *light.Radius );
+            if ( light.Type == "Directional" && light.Radius )
+                return "is directional and states a Radius";
+            const bool spot = light.Type == "Spot";
+            if ( spot != ( light.InnerConeAngle.has_value() && light.OuterConeAngle.has_value() ) ||
+                 ( !spot && ( light.InnerConeAngle || light.OuterConeAngle ) ) )
+                return "states cone angles: a spot light states both, every other light neither";
+            if ( spot && !( *light.InnerConeAngle >= 0.0f && *light.InnerConeAngle <= *light.OuterConeAngle &&
+                            *light.OuterConeAngle <= 180.0f ) )
+                return std::format( "states cones {} and {} degrees; 0 <= inner <= outer <= 180",
+                                    *light.InnerConeAngle, *light.OuterConeAngle );
+            return {};
+        }
+    } // namespace
+
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text )
     {
         if ( text.empty() )
@@ -130,6 +174,16 @@ namespace Desert::Assets::Serialization
                     return Common::MakeFormattedError<ImportRecordData>(
                          "import record: the Placement of node '{}' is not finite", node.Name );
             }
+        if ( data.Lights )
+        {
+            if ( data.Lights->empty() )
+                return Common::MakeFormattedError<ImportRecordData>(
+                     "import record states an empty Lights: a file with no light is written as no key" );
+            for ( const ImportRecordLight& light : *data.Lights )
+                if ( const std::string defect = ImportRecordLightDefect( light ); !defect.empty() )
+                    return Common::MakeFormattedError<ImportRecordData>( "import record: light '{}' {}",
+                                                                         light.Name, defect );
+        }
         if ( data.Thumbnail )
         {
             if ( data.Thumbnail->empty() )
@@ -422,6 +476,36 @@ namespace Desert::Assets::Serialization
             return Common::MakeSuccess( ThumbnailOrbit{} );
         const auto it = thumbnail->find( meshFile );
         return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
+    }
+
+    Common::BoolResultStr SetImportRecordLights( const std::filesystem::path&          source,
+                                                 const std::vector<ImportRecordLight>& lights )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        for ( const ImportRecordLight& light : lights )
+            if ( const std::string defect = ImportRecordLightDefect( light ); !defect.empty() )
+                return Common::MakeFormattedError<bool>( "'{}': light '{}' {}", record.string(), light.Name,
+                                                         defect );
+        auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its lights cannot be recorded",
+                                                     record.string() );
+        ImportRecordData                                    out = *stored;
+        const std::optional<std::vector<ImportRecordLight>> stated =
+             lights.empty() ? std::nullopt : std::optional<std::vector<ImportRecordLight>>( lights );
+        if ( out.Lights == stated )
+            return BOOLSUCCESS;
+        out.Lights = stated;
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        return WriteRecordFile( record, text.GetValue() );
     }
 
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,

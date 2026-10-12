@@ -20,8 +20,8 @@ namespace Desert::Graphic::ShaderProtocols
         float     CosInner;  // 44
         float     CosOuter;  // 48
         int32_t   Falloff;   // 52  (LightFalloff)
-        float     _pad0 = 0.0f;
-        float     _pad1 = 0.0f; // -> 64
+        float     MinRadius = 0.0f; // 56
+        float     _pad0     = 0.0f; // -> 64
     };
 
     struct SpotLight

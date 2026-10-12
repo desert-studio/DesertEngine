@@ -3,6 +3,7 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <glm/glm.hpp>
 
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
@@ -24,6 +25,27 @@ namespace Desert::Editor
         Common::Content::AssetGuid Guid;
     };
 
+    // A light source as the file states it (aiScene::mLights), in the SOURCE's space after the import's unit
+    // scaling (centimetres, before the import options' SourceToEngine): where its node stands and where it
+    // shines. SourceLightsToEngine (SourceToEngine.hpp) turns it into what the import record states.
+    enum class ImportedLightType
+    {
+        Point,
+        Spot,
+        Directional
+    };
+    struct ImportedLight
+    {
+        std::string          Name; // the light's node
+        ImportedLightType    Type = ImportedLightType::Point;
+        glm::vec3            Position{ 0.0f };               // the node's world origin
+        glm::vec3            Direction{ 0.0f, -1.0f, 0.0f }; // unit, the way the light travels
+        glm::vec3            Radiance{ 1.0f };               // colour times intensity / 100 (assimp's fold)
+        std::optional<float> Radius;                         // cm; nullopt = no decay (FBX DecayType None)
+        float                InnerConeDegrees = 0.0f;        // spot only
+        float                OuterConeDegrees = 0.0f;        // spot only
+    };
+
     struct ImportResult
     {
         std::optional<Desert::Assets::Serialization::MeshAssetData>     Mesh;
@@ -36,5 +58,8 @@ namespace Desert::Editor
         // source shares between nodes is one submesh PER NODE, each baked with that node's transform
         // (AssimpImporter ProcessScene). What NodeMeshSplit groups by when Combine Meshes is off (UE's default).
         std::vector<std::string> SubmeshNodes;
+        // The file's light sources (UE FbxSceneImport: one light actor per FBX light), recorded in the import
+        // record and placed with the source (ImportRecord.hpp `Lights`).
+        std::vector<ImportedLight> Lights;
     };
 } // namespace Desert::Editor

@@ -615,9 +615,9 @@ namespace
     };
 
     constexpr Row kSpotLightRows[] = {
-         { "Color", kSpotLight },          { "Intensity", kSpotLight },      { "Range", kSpotLight },
-         { "InnerConeAngle", kSpotLight }, { "OuterConeAngle", kSpotLight }, { "Falloff", kSpotLight },
-         { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
+         { "Color", kSpotLight },     { "Intensity", kSpotLight },      { "Range", kSpotLight },
+         { "MinRadius", kSpotLight }, { "InnerConeAngle", kSpotLight }, { "OuterConeAngle", kSpotLight },
+         { "Falloff", kSpotLight },   { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
     };
 
     constexpr Row kParticleRows[] = {
