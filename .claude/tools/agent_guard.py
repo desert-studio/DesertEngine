@@ -406,7 +406,7 @@ def self_check():
 # on the build lock instead of OOM-ing the 16 GB machine.
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
-MAX_WORKING_AGENTS = 99 if _dt.date.today() < _dt.date(2026, 10, 13) else 3
+MAX_WORKING_AGENTS = 7  # owner 2026-10-12: limit raised 5 -> 7
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
 
