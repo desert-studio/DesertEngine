@@ -657,7 +657,8 @@ namespace Desert::Editor
                     ImGui::DragFloat( "##UVProjectSplit", &s.CylinderSplitAngle, 0.5f, 0.0f, 90.0f, "%.1f deg",
                                       ImGuiSliderFlags_AlwaysClamp );
                 }
-                ImGui::SeparatorText( "UV Transform" );
+                ImGui::Separator();
+                ImGui::TextDisabled( "UV Transform" );
                 row( "Rotation##uv" );
                 ImGui::DragFloat( "##UVProjectUVRotation", &s.UVRotationDeg, 0.5f, -360.0f, 360.0f, "%.1f deg",
                                   ImGuiSliderFlags_AlwaysClamp );

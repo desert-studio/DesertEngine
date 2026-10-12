@@ -18,6 +18,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>

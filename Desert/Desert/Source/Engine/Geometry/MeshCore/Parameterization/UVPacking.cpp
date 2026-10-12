@@ -2,6 +2,8 @@
 // :1018-1075 (see UVPacking.hpp for what was adapted).
 #include "Engine/Geometry/MeshCore/Parameterization/UVPacking.hpp"
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <bit>
 #include <cfloat>
