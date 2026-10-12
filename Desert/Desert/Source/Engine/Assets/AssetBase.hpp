@@ -11,6 +11,8 @@
 
 #include <format>
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace Desert::Assets
 {
@@ -59,7 +61,28 @@ namespace Desert::Assets
             // source lives — reading the path afterwards would attribute the time to whatever the file
             // said rather than to the file we opened.
             const LoadTimingScope timing( m_Metadata.Filepath.string() );
-            return LoadFromFile();
+            auto                  loaded = LoadFromFile();
+            // A FAILED LOAD IS A STATE OF THE RECORD, NOT AN ABSENCE OF IT (UE: a package whose load failed
+            // stays in the asset registry; every reference to it resolves to null and a mesh slot draws
+            // UMaterial::GetDefaultMaterial). The reason is kept here so the readers that meet the broken
+            // record ask it instead of reading the file again every frame, and a later Load() that succeeds
+            // (a hot reload after the file was fixed) is the only thing that clears it.
+            if ( loaded )
+                m_LoadFailure.reset();
+            else
+                m_LoadFailure = loaded.GetError();
+            return loaded;
+        }
+
+        // BROKEN = the last Load() of this record failed; the record holds no data and the reason is here.
+        bool IsBroken() const
+        {
+            return m_LoadFailure.has_value();
+        }
+
+        const std::optional<std::string>& LoadFailure() const
+        {
+            return m_LoadFailure;
         }
 
         // RELEASE THIS ASSET'S PAYLOAD, KEEPING ITS IDENTITY.
@@ -150,6 +173,13 @@ namespace Desert::Assets
                 return BOOLSUCCESS;
             }
 
+            // A BROKEN record is not read again by a reader: its file was read and refused, and asking the
+            // same question every frame is a re-read and an ERROR per frame. A reload (Load()) asks again.
+            if ( m_LoadFailure )
+            {
+                return Common::MakeError<bool>( *m_LoadFailure );
+            }
+
             if ( const auto loaded = Load(); !loaded )
             {
                 return loaded;
@@ -222,6 +252,9 @@ namespace Desert::Assets
         virtual Common::BoolResultStr LoadFromFile() = 0;
 
         AssetMetadata m_Metadata;
+
+    private:
+        std::optional<std::string> m_LoadFailure;
     };
 
 } // namespace Desert::Assets

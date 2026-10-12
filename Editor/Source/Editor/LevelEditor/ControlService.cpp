@@ -547,7 +547,8 @@ namespace Desert::Editor
                 }
                 const auto plan = Control::PointerDrag::Plan(
                      *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
-                     request.Steps, ::ImGui::GetIO().DisplayFramebufferScale.x );
+                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ),
+                     ::ImGui::GetIO().DisplayFramebufferScale.x );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
@@ -581,9 +582,9 @@ namespace Desert::Editor
                                           request.Value[1], request.Panel, window->Size.x, window->Size.y ) );
                     origin = ImVec2( window->Pos.x - mainViewport->Pos.x, window->Pos.y - mainViewport->Pos.y );
                 }
-                auto plan =
-                     Control::PlanInput( request.InputKind, origin.x + request.Value[0],
-                                         origin.y + request.Value[1], request.Button, request.Key, request.Paths );
+                auto plan = Control::PlanInput(
+                     request.InputKind, origin.x + request.Value[0], origin.y + request.Value[1],
+                     request.Button.value_or( Control::kLeftMouseButton ), request.Key, request.Paths );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 if ( const auto armed = Control::InputInjection::Arm( plan.ExtractValue() ); !armed.IsSuccess() )

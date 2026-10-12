@@ -47,6 +47,8 @@ namespace Desert::Editor::Control
     {
     public:
         static constexpr uint32_t kMaxSteps = 240;
+        /// The step count a drag request that states none is played with (Request::Steps absent).
+        static constexpr uint32_t kDefaultSteps = 8;
 
         /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); @p pixelsPerPoint
         /// converts them to ImGui points (the framebuffer scale, 2 on a Retina display).

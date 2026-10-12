@@ -111,19 +111,19 @@ namespace Common::Settings
             const auto raw = Common::Utils::FileSystem::ReadFileContent( s_File );
             if ( !raw || raw.GetValue().empty() )
             {
-                LOG_WARN( "[Machine] {} exists but could not be read before saving; keys written by "
-                          "another build cannot be preserved this time and the file will be replaced "
-                          "wholesale.",
-                          s_File.string() );
+                LOG_ERROR( "[Machine] {} exists but could not be read before saving; keys written by "
+                           "another build cannot be preserved this time and the file will be replaced "
+                           "wholesale.",
+                           s_File.string() );
                 return std::nullopt;
             }
 
             auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
             if ( !parsed )
             {
-                LOG_WARN( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
-                          "key another build put in it is lost with it.",
-                          s_File.string(), parsed.GetError() );
+                LOG_ERROR( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
+                           "key another build put in it is lost with it.",
+                           s_File.string(), parsed.GetError() );
                 return std::nullopt;
             }
 
@@ -175,7 +175,11 @@ namespace Common::Settings
         }
         if ( raw.GetValue().empty() )
         {
-            LOG_WARN( "[Machine] {} is empty; using the default quality.", s_File.string() );
+            // A machine config that is THERE and says nothing is broken, not a first run (UE GameUserSettings:
+            // no file = first launch, a file that does not load = an error). ERROR, then the defaults.
+            LOG_ERROR( "[Machine] {} is empty — this session runs at the default quality, and the next change "
+                       "will overwrite the file.",
+                       s_File.string() );
             return;
         }
 
@@ -184,8 +188,10 @@ namespace Common::Settings
         auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
         if ( !parsed )
         {
-            LOG_WARN( "[Machine] {} is corrupt, using the default quality: {}", s_File.string(),
-                      parsed.GetError() );
+            // The parse error names the field (or the offset) that refused; the path names the file.
+            LOG_ERROR( "[Machine] {} is corrupt: {} — this session runs at the default quality, and the next "
+                       "change will overwrite the file.",
+                       s_File.string(), parsed.GetError() );
             return;
         }
 

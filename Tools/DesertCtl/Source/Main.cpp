@@ -128,14 +128,13 @@ namespace
         return out;
     }
 
-    /// `,"subject":"viewport"` — or nothing at all when none was named.
-    ///
-    /// OMITTED RATHER THAN SPELLED "document", so a request this tool sends without --subject is byte for
-    /// byte the request it sent before the field existed. The default lives in ONE place, the editor's
-    /// parser, and a client that spelled it out here would be the second copy of it.
+    /// `,"subject":"viewport"`. ALWAYS STATED: the editor's protocol requires 'subject' for properties, set
+    /// and drag and refuses a request without it. This tool's own --subject default ('document', in the usage
+    /// above) is the CLI's choice for its user, spelled out in the request rather than left for the editor
+    /// to guess.
     std::string SubjectField( const std::string& subject )
     {
-        return subject.empty() ? std::string{} : R"(,"subject":")" + Escape( subject ) + R"(")";
+        return R"(,"subject":")" + Escape( subject.empty() ? std::string( "document" ) : subject ) + R"(")";
     }
 
     /// "0.05,0.35,0.95" -> "[0.05,0.35,0.95]", or false having said what was wrong.

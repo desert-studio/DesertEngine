@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -215,8 +216,8 @@ namespace Desert::Editor::Control
         std::string Group;
         std::string Label;
 
-        /// Op::Properties / Op::Set — whose values. Absent means the focused document, which is what the
-        /// category has always meant and what every client written before the viewport existed sends.
+        /// Op::Properties / Op::Set / Op::Drag — whose values. REQUIRED in the request ('subject'); the parser
+        /// refuses one that does not state it, so this initial value is never what an answer is about.
         Subject Whose = Subject::Document;
 
         /// Op::Set — the property of the subject, addressed by the name its declaration gives it
@@ -238,14 +239,16 @@ namespace Desert::Editor::Control
         int32_t ExitCode = 0;
 
         /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
-        /// toX, toY in the subject's image pixels).
-        uint32_t Steps = 8;
+        /// toX, toY in the subject's image pixels). Optional: absent = PointerDrag::kDefaultSteps, said there.
+        std::optional<uint32_t> Steps;
 
         std::string              InputKind;
         std::string              Panel;
         std::string              Key;
         std::vector<std::string> Paths;
-        int32_t                  Button = 0;
+        /// Op::Input — the mouse button (0 left, 1 right, 2 middle). Optional: absent = left, said by the
+        /// consumer (ControlService) rather than by a number written into the parse.
+        std::optional<int32_t> Button;
     };
 
     /// The known operations, comma separated, for the message a rejected one gets. Built from the table
@@ -276,24 +279,40 @@ namespace Desert::Editor::Control
             return text ? text.GetValue() : std::string{};
         }
 
-        /// An integer field, or @p fallback.
+        /// An OPTIONAL integer field: nullopt when the request does not state it, a refusal naming the field
+        /// when it states something that is not a number. There is no fallback here — the CONSUMER of an
+        /// optional field says what its absence means (Request::Steps, Request::Button).
         ///
         /// BOTH SPELLINGS ARE ACCEPTED, and that is not defensive coding: reflect-cpp keeps a whole JSON
         /// number in the variant arm its text implies, so `7` arrives as an int64 and `7.0` as a double.
-        /// Asking only for a double made every `"id": 7` read as the fallback — which meant every reply
-        /// came back with id 0 and a client that pipelined could not match one answer to its question.
-        /// Measured, not reasoned about: the round-trip test caught it on the first run.
-        [[nodiscard]] inline int64_t ReadInt( const Common::Json::Node& fields, const char* key, int64_t fallback )
+        /// Asking only for a double made every `"id": 7` read as absent — which meant every reply came back
+        /// with id 0 and a client that pipelined could not match one answer to its question. Measured, not
+        /// reasoned about: the round-trip test caught it on the first run.
+        [[nodiscard]] inline Common::ResultStr<std::optional<int64_t>>
+        ReadOptionalInt( const Common::Json::Node& fields, const char* key )
         {
             const auto field = fields.Find( key );
             if ( !field )
-                return fallback;
+                return Common::MakeSuccess( std::optional<int64_t>{} );
 
             if ( const auto whole = field->AsInteger() )
-                return whole.GetValue();
+                return Common::MakeSuccess( std::optional<int64_t>{ whole.GetValue() } );
             if ( const auto real = field->AsNumber() )
-                return static_cast<int64_t>( real.GetValue() );
-            return fallback;
+                return Common::MakeSuccess( std::optional<int64_t>{ static_cast<int64_t>( real.GetValue() ) } );
+            return Common::MakeFormattedError<std::optional<int64_t>>( "'{}' is not a number.", key );
+        }
+
+        /// A REQUIRED integer field: refused by name when absent or not a number.
+        [[nodiscard]] inline Common::ResultStr<int64_t> ReadRequiredInt( const Common::Json::Node& fields,
+                                                                         const char* key, std::string_view op )
+        {
+            auto read = ReadOptionalInt( fields, key );
+            if ( !read )
+                return Common::MakeFormattedError<int64_t>( "'{}': {}", op, read.GetError() );
+            if ( !read.GetValue().has_value() )
+                return Common::MakeFormattedError<int64_t>(
+                     "'{}' requires '{}' and the request does not state it.", op, key );
+            return Common::MakeSuccess( int64_t{ *read.GetValue() } );
         }
 
         /// An array-of-strings field, or empty. Anything in the array that is not a string is DROPPED
@@ -329,7 +348,7 @@ namespace Desert::Editor::Control
             Read        ///< read, into the out parameter (possibly empty)
         };
 
-        /// An array-of-numbers field. BOTH SPELLINGS OF EVERY ELEMENT, for the reason ReadInt states at
+        /// An array-of-numbers field. BOTH SPELLINGS OF EVERY ELEMENT, for the reason ReadOptionalInt states at
         /// length: reflect-cpp keeps a number in the variant arm its text implies, so `[1, 0.5]` arrives
         /// as one int64 and one double. Reading only doubles made `[1,1,1]` — the commonest colour a
         /// person types — parse as nothing at all.
@@ -431,8 +450,14 @@ namespace Desert::Editor::Control
                  opName, KnownOpList() );
         }
 
+        // THE ID IS REQUIRED. It is the only thing a pipelining client matches an answer to its question by;
+        // a request without one used to be answered as id 0, indistinguishable from another client's id 0.
+        const auto id = ReadRequiredInt( fields, "id", opName );
+        if ( !id )
+            return Common::MakeError<Request>( id.GetError() );
+
         Request request;
-        request.Id        = ReadInt( fields, "id", 0 );
+        request.Id        = id.GetValue();
         request.Operation = spec->Operation;
 
         // THE SUBJECT, FOR THE TWO OPERATIONS THAT HAVE ONE. Parsed before the per-operation switch
@@ -441,8 +466,13 @@ namespace Desert::Editor::Control
         // successfully, and the two replies are indistinguishable.
         if ( spec->Operation == Op::Properties || spec->Operation == Op::Set || spec->Operation == Op::Drag )
         {
+            // REQUIRED: whose values an edit or a read is about is never guessed by the editor — "the focused
+            // document" answered for a client that meant the viewport is a wrong answer that looks right.
             const std::string subjectName = ReadString( fields, "subject" );
-            if ( !subjectName.empty() )
+            if ( subjectName.empty() )
+                return Common::MakeFormattedError<Request>(
+                     "'{}' requires 'subject' ({}) and the request does not state it.", opName,
+                     KnownSubjectList() );
             {
                 const SubjectSpec* subject = nullptr;
                 for ( const SubjectSpec& candidate : kSubjects )
@@ -541,8 +571,13 @@ namespace Desert::Editor::Control
                 request.Sections = ReadStringArray( fields, "sections" );
                 break;
             case Op::Quit:
-                request.ExitCode = static_cast<int32_t>( ReadInt( fields, "code", 0 ) );
+            {
+                const auto code = ReadRequiredInt( fields, "code", opName );
+                if ( !code )
+                    return Common::MakeError<Request>( code.GetError() );
+                request.ExitCode = static_cast<int32_t>( code.GetValue() );
                 break;
+            }
             case Op::Drag:
             {
                 if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
@@ -558,10 +593,16 @@ namespace Desert::Editor::Control
                          "'drag' aims at an image: subject 'document' (the focused document's view) or "
                          "'viewport' (the level viewport)." );
                 }
-                const int64_t steps = ReadInt( fields, "steps", 8 );
-                if ( steps < 1 || steps > 240 )
-                    return Common::MakeFormattedError<Request>( "'drag' takes 1..240 steps, not {}.", steps );
-                request.Steps = static_cast<uint32_t>( steps );
+                const auto steps = ReadOptionalInt( fields, "steps" );
+                if ( !steps )
+                    return Common::MakeFormattedError<Request>( "'drag': {}", steps.GetError() );
+                if ( const auto& stated = steps.GetValue() )
+                {
+                    if ( *stated < 1 || *stated > 240 )
+                        return Common::MakeFormattedError<Request>( "'drag' takes 1..240 steps, not {}.",
+                                                                    *stated );
+                    request.Steps = static_cast<uint32_t>( *stated );
+                }
                 break;
             }
             case Op::Input:
@@ -570,11 +611,16 @@ namespace Desert::Editor::Control
                 request.Panel        = ReadString( fields, "panel" );
                 request.Key          = ReadString( fields, "key" );
                 request.Paths        = ReadStringArray( fields, "paths" );
-                const int64_t button = ReadInt( fields, "button", 0 );
-                if ( button < 0 || button > 2 )
-                    return Common::MakeFormattedError<Request>( "'input' presses button 0, 1 or 2, not {}.",
-                                                                button );
-                request.Button = static_cast<int32_t>( button );
+                const auto button    = ReadOptionalInt( fields, "button" );
+                if ( !button )
+                    return Common::MakeFormattedError<Request>( "'input': {}", button.GetError() );
+                if ( const auto& stated = button.GetValue() )
+                {
+                    if ( *stated < 0 || *stated > 2 )
+                        return Common::MakeFormattedError<Request>( "'input' presses button 0, 1 or 2, not {}.",
+                                                                    *stated );
+                    request.Button = static_cast<int32_t>( *stated );
+                }
                 if ( request.InputKind != "key" )
                 {
                     if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
@@ -691,7 +737,7 @@ namespace Desert::Editor::Control
 
         // AN INTEGER, NOT A DOUBLE. reflect-cpp keeps a number in the variant arm its type implies, so a
         // double comes back out as `1.0` — and a client that matched its request id against the reply's
-        // would have been comparing 1 with 1.0. The request side accepts both spellings (ReadInt); the
+        // would have been comparing 1 with 1.0. The request side accepts both spellings (ReadOptionalInt); the
         // reply side emits the one the request used.
         object["id"] = Common::Json::Value( response.Id() );
         object["ok"] = Common::Json::Value( response.Ok() );

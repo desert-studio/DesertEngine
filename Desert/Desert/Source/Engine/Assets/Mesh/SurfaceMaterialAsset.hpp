@@ -20,12 +20,11 @@ namespace Desert::Assets
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;
 
-        // Serialize the canonical data to .demat JSON — or REFUSE, when this asset is running on
-        // substituted defaults because its file could not be read or parsed (see Load). Writing that
-        // out is what turns a recoverable corruption into a permanent loss of the authored parameters,
-        // and it is the exact thing Load's own error message used to warn about while returning
-        // success and leaving nothing able to stop it. A Result rather than a flag beside the getter
-        // because a flag has to be REMEMBERED at three call sites and this cannot be forgotten.
+        // Serialize the canonical data to .demat JSON — or REFUSE, when this asset is BROKEN (its file
+        // could not be read or parsed, AssetBase::IsBroken) or not loaded: it holds no data then, and
+        // writing it out would turn a recoverable corruption into a permanent loss of the authored file.
+        // A Result rather than a flag beside the getter because a flag has to be REMEMBERED at three call
+        // sites and this cannot be forgotten.
         [[nodiscard]] Common::ResultStr<std::string> Save() const;
 
         bool IsReadyForUse() const override
@@ -131,12 +130,6 @@ namespace Desert::Assets
         std::string         m_ShaderName;                 // display only
         Common::AssetHandle m_ShaderHandle;               // THE identity of the template; null = none resolved
         bool m_ShaderIsStandardSurface = false;           // the resolved template declares `Role StandardSurface`
-
-        // TRUE when m_Data is NOT what the file says — the file exists but could not be read, or it
-        // read and would not parse. The asset is deliberately still usable in that state (see Load),
-        // so this is the only thing that distinguishes "a material with default values" from "a
-        // material whose values were lost this session", and Save() is what asks.
-        bool m_RunningOnSubstitutedDefaults = false;
 
         // TRUE only for the detached copy CreateWorkingCopy makes. It exists so eviction can ask rather
         // than guess: nothing else distinguishes a working copy from a loaded material, and the two must
