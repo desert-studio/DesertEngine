@@ -203,7 +203,7 @@ namespace Desert::ECS
                 }
             }
 
-            DeliverOverlaps( registry );
+            DeliverContacts( registry );
 
             // Deliver whatever the canvas raised this frame (button actions, pointer events, drops) to
             // every script defining OnUIMessage. Drained here rather than pushed by the UI, so the canvas
@@ -230,11 +230,12 @@ namespace Desert::ECS
         }
 
     private:
-        // The overlaps physics published since the last delivery (PhysicsEventQueue, the profiles' Overlap
-        // answers), in order, to every started slot of the entity the event is for: OnBeginOverlap /
-        // OnEndOverlap (UE ReceiveActorBeginOverlap / ReceiveActorEndOverlap). A callback may destroy its entity,
+        // The contacts physics published since the last delivery (PhysicsEventQueue: the bodies' Hit and Overlap
+        // answers and the projectiles' swept hits), in order, to every started slot of the entity the event is
+        // for: OnHit (UE ReceiveHit) and OnBeginOverlap / OnEndOverlap (UE ReceiveActorBeginOverlap /
+        // ReceiveActorEndOverlap). A callback may destroy its entity,
         // which ends that entity's delivery.
-        void DeliverOverlaps( entt::registry& registry )
+        void DeliverContacts( entt::registry& registry )
         {
             const auto* queue = registry.try_ctx<PhysicsEventQueue>();
             if ( queue == nullptr || queue->Publication == m_DeliveredPhysics )
@@ -243,8 +244,7 @@ namespace Desert::ECS
             const std::vector<PhysicsEvent> events = queue->Events; // a callback may destroy, never re-publish
             for ( const PhysicsEvent& event : events )
             {
-                if ( event.Kind == PhysicsEventKind::Hit || !registry.valid( event.Self ) ||
-                     !registry.has<ScriptComponent>( event.Self ) )
+                if ( !registry.valid( event.Self ) || !registry.has<ScriptComponent>( event.Self ) )
                     continue;
                 const char* callback =
                      event.Kind == PhysicsEventKind::BeginOverlap ? "OnBeginOverlap" : "OnEndOverlap";
@@ -254,7 +254,12 @@ namespace Desert::ECS
                 for ( uint32_t slot = 0; slot < slots && registry.valid( event.Self ); ++slot )
                 {
                     const auto& script = registry.get<ScriptComponent>( event.Self ).Scripts[slot];
-                    if ( !script.ScriptKey.empty() && script.Started )
+                    if ( script.ScriptKey.empty() || !script.Started )
+                        continue;
+                    if ( event.Kind == PhysicsEventKind::Hit )
+                        m_Engine.CallHit( id, slot, registry, event.Other, event.Point, event.Normal,
+                                          event.Impulse );
+                    else
                         m_Engine.CallOverlap( id, slot, callback, registry, event.Other );
                 }
             }

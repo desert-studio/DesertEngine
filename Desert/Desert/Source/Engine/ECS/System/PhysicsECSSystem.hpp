@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/ECS/System/ProjectileMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/KinematicBodies.hpp>
@@ -313,6 +314,21 @@ namespace Desert::ECS
                 characters.get<TransformComponent>( entity ).Translation =
                      m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter );
             }
+
+            // Projectiles after the step and its writeback (UE: UProjectileMovementComponent ticks in the frame
+            // and sweeps the world the physics scene left): their blocking hits join this frame's contact facts,
+            // so ScriptSystem's OnHit and ComponentEventSystem's RigidBodyData::OnHit see them with the rest. A
+            // projectile whose Life Span ran out is destroyed here (UE InitialLifeSpan -> Destroy).
+            ProjectileMovement::FrameResult projectiles =
+                 ProjectileMovement::Step( registry, *m_World, m_BodyEntities, ts.GetSeconds() );
+            if ( !projectiles.Hits.empty() )
+            {
+                auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
+                queue.Events.insert( queue.Events.end(), projectiles.Hits.begin(), projectiles.Hits.end() );
+            }
+            for ( const entt::entity expired : projectiles.Expired )
+                if ( registry.valid( expired ) )
+                    m_Scene->DestroyEntity( Entity( expired, registry ) );
 
             // Spring arms after the characters moved (and after the scripts pitched them, ScriptSystem runs
             // first): the camera is placed against this frame's pawn and this frame's world.

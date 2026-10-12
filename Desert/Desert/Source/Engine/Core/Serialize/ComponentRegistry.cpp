@@ -2243,10 +2243,9 @@ namespace Desert::Core::Serialize
         // Desert/Tests/Engine/ComponentPersistence now derives "is authored in Details" from the editor's
         // own registration source and refuses to let a sixth one exist. No version bump: an added key is
         // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
-        // ever wrote one.
+        // ever wrote one. (Projectile, the fifth, is a reflected block now: ProjectileData.)
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
-        Register( MakeAuthored<ECS::ProjectileComponent>( "Projectile" ) );
 
         // ---- Landscape (LS-3) ----
         // The root is its frame and nothing else; the tile loads its heights from the file it names

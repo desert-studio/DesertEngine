@@ -4,6 +4,7 @@
 #include <Engine/Core/Input.hpp>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -89,6 +90,7 @@ namespace Desert::Scripting
                                                              RegisterLogBindings( L );
                                                              RegisterEntityCoreBindings( L );
                                                              RegisterCharacterBindings( L );
+                                                             RegisterProjectileBindings( L );
                                                              RegisterMaterialBindings( L );
                                                              RegisterInputBindings( L );
                                                              RegisterTimerBindings( L );
@@ -212,6 +214,22 @@ namespace Desert::Scripting
         if ( Common::BoolResultStr r = m_Impl->Runtime->CallWithEntity( target, callback, registry, other );
              !r.IsSuccess() )
             LOG_ERROR( "[Lua] {} error: {}", callback, r.GetError() );
+        m_Impl->Settle();
+    }
+
+    void ScriptEngine::CallHit( uint32_t entity, uint32_t slot, entt::registry& registry, entt::entity other,
+                                const glm::vec3& point, const glm::vec3& normal, float impulse )
+    {
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 || !m_Impl->Runtime->Defines( target, "OnHit" ) )
+            return;
+        m_Impl->CurrentOwner                         = Impl::SlotKey( entity, slot ); // Timer.after ownership
+        const std::array<Reflection::Value, 3> after = {
+             Reflection::Value::Vec3( { point.x, point.y, point.z } ),
+             Reflection::Value::Vec3( { normal.x, normal.y, normal.z } ), Reflection::Value::Float( impulse ) };
+        if ( Common::BoolResultStr r = m_Impl->Runtime->CallWithEntity( target, "OnHit", registry, other, after );
+             !r.IsSuccess() )
+            LOG_ERROR( "[Lua] OnHit error: {}", r.GetError() );
         m_Impl->Settle();
     }
 

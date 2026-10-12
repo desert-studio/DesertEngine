@@ -4,6 +4,7 @@
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <entt/entt.hpp>
+#include <glm/glm.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -74,6 +75,13 @@ namespace Desert::Scripting
         // caused): the script gets a handle whose valid() is false.
         void CallOverlap( uint32_t entity, uint32_t slot, const char* callback, entt::registry& registry,
                           entt::entity other );
+
+        // Calls a slot's OnHit(other, point, normal, impulse) if defined — UE ReceiveHit: this entity's body or
+        // projectile struck @p other (null for a body no entity owns, a landscape tile) at world @p point;
+        // @p normal points from this entity towards the other; @p impulse in kg*cm/s (0 for a projectile's
+        // swept hit).
+        void CallHit( uint32_t entity, uint32_t slot, entt::registry& registry, entt::entity other,
+                      const glm::vec3& point, const glm::vec3& normal, float impulse );
 
         // Writes the slot's editor-set property values into its env's `Properties` table, so the running
         // script reads the overridden values. Call after LoadEntityScript, before OnStart.

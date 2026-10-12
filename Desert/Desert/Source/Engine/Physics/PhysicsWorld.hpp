@@ -335,10 +335,13 @@ namespace Desert::Physics
 
         /// UE SweepSingleByChannel with a sphere: the first body a sphere of @p radius meets travelling from
         /// @p origin along @p direction (normalised here) within @p maxDistance, or nullopt. RayHit::Distance
-        /// is how far the sphere's CENTRE travelled before touching; Point / Normal are the contact's. A sphere
-        /// that already overlaps something at @p origin reports that body at distance 0.
+        /// is how far the sphere's CENTRE travelled before touching; Point / Normal are the contact's (Normal
+        /// points out of the struck body, towards the sphere). A sphere that already overlaps something at
+        /// @p origin reports that body at distance 0. As CastRay, bodies whose profile takes no part in queries
+        /// are not found; nor are the bodies in @p ignore (UE FCollisionQueryParams::AddIgnoredActor).
         [[nodiscard]] std::optional<RayHit> CastSphere( const glm::vec3& origin, const glm::vec3& direction,
-                                                        float radius, float maxDistance ) const;
+                                                        float radius, float maxDistance,
+                                                        std::span<const BodyHandle> ignore = {} ) const;
 
         /// UE OverlapAnyTestByChannel with a capsule standing on Y: does any body intersect the capsule of
         /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? A character's inner
