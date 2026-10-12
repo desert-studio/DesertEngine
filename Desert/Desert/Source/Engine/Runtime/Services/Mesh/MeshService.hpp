@@ -57,8 +57,6 @@ namespace Desert::Runtime
         Common::BoolResultStr RegisterAsset( const std::shared_ptr<Assets::MeshAsset>&  meshAsset,
                                              const std::weak_ptr<Assets::AssetManager>& resolveAgainst );
 
-        Assets::AssetHandle RegisterProcedural( const std::shared_ptr<Mesh>& mesh );
-
         /// The manager a mesh named only by its handle is discovered in (its content-registry row).
         /// Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
@@ -113,12 +111,8 @@ namespace Desert::Runtime
         // The shell is what makes this safe to do at all: `Get()` builds on a miss from `m_Entries`, so
         // the next draw rebuilds the vertex and index buffers through exactly the path a first use takes.
         // Forgetting the shell as well would turn the next `Get()` into a null — which is the silent empty
-        // answer §1.4 forbids, and the reason this is not called `Release`.
-        //
-        // A PROCEDURAL MESH IS NOT DROPPED, whatever the caller asks. It was registered with no asset
-        // behind it (`RegisterProcedural`), so there is nothing to rebuild it from and releasing it is
-        // data loss rather than eviction. The ledger says the same thing in its own vocabulary by
-        // claiming those buffers to `ResourceOwner::Procedural`; this is the enforcement.
+        // answer §1.4 forbids, and the reason this is not called `Release`. Every built mesh has a shell:
+        // the service builds only from `m_Entries`.
         bool EvictBuilt( const Assets::AssetHandle& handle );
 
         // The key of every mesh built right now (AssetEviction's census of what is still resident).

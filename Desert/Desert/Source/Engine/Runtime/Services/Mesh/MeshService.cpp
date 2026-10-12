@@ -108,26 +108,6 @@ namespace Desert::Runtime
         return BOOLSUCCESS;
     }
 
-    Assets::AssetHandle MeshService::RegisterProcedural( const std::shared_ptr<Mesh>& mesh )
-    {
-        // Procedural meshes have no source path, so mint a fresh random id (the default handle is now Null).
-        Assets::AssetHandle handle = Assets::AssetHandle::Generate();
-        // Build the GPU vertex/index buffers — the mesh ctor doesn't. Without this a builtin procedural
-        // mesh (e.g. the Cube) has no buffers and renders nothing.
-        if ( mesh )
-        {
-            // Reported, not refused: the caller receives a handle either way and the registry is the
-            // only place this mesh can be found again. What must not happen is the previous behaviour —
-            // a mesh whose buffers never uploaded sitting in the registry, drawing nothing, with the
-            // handle looking exactly like a working one.
-            if ( const auto uploaded = m_Uploader->UploadProcedural( mesh, handle ); !uploaded )
-                LOG_ERROR( "[MeshService] procedural mesh {} has no GPU buffers: {}", (uint64_t)handle,
-                           uploaded.GetError() );
-        }
-        m_Meshes[handle] = mesh;
-        return handle;
-    }
-
     void MeshService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         m_AssetManager = assets;
@@ -363,17 +343,6 @@ namespace Desert::Runtime
         if ( built == m_Meshes.end() )
             return false;
 
-        // No shell means no recipe: this is a procedural mesh registered by RegisterProcedural, and the
-        // only copy of its geometry is the buffers about to be dropped. Refuse, and say so — a silent
-        // "nothing to do" here would read to the caller as "already released".
-        if ( m_Entries.find( handle ) == m_Entries.end() )
-        {
-            LOG_WARN( "[MeshService] eviction asked for mesh {} and it is procedural — no asset shell, so "
-                      "nothing could rebuild it. Kept.",
-                      static_cast<uint64_t>( handle ) );
-            return false;
-        }
-
         // Parked, not destroyed: the frames recorded before this sweep may still be reading the buffers.
         m_Retiring.Park( std::move( built->second ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         m_Meshes.erase( built );
@@ -403,10 +372,6 @@ namespace Desert::Runtime
         // freeze that looks like a hang.
         if ( auto ait = m_Entries.find( handle ); ait != m_Entries.end() && ait->second.Asset )
             return std::make_optional( ait->second.Asset->IsSkinned() );
-
-        // Procedural meshes have no asset shell — fall back to the already-built runtime mesh if present.
-        if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
-            return std::make_optional( it->second->IsSkinned() );
 
         return std::nullopt;
     }
