@@ -4,7 +4,12 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/VFXSystemEdit.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
+#include <Editor/Widgets/PreviewInput.hpp>
+#include <Editor/Widgets/PreviewViewport.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
@@ -369,9 +374,141 @@ namespace Desert::Editor
     void VFXSystemDocument::Report( const Common::BoolResultStr& result )
     {
         if ( result.IsSuccess() )
+        {
             m_Refusal.clear();
-        else
-            m_Refusal = result.GetError();
+            return;
+        }
+        m_Refusal = result.GetError();
+        LOG_WARN( "[VFX] {}: refused - {}", GetName(), m_Refusal );
+    }
+
+    void VFXSystemDocument::EnsurePreview()
+    {
+        if ( m_Preview || !m_Loaded )
+            return;
+        m_Preview  = std::make_unique<PreviewViewport>();
+        m_UIHelper = std::make_unique<UI::UIHelper>();
+        m_UIHelper->Init();
+        m_PreviewLive = true;
+        // Particles move: the pane renders every frame (UE's viewport is realtime while an effect plays).
+        m_Preview->SetRealtime( true );
+        m_Previewed.reset(); // the new pane is handed the working copy below
+        if ( m_PendingOrbitDegrees )
+        {
+            m_Preview->SetOrbit( glm::radians( m_PendingOrbitDegrees->x ),
+                                 glm::radians( m_PendingOrbitDegrees->y ) );
+            m_PendingOrbitDegrees.reset();
+        }
+    }
+
+    void VFXSystemDocument::ReleaseView()
+    {
+        m_Preview.reset();
+        m_UIHelper.reset();
+        m_Previewed.reset();
+        m_PreviewLive = false;
+    }
+
+    void VFXSystemDocument::SetPreviewViewpoint( const PreviewViewpoint& viewpoint )
+    {
+        if ( !m_Preview )
+        {
+            m_PendingOrbitDegrees = glm::vec2( viewpoint.YawDegrees, viewpoint.PitchDegrees );
+            return;
+        }
+        m_Preview->SetOrbit( glm::radians( viewpoint.YawDegrees ), glm::radians( viewpoint.PitchDegrees ) );
+    }
+
+    void VFXSystemDocument::OnPreUpdate()
+    {
+        // THE SLOT IS NOT CLAIMED UNTIL THE WINDOW HAS BEEN DRAWN (StaticMeshViewerDocument::OnPreUpdate).
+        if ( !m_DrewThisFrame )
+            return;
+        m_DrewThisFrame = false;
+
+        EnsurePreview();
+        if ( !m_Preview || m_RenderSize.x == 0u || m_RenderSize.y == 0u )
+            return;
+
+        // THE EDIT REACHES THE PREVIEW: a working copy that differs from the one playing, and validates (a drag
+        // in progress may pass through values the commit would refuse), is handed over as a new system.
+        if ( !m_Previewed || *m_Previewed != m_Working )
+        {
+            if ( S::ValidateVFXSystemData( m_Working ) )
+            {
+                m_Previewed = std::make_shared<const S::VFXSystemData>( m_Working );
+                m_Preview->SetVFXSystem( m_Previewed );
+            }
+        }
+
+        PreviewEnvironment::ApplyTo( *m_Preview, m_Assets );
+        m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
+    }
+
+    std::vector<ISubjectDocument::DocumentAction> VFXSystemDocument::Actions()
+    {
+        std::vector<DocumentAction> actions;
+        for ( std::size_t i = 0; i < m_Templates.size(); ++i )
+            actions.push_back( { std::format( "Add emitter: {}", m_Templates[i].Name ),
+                                 [this, i]() { AddEmitterFromTemplate( i ); } } );
+        actions.push_back( { "Restart preview", [this]()
+                             {
+                                 if ( m_Preview )
+                                     m_Preview->RestartVFX();
+                             } } );
+        PreviewEnvironment::AppendActions( actions );
+        return actions;
+    }
+
+    void VFXSystemDocument::ExtendToolbar( AssetEditorToolbar& toolbar )
+    {
+        toolbar.AddButton( ICON_MDI_RESTART, "Restart", "Every emitter of the preview starts over",
+                           [this]()
+                           {
+                               if ( m_Preview )
+                                   m_Preview->RestartVFX();
+                           } );
+    }
+
+    void VFXSystemDocument::AddEmitterFromTemplate( const std::size_t index )
+    {
+        if ( !m_Loaded || index >= m_Templates.size() )
+            return;
+        const VFXEmitterTemplate& t  = m_Templates[index];
+        const std::size_t         at = m_Working.Emitters.size();
+        m_DeferredSelection          = Selection{ Selection::Kind::Emitter, at, Stage::EmitterUpdate, 0 };
+        Defer( std::format( "Add emitter from template '{}'", t.Name ),
+               [t]( S::VFXSystemData& d ) -> Common::BoolResultStr
+               {
+                   S::VFXEmitterData emitter = t.Emitter;
+                   emitter.Name              = FreeEmitterName( d, t.Emitter.Name );
+                   d.Emitters.push_back( std::move( emitter ) );
+                   // The system's fixed bounds grow to hold what the template's own bounds held.
+                   d.Bounds.Min = glm::min( d.Bounds.Min, t.Bounds.Min );
+                   d.Bounds.Max = glm::max( d.Bounds.Max, t.Bounds.Max );
+                   return BOOLSUCCESS;
+               } );
+    }
+
+    void VFXSystemDocument::DrawPreview( const ImVec2& size )
+    {
+        m_RenderSize = glm::uvec2( static_cast<uint32_t>( std::max( size.x, 1.0f ) ),
+                                   static_cast<uint32_t>( std::max( size.y, 1.0f ) ) );
+        if ( ImGui::BeginChild( "##vfxpreview", size ) )
+        {
+            if ( !m_Preview || !m_UIHelper )
+                ImGui::TextDisabled( "Starting the preview..." );
+            else
+            {
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                (void)m_Preview->Draw( *m_UIHelper, size, PreviewInteraction::Interactive );
+                if ( m_Working.Emitters.empty() )
+                    ImGui::GetWindowDrawList()->AddText( ImVec2( origin.x + 10.0f, origin.y + 8.0f ),
+                                                         IM_COL32( 200, 200, 200, 255 ),
+                                                         "No emitters - Add emitter picks a template" );
+            }
+        }
+        ImGui::EndChild();
     }
 
     void VFXSystemDocument::Defer( std::string                                               label,
@@ -431,12 +568,21 @@ namespace Desert::Editor
             m_FrameStart = m_Working;
         ClampSelection();
 
+        // No ImGui::Begin: EditorLayer's document loop wraps this in Begin/End.
+        m_DrewThisFrame = true;
+
         DrawToolbar();
 
-        const float overviewWidth = std::max( 300.0f, ImGui::GetContentRegionAvail().x * 0.42f );
+        // UE's Niagara System editor: the preview viewport over the system overview on the left, the selection's
+        // details on the right.
+        const ImVec2 avail         = ImGui::GetContentRegionAvail();
+        const float  overviewWidth = std::max( 300.0f, avail.x * 0.42f );
+        ImGui::BeginGroup();
+        DrawPreview( ImVec2( overviewWidth, std::max( 160.0f, avail.y * 0.45f ) ) );
         if ( ImGui::BeginChild( "##overview", ImVec2( overviewWidth, 0.0f ), true ) )
             DrawOverview();
         ImGui::EndChild();
+        ImGui::EndGroup();
         ImGui::SameLine();
         if ( ImGui::BeginChild( "##details", ImVec2( 0.0f, 0.0f ), true ) )
             DrawDetails();
@@ -458,9 +604,6 @@ namespace Desert::Editor
 
     void VFXSystemDocument::DrawToolbar()
     {
-        if ( ImGui::Button( ICON_MDI_CONTENT_SAVE " Save" ) )
-            (void)SaveDocument();
-        ImGui::SameLine();
         ImGui::BeginDisabled( m_Templates.empty() );
         if ( ImGui::Button( ICON_MDI_PLUS " Add emitter" ) )
             ImGui::OpenPopup( "##templates" );
@@ -469,24 +612,9 @@ namespace Desert::Editor
         {
             ImGui::TextDisabled( "Emitter templates" );
             ImGui::Separator();
-            for ( const VFXEmitterTemplate& t : m_Templates )
-            {
-                if ( !ImGui::Selectable( t.Name.c_str() ) )
-                    continue;
-                const std::size_t at = m_Working.Emitters.size();
-                m_DeferredSelection  = Selection{ Selection::Kind::Emitter, at, Stage::EmitterUpdate, 0 };
-                Defer( std::format( "Add emitter from template '{}'", t.Name ),
-                       [t]( S::VFXSystemData& d ) -> Common::BoolResultStr
-                       {
-                           S::VFXEmitterData emitter = t.Emitter;
-                           emitter.Name              = FreeEmitterName( d, t.Emitter.Name );
-                           d.Emitters.push_back( std::move( emitter ) );
-                           // The system's fixed bounds grow to hold what the template's own bounds held.
-                           d.Bounds.Min = glm::min( d.Bounds.Min, t.Bounds.Min );
-                           d.Bounds.Max = glm::max( d.Bounds.Max, t.Bounds.Max );
-                           return BOOLSUCCESS;
-                       } );
-            }
+            for ( std::size_t i = 0; i < m_Templates.size(); ++i )
+                if ( ImGui::Selectable( m_Templates[i].Name.c_str() ) )
+                    AddEmitterFromTemplate( i );
             ImGui::EndPopup();
         }
         ImGui::SameLine();

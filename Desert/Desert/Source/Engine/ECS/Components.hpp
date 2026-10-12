@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -57,6 +58,11 @@
 namespace Desert::Geometry
 {
     class DynamicMesh3;
+}
+
+namespace Desert::Assets::Serialization
+{
+    struct VFXSystemData;
 }
 
 namespace Desert
@@ -1085,6 +1091,11 @@ namespace Desert::ECS
 
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
+
+        // THE SYSTEM EDITOR'S WORKING COPY (UE: the Niagara System editor's preview component plays the system
+        // being edited, not the saved asset). When set, VFXWorld plays this instead of resolving Data.System; a
+        // new pointer is a new system, so every edit restarts the preview. Transient - not reflected, never saved.
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> PreviewSystem;
     };
 
     // ============================================================

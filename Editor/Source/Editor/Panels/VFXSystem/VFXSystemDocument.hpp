@@ -12,9 +12,14 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
+struct ImVec2;
+
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -25,8 +30,15 @@ namespace Desert::Assets
     class AssetManager;
 }
 
+namespace Desert::Editor::UI
+{
+    class UIHelper;
+}
+
 namespace Desert::Editor
 {
+    class PreviewViewport;
+
     /**
      * @brief One window per `.dfx`: UE's Niagara System editor (VFX-12).
      *
@@ -45,7 +57,13 @@ namespace Desert::Editor
      * WORKING AND SAVED: the document edits a copy; Dirty is m_Working != m_Saved (derived, never a flag), and
      * Save writes m_Working through VFXSystemAsset::Save, then has the held asset re-read its file.
      *
-     * NO RENDERER SLOT YET: the live preview viewport is REMAINDER (the window is ImGui only).
+     * THE LIVE PREVIEW (UE's Niagara System editor viewport): a PreviewViewport whose target carries a
+     * VFXComponent playing m_Working itself (VFXComponent::PreviewSystem), simulated by the preview scene's own
+     * VFXWorld exactly as a level would. Every change of the working copy that validates is handed over as a new
+     * system, so the effect starts over with the edit — what Niagara does on a property change. The window claims
+     * a view slot from birth and holds it while the preview exists (ReleaseView gives it back).
+     *
+     * SAVE IS THE FRAME'S: the asset-editor toolbar's Save calls SaveDocument; the window draws no second one.
      */
     class VFXSystemDocument final : public ISubjectDocument
     {
@@ -62,15 +80,34 @@ namespace Desert::Editor
 
         [[nodiscard]] bool IsSubjectAlive() const override;
 
+        void OnPreUpdate() override;
+
         [[nodiscard]] bool HoldsView() const override
         {
-            return false;
+            return m_PreviewLive;
         }
 
+        // A claimant from birth (StaticMeshViewerBase has the argument): the picture is a PreviewViewport.
         [[nodiscard]] bool ClaimsView() const override
         {
-            return false;
+            return true;
         }
+
+        // ~PreviewViewport idles the device and releases the renderer, which is what returns the slot.
+        void ReleaseView() override;
+
+        [[nodiscard]] bool HasPreview() const override
+        {
+            return true;
+        }
+        void SetPreviewViewpoint( const PreviewViewpoint& viewpoint ) override;
+
+        // "Add emitter: <template>" per template and "Restart preview": the palette's route to what the window's
+        // buttons do, for a headless run that cannot click a popup.
+        [[nodiscard]] std::vector<DocumentAction> Actions() override;
+
+        // The asset-editor toolbar's effect entries (UE FNiagaraSystemToolkit::ExtendToolbar): Restart.
+        void ExtendToolbar( AssetEditorToolbar& toolbar ) override;
 
         [[nodiscard]] DiskState GetDiskState() const override;
 
@@ -104,6 +141,10 @@ namespace Desert::Editor
         };
 
         void DrawToolbar();
+        void DrawPreview( const ImVec2& size );
+        void EnsurePreview();
+        /// Queues adding an emitter from template @p index (DrawToolbar's popup and the palette's actions).
+        void AddEmitterFromTemplate( std::size_t index );
         void DrawOverview();
         void DrawEmitterStack( std::size_t emitter );
         void DrawStage( std::size_t emitter, Stage stage );
@@ -148,6 +189,16 @@ namespace Desert::Editor
         // The emitter name being typed: ImGui hands the edit back only while the item is active, so the text
         // lives here until it deactivates and is committed as ONE rename.
         std::array<char, 128> m_NameBuffer{};
+
+        // The live preview (UE Niagara System editor viewport).
+        std::unique_ptr<PreviewViewport> m_Preview;
+        std::unique_ptr<UI::UIHelper>    m_UIHelper;
+        bool                             m_PreviewLive   = false;
+        bool                             m_DrewThisFrame = false;
+        glm::uvec2                       m_RenderSize{ 0u, 0u };
+        // What the preview plays: the last valid working copy handed to it (a new pointer restarts the effect).
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Previewed;
+        std::optional<glm::vec2>                                    m_PendingOrbitDegrees;
         bool                  m_NameTyping = false;
     };
 

@@ -93,14 +93,19 @@ namespace Desert::VFX
         view.each(
              [&]( entt::entity entity, ECS::VFXComponent& vfx, const ECS::UUIDComponent& id )
              {
-                 if ( static_cast<uint64_t>( vfx.Data.System ) == 0 )
-                     return; // an empty slot plays nothing
-                 // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
-                 // service, naming the handle.
-                 const auto resolved = systems->Get( vfx.Data.System );
-                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
-                     return;
-                 const auto& data = resolved.GetValue();
+                 // The system editor's preview plays its working copy (VFXComponent::PreviewSystem).
+                 std::shared_ptr<const Assets::Serialization::VFXSystemData> data = vfx.PreviewSystem;
+                 if ( !data )
+                 {
+                     if ( static_cast<uint64_t>( vfx.Data.System ) == 0 )
+                         return; // an empty slot plays nothing
+                     // Pending = not yet read (the system starts when it lands); a failed read is logged once by
+                     // the service, naming the handle.
+                     const auto resolved = systems->Get( vfx.Data.System );
+                     if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                         return;
+                     data = resolved.GetValue();
+                 }
 
                  const std::uint64_t uuid   = id.UUID;
                  SystemInstance&     system = m_Systems[uuid];
