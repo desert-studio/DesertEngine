@@ -44,6 +44,11 @@
 //                     Static Mesh doesn't support custom-shader materials"), so an instance written for it
 //                     would be a hole nobody named. Asked of a CustomShaderSource, because which shader a
 //                     material names is in the material's file, not in this one.
+//   LandscapeTile   — a landscape tile (UE: ALandscapeStreamingProxy). It draws terrain and has no mesh block, so
+//                     reading it as "draws nothing" made the far terrain vanish with the log saying "every
+//                     drawing record has its stand-in" (WP-FAR-1, live). UE stands a landscape HLOD in for it
+//                     (ULandscapeHLODBuilder, a simplified mesh of the proxy); until this engine has that builder
+//                     (WP-FAR-6) the tile is a NAMED hole, counted with the others when the HLODs are made.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -88,6 +93,7 @@ namespace Desert::Core::Rules
         PrefabInstance,
         Unreadable,
         CustomShaderMaterial,
+        LandscapeTile,
     };
 
     // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
@@ -245,6 +251,12 @@ namespace Desert::Core::Rules
             if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
             {
                 hlod.NotInstanced.push_back( { index, HLODExclusion::PrefabInstance } );
+                continue;
+            }
+            // A landscape tile draws terrain from its height file, not from a mesh block (the reason above).
+            if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
+            {
+                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );
                 continue;
             }
             if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
