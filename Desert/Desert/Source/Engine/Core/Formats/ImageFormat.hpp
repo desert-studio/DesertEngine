@@ -254,7 +254,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R32_UINT: // one channel, 32-bit unsigned integer
                 return { 1, 1, 4 };
             case ImageFormat::RG8_UNORM:
-                return { 1, 1, 2 }; // two channels, 8 bits each
+                return { 1, 1, 2 };      // two channels, 8 bits each
             case ImageFormat::RG32_UINT: // two channels, 32-bit unsigned integer each
                 return { 1, 1, 8 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the

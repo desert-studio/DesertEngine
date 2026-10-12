@@ -97,9 +97,9 @@ namespace Desert::Core::ShadingModels
     // ------------------------------------------------------------------------------------------------------------
     // Where the payload lives: the shading word, the G-buffer's RG32_UINT target (kGBufferShadingWord,
     // Pass_GBuffer.glslh location 2), written and read with integer operations. The table numbers the bits of
-    // the WHOLE word: bits 0..31 are its .x, bits 32..63 its .y (a field never straddles the two). ShadingModelContract.glslh
-    // (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the ShadingModelContract suite holds the two
-    // equal.
+    // the WHOLE word: bits 0..31 are its .x, bits 32..63 its .y (a field never straddles the two).
+    // ShadingModelContract.glslh (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the
+    // ShadingModelContract suite holds the two equal.
     struct ShadingWordField
     {
         std::string_view Name;

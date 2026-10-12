@@ -383,7 +383,7 @@ TEST( EditMeshAttributes, SplitSharesTheNewElementUnlessTheEdgeIsASeam )
         SetQuadUVs( q, seamed );
         ASSERT_TRUE( Valid( q.Mesh ) );
         UVOverlay const& uv     = *q.Mesh.Attributes().UV( 0 );
-        const int  before = uv.ElementCount();
+        const int        before = uv.ElementCount();
 
         SplitEdgeInfo info;
         ASSERT_EQ( q.Mesh.SplitEdge( q.Diagonal, 0.25f, info ), EditResult::Ok );

@@ -17,12 +17,12 @@ namespace Desert::Geometry::Bridge
         // lock() comparison and is a miss, never another mesh's view.
         struct Entry
         {
-            std::weak_ptr<const DynamicMesh3>  Mesh;
-            std::shared_ptr<const EditMesh>    View;
+            std::weak_ptr<const DynamicMesh3> Mesh;
+            std::shared_ptr<const EditMesh>   View;
         };
 
-        std::mutex                                      g_Mutex;
-        std::unordered_map<const DynamicMesh3*, Entry>  g_Views;
+        std::mutex                                     g_Mutex;
+        std::unordered_map<const DynamicMesh3*, Entry> g_Views;
 
         void RememberLocked( const std::shared_ptr<const DynamicMesh3>& mesh,
                              std::shared_ptr<const EditMesh>            view )
@@ -95,8 +95,8 @@ namespace Desert::Geometry::Bridge
         ElementSelection edges( ElementMode::Edge );
         for ( const int e : selection.Ids() )
         {
-            const Index2i  ev   = mesh.GetEdgeV( e );
-            const int      edge = view.FindEdge( ev.A, ev.B );
+            const Index2i ev   = mesh.GetEdgeV( e );
+            const int     edge = view.FindEdge( ev.A, ev.B );
             if ( edge < 0 )
                 return Common::MakeFormattedError<ElementSelection>(
                      "ToEditMeshSelection: selected edge {} ({}, {}) has no edge in the EditMesh view", e, ev.A,

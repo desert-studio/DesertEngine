@@ -215,13 +215,13 @@ namespace Desert::Graphic::System
         SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
                                    EmitterMaterial& material );
 
-        std::shared_ptr<ComputePipeline>  m_SimPipeline;
-        std::shared_ptr<ComputePipeline>  m_CompactPipeline;
-        std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
-        std::shared_ptr<ComputePipeline>  m_SortPipeline;
-        mutable ShaderBindingLayoutCache  m_SortLayout;
-        RDG::BufferRef                    m_SortKeysRef;
-        RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
+        std::shared_ptr<ComputePipeline> m_SimPipeline;
+        std::shared_ptr<ComputePipeline> m_CompactPipeline;
+        std::shared_ptr<ComputePipeline> m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline> m_SortPipeline;
+        mutable ShaderBindingLayoutCache m_SortLayout;
+        RDG::BufferRef                   m_SortKeysRef;
+        RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         mutable ShaderBindingLayoutCache m_SimLayout;
         mutable ShaderBindingLayoutCache m_CompactLayout;

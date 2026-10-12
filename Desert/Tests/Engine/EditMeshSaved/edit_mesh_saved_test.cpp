@@ -252,7 +252,7 @@ TEST( EditMeshSaved, ASavedFormNoWriterProducesIsRefusedByName )
     outOfRange.Triangles[4] = 99;
     EXPECT_NE( refusal( outOfRange ).find( "names vertex 99" ), std::string::npos ) << refusal( outOfRange );
 
-    EditMeshSer partlySet           = good;
+    EditMeshSer partlySet                  = good;
     partlySet.Normals.value().Triangles[1] = -1; // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_NE( refusal( partlySet ).find( "only partly set" ), std::string::npos ) << refusal( partlySet );
 

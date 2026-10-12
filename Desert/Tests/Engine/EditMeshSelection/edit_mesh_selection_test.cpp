@@ -436,9 +436,9 @@ TEST( ElementSelectionEdits, RemovedTrianglesDropOutAndAreCounted )
     ASSERT_EQ( mesh.RemoveTriangle( kept, false ), EditResult::Ok );
     for ( int i = 0; i < 2; ++i )
     {
-        const int a = mesh.AppendVertex( { 500.0f + i * 100.0f, 0, 0 } );
-        const int b = mesh.AppendVertex( { 550.0f + i * 100.0f, 0, 0 } );
-        const int c = mesh.AppendVertex( { 500.0f + i * 100.0f, 50, 0 } );
+        const int a     = mesh.AppendVertex( { 500.0f + i * 100.0f, 0, 0 } );
+        const int b     = mesh.AppendVertex( { 550.0f + i * 100.0f, 0, 0 } );
+        const int c     = mesh.AppendVertex( { 500.0f + i * 100.0f, 50, 0 } );
         int       added = 0;
         ASSERT_EQ( mesh.AppendTriangle( a, b, c, added ), EditResult::Ok );
         // A group no cube face has: a fresh triangle starts in group 0, which is a face's own (the front one

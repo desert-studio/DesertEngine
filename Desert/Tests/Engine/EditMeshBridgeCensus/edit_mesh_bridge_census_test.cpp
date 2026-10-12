@@ -24,7 +24,7 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    constexpr const char* kBridgeHeader = "EditMeshBridge.hpp";
+    constexpr const char*          kBridgeHeader = "EditMeshBridge.hpp";
     const std::vector<std::string> kScanRoots =
          Desert::TestSupport::LibraryRootsAnd( { "Editor/Source", "Runtime/Source", "Tools" } );
 

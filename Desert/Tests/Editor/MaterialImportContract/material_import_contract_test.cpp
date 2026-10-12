@@ -131,11 +131,12 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     EXPECT_EQ( shipped[fbx.GetValue()].ShaderName, "StandardSurface" );
 
     // A two-sided cut-out card (Bistro's Foliage_Leaves.DoubleSided) is foliage; either statement alone is not.
-    const auto leaf = ChooseImportTemplate(
-         Material( { "fbx.DiffuseColor", "fbx.doubleSided", "fbx.alphaMask" } ), shipped, "a.fbx" );
+    const auto leaf = ChooseImportTemplate( Material( { "fbx.DiffuseColor", "fbx.doubleSided", "fbx.alphaMask" } ),
+                                            shipped, "a.fbx" );
     ASSERT_TRUE( leaf.IsSuccess() ) << leaf.GetError();
     EXPECT_EQ( shipped[leaf.GetValue()].ShaderName, "FoliageSurface" );
-    const auto sheet = ChooseImportTemplate( Material( { "fbx.DiffuseColor", "fbx.doubleSided" } ), shipped, "a.fbx" );
+    const auto sheet =
+         ChooseImportTemplate( Material( { "fbx.DiffuseColor", "fbx.doubleSided" } ), shipped, "a.fbx" );
     ASSERT_TRUE( sheet.IsSuccess() ) << sheet.GetError();
     EXPECT_EQ( shipped[sheet.GetValue()].ShaderName, "StandardSurface" );
 }

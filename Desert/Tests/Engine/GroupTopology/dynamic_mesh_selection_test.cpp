@@ -82,9 +82,9 @@ namespace
 
     struct Pair
     {
-        EditMesh       Old;
-        DynamicMesh3   New;
-        GroupTopology  Topology;
+        EditMesh      Old;
+        DynamicMesh3  New;
+        GroupTopology Topology;
         // Vertex / Edge picks against the EditMesh path's pixel-nearest rule (reported, not required equal).
         int PickSame          = 0;
         int PickOther         = 0;

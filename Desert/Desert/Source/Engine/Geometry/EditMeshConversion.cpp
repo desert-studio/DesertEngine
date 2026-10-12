@@ -164,12 +164,12 @@ namespace Desert::Geometry
                 uint32_t*   slots[3] = { &index.V1, &index.V2, &index.V3 };
                 for ( int j = 0; j < 3; ++j )
                 {
-                    const int                v  = tri[j];
-                    const int                en = normals->GetTriangle( t )[j];
+                    const int v  = tri[j];
+                    const int en = normals->GetTriangle( t )[j];
                     const int et = ( tangents != nullptr ) ? tangents->GetTriangle( t )[j] : InvalidId;
                     const int eu = ( uvs != nullptr ) ? uvs->GetTriangle( t )[j] : InvalidId;
-                    const int                ec = ( colors != nullptr ) ? colors->GetTriangle( t )[j] : InvalidId;
-                    const int                e1 = ( uv1 != nullptr ) ? uv1->GetTriangle( t )[j] : InvalidId;
+                    const int ec = ( colors != nullptr ) ? colors->GetTriangle( t )[j] : InvalidId;
+                    const int e1 = ( uv1 != nullptr ) ? uv1->GetTriangle( t )[j] : InvalidId;
                     // A colour or UV1 seam splits the render vertex like a UV 0 seam does.
                     const std::array<int, 5> key{ en, et, eu, ec, e1 };
                     std::vector<Corner>&     at    = corners[static_cast<size_t>( v )];
@@ -378,8 +378,8 @@ namespace Desert::Geometry
                     const float handed =
                          glm::dot( glm::cross( s.Normal, s.Tangent ), s.Bitangent ) < 0.0f ? -1.0f : 1.0f;
                     const glm::vec4 tangent( s.Tangent, handed );
-                    et[j] = element( tangents, tangentAt, corners[j], tangent );
-                    eu[j] = element( uvs, uvAt, corners[j], s.TexCoord );
+                    et[j]          = element( tangents, tangentAt, corners[j], tangent );
+                    eu[j]          = element( uvs, uvAt, corners[j], s.TexCoord );
                     const size_t r = range.VertexOffset + local[j];
                     if ( colors != nullptr )
                         ec[j] = element( *colors, colorAt, corners[j], render.Colors[r] );

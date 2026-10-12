@@ -28,8 +28,8 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
     inline constexpr ImageFormat kGBufferB        = ImageFormat::RGBA16F; // normal.xyz + roughness
     // The shading word (ShadingModels/ShadingModelContract.glslh): model index, the four-float payload (UE's
-    // GBufferD CustomData), texture count and the no-sun-shadows bit, as a uvec2. World position is NOT stored: every reader rebuilds it from kGBufferDepth
-    // (Common/ReconstructPosition.glslh).
+    // GBufferD CustomData), texture count and the no-sun-shadows bit, as a uvec2. World position is NOT stored:
+    // every reader rebuilds it from kGBufferDepth (Common/ReconstructPosition.glslh).
     inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::RG32_UINT;
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;

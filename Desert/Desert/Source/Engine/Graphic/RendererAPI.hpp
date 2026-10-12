@@ -103,7 +103,7 @@ namespace Desert::Graphic
 
         // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                  const MaterialExecutor* materialExecutor )                            = 0;
+                                  const MaterialExecutor* materialExecutor ) = 0;
 
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
         // into the command buffer of the pass the bindings were built in, with descriptor sets written for this

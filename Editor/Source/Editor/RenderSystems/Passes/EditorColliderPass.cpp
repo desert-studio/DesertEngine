@@ -112,9 +112,8 @@ namespace Desert::Editor::Render
                 return BOOLSUCCESS;
 
             m_Material->Update( *view, lines );
-            Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(),
-                                                          static_cast<uint32_t>( lines.size() ), 1.0f,
-                                                          m_Material->GetMaterialExecutor() );
+            Graphic::Renderer::GetInstance().SubmitLines( m_Pipeline.get(), static_cast<uint32_t>( lines.size() ),
+                                                          1.0f, m_Material->GetMaterialExecutor() );
             return BOOLSUCCESS;
         };
 

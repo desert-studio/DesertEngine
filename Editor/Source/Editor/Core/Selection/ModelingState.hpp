@@ -285,7 +285,7 @@ namespace Desert::Editor::Core
         // looks (the palette's way to place without a mouse).
         ShapeSettings CreateShape;
         OutputSettings Output; // shared by Create Shape and Cube Grid, as UE's modeling mode shares it
-        bool          ReqPlaceCentre = false;
+        bool           ReqPlaceCentre = false;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;
         bool CornerMode = false; // the tool is currently in Corner Mode

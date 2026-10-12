@@ -1320,7 +1320,7 @@ namespace Desert::Editor::Tools
         // quads disagree, so a flat face renders the vertices it did before. On a Corner Mode ramp the
         // bitangent is the one thing that changes: the render side derives it as cross(N, T) * sign
         // (EditMeshConversion.hpp), in the ramp's plane, where the old buffer kept the world UV axis.
-        auto imported  = Geometry::FromRenderMesh( quads );
+        auto imported = Geometry::FromRenderMesh( quads );
         if ( !imported.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );

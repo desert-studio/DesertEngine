@@ -1,11 +1,11 @@
 // The shading-model contract (Engine/Core/ShaderCompiler/ShadingModels/,
 // ShadingModels/ShadingModelContract.glslh).
 //
-// Two halves. The shading-word tests pin the TABLE — where the index, the texture count and the four payload floats
-// live in the G-buffer shading word (RG32_UINT) — on both sides of the C++/GLSL boundary; they hold from the
-// contract alone. The registry tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most four payload
-// floats, Inputs within SurfaceOutput, a Guid-stable index — over the shipped files and over built-up manifests;
-// they need the implementation (ShadingModels/*.cpp, compiled in by the premake match).
+// Two halves. The shading-word tests pin the TABLE — where the index, the texture count and the four payload
+// floats live in the G-buffer shading word (RG32_UINT) — on both sides of the C++/GLSL boundary; they hold from
+// the contract alone. The registry tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most four
+// payload floats, Inputs within SurfaceOutput, a Guid-stable index — over the shipped files and over built-up
+// manifests; they need the implementation (ShadingModels/*.cpp, compiled in by the premake match).
 
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
@@ -92,8 +92,8 @@ namespace
         return extra;
     }
 
-    const std::vector<std::string> kFields{ "BaseColor", "Metallic",    "Roughness",  "Emissive",
-                                            "Normal",    "CustomData0", "CustomData1", "CustomData2", "CustomData3" };
+    const std::vector<std::string> kFields{ "BaseColor",   "Metallic",    "Roughness",   "Emissive",   "Normal",
+                                            "CustomData0", "CustomData1", "CustomData2", "CustomData3" };
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------------------

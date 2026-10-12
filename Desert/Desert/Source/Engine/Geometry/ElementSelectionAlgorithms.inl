@@ -344,28 +344,28 @@ namespace Desert::Geometry
             return Mask( mesh.MaxVertexId(), verts.Ids() );
         }
 
-    template <class Mesh>
-    ElementHit PickElementT( const Mesh& mesh, ElementMode mode, const PickView& view )
-    {
-        switch ( mode )
+        template <class Mesh>
+        ElementHit PickElementT( const Mesh& mesh, ElementMode mode, const PickView& view )
         {
-            case ElementMode::Triangle:
-            case ElementMode::PolyGroup:
+            switch ( mode )
             {
-                const auto [triangle, rayT] = RayCast( mesh, view );
-                if ( triangle == InvalidId )
-                    return {};
-                const int id =
-                     mode == ElementMode::Triangle ? triangle : mesh.Attributes().GetPolyGroup( triangle );
-                return { id, rayT, 0.0f };
+                case ElementMode::Triangle:
+                case ElementMode::PolyGroup:
+                {
+                    const auto [triangle, rayT] = RayCast( mesh, view );
+                    if ( triangle == InvalidId )
+                        return {};
+                    const int id =
+                         mode == ElementMode::Triangle ? triangle : mesh.Attributes().GetPolyGroup( triangle );
+                    return { id, rayT, 0.0f };
+                }
+                case ElementMode::Vertex:
+                    return PickVertex( mesh, view );
+                case ElementMode::Edge:
+                    return PickEdge( mesh, view );
             }
-            case ElementMode::Vertex:
-                return PickVertex( mesh, view );
-            case ElementMode::Edge:
-                return PickEdge( mesh, view );
+            return {};
         }
-        return {};
-    }
     } // namespace
 
     template <class Mesh>
