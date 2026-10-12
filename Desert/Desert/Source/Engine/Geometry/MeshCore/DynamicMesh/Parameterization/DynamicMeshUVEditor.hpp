@@ -73,10 +73,11 @@ namespace Desert::Geometry
          * Planar projection: each vertex's PointTransform(position), in ProjectionFrame's X/Y plane, divided by
          * Dimensions. One new island (the triangles' UVs are reset first).
          */
-        void SetTriangleUVsFromPlanarProjection( const std::vector<int32_t>&                           Triangles,
-                                                 const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
-                                                 const Frame3d& ProjectionFrame, const glm::dvec2& Dimensions,
-                                                 UVEditResult* Result = nullptr );
+        void
+        SetTriangleUVsFromPlanarProjection( const std::vector<int32_t>&                           Triangles,
+                                            const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
+                                            const Frame3d& ProjectionFrame, const glm::dvec2& Dimensions,
+                                            UVEditResult* Result = nullptr );
 
         /**
          * Box projection: each triangle onto the face of the box (BoxFrame, BoxDimensions) its normal points at
@@ -91,15 +92,17 @@ namespace Desert::Geometry
          * Cylinder projection around BoxFrame's Z: triangles whose normal is within CylinderSplitAngle degrees of
          * +/-Z get the caps' planar projection, the others the unrolled side (split at the frame's -X).
          */
-        void SetTriangleUVsFromCylinderProjection( const std::vector<int32_t>& Triangles,
-                                                   const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
-                                                   const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions,
-                                                   float CylinderSplitAngle, UVEditResult* Result = nullptr );
+        void
+        SetTriangleUVsFromCylinderProjection( const std::vector<int32_t>&                           Triangles,
+                                              const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
+                                              const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions,
+                                              float CylinderSplitAngle, UVEditResult* Result = nullptr );
 
         /** Splits the overlay bowties at the parent vertices of UVElementIDs; new elements are appended to it. */
         void SplitBowtiesOnUVElements( std::vector<int32_t>& UVElementIDs, bool bAddNewElementsToInputArray );
 
-        /** Rotates the Triangles' UVs so their bounding box is the smallest one (rotating calipers on the hull). */
+        /** Rotates the Triangles' UVs so their bounding box is the smallest one (rotating calipers on the hull).
+         */
         bool AutoOrientUVArea( const std::vector<int32_t>& Triangles );
 
         /** Packs every UV island of the overlay into the unit square (bowties split first). */

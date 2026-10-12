@@ -358,8 +358,10 @@ namespace Desert::Geometry
             for ( size_t i = 0; i < Points.size(); ++i )
                 Order[i] = static_cast<int32_t>( i );
             std::sort( Order.begin(), Order.end(),
-                       [&]( int32_t A, int32_t B )
-                       { return Points[A].x < Points[B].x || ( Points[A].x == Points[B].x && Points[A].y < Points[B].y ); } );
+                       [&]( int32_t A, int32_t B ) {
+                           return Points[A].x < Points[B].x ||
+                                  ( Points[A].x == Points[B].x && Points[A].y < Points[B].y );
+                       } );
             auto Cross = [&]( int32_t O, int32_t A, int32_t B )
             {
                 const glm::dvec2 OA = glm::dvec2( Points[A] - Points[O] );
@@ -389,8 +391,9 @@ namespace Desert::Geometry
     } // namespace
 
     void DynamicMeshUVEditor::SetTriangleUVsFromPlanarProjection(
-         const std::vector<int32_t>& Triangles, const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
-         const Frame3d& ProjectionFrame, const glm::dvec2& Dimensions, UVEditResult* Result )
+         const std::vector<int32_t>&                           Triangles,
+         const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform, const Frame3d& ProjectionFrame,
+         const glm::dvec2& Dimensions, UVEditResult* Result )
     {
         if ( m_UVOverlay == nullptr || Triangles.empty() )
             return;
@@ -410,8 +413,10 @@ namespace Desert::Geometry
                 const auto Found = BaseToOverlayVIDMap.find( BaseTri[j] );
                 if ( Found == BaseToOverlayVIDMap.end() )
                 {
-                    const glm::dvec3 Local = ToFramePoint( ProjectionFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) );
-                    const glm::vec2  UV( static_cast<float>( Local.x * ScaleX ), static_cast<float>( Local.y * ScaleY ) );
+                    const glm::dvec3 Local =
+                         ToFramePoint( ProjectionFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) );
+                    const glm::vec2 UV( static_cast<float>( Local.x * ScaleX ),
+                                        static_cast<float>( Local.y * ScaleY ) );
                     ElemTri[j] = m_UVOverlay->AppendElement( UV );
                     NewUVIndices.push_back( ElemTri[j] );
                     BaseToOverlayVIDMap.emplace( BaseTri[j], ElemTri[j] );
@@ -426,8 +431,9 @@ namespace Desert::Geometry
     }
 
     void DynamicMeshUVEditor::SetTriangleUVsFromBoxProjection(
-         const std::vector<int32_t>& Triangles, const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
-         const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions, UVEditResult* Result )
+         const std::vector<int32_t>&                           Triangles,
+         const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform, const Frame3d& BoxFrame,
+         const glm::dvec3& BoxDimensions, UVEditResult* Result )
     {
         const size_t NumTriangles = Triangles.size();
         if ( m_UVOverlay == nullptr || NumTriangles == 0 )
@@ -449,11 +455,12 @@ namespace Desert::Geometry
         {
             glm::dvec3 A, B, C;
             m_Mesh->GetTriVertices( Triangles[i], A, B, C );
-            TriNormals[i]                  = VectorUtil::Normal( PointTransform( A ), PointTransform( B ), PointTransform( C ) );
-            const glm::dvec3 ScaledNormal  = ToFrameVector( BoxFrame, TriNormals[i] ) * Scale;
-            const glm::dvec3 NAbs          = glm::abs( ScaledNormal );
-            const int        MajorAxis     = NAbs[0] > NAbs[1] ? ( NAbs[0] > NAbs[2] ? 0 : 2 ) : ( NAbs[1] > NAbs[2] ? 1 : 2 );
-            const int        Bucket        = Sign( ScaledNormal[MajorAxis] ) > 0 ? MajorAxis + 3 : MajorAxis;
+            TriNormals[i] = VectorUtil::Normal( PointTransform( A ), PointTransform( B ), PointTransform( C ) );
+            const glm::dvec3 ScaledNormal = ToFrameVector( BoxFrame, TriNormals[i] ) * Scale;
+            const glm::dvec3 NAbs         = glm::abs( ScaledNormal );
+            const int        MajorAxis =
+                 NAbs[0] > NAbs[1] ? ( NAbs[0] > NAbs[2] ? 0 : 2 ) : ( NAbs[1] > NAbs[2] ? 1 : 2 );
+            const int Bucket               = Sign( ScaledNormal[MajorAxis] ) > 0 ? MajorAxis + 3 : MajorAxis;
             TriangleBoxPlaneAssignments[i] = Index2i( MajorAxis, Bucket );
         }
 
@@ -477,9 +484,12 @@ namespace Desert::Geometry
                 const auto     Found = BaseToOverlayVIDMap.find( Key );
                 if ( Found == BaseToOverlayVIDMap.end() )
                 {
-                    const glm::dvec3 BoxPos = ToFramePoint( BoxFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) ) * Scale;
-                    const glm::vec2  UV( static_cast<float>( BoxPos[Minor1] ) * static_cast<float>( MajorAxisSign * Minor1Flip[MajorAxis] ),
-                                         static_cast<float>( BoxPos[Minor2] ) * static_cast<float>( Minor2Flip[MajorAxis] ) );
+                    const glm::dvec3 BoxPos =
+                         ToFramePoint( BoxFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) ) * Scale;
+                    const glm::vec2 UV( static_cast<float>( BoxPos[Minor1] ) *
+                                             static_cast<float>( MajorAxisSign * Minor1Flip[MajorAxis] ),
+                                        static_cast<float>( BoxPos[Minor2] ) *
+                                             static_cast<float>( Minor2Flip[MajorAxis] ) );
                     ElemTri[j] = m_UVOverlay->AppendElement( UV );
                     NewUVIndices.push_back( ElemTri[j] );
                     BaseToOverlayVIDMap.emplace( Key, ElemTri[j] );
@@ -497,8 +507,9 @@ namespace Desert::Geometry
     }
 
     void DynamicMeshUVEditor::SetTriangleUVsFromCylinderProjection(
-         const std::vector<int32_t>& Triangles, const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
-         const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions, float CylinderSplitAngle, UVEditResult* Result )
+         const std::vector<int32_t>&                           Triangles,
+         const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform, const Frame3d& BoxFrame,
+         const glm::dvec3& BoxDimensions, float CylinderSplitAngle, UVEditResult* Result )
     {
         const size_t NumTriangles = Triangles.size();
         if ( m_UVOverlay == nullptr || NumTriangles == 0 )
@@ -510,7 +521,7 @@ namespace Desert::Geometry
 
         const glm::dvec3 Scale( InverseOrOne( BoxDimensions.x ), InverseOrOne( BoxDimensions.y ),
                                 InverseOrOne( BoxDimensions.z ) );
-        const double DotThresholdRejectFromPlane = std::cos( CylinderSplitAngle * std::numbers::pi / 180.0 );
+        const double     DotThresholdRejectFromPlane = std::cos( CylinderSplitAngle * std::numbers::pi / 180.0 );
 
         // Buckets: 1/0 is +/-Z, 3/4 the negative/positive angle around the cylinder ([-180, 0] and [0, 180]
         // each get their own island).
@@ -520,10 +531,10 @@ namespace Desert::Geometry
         {
             glm::dvec3 A, B, C;
             m_Mesh->GetTriVertices( Triangles[i], A, B, C );
-            A             = PointTransform( A );
-            B             = PointTransform( B );
-            C             = PointTransform( C );
-            TriNormals[i] = VectorUtil::Normal( A, B, C );
+            A                  = PointTransform( A );
+            B                  = PointTransform( B );
+            C                  = PointTransform( C );
+            TriNormals[i]      = VectorUtil::Normal( A, B, C );
             const glm::dvec3 N = Normalized( ToFrameVector( BoxFrame, TriNormals[i] ) * Scale );
             if ( std::abs( N.z ) > DotThresholdRejectFromPlane )
                 TriangleCylinderAssignments[i] = Index2i( 2, Sign( N.z ) > 0 ? 1 : 0 );
@@ -552,13 +563,16 @@ namespace Desert::Geometry
                 const auto     Found = BaseToOverlayVIDMap.find( Key );
                 if ( Found == BaseToOverlayVIDMap.end() )
                 {
-                    const glm::dvec3 BoxPos = Scale * ToFramePoint( BoxFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) );
-                    glm::vec2        UV( 0.0f );
+                    const glm::dvec3 BoxPos =
+                         Scale * ToFramePoint( BoxFrame, PointTransform( m_Mesh->GetVertex( BaseTri[j] ) ) );
+                    glm::vec2 UV( 0.0f );
                     if ( Bucket <= 2 )
                     {
                         const int MajorAxisSign = static_cast<int>( Sign( N[MajorAxis] ) );
-                        UV = glm::vec2( static_cast<float>( BoxPos.x ) * static_cast<float>( MajorAxisSign * Minor1Flip[MajorAxis] ),
-                                        static_cast<float>( BoxPos.y ) * static_cast<float>( Minor2Flip[MajorAxis] ) );
+                        UV                      = glm::vec2( static_cast<float>( BoxPos.x ) *
+                                                                  static_cast<float>( MajorAxisSign * Minor1Flip[MajorAxis] ),
+                                                             static_cast<float>( BoxPos.y ) *
+                                                                  static_cast<float>( Minor2Flip[MajorAxis] ) );
                     }
                     else
                     {
@@ -595,7 +609,8 @@ namespace Desert::Geometry
         {
             const int32_t ParentVID = m_UVOverlay->GetParentVertex( UVElementIDs[Idx] );
             if ( m_UVOverlay->IsBowtieInOverlay( ParentVID ) )
-                m_UVOverlay->SplitBowtiesAtVertex( ParentVID, bAddNewElementsToInputArray ? &UVElementIDs : nullptr );
+                m_UVOverlay->SplitBowtiesAtVertex( ParentVID,
+                                                   bAddNewElementsToInputArray ? &UVElementIDs : nullptr );
         }
     }
 
@@ -637,15 +652,16 @@ namespace Desert::Geometry
         const int32_t NV = static_cast<int32_t>( HullPoints.size() );
 
         // Brute-force rotating calipers
-        const glm::vec2 Extent            = BoundsMax - BoundsMin;
-        double          MinBoxArea        = static_cast<double>( Extent.x ) * Extent.y;
-        glm::vec2       MinAxisDirection  = glm::vec2( 1.0f, 0.0f );
-        bool            bFoundSmallerBox  = false;
+        const glm::vec2 Extent           = BoundsMax - BoundsMin;
+        double          MinBoxArea       = static_cast<double>( Extent.x ) * Extent.y;
+        glm::vec2       MinAxisDirection = glm::vec2( 1.0f, 0.0f );
+        bool            bFoundSmallerBox = false;
         for ( int32_t j = 0; j <= NV; ++j )
         {
-            const glm::vec2 A = HullPoints[j % NV], B = HullPoints[( j + 1 ) % NV], C = HullPoints[( j + NV / 2 ) % NV];
-            glm::vec2       Axis0      = B - A;
-            float           Dimension0 = glm::length( Axis0 );
+            const glm::vec2 A = HullPoints[j % NV], B = HullPoints[( j + 1 ) % NV],
+                            C    = HullPoints[( j + NV / 2 ) % NV];
+            glm::vec2 Axis0      = B - A;
+            float     Dimension0 = glm::length( Axis0 );
             if ( Dimension0 <= 0.0f )
                 continue;
             Axis0 /= Dimension0;
@@ -698,7 +714,8 @@ namespace Desert::Geometry
         class UVOverlayView final : public UVPacker::IUVMeshView
         {
         public:
-            UVOverlayView( const DynamicMesh3* Mesh, DynamicMeshUVOverlay* Overlay ) : m_Mesh( Mesh ), m_Overlay( Overlay )
+            UVOverlayView( const DynamicMesh3* Mesh, DynamicMeshUVOverlay* Overlay )
+                 : m_Mesh( Mesh ), m_Overlay( Overlay )
             {
             }
             Index3i GetTriangle( int32_t TID ) const override
@@ -747,8 +764,11 @@ namespace Desert::Geometry
         UVComponents.FindConnectedTriangles( AllTriangles, [this]( int32_t T0, int32_t T1 )
                                              { return m_UVOverlay->AreTrianglesConnected( T0, T1 ); } );
         UVOverlayView View( m_Mesh, m_UVOverlay );
-        return Packer.StandardPack( &View, UVComponents.Num(), [&UVComponents]( int32_t Idx, std::vector<int32_t>& Island )
-                                    { Island.assign( UVComponents.GetComponent( Idx ).Indices.begin(),
-                                                     UVComponents.GetComponent( Idx ).Indices.end() ); } );
+        return Packer.StandardPack( &View, UVComponents.Num(),
+                                    [&UVComponents]( int32_t Idx, std::vector<int32_t>& Island )
+                                    {
+                                        Island.assign( UVComponents.GetComponent( Idx ).Indices.begin(),
+                                                       UVComponents.GetComponent( Idx ).Indices.end() );
+                                    } );
     }
 } // namespace Desert::Geometry

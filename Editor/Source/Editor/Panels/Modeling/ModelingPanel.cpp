@@ -575,9 +575,9 @@ namespace Desert::Editor
     // mesh (UVTool): the viewport previews it with the settings below and the tool bar's Accept / Cancel end it.
     void ModelingPanel::DrawUVsPalette()
     {
-        using MS         = Core::ModelingState;
-        auto&        ms  = MS::Get();
-        const ImVec4 sel = ThemeManager::GetSelectedColor();
+        using MS          = Core::ModelingState;
+        auto&        ms   = MS::Get();
+        const ImVec4 sel  = ThemeManager::GetSelectedColor();
         const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
         struct UVToolEntry
         {
@@ -585,10 +585,11 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<UVToolEntry, 4> kUVTools = { { { ICON_MDI_AUTO_FIX, "AutoUV", MS::Tool::AutoUV },
-                                                            { ICON_MDI_PROJECTOR, "Project", MS::Tool::UVProject },
-                                                            { ICON_MDI_CONTENT_CUT, "Unwrap", MS::Tool::UVUnwrap },
-                                                            { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout } } };
+        constexpr std::array<UVToolEntry, 4> kUVTools = {
+             { { ICON_MDI_AUTO_FIX, "AutoUV", MS::Tool::AutoUV },
+               { ICON_MDI_PROJECTOR, "Project", MS::Tool::UVProject },
+               { ICON_MDI_CONTENT_CUT, "Unwrap", MS::Tool::UVUnwrap },
+               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout } } };
         for ( size_t i = 0; i < kUVTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kUVTools[i].Tool;
@@ -633,9 +634,9 @@ namespace Desert::Editor
             }
             case MS::Tool::UVProject:
             {
-                auto&                         s       = ms.UVProject;
-                constexpr const char*         kTypes[] = { "Plane", "Box", "Cylinder" };
-                int                           type    = static_cast<int>( s.Type );
+                auto&                 s        = ms.UVProject;
+                constexpr const char* kTypes[] = { "Plane", "Box", "Cylinder" };
+                int                   type     = static_cast<int>( s.Type );
                 row( "Projection" );
                 if ( ImGui::Combo( "##UVProjectType", &type, kTypes, 3 ) )
                     s.Type = static_cast<Geometry::UVProjectionType>( type );

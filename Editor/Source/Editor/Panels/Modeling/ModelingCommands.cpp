@@ -560,11 +560,11 @@ namespace Desert::Editor
 
         // UE's UVs palette: the four tools (each previews on the selected mesh; Accept / Cancel are the tool
         // bar's, reached as "Accept and Start New" / "Cancel" above) and their closed choices.
-        for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
-                   { "AutoUV", MS::Tool::AutoUV },
-                   { "Project", MS::Tool::UVProject },
-                   { "Unwrap", MS::Tool::UVUnwrap },
-                   { "Layout", MS::Tool::UVLayout } } )
+        for ( const auto& [name, tool] :
+              std::initializer_list<std::pair<const char*, MS::Tool>>{ { "AutoUV", MS::Tool::AutoUV },
+                                                                       { "Project", MS::Tool::UVProject },
+                                                                       { "Unwrap", MS::Tool::UVUnwrap },
+                                                                       { "Layout", MS::Tool::UVLayout } } )
             commands.push_back( { "Modeling", std::string( "UV tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
@@ -578,7 +578,8 @@ namespace Desert::Editor
         for ( const Geometry::UVProjectionType type :
               { Geometry::UVProjectionType::Plane, Geometry::UVProjectionType::Box,
                 Geometry::UVProjectionType::Cylinder } )
-            commands.push_back( { "Modeling", std::string( "UV Project type: " ) + Geometry::ToString( type ), [type]
+            commands.push_back( { "Modeling", std::string( "UV Project type: " ) + Geometry::ToString( type ),
+                                  [type]
                                   {
                                       MS::Get().UVProject.Type = type;
                                       return PaletteCommandDone();
@@ -601,12 +602,15 @@ namespace Desert::Editor
                                       MS::Get().UVUnwrap.Method = method;
                                       return PaletteCommandDone();
                                   } } );
-        modelingOnOff( "Modeling", "UV Unwrap: Auto Rotate", []( MS& ms, bool on ) { ms.UVUnwrap.AutoRotate = on; } );
+        modelingOnOff( "Modeling", "UV Unwrap: Auto Rotate",
+                       []( MS& ms, bool on ) { ms.UVUnwrap.AutoRotate = on; } );
         modelingOnOff( "Modeling", "UV Unwrap: Normalize Areas",
                        []( MS& ms, bool on ) { ms.UVUnwrap.NormalizeAreas = on; } );
         modelingOnOff( "Modeling", "UV Unwrap: Pack", []( MS& ms, bool on ) { ms.UVUnwrap.Pack = on; } );
-        for ( const Geometry::UVLayoutType type : { Geometry::UVLayoutType::Repack, Geometry::UVLayoutType::Transform } )
-            commands.push_back( { "Modeling", std::string( "UV Layout type: " ) + Geometry::ToString( type ), [type]
+        for ( const Geometry::UVLayoutType type :
+              { Geometry::UVLayoutType::Repack, Geometry::UVLayoutType::Transform } )
+            commands.push_back( { "Modeling", std::string( "UV Layout type: " ) + Geometry::ToString( type ),
+                                  [type]
                                   {
                                       MS::Get().UVLayout.Type = type;
                                       return PaletteCommandDone();
@@ -615,6 +619,7 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.UVLayout.PreserveScale = on; } );
         modelingOnOff( "Modeling", "UV Layout: Preserve Rotation",
                        []( MS& ms, bool on ) { ms.UVLayout.PreserveRotation = on; } );
-        modelingOnOff( "Modeling", "UV Layout: Allow Flips", []( MS& ms, bool on ) { ms.UVLayout.AllowFlips = on; } );
+        modelingOnOff( "Modeling", "UV Layout: Allow Flips",
+                       []( MS& ms, bool on ) { ms.UVLayout.AllowFlips = on; } );
     }
 } // namespace Desert::Editor

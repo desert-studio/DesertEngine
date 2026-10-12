@@ -60,7 +60,7 @@ namespace Desert::Geometry
     {
         UVProjectionType Type        = UVProjectionType::Box;
         bool             FitToBounds = true;   // UE Initialization = AutoFit: Dimensions = bounds size
-        glm::vec3        Dimensions{ 100.0f };     // cm, used when FitToBounds is off (UE default 100)
+        glm::vec3        Dimensions{ 100.0f }; // cm, used when FitToBounds is off (UE default 100)
         glm::vec3        CenterOffset{ 0.0f }; // cm, from the bounds centre
         glm::vec3        RotationDeg{ 0.0f };
         float            CylinderSplitAngle = 45.0f; // degrees: within it of the axis a face takes a cap
