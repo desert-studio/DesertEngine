@@ -444,6 +444,41 @@ namespace Desert::Physics
             std::vector<ContactImpulse> Contacts;
             std::vector<ContactEvent>   Events; // this step's, under Mutex; sorted and handed over after the step
 
+            // A landscape tile: a static heightfield body and its world-space XZ footprint. Tiles stay separate
+            // bodies (UE: one LandscapeHeightfieldCollisionComponent per component); written only between steps
+            // (CreateHeightField, RemoveBody), read on the workers during one.
+            struct LandscapeTile
+            {
+                JPH::BodyID Id;
+                float       MinX = 0.0f, MinZ = 0.0f, MaxX = 0.0f, MaxZ = 0.0f;
+                float       SpacingCm = 0.0f;
+                bool        Contains( JPH::RVec3Arg p ) const
+                {
+                    const float x = static_cast<float>( p.GetX() ), z = static_cast<float>( p.GetZ() );
+                    return x >= MinX && x <= MaxX && z >= MinZ && z <= MaxZ;
+                }
+            };
+            std::unordered_map<BodyHandle, LandscapeTile> Tiles;
+
+            // Jolt's InternalEdgeRemovingCollector welds the internal edges of ONE shape; the edge two tiles
+            // share is the border of both, so each tile reports it as a real edge and a body rolling over the
+            // seam is kicked off it (a hop). The cross-tile half of the same rule: a contact on a tile's border
+            // edge or vertex whose normal leans across that border, where the neighbouring tile has a surface,
+            // is an internal edge — the neighbour's face contact carries the body, and the edge contact is
+            // dropped, as the collector drops a voided feature.
+            JPH::ValidateResult OnContactValidate( const JPH::Body& body1, const JPH::Body& body2,
+                                                   JPH::RVec3Arg                  baseOffset,
+                                                   const JPH::CollideShapeResult& hit ) override
+            {
+                (void)body1; // the moving body; Jolt orders the static tile second
+                const auto own = Tiles.find( body2.GetID().GetIndexAndSequenceNumber() );
+                if ( own == Tiles.end() )
+                    return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+                return IsCrossTileInternalEdge( own->second, body2, baseOffset, hit )
+                            ? JPH::ValidateResult::RejectContact
+                            : JPH::ValidateResult::AcceptContact;
+            }
+
             void OnContactAdded( const JPH::Body& body1, const JPH::Body& body2,
                                  const JPH::ContactManifold& manifold, JPH::ContactSettings& settings ) override
             {
@@ -483,6 +518,45 @@ namespace Desert::Physics
             }
 
         private:
+            bool IsCrossTileInternalEdge( const LandscapeTile& tile, const JPH::Body& body,
+                                          JPH::RVec3Arg baseOffset, const JPH::CollideShapeResult& hit ) const
+            {
+                // The contact normal out of the tile, towards the other body.
+                const JPH::Vec3 out = -hit.mPenetrationAxis.NormalizedOr( JPH::Vec3::sZero() );
+                if ( out.IsNearZero() )
+                    return false;
+                // A face contact is the tile's own surface (the collector's test: within one degree).
+                const JPH::RVec3 point = baseOffset + hit.mContactPointOn2;
+                if ( out.Dot( body.GetWorldSpaceSurfaceNormal( hit.mSubShapeID2, point ) ) > kFaceContactCos )
+                    return false;
+                const JPH::Vec3 across( out.GetX(), 0.0f, out.GetZ() );
+                if ( across.IsNearZero() )
+                    return false;
+                // Just past the contact, along the normal's lean: still on this tile = an edge inside it (the
+                // collector's business); off it = the tile's border, internal only where a neighbour has ground.
+                const JPH::RVec3 beyond = point + across.Normalized() * ( tile.SpacingCm * kSeamProbeOfSpacing );
+                if ( tile.Contains( beyond ) )
+                    return false;
+                for ( const auto& [handle, other] : Tiles )
+                {
+                    if ( other.Id == tile.Id || !other.Contains( beyond ) )
+                        continue;
+                    const JPH::BodyLockRead lock( System->GetBodyLockInterfaceNoLock(), other.Id );
+                    if ( !lock.Succeeded() )
+                        continue;
+                    const JPH::Body& neighbour = lock.GetBody();
+                    const auto*      field     = static_cast<const JPH::HeightFieldShape*>( neighbour.GetShape() );
+                    const JPH::Vec3  local( neighbour.GetWorldTransform().InversedRotationTranslation() * beyond );
+                    JPH::Vec3        surface;
+                    JPH::SubShapeID  triangle;
+                    if ( field->ProjectOntoSurface( local, surface, triangle ) )
+                        return true; // the neighbour has ground there, not a hole
+                }
+                return false;
+            }
+            static constexpr float kFaceContactCos     = 0.999848f; // cos(1 deg), InternalEdgeRemovingCollector's
+            static constexpr float kSeamProbeOfSpacing = 0.01f;     // the probe step past the contact, of a cell
+
             struct ShapePair
             {
                 uint32_t Body1, Sub1, Body2, Sub2;
@@ -634,11 +708,23 @@ namespace Desert::Physics
         std::vector<CollisionProfileId>              CharacterProfiles; // parallel to Characters
 
         // Ragdolls. Handle = index into this vector (slot nulled on remove, so other handles stay valid).
+        // A ragdoll joint as the projection reads it: the constraint frames in each body's centre-of-mass space
+        // and the same limits the constraint solves (Jolt keeps both to itself, so they are read back once).
+        struct RagdollJoint
+        {
+            JPH::SwingTwistConstraint*    Constraint = nullptr; // owned by the ragdoll; Body1 the parent
+            JPH::Quat                     ToBody1    = JPH::Quat::sIdentity(); // constraint space -> parent
+            JPH::Quat                     ToBody2    = JPH::Quat::sIdentity(); // constraint space -> child
+            JPH::Vec3                     Pivot1     = JPH::Vec3::sZero();
+            JPH::Vec3                     Pivot2     = JPH::Vec3::sZero();
+            JPH::SwingTwistConstraintPart Limits;
+        };
         struct RagdollEntry
         {
             JPH::Ref<JPH::Ragdoll>            Ragdoll;
             RagdollMotion                     Motion = RagdollMotion::Simulated;
             std::vector<RagdollPartTransform> Target; // empty until SetRagdollTarget
+            std::vector<RagdollJoint>         Joints; // in part order: a parent's joint before its children's
         };
         std::vector<RagdollEntry> Ragdolls;
         JPH::uint32               NextRagdollGroup = 0; // one collision group per ragdoll, unique in this world
@@ -737,6 +823,53 @@ namespace Desert::Physics
             for ( size_t i = 0; i < Characters.size(); ++i )
                 if ( Characters[i] != nullptr )
                     PreviousCharacterPositions[i] = ToGlm( Characters[i]->GetPosition() );
+        }
+
+        // UE's joint projection (Chaos FPBDJointSolver projection, bEnableProjection on a physics asset's
+        // constraints): the limit outranks the contacts. A simulated ragdoll's joint that a step left past its
+        // swing/twist limit — a floor contact and the limit fighting over the same body — is put back on the
+        // limit after the step: the child is turned to the clamped rotation about the joint, moved so the joint's
+        // two pivots meet, and its angular velocity loses the part that drove it out. Parents first, so each
+        // child is projected against its parent's final pose.
+        void ProjectRagdollLimits()
+        {
+            for ( RagdollEntry& entry : Ragdolls )
+            {
+                if ( !entry.Ragdoll || entry.Motion != RagdollMotion::Simulated )
+                    continue;
+                for ( const RagdollJoint& joint : entry.Joints )
+                {
+                    const JPH::Body& parent = *joint.Constraint->GetBody1();
+                    const JPH::Body& child  = *joint.Constraint->GetBody2();
+                    const JPH::Quat  frame1 = parent.GetRotation() * joint.ToBody1;
+                    const JPH::Quat  q      = frame1.Conjugated() * ( child.GetRotation() * joint.ToBody2 );
+                    JPH::Quat        swing, twist;
+                    q.GetSwingTwist( swing, twist );
+                    JPH::uint clamped = 0u;
+                    joint.Limits.ClampSwingTwist( swing, twist, clamped );
+                    if ( clamped == 0u )
+                        continue;
+                    const JPH::Quat rotation =
+                         ( frame1 * swing * twist * joint.ToBody2.Conjugated() ).Normalized();
+                    const JPH::RVec3 pivot =
+                         parent.GetCenterOfMassPosition() + parent.GetRotation() * joint.Pivot1;
+                    const JPH::RVec3 com = pivot - rotation * joint.Pivot2;
+
+                    // The turn the projection took back (from the clamped rotation to the one the step left),
+                    // as a world axis: relative spin along it is what carried the child past the limit.
+                    JPH::Vec3 outAxis;
+                    float     outAngle = 0.0f;
+                    ( child.GetRotation() * rotation.Conjugated() ).GetAxisAngle( outAxis, outAngle );
+                    const JPH::Vec3 relative = child.GetAngularVelocity() - parent.GetAngularVelocity();
+                    const float     outward  = outAngle > 0.0f ? relative.Dot( outAxis ) : 0.0f;
+
+                    const JPH::BodyID id = child.GetID();
+                    Bodies->SetPositionAndRotation( id, com - rotation * child.GetShape()->GetCenterOfMass(),
+                                                    rotation, JPH::EActivation::DontActivate );
+                    if ( outward > 0.0f )
+                        Bodies->SetAngularVelocity( id, child.GetAngularVelocity() - outAxis * outward );
+                }
+            }
         }
 
         // A ragdoll's bodies leave the system before ~Ragdoll destroys them; the vector itself is destroyed
@@ -883,6 +1016,7 @@ namespace Desert::Physics
             world.Impulses.Contacts.clear();
             world.DriveKinematicRagdolls( kFixedStepSeconds );
             world.System.Update( kFixedStepSeconds, 1, world.TempAllocator.get(), world.JobSystem.get() );
+            world.ProjectRagdollLimits();
             world.Bank -= kStep;
             ++world.StepCount;
             ++taken;
@@ -1147,6 +1281,7 @@ namespace Desert::Physics
         m_Impl->Bodies->RemoveBody( id );
         m_Impl->Bodies->DestroyBody( id );
         m_Impl->HeightFields.erase( handle );
+        m_Impl->Impulses.Tiles.erase( handle );
     }
 
     Common::ResultStr<BodyHandle> PhysicsWorld::CreateHeightField( const HeightFieldDesc& desc )
@@ -1170,6 +1305,13 @@ namespace Desert::Physics
                  " bodies exist, the world's limit is reached" );
         const BodyHandle handle      = id.GetIndexAndSequenceNumber();
         m_Impl->HeightFields[handle] = shape.GetValue();
+        const float extent             = static_cast<float>( desc.SampleCount - 1u ) * desc.SpacingCm;
+        m_Impl->Impulses.Tiles[handle] = { id,
+                                           desc.Position.x,
+                                           desc.Position.z,
+                                           desc.Position.x + extent,
+                                           desc.Position.z + extent,
+                                           desc.SpacingCm };
         return Common::MakeSuccess( BodyHandle( handle ) );
     }
 
@@ -1719,6 +1861,30 @@ namespace Desert::Physics
 
         Impl::RagdollEntry entry;
         entry.Ragdoll = ragdoll;
+        for ( size_t i = 0; i < ragdoll->GetConstraintCount(); ++i )
+        {
+            Impl::RagdollJoint joint;
+            joint.Constraint =
+                 static_cast<JPH::SwingTwistConstraint*>( ragdoll->GetConstraint( static_cast<int>( i ) ) );
+            // Read back in the bodies' centre-of-mass space (LocalToBodyCOM), the space the solver uses.
+            const auto local =
+                 JPH::StaticCast<JPH::SwingTwistConstraintSettings>( joint.Constraint->GetConstraintSettings() );
+            const auto frame = []( JPH::Vec3Arg twistAxis, JPH::Vec3Arg planeAxis )
+            {
+                return JPH::Mat44( JPH::Vec4( twistAxis, 0.0f ), JPH::Vec4( planeAxis.Cross( twistAxis ), 0.0f ),
+                                   JPH::Vec4( planeAxis, 0.0f ), JPH::Vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
+                     .GetQuaternion();
+            };
+            joint.ToBody1 = frame( local->mTwistAxis1, local->mPlaneAxis1 );
+            joint.ToBody2 = frame( local->mTwistAxis2, local->mPlaneAxis2 );
+            joint.Pivot1  = JPH::Vec3( local->mPosition1 );
+            joint.Pivot2  = JPH::Vec3( local->mPosition2 );
+            joint.Limits.SetLimits(
+                 joint.Constraint->GetTwistMinAngle(), joint.Constraint->GetTwistMaxAngle(),
+                 -joint.Constraint->GetPlaneHalfConeAngle(), joint.Constraint->GetPlaneHalfConeAngle(),
+                 -joint.Constraint->GetNormalHalfConeAngle(), joint.Constraint->GetNormalHalfConeAngle() );
+            entry.Joints.push_back( joint );
+        }
         m_Impl->Ragdolls.push_back( std::move( entry ) );
         const auto handle = static_cast<RagdollHandle>( m_Impl->Ragdolls.size() - 1 );
         SetRagdollMotion( handle, motion );

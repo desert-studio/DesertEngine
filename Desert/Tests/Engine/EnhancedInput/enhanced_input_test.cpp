@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/runner.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Assets::Serialization;
 using Desert::Input::EnhancedInputSubsystem;
@@ -559,13 +560,10 @@ TEST( EnhancedInputPlayer, ActionsAndContextsAreCalledByTheirFileNames )
 
 namespace
 {
-    // A repository source, found by walking up from the runner's working directory (the runner runs from build/).
+    // A tracked repository source, read from the checkout the build baked in (never the working directory).
     std::string SourceText( const char* path )
     {
-        std::filesystem::path root = std::filesystem::current_path();
-        while ( !root.empty() && !std::filesystem::exists( root / "Desert/Desert/Source/Engine" ) )
-            root = root == root.parent_path() ? std::filesystem::path() : root.parent_path();
-        std::ifstream      in( root / path, std::ios::binary );
+        std::ifstream      in( Desert::TestSupport::RepositoryRoot() / path, std::ios::binary );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();
