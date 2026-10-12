@@ -69,6 +69,11 @@ Shader "ParticleSimulate"
             VFXChannelSpawn u_ChannelSpawns[];
         };
 
+        Buffer(6) Slots
+        {
+            VFXSlotState u_SlotState[];
+        };
+
         PushConstant PushConstants
         {
             vec4  u_EmitterPos; // xyz = emitter world pos, w = the fixed step length (seconds)
@@ -122,7 +127,10 @@ Shader "ParticleSimulate"
                 }
                 p.Age.x += dt;
                 if ( p.Age.x >= p.VelLife.w )
-                    p.VelLife.w = 0.0; // died this step: the next compact frees it
+                {
+                    p.VelLife.w            = 0.0;
+                    u_SlotState[i].Alive = 0u; // died this step: the next compact frees it
+                }
                 u_Particles[i] = Shade( p );
             }
 
@@ -132,6 +140,7 @@ Shader "ParticleSimulate"
                 // Appended after the alive entries: compact step+1 scans alive + spawned (Dispatch Args).
                 u_Alive[2u * base + slot * u_Counts.x + alive + t] = i;
                 uint id = u_Steps[step].IdBase + t;
+                u_SlotState[i] = VFXSlotState( id, 1u );
                 vec4 r  = VFXRandomFloat4( uvec4( u_Steps[step].Seed, id, 0u, 0u ) );
 
                 // Uniform direction inside the cone around u_Direction.

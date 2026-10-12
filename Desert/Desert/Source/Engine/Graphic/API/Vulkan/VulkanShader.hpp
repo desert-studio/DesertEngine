@@ -30,6 +30,8 @@ namespace Desert::Graphic::API::Vulkan
     public:
         VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
                       const std::string& passName = {} );
+        // A generated program (Shader::CreateFromSource): the text is owned here, there is no asset.
+        VulkanShader( const std::string& name, std::string source, const std::filesystem::path& virtualPath );
         ~VulkanShader();
 
         virtual Common::BoolResultStr Reload() override;
@@ -195,6 +197,8 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         const std::weak_ptr<Assets::ShaderAsset> m_ShaderAsset;
+        // The text of a generated program (empty for a file program, whose text is the asset's).
+        const std::string m_GeneratedSource;
 
     private:
         std::vector<VkPipelineShaderStageCreateInfo> m_PipelineShaderStageCreateInfos;

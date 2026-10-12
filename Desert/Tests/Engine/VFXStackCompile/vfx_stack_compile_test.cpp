@@ -8,22 +8,21 @@
 //   - the parameter buffer rows follow the slots; refusals name what is wrong;
 //   - a Curve input (VFX-05) is one parameter row saying where its table sits in the system's curve atlas:
 //     its keys are not in the text, and its time axis brings the Age / Lifetime attributes;
-//   - the generated fragment, included by a host compute program that defines the contract's storage
-//     functions, compiles through shaderc with the engine's own includer — for every module of the engine
-//     library (VFX-06), in both GPU groups;
+//   - the generated fragment, inside the engine's simulation program (VFXSimulationProgram: the contract's storage
+//     functions over the layout-driven SoA pool), compiles through the engine's ShaderCompiler — for every module
+//     of the engine library (VFX-06), in both GPU groups; the program addresses each class per component of the
+//     range and a layout change is a new program;
 //   - every module call has its own random key, apart from every input slot.
 
 #include "../../TestSupport/runner.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
-#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
+#include <Engine/VFX/VFXSimulationProgram.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/Constants.hpp>
-
-#include <shaderc/shaderc.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -136,48 +135,17 @@ namespace
         return compiled.IsSuccess() ? compiled.ExtractValue() : VFX::VFXCompiledEmitter{};
     }
 
-    // The compiled fragment inside a host compute program that defines the contract's six storage functions;
-    // empty when shaderc accepts it, else its message and the program.
+    // The compiled stack inside the ENGINE's simulation program (VFXSimulationProgram: the contract's storage
+    // functions over the layout-driven pool), compiled through the engine's ShaderCompiler; empty when it
+    // compiles, else its message and the program.
     std::string HostCompileError( const VFX::VFXCompiledEmitter& compiled )
     {
-        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
-        if ( !parsed.IsSuccess() )
-            return parsed.GetError();
-        const std::string host = std::format(
-             "#version 450\n"
-             "layout( local_size_x = 64 ) in;\n"
-             "layout( std430, set = 0, binding = 0 ) buffer Floats {{ float F[]; }};\n"
-             "layout( std430, set = 0, binding = 1 ) buffer Ints {{ int I[]; }};\n"
-             "layout( std430, set = 0, binding = 2 ) readonly buffer Params {{ vec4 P[]; }};\n"
-             "layout( std430, set = 0, binding = 3 ) readonly buffer Curves {{ float C[]; }};\n"
-             "layout( push_constant ) uniform Push {{ uint Count; uint Base; float Dt; uint Seed; }} pc;\n"
-             "{}\n"
-             "vec4 VFX_Param( uint slot ) {{ return P[pc.Base + slot]; }}\n"
-             "float VFX_ReadFloat( uint particle, uint c ) {{ return F[c * pc.Count + particle]; }}\n"
-             "int VFX_ReadInt( uint particle, uint c ) {{ return I[c * pc.Count + particle]; }}\n"
-             "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
-             "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
-             "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
-             "void main()\n{{\n"
-             "    const uint id = gl_GlobalInvocationID.x;\n"
-             "    if ( id >= pc.Count ) return;\n"
-             "    VFXSim sim;\n"
-             "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
-             "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
-             "    VFX_SimulateParticle( id, sim );\n}}\n",
-             parsed.GetValue().Meta.ParticleSource );
-
-        const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
-        const shaderc::Compiler compiler;
-        shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
-        options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
-        options.SetWarningsAsErrors();
-        const auto result =
-             compiler.CompileGlslToSpv( host, shaderc_compute_shader, path.string().c_str(), options );
-        if ( result.GetCompilationStatus() == shaderc_compilation_status_success )
+        const auto spirv = VFX::CompileSimulationProgram( compiled );
+        if ( spirv.IsSuccess() )
             return {};
-        return std::format( "{}\n{}", result.GetErrorMessage(), host );
+        const auto source = VFX::SimulationComputeSource( compiled );
+        return std::format( "{}
+{}", spirv.GetError(), source.IsSuccess() ? source.GetValue() : source.GetError() );
     }
 
     std::string Refusal( const S::VFXSystemData& system )
@@ -599,3 +567,77 @@ namespace
     // The module shaders are read from the engine directory, before gtest parses its flags.
     const Desert::TestSupport::SuiteHost kHost{ { .EngineDir = true } };
 } // namespace
+
+// VFX-03e: the simulation program addresses an emitter's range of the pool per attribute component (SoA, the
+// layout's component index times the range's capacity, from the range's base in each class), and the range takes
+// exactly the layout's components times its capacity. Red when the addressing goes back to a per-particle record,
+// drops the range base or the capacity stride, or the range is sized from anything but the layout.
+TEST( VFXStackCompile, TheSimulationProgramAddressesTheRangePerAttributeComponent )
+{
+    const char*      twoSource = "Shader \"VFX/Local/Two\"\n{\n    Domain Particle\n    Particle\n    {\n"
+                                 "        Attribute Size float\n"
+                                 "        Attribute Count int\n"
+                                 "        Input Grow float\n"
+                                 "        void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n"
+                                 "        {\n"
+                                 "            p.Size = p.Size + i.Grow;\n"
+                                 "            p.Count = p.Count + 1;\n"
+                                 "        }\n    }\n}\n";
+    S::VFXSystemData system;
+    system.LocalModules.push_back( { "Two", "Two", twoSource } );
+    S::VFXEmitterData emitter;
+    emitter.Name                = "Two";
+    emitter.Stack.ParticleSpawn = {
+         Use( "local:Two", { ValueInput( "Grow", S::VFXValueType::Float, glm::vec4( 2.0f, 0, 0, 0 ) ) } ) };
+    emitter.Stack.ParticleUpdate = emitter.Stack.ParticleSpawn;
+    system.Emitters.push_back( emitter );
+    const auto compiled = Compile( system );
+
+    ASSERT_EQ( compiled.Layout.Attributes.size(), 2u );
+    ASSERT_EQ( compiled.Layout.TotalFloatComponents, 1u );
+    ASSERT_EQ( compiled.Layout.TotalIntComponents, 1u );
+    EXPECT_EQ( VFX::PoolRangeOf( compiled.Layout, 10 ), ( VFX::VFXPoolRange{ 10, 10 } ) );
+    EXPECT_EQ( VFX::PoolRangeOf( Compile( Sparks() ).Layout, 10 ),
+               ( VFX::VFXPoolRange{ Compile( Sparks() ).Layout.TotalFloatComponents * 10ull,
+                                    Compile( Sparks() ).Layout.TotalIntComponents * 10ull } ) );
+
+    const auto source = VFX::SimulationComputeSource( compiled );
+    ASSERT_TRUE( source.IsSuccess() ) << source.GetError();
+    for ( const char* address :
+          { "F[u_Bases.x + component * u_Counts.x + particle]", "I[u_Bases.y + component * u_Counts.x + particle]",
+            "P[u_Bases.z + slot]", "C[u_Bases.w + index]", "VFX_SimulateParticle( i - base, sim )" } )
+        EXPECT_NE( source.GetValue().find( address ), std::string::npos ) << address << "\n" << source.GetValue();
+    EXPECT_EQ( source.GetValue().find( "u_Particles" ), std::string::npos ) << "a per-particle record is back";
+    EXPECT_EQ( HostCompileError( compiled ), "" );
+}
+
+// VFX-03e: the program is named by the stack's key, which covers the layout: a stack whose layout changes is a
+// different program (and a different shader cache entry). Red when the name stops following the key or the key
+// stops covering the layout.
+TEST( VFXStackCompile, ALayoutChangeIsADifferentSimulationProgram )
+{
+    const auto base = Compile( Sparks() );
+
+    const auto          path = VFX::EngineModuleDir() / "InitializeColor.shader";
+    const std::ifstream in( path );
+    std::ostringstream  text;
+    text << in.rdbuf();
+    const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+    ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
+    std::vector<S::VFXModuleInput> inputs;
+    for ( const auto& d : module.GetValue().Inputs )
+        inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f, 0, 0, 0 ) ) );
+    auto colored = Sparks();
+    colored.Emitters[0].Stack.ParticleSpawn.push_back( Use( "engine:InitializeColor", inputs ) );
+    const auto changed = Compile( colored );
+
+    ASSERT_NE( changed.Layout, base.Layout ) << "precondition: InitializeColor adds an attribute to Sparks";
+    EXPECT_NE( VFX::SimulationProgramName( changed ), VFX::SimulationProgramName( base ) );
+    EXPECT_EQ( VFX::SimulationProgramName( base ), VFX::SimulationProgramName( Compile( Sparks() ) ) );
+    const auto a = VFX::ComposeSimulationProgram( base );
+    const auto b = VFX::ComposeSimulationProgram( changed );
+    ASSERT_TRUE( a.IsSuccess() && b.IsSuccess() );
+    EXPECT_NE( a.GetValue(), b.GetValue() );
+    EXPECT_NE( a.GetValue().find( std::format( "Shader \"{}\"", VFX::SimulationProgramName( base ) ) ),
+               std::string::npos );
+}

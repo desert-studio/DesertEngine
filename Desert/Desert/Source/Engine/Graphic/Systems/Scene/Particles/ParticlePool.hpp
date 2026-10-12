@@ -18,6 +18,32 @@ namespace Desert::Graphic::System
     // of what the two compute passes do with the lists (Programs/Particles/ParticleCompact.shader,
     // ParticleSimulate.shader), which the device-free suite checks.
 
+    // The identity of one emitter's GPU state (VFX::EmitterKey on the GPU side): the entity, and for a
+    // VFXComponent the emitter's index in its system. A ParticleEmitterComponent is emitter 0 of its entity, not a
+    // system.
+    struct ParticleEmitterKey
+    {
+        static constexpr uint64_t kSystemBit = uint64_t{ 1 } << 31;
+
+        [[nodiscard]] static constexpr uint64_t Make( const uint32_t entity, const uint32_t emitter,
+                                                      const bool system )
+        {
+            return ( uint64_t{ entity } << 32 ) | ( system ? kSystemBit : 0u ) | ( emitter & ( kSystemBit - 1u ) );
+        }
+        [[nodiscard]] static constexpr uint32_t Entity( const uint64_t key )
+        {
+            return static_cast<uint32_t>( key >> 32 );
+        }
+        [[nodiscard]] static constexpr uint32_t Emitter( const uint64_t key )
+        {
+            return static_cast<uint32_t>( key & ( kSystemBit - 1u ) );
+        }
+        [[nodiscard]] static constexpr bool System( const uint64_t key )
+        {
+            return ( key & kSystemBit ) != 0u;
+        }
+    };
+
     struct ParticlePoolRange
     {
         uint32_t Base  = 0;
@@ -31,7 +57,7 @@ namespace Desert::Graphic::System
     {
     public:
         // The range of @p key, (re)allocated when it has none or a different count.
-        ParticlePoolRange Acquire( const uint32_t key, const uint32_t count )
+        ParticlePoolRange Acquire( const uint64_t key, const uint32_t count )
         {
             if ( const auto it = m_Ranges.find( key ); it != m_Ranges.end() )
             {
@@ -57,7 +83,7 @@ namespace Desert::Graphic::System
             return range;
         }
 
-        void Release( const uint32_t key )
+        void Release( const uint64_t key )
         {
             const auto it = m_Ranges.find( key );
             if ( it == m_Ranges.end() )
@@ -86,11 +112,11 @@ namespace Desert::Graphic::System
         template <typename Keep>
         void ReleaseUnless( Keep&& keep )
         {
-            std::vector<uint32_t> gone;
+            std::vector<uint64_t> gone;
             for ( const auto& [key, range] : m_Ranges )
                 if ( !keep( key ) )
                     gone.push_back( key );
-            for ( const uint32_t key : gone )
+            for ( const uint64_t key : gone )
                 Release( key );
         }
 
@@ -112,7 +138,7 @@ namespace Desert::Graphic::System
         }
 
     private:
-        std::map<uint32_t, ParticlePoolRange> m_Ranges;
+        std::map<uint64_t, ParticlePoolRange> m_Ranges;
         std::vector<ParticlePoolRange>        m_Free; // sorted by Base, never two adjacent
         uint32_t                              m_End = 0;
     };

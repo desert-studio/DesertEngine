@@ -26,4 +26,13 @@ struct ParticleDrawSlot
     uint Pad2;
 };
 
+// One pool slot's liveness and identity (ParticleWorldGpu VFXSlotStateGpu), written by every simulation program -
+// ParticleSimulate and a compiled stack's VFX/Simulate - and read by ParticleCompact: the compact frees a slot whose
+// Alive is 0, whatever layout the particle's attributes have.
+struct VFXSlotState
+{
+    uint Id;    // the particle's id (the random stream's key)
+    uint Alive; // 1 while alive
+};
+
 #endif // PARTICLE_POOL_GLSLH

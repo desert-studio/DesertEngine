@@ -1157,6 +1157,32 @@ namespace Desert::ECS
         bool RequestRestart = false;
     };
 
+    // A VFX system played by an entity (UE: UNiagaraComponent). The system asset (.devfx, VFXSystemAsset) holds
+    // the emitters and their module stacks; VFXWorld (VFX/VFXWorld.hpp) plans each enabled emitter's spawn steps
+    // per entity, keyed (entity uuid, emitter index). Stored as {Guid, Path} (ReflectionSerializer
+    // IsStoredByGuid).
+    struct VFXData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "System" ), Category( "VFX" ), Asset<VFXSystemAsset> )
+        Assets::AssetHandle System;
+
+        // false = the system is not played: VFXWorld plans no instance for this entity (UE: bAutoActivate).
+        PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
+        bool AutoActivate = true;
+    };
+
+    struct VFXComponent
+    {
+        COMPONENT( Key( "VFX" ), Block( Data ), Run( ActorsAndUI ) )
+        VFXData Data;
+
+        // One-shot "restart" (editor transport): VFXWorld drops the entity's emitter instances so they replan from
+        // scratch. Transient - not reflected, so it never reaches a scene file.
+        bool RequestRestart = false;
+    };
+
     // ============================================================
     // UI — Godot-Control-style screen-space UI (2D). The authored data lives in the framework
     // (Desert/UI/Source/UI/Args, namespace Desert::UI); the ECS stores each one in the component that wraps it.

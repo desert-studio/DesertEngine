@@ -1,5 +1,7 @@
 #include "ShaderService.hpp"
 
+#include <Engine/VFX/VFXSimulationProgram.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -46,6 +48,25 @@ namespace
 
 namespace Desert::Runtime
 {
+
+    std::shared_ptr<Graphic::Shader>
+    ShaderService::AcquireSimulationProgram( const VFX::VFXCompiledEmitter& compiled )
+    {
+        if ( const auto found = m_SimulationPrograms.find( compiled.Key ); found != m_SimulationPrograms.end() )
+            return found->second;
+        auto program = VFX::ComposeSimulationProgram( compiled );
+        if ( !program.IsSuccess() )
+        {
+            LOG_ERROR( "[ShaderService] no simulation program for '{}': {}", compiled.ShaderName,
+                       program.GetError() );
+            return nullptr;
+        }
+        auto shader = Graphic::Shader::CreateFromSource( VFX::SimulationProgramName( compiled ),
+                                                         std::move( program.GetValue() ),
+                                                         VFX::SimulationProgramPath( compiled ) );
+        m_SimulationPrograms.emplace( compiled.Key, shader );
+        return shader;
+    }
 
     Common::BoolResultStr ShaderService::Register( const std::shared_ptr<Assets::ShaderAsset>& shaderAsset )
     {

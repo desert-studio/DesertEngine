@@ -27,4 +27,22 @@ namespace Desert::Graphic
         return shader;
     }
 
+    std::shared_ptr<Shader> Shader::CreateFromSource( const std::string& name, std::string source,
+                                                      const std::filesystem::path& virtualPath )
+    {
+        std::shared_ptr<Shader> shader = nullptr;
+        switch ( RendererAPI::GetAPIType() )
+        {
+            case RendererAPIType::Vulkan:
+            {
+                shader = std::make_shared<API::Vulkan::VulkanShader>( name, std::move( source ), virtualPath );
+            }
+            case RendererAPIType::None:
+                break;
+        }
+
+        DESERT_VERIFY( shader );
+        return shader;
+    }
+
 } // namespace Desert::Graphic

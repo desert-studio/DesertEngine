@@ -10,6 +10,7 @@
 #include <set>
 #include <vector>
 
+using Desert::Graphic::System::ParticleEmitterKey;
 using Desert::Graphic::System::ParticlePoolLists;
 using Desert::Graphic::System::ParticlePoolRange;
 using Desert::Graphic::System::ParticlePoolRanges;
@@ -77,4 +78,26 @@ TEST( ParticlePool, SpawnKillCompactKeepsCountsAndNeverReusesAnAliveIndex )
     EXPECT_EQ( std::set<uint32_t>( spawned.begin(), spawned.end() ).size(), spawned.size() );
     for ( const uint32_t index : spawned )
         EXPECT_FALSE( alive[index] ) << index << " was alive";
+}
+
+// Two emitters of one entity's VFX system are two GPU states with two pool ranges (keyed by entity and emitter
+// index), and neither is the entity's ParticleEmitterComponent. Red when the key drops the emitter index or the
+// system bit (one state for two emitters: they would share a range and kill each other's particles).
+TEST( ParticlePool, TwoEmittersOfOneEntityGetTwoRanges )
+{
+    const uint64_t first  = ParticleEmitterKey::Make( 7u, 0u, true );
+    const uint64_t second = ParticleEmitterKey::Make( 7u, 1u, true );
+    const uint64_t legacy = ParticleEmitterKey::Make( 7u, 0u, false );
+    EXPECT_NE( first, second );
+    EXPECT_NE( first, legacy );
+    EXPECT_EQ( ParticleEmitterKey::Entity( second ), 7u );
+    EXPECT_EQ( ParticleEmitterKey::Emitter( second ), 1u );
+    EXPECT_TRUE( ParticleEmitterKey::System( second ) );
+    EXPECT_FALSE( ParticleEmitterKey::System( legacy ) );
+
+    ParticlePoolRanges      ranges;
+    const ParticlePoolRange a = ranges.Acquire( first, 100u );
+    const ParticlePoolRange b = ranges.Acquire( second, 50u );
+    EXPECT_TRUE( a.Base + a.Count <= b.Base || b.Base + b.Count <= a.Base ) << "the two ranges overlap";
+    EXPECT_EQ( ranges.End(), 150u );
 }
