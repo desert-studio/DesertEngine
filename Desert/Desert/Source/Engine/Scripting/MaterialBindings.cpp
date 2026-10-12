@@ -50,8 +50,9 @@ namespace Desert::Scripting
             }
             auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity );
             if ( smc == nullptr )
-                luaL_error( L, "setMaterialParam('%s'): the entity has no static mesh and no Shader Override - "
-                               "there is no material to write",
+                luaL_error( L,
+                            "setMaterialParam('%s'): the entity has no static mesh and no Shader Override - "
+                            "there is no material to write",
                             name.c_str() );
             UpsertParam( smc->ScriptSlotParams, name, v );
             if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
@@ -93,9 +94,9 @@ namespace Desert::Scripting
             return PushVec4( L, glm::vec4( 0.0f ) );
         }
 
-        // Undo every script-set param. On a static mesh the slot instances are DROPPED and rebuilt by MeshECSSystem
-        // next frame from the authored slots: resetting the live instance's overrides would also wipe a
-        // material-instance asset's own overrides, which the instance carries the same way.
+        // Undo every script-set param. On a static mesh the slot instances are DROPPED and rebuilt by
+        // MeshECSSystem next frame from the authored slots: resetting the live instance's overrides would also
+        // wipe a material-instance asset's own overrides, which the instance carries the same way.
         int ClearMaterialParams( lua_State* L )
         {
             const LuauEntityRef ref = LuauBinder::CheckEntity( L, 1 );

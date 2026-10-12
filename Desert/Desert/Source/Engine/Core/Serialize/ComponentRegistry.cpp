@@ -1621,9 +1621,10 @@ namespace Desert::Core::Serialize
                 {
                     issues.push_back( Common::Json::Issue{ "Material.Params", "a Shader that owns them",
                                                            "parameters with no Shader" } );
-                    LOG_ERROR( "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
-                               "Override, a lit mesh's values are its material slots'; the values are not loaded",
-                               EntityContext( entity ) );
+                    LOG_ERROR(
+                         "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
+                         "Override, a lit mesh's values are its material slots'; the values are not loaded",
+                         EntityContext( entity ) );
                     if ( !data.Shader.has_value() )
                         entity.RemoveComponent<ECS::MaterialComponent>();
                     return;

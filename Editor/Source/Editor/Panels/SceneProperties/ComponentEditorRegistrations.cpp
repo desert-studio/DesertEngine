@@ -2309,8 +2309,9 @@ namespace
 // window, on a `.demat`. A mesh entity names one per slot; a landscape root names one, in LandscapeMaterialData.
 // MaterialComponent is no longer authored ANYWHERE in the editor: it remains only as the RUNTIME Shader
 // Override a script sets (Lua setShader + setMaterialParam on that shader) — surfaced by the lit Materials
-// banner with one-click clear. A script's lit-path writes go to StaticMeshComponent::ScriptSlotParams. The terrain was the last thing authoring it, and the v6 -> v7 scene
-// migration takes it off terrain entities in the files as well.
+// banner with one-click clear. A script's lit-path writes go to StaticMeshComponent::ScriptSlotParams.
+// The terrain was the last thing authoring it, and the v6 -> v7 scene migration takes it off terrain entities
+// in the files as well.
 // Script component: an entity can run SEVERAL scripts (like UE ActorComponents), shown as a list of slots.
 // Per slot: pick the .lua from a dropdown OR drag one from the File Explorer, Reload (hot-reload), and edit
 // the script's exposed Properties. "+ Add Script" appends a slot; the X removes one.
