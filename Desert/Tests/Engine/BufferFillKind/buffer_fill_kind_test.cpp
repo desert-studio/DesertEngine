@@ -227,9 +227,9 @@ namespace
         model.Name         = "CameraUB";
         model.BindingPoint = 0;
         model.Size         = kBytes;
-        model.Fields.push_back( { Core::Formats::ShaderValueType::Mat4, "Projection", kMat4, 0, 1 } );
-        model.Fields.push_back( { Core::Formats::ShaderValueType::Mat4, "View", kMat4, kMat4, 1 } );
-        model.Fields.push_back( { Core::Formats::ShaderValueType::Float4, "CameraPos", kVec4, kMat4 * 2, 1 } );
+        model.Fields.push_back( { "Projection", kMat4, 0, 1 } );
+        model.Fields.push_back( { "View", kMat4, kMat4, 1 } );
+        model.Fields.push_back( { "CameraPos", kVec4, kMat4 * 2, 1 } );
         return model;
     }
 
@@ -240,7 +240,7 @@ namespace
         model.Name         = "MaterialUB";
         model.BindingPoint = 1;
         model.Size         = kVec4;
-        model.Fields.push_back( { Core::Formats::ShaderValueType::Float4, "Tint", kVec4, 0, 1 } );
+        model.Fields.push_back( { "Tint", kVec4, 0, 1 } );
         return model;
     }
 
