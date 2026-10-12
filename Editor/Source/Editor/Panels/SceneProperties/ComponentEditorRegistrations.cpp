@@ -499,7 +499,7 @@ namespace Desert::Editor
         e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
         e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<C>();
             PropertyEditorBuilder::Draw( &c.Data, "DirectionalLightData", ctx.AssetMgr(), ctx.UIHelper,
@@ -573,7 +573,7 @@ namespace Desert::Editor
         e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
         e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<C>();
             PropertyEditorBuilder::Draw( &c.Data, "CameraData", ctx.AssetMgr(), ctx.UIHelper, ctx.FieldFilter );
