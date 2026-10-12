@@ -33,7 +33,6 @@ namespace Desert::Runtime
                 ClaimMeshBuffers( mesh, Graphic::ResourceOwner::AssetService, asset->GetMetadata().Handle );
                 return mesh;
             }
-
         };
     } // namespace
 
