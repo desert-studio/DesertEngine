@@ -1016,7 +1016,7 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Lifetime Variance" ), Category( "Particle" ), Range( 0.0f, 1.0f ) )
         float LifetimeVariance = 0.2f;
 
-        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 100.0f ) )
+        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 5000.0f ), Units( "cm/s" ) )
         float StartSpeed = 200.0f;
 
         PROPERTY( DisplayName( "Speed Variance" ), Category( "Motion" ), Range( 0.0f, 1.0f ) )
@@ -1028,7 +1028,8 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cone Angle" ), Category( "Motion" ), Range( 0.0f, 180.0f ), Units( "deg" ) )
         float ConeAngle = 45.0f; // degrees of spread around Direction (wide enough to read from any angle)
 
-        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ) )
+        // An acceleration, as Niagara's Gravity Force (whose default is Earth's -980 cm/s2 on the up axis).
+        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ), Range( -2000.0f, 2000.0f ), Units( "cm/s2" ) )
         glm::vec3 Gravity = glm::vec3( 0.0f, -200.0f, 0.0f );
 
         PROPERTY( DisplayName( "Start Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
