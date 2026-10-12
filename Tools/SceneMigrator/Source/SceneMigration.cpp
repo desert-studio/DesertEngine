@@ -1545,11 +1545,9 @@ namespace Desert::Migration
                 minted.emplace( key, relative );
             }
 
-            rfl::Generic::Object ref;
-            ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
-            ref["Path"] = rfl::Generic( relative );
+            // An asset slot states its file as a path under the assets root (the reader's form for AssetHandle).
             rfl::Generic::Object vfx;
-            vfx["System"]       = rfl::Generic( std::move( ref ) );
+            vfx["System"]       = rfl::Generic( relative );
             vfx["AutoActivate"] = rfl::Generic( true );
 
             Common::Json::KeyedValues kept;
@@ -2856,6 +2854,18 @@ namespace Desert::Migration
             {
                 report.ShadowBiasCentimetresRaised = true;
                 report.ShadowBiasesRestated        = MigrateShadowBiasCentimetresV48ToV49( entities );
+            }
+
+            // The particle emitter is a VFX system (VFX-HOST): each block becomes a `.dfx` and a VFX block.
+            if ( statedSceneVersion < kSceneVersionParticleEmittersToVFX )
+            {
+                report.ParticleEmittersToVFXRaised = true;
+                report.ParticleEmittersToVFX       = MigrateParticleEmittersToVFX( entities, name, assetsRoot );
+                if ( !report.ParticleEmittersToVFX.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ParticleEmittersToVFX.Refused );
+                    return;
+                }
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

@@ -23,6 +23,7 @@
 #include "Services/Destruction/FractureService.hpp"
 #include "Services/Water/WaterWavesService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
+#include "Services/VFX/VFXSystemService.hpp"
 
 namespace Desert::Runtime
 {
@@ -74,6 +75,8 @@ namespace Desert::Runtime
         // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();
+        // The `.dfx` VFX systems VFX components name (VFX-HOST): read on demand, one compiled system per file.
+        static VFXSystemService*  GetVFXSystemService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,

@@ -259,7 +259,13 @@ namespace Desert::Migration
     //       has no WorldPartition block.
     inline constexpr int kSceneVersionHLODLayers = 50;
 
-    static_assert( kSceneVersionHLODLayers == kSceneVersion,
+    //  51 - THE PARTICLE EMITTER IS A VFX SYSTEM (VFX-HOST). Every ParticleEmitter block becomes a `.dfx` system of
+    //       one emitter whose module stack reproduces it, played by `VFX { System, AutoActivate: true }`
+    //       (MigrateParticleEmittersToVFX); the component is deleted. A prefab override stating ParticleEmitter
+    //       keys refuses the file. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleEmittersToVFX = 51;
+
+    static_assert( kSceneVersionParticleEmittersToVFX == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -437,11 +443,8 @@ namespace Desert::Migration
     ParticleSpriteMaterialsReport
     MigrateParticleSpriteMaterialsV46ToV47( std::vector<Assets::EntityData>& entities );
 
-    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
-    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
-    // earlier, the loader's migration would turn every emitter into a block nothing draws).
-    //
-    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
+    // The v51 step (kSceneVersionParticleEmittersToVFX). A ParticleEmitter block becomes a `.dfx` system of ONE
+    // emitter whose module stack reproduces it, and the
     // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
     // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
     // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
@@ -732,6 +735,9 @@ namespace Desert::Migration
         bool               SSRDefaultOnRaised = false; // below kSceneVersionSSRDefaultOn
         SSRDefaultOnReport SSRDefaultOn;
 
+        bool                        ParticleEmittersToVFXRaised = false; // below kSceneVersionParticleEmittersToVFX
+        ParticleEmittersToVFXReport ParticleEmittersToVFX;
+
         bool        ShadowBiasCentimetresRaised = false; // below kSceneVersionShadowBiasCentimetres
         std::size_t ShadowBiasesRestated        = 0;
 
@@ -750,7 +756,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised;
         }
     };
 
