@@ -16,4 +16,6 @@ namespace Desert::Graphic::ShaderProtocols
         uint32_t PointLightsCount     = 0U;
         uint32_t SpotLightsCount      = 0U;
     };
+    // `Name` is static, so the object is exactly the UBO's three counts — uploaded as one instance.
+    static_assert( sizeof( LightsMetadata ) == 3 * sizeof( uint32_t ) );
 } // namespace Desert::Graphic::ShaderProtocols

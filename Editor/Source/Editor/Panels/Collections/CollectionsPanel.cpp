@@ -29,7 +29,6 @@
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
 // the same bytes, and a cook that is not reproducible cannot be compared against a record.
-#include <Engine/Assets/Serialization/Material.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Editor/Panels/Collections/CollectionManifest.hpp>

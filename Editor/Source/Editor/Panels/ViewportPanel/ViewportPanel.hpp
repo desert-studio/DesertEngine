@@ -290,7 +290,6 @@ namespace Desert::Editor
             glm::vec2 ViewportPos;
             bool      IsHovered = false;
             bool      IsFocused = false; // keyboard focus (ImGui window focus): where the UI's keys go
-            float     DpiScale  = 1.0f;
         };
 
         ViewportData m_ViewportData;

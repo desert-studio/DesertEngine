@@ -774,7 +774,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNo
 
     return bIsSeam;
 
-    // TODO(danya100kg): this doesn't seem to work but it should, and would be more efficient:
+    // UE: this doesn't seem to work but it should, and would be more efficient:
     //   - add ParentMesh->FindTriEdgeIndex(tid,eid)
     //   - SamePairUnordered query could directly index into ElementTriangles[]
     // Index3i TriangleA = GetTriangle(et.A);

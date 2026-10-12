@@ -19,13 +19,15 @@ namespace Desert::Platform::Windows
         LOG_ERROR( "GLFW Error: ({}: {})", error, description );
     }
 
-    static bool s_GLFWInitialized = false;
+    // GLFW is one library-wide state behind every window: glfwInit by the first window that opens, glfwTerminate
+    // by the last that closes. Counted rather than flagged, because a flag cannot tell the last window from the
+    // first, and terminating under a live window frees its native handle out from under it.
+    static int s_GLFWWindows = 0;
 
     Common::ResultStr<bool> WindowsWindow::Init()
     {
-        if ( !s_GLFWInitialized )
+        if ( s_GLFWWindows == 0 )
         {
-            // TODO: glfwTerminate on system shutdown
             int success = glfwInit();
             if ( !success )
             {
@@ -33,7 +35,11 @@ namespace Desert::Platform::Windows
             }
 
             glfwSetErrorCallback( GLFWErrorCallback );
-            s_GLFWInitialized = true;
+        }
+        if ( !m_HoldsGLFW )
+        {
+            ++s_GLFWWindows;
+            m_HoldsGLFW = true;
         }
 
         if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
@@ -410,6 +416,17 @@ namespace Desert::Platform::Windows
 
     WindowsWindow::~WindowsWindow()
     {
+        // In the order the objects were made from one another: the swapchain and its VkSurface were built
+        // FROM this native window, so they go first (Vulkan forbids a surface outliving its window), then the
+        // window, then GLFW itself once no window is left.
+        m_SwapChain.reset();
+        if ( m_GLFWWindow != nullptr )
+        {
+            glfwDestroyWindow( m_GLFWWindow );
+            m_GLFWWindow = nullptr;
+        }
+        if ( m_HoldsGLFW && --s_GLFWWindows == 0 )
+            glfwTerminate();
     }
 
     std::string WindowsWindow::GetClipboardText() const

@@ -413,7 +413,7 @@ namespace Desert::ECS
         std::optional<World::Landscape::LandscapeTileData> Heights;
     };
 
-    // One overridden material parameter (keyed by the shader's #pragma param name). vec4 stores any
+    // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
     // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
     struct MaterialParamOverride
     {
@@ -421,7 +421,7 @@ namespace Desert::ECS
         glm::vec4   Value = glm::vec4( 0.0f );
     };
 
-    // One overridden texture param (keyed by the shader's #pragma param texture2D name) -> texture asset.
+    // One overridden texture param (keyed by the shader's Texture2D property name) -> texture asset.
     struct MaterialTextureOverride
     {
         std::string Name;
@@ -429,7 +429,7 @@ namespace Desert::ECS
     };
 
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
-    // parameters edited generically in Details (built from the shader's #pragma param schema). The
+    // parameters edited generically in Details (built from the shader's Properties block). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
     // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role StandardSurface`, resolved from
     // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
@@ -438,7 +438,7 @@ namespace Desert::ECS
     struct MaterialComponent
     {
         std::string                          ShaderName;
-        std::vector<MaterialParamOverride>   Params;   // scalar/vector overrides (on top of #pragma defaults)
+        std::vector<MaterialParamOverride>   Params; // scalar/vector overrides (on top of the Properties defaults)
         std::vector<MaterialTextureOverride> Textures; // texture2D overrides (unset -> backend fallback)
     };
 
@@ -466,7 +466,7 @@ namespace Desert::ECS
         // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
         // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
         // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
-        // pixel is a TODO wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
+        // pixel is a stub wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
         // than a half-implementation. Reopening it is a feature with a design question attached — whether
         // the delta drives the TransformComponent or the character controller, and what a crossfade between
         // two clips with different root motion means — and that question belongs with the locomotion work,

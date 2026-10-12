@@ -194,7 +194,7 @@ namespace Desert::ECS
         // numbers are in Common/CloudField.glslh. It buys nothing HERE because our coverage field is
         // already sampled in full three dimensions, which is a different solution to the same problem —
         // and it cost one fetch of the noise volume per sample, in the march and in every light-march
-        // sample beneath it. A control that moves nothing is what §1.3 of the contract calls a TODO
+        // sample beneath it. A control that moves nothing is what §1.3 of the contract calls a stub
         // wearing a feature's clothes.
 
         PROPERTY( DisplayName( "Region Size" ), Category( "Weather" ), Length, Range( 1600000.0f, 12000000.0f ),

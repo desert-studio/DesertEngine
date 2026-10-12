@@ -431,8 +431,8 @@ namespace Desert::Editor
                  static_cast<uint64_t>( Common::AssetHandle::FromKey( "guid-lo:" + key ) ) };
     }
 
-    // Extract every source material into its source dictionary, bound to a template's layout at write. Recovers
-    // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
+    // Extract every source material into its source dictionary, bound to a template's layout at write, NORMAL
+    // and OPACITY maps included, and stamps a stable MaterialId.
     static std::vector<ImportedMaterial>
     ExtractMaterials( const aiScene* scene, const std::filesystem::path& sourcePath, ImportPass pass )
     {
@@ -721,20 +721,9 @@ namespace Desert::Editor
                     }
                 }
 
-                //// (optional) normalize weights
-                // for ( auto& v : tempVertices )
-                //{
-                //     float sum = v.BoneWeights[0] + v.BoneWeights[1] + v.BoneWeights[2] + v.BoneWeights[3];
-
-                //    if ( sum > 0.0f )
-                //    {
-                //        for ( int i = 0; i < 4; ++i )
-                //        {
-                //            v.BoneWeights[i] /= sum;
-                //        }
-                //    }
-                //}
-
+                // No renormalisation here: the read flags carry aiProcess_LimitBoneWeights, which cuts every
+                // vertex with more than four influences to its four strongest and rescales those to sum to one
+                // (LimitBoneWeightsProcess.cpp); a vertex with four or fewer keeps the file's own weights.
                 for ( auto& v : tempVertices )
                 {
                     meshData.SkinnedVertices.push_back( v );

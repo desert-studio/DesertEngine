@@ -1608,8 +1608,9 @@ namespace Desert::Editor
             // starts. Calling Scene::Resize() here (inside OnUIRender) destroys descriptor set
             // pools while their DS are still bound to the recording command buffer.
             m_PendingViewportSize = m_ViewportData.Size;
-            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x,
-                                                m_ViewportData.Size.y ); // TODO: Move to scene
+            // The camera's aspect follows this panel's rect at once: unlike the scene's targets, a
+            // projection matrix holds no GPU object that a recording could still be reading.
+            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x, m_ViewportData.Size.y );
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();

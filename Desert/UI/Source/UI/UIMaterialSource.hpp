@@ -29,7 +29,7 @@ namespace Desert::UI
         // with something that DRAWS — the shipped one answers with a magenta error fill and names the
         // reason in the log — because an element that renders nothing is indistinguishable from an
         // element that was meant to render nothing. That is the failure mode UE shipped and never fixed
-        // (`//TODO UMG Check if the material can be used with the UI`), and §1.4 forbids it here.
+        // (its open note `UMG Check if the material can be used with the UI`), and §1.4 forbids it here.
         [[nodiscard]] virtual const void* ResolveMaterial( const Common::AssetHandle& handle ) = 0;
     };
 } // namespace Desert::UI

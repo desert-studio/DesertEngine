@@ -873,8 +873,8 @@ namespace Desert::Tests::PointerCensus
           "a string literal in a constexpr preset table" },
         { "Desert/Desert/Source/Engine/Graphic/SwapChain.hpp",
           "SwapChain", "m_Window", Guard::ObservedContainsUs,
-          "the platform window owns the swapchain and declares m_GLFWWindow BEFORE m_SwapChain, so the "
-          "swapchain is destroyed first; nothing in the tree calls glfwDestroyWindow at all. Note the "
+          "the platform window owns the swapchain, and its destructor resets m_SwapChain (surface included) "
+          "before glfwDestroyWindow, so the swapchain never observes a destroyed window. Note the "
           "member's const is decorative -- the one use site casts it away for InitSurface" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/RenderSystem.hpp",
           "RenderSystem", "m_SceneRenderer", Guard::ObservedContainsUs,
@@ -2158,10 +2158,10 @@ namespace Desert::Tests::PointerCensus
           "EVT-2: the application's event tree, joined in EditorLayer::OnAttach; the registry is a member of EditorLayer, which lives in the layer stack that Application declares after the tree" },
         { "Desert/Desert/Source/Platform/MacOS/MacOSWindow.hpp",
           "MacOSWindow", "m_GLFWWindow", Guard::OwningRaw,
-          "glfwCreateWindow here and NOTHING ANYWHERE DESTROYS IT: there is no glfwDestroyWindow in the tree and both platform files carry a live `// TODO: glfwTerminate on system shutdown`. So this is an owning raw pointer that never releases -- reclaimed by the process exit, which is why it has never been felt. Named here rather than fixed: the TODO predates this audit and closing it is a window-lifetime task, not a pointer-form one" },
+          "glfwCreateWindow in Init, glfwDestroyWindow in ~MacOSWindow after the swapchain and its surface are reset; the last window to close also calls glfwTerminate (s_GLFWWindows counts the windows past glfwInit)" },
         { "Desert/Desert/Source/Platform/Windows/WindowsWindow.hpp",
           "WindowsWindow", "m_GLFWWindow", Guard::OwningRaw,
-          "glfwCreateWindow here and NOTHING ANYWHERE DESTROYS IT: there is no glfwDestroyWindow in the tree and both platform files carry a live `// TODO: glfwTerminate on system shutdown`. So this is an owning raw pointer that never releases -- reclaimed by the process exit, which is why it has never been felt. Named here rather than fixed: the TODO predates this audit and closing it is a window-lifetime task, not a pointer-form one" },
+          "glfwCreateWindow in Init, glfwDestroyWindow in ~WindowsWindow after the swapchain and its surface are reset; the last window to close also calls glfwTerminate (s_GLFWWindows counts the windows past glfwInit)" },
         { "Runtime/Source/RuntimeLayer.hpp",
           "RuntimeLayer", "m_Application", Guard::HostOutlivesUs,
           "the Application owns the layer stack that owns this layer; it cannot go first" },

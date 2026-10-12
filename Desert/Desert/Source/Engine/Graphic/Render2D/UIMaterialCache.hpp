@@ -76,7 +76,7 @@ namespace Desert::Graphic::Render2D
         // NEVER NULL WHEN @p handle IS SET, and that is the point of this class. UE's answer to a
         // wrong-domain or not-yet-compiled material is to drop the batch: the widget renders silently
         // nothing, which is indistinguishable from a correctly invisible widget, and their own source
-        // still carries `//TODO UMG Check if the material can be used with the UI`. Here every refusal
+        // still carries the open note `UMG Check if the material can be used with the UI`. Here every refusal
         // resolves to the error entry, is drawn as a magenta hatch, and is logged ONCE per handle with
         // the reason and both names.
         //

@@ -99,7 +99,10 @@ namespace Desert::Platform::MacOS
             Common::EventTree*  Events = nullptr;
         } m_Data;
 
-        GLFWwindow*                         m_GLFWWindow;
+        GLFWwindow* m_GLFWWindow = nullptr; // owned: glfwDestroyWindow in the destructor
+        // Whether this window counted itself into the GLFW users (Init got past glfwInit); the destructor
+        // takes back exactly what Init gave, so a window whose Init failed early cannot terminate GLFW.
+        bool m_HoldsGLFW = false;
         // A window created hidden is maximized when it is SHOWN, never before: see Show().
         bool                                m_MaximizeOnShow = false;
         // The Decorated the application ASKED for. Specification.Decorated holds what the window HAS, which a
