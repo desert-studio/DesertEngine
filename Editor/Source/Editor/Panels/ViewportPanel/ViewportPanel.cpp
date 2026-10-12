@@ -1617,6 +1617,7 @@ namespace Desert::Editor
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+        m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
@@ -1652,11 +1653,18 @@ namespace Desert::Editor
         // in-scene WYSIWYG handles (select marquee + drag/resize/anchor) as before.
         {
             auto& pv = ::Desert::Editor::Core::UIPreview::Get();
-            if ( m_UIPreview )
+            // PLAY IS PREVIEW. In UE's PIE the game's widgets take the pointer and the keyboard the moment
+            // Play starts — nobody toggles a Design/Preview switch for a running game. Here a level in Play
+            // drove its canvases with no input at all unless the user had also flipped the authoring
+            // toggle, so a menu could not be walked with the arrows in Play. The keyboard follows window
+            // FOCUS, as Slate's does (FSlateUser keyboard focus), not the hover the pointer needs: a menu
+            // keeps answering ↑/↓ while the cursor rests on another panel.
+            const bool playing = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+            if ( m_UIPreview || playing )
             {
                 const bool down = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Left );
                 pv.Enabled      = true;
-                pv.HasInput     = m_ViewportData.IsHovered;
+                pv.HasInput     = m_ViewportData.IsHovered || m_ViewportData.IsFocused;
                 pv.MousePx      = m_ViewportData.MousePosition;
                 pv.DisplaySize  = m_ViewportData.Size;
                 pv.Released     = pv.Down && !down; // down->up edge
