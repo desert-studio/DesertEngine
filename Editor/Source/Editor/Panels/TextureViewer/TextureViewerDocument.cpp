@@ -64,6 +64,8 @@ namespace Desert::Editor
                     return "RG16F";
                 case F::R32_UINT:
                     return "R32_UINT";
+                case F::RG32_UINT:
+                    return "RG32_UINT";
                 case F::Count:
                     return "Count (not a format)";
             }

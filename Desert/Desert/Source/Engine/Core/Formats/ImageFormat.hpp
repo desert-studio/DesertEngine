@@ -105,6 +105,10 @@ namespace Desert::Core::Formats
         /// format: written as `out uint`, read with `usampler2D` + texelFetch, never filtered or blended.
         /// APPENDED for the renumbering reason above.
         R32_UINT,
+        /// `VK_FORMAT_R32G32_UINT`. Two 32-bit unsigned integer channels: the G-buffer's shading word since it
+        /// carries UE's four CustomData floats (ViewTargetFormats.hpp kGBufferShadingWord). Integer, like
+        /// R32_UINT: `out uvec2`, `usampler2D` + texelFetch, never filtered or blended. APPENDED.
+        RG32_UINT,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -203,6 +207,8 @@ namespace Desert::Core::Formats
             case ImageFormat::RG16F:    // 2 channels, 16 bits each
             case ImageFormat::R32_UINT: // one channel, 32-bit unsigned integer
                 return { 1, 1, 4 };
+            case ImageFormat::RG32_UINT: // two channels, 32-bit unsigned integer each
+                return { 1, 1, 8 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -243,6 +249,7 @@ namespace Desert::Core::Formats
         switch ( format )
         {
             case ImageFormat::R32_UINT:
+            case ImageFormat::RG32_UINT:
                 return true;
             case ImageFormat::RGBA8F:
             case ImageFormat::RGBA16F:
@@ -302,6 +309,7 @@ namespace Desert::Core::Formats
                 return 3; // radiance; the format has no alpha at all
             case ImageFormat::BC5_UNORM: // X and Y of a tangent normal; Z is reconstructed by the shader
             case ImageFormat::RG16F:     // velocity: NDC x and y
+            case ImageFormat::RG32_UINT: // the shading word's two halves
                 return 2;
             case ImageFormat::BC4_UNORM:
                 return 1;
@@ -379,6 +387,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R32F:
             case ImageFormat::RG16F:
             case ImageFormat::R32_UINT:
+            case ImageFormat::RG32_UINT:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:

@@ -1,0 +1,72 @@
+// TwoSidedFoliage — UE's MSM_TwoSidedFoliage (ShadingModels.ush TwoSidedBxDF, the non-#if-0 branch): DefaultLit
+// for the side the light falls on, plus the light that passes THROUGH a thin leaf to the side facing away — a
+// wrapped N.L on the far side times a GGX lobe around the light's own direction, tinted by the leaf's
+// SubsurfaceColor. Its environment term is DefaultLit's plus the sky seen through the leaf: the irradiance from
+// the far hemisphere, -N, times SubsurfaceColor (UE SkyLightingDiffuseShared.ush, the TWOSIDED_FOLIAGE branch).
+// Without the two transmission terms a leaf turned away from the sun is lit by the far hemisphere's blue sky
+// alone — Bistro's blue-fringed cypresses and hedges.
+//
+// The payload is UE's: SubsurfaceColor.rgb in CustomData0..2, stored as its square root (UE
+// EncodeSubsurfaceColor / ExtractSubsurfaceColor, DeferredShadingCommon.ush) so the 8-bit field spends its steps
+// on the dark colours leaves are. The template writes sqrt(colour); the body squares it back.
+Guid 2293810725695897285;
+Payload
+{
+    CustomData0 SubsurfaceColorR; // sqrt( SubsurfaceColor.r )
+    CustomData1 SubsurfaceColorG; // sqrt( SubsurfaceColor.g )
+    CustomData2 SubsurfaceColorB; // sqrt( SubsurfaceColor.b )
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+}
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+// The pure half of the ambient text when the pass has not included the whole file (DefaultLit.shadingmodel says why).
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+// UE ExtractSubsurfaceColor: Square( CustomData.rgb ).
+vec3 TwoSidedFoliageSubsurfaceColor( DesertPayload P )
+{
+    const vec3 encoded = vec3( P.CustomData0, P.CustomData1, P.CustomData2 );
+    return encoded * encoded;
+}
+
+// UE BRDF.ush D_GGX( a2, NoH ), the form TwoSidedBxDF calls with a2 = 0.6 * 0.6.
+float TwoSidedFoliageGGX( float a2, float NoH )
+{
+    const float d = ( NoH * a2 - NoH ) * NoH + 1.0;
+    return a2 / ( PI * d * d );
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const vec3 F0      = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    const vec3 surface = EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, F0, S.Metallic, S.Roughness, S.BaseColor );
+
+    // http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/ — UE's Wrap = 0.5 on -N.L.
+    const float wrap    = 0.5;
+    const float wrapNoL = clamp( ( -dot( S.N, L.L ) + wrap ) / ( ( 1.0 + wrap ) * ( 1.0 + wrap ) ), 0.0, 1.0 );
+    // Scatter distribution: forward scattering, peaked where the eye looks through the leaf into the light.
+    const float scatter      = TwoSidedFoliageGGX( 0.6 * 0.6, clamp( -dot( S.V, L.L ), 0.0, 1.0 ) );
+    const vec3  transmission = L.Radiance * ( wrapNoL * scatter ) * TwoSidedFoliageSubsurfaceColor( P );
+
+    // UE multiplies Transmission by the light's TransmissionShadow; the cascades are this engine's one shadow
+    // term, so a leaf another leaf shades transmits nothing either.
+    return ( surface + transmission ) * L.Shadow;
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3 F0  = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic,
+                                         max( dot( S.N, S.V ), 0.0 ) );
+    const vec3 through = DesertAmbientIrradiance( -S.N ) * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
+    return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect ) + through;
+}

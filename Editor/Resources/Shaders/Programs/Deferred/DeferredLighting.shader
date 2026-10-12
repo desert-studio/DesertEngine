@@ -41,7 +41,7 @@ Shader "DeferredLighting"
         In(0) vec2 v_TexCoord;
 
         // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).
-        // The shading word (ShadingModels/ShadingModelContract.glslh): an R32_UINT target, read ONLY by texelFetch.
+        // The shading word (ShadingModels/ShadingModelContract.glslh): an RG32_UINT target, read ONLY by texelFetch.
         Uniform(1) usampler2D u_GBufferShadingWord;
         // Device depth (nearest sampler: DEPTH32F is not filtered); world position = ReconstructWorldPosition.
         Uniform(21) sampler2D u_GBufferDepth;
@@ -242,7 +242,7 @@ Shader "DeferredLighting"
         	}
 
         	const vec4          ge           = texture(u_GBufferEmissive, v_TexCoord);
-        	const uint          word         = texelFetch(u_GBufferShadingWord, ivec2(gl_FragCoord.xy), 0).r;
+        	const uvec2         word         = texelFetch(u_GBufferShadingWord, ivec2(gl_FragCoord.xy), 0).rg;
         	const int           shadingModel = DesertShadingModelIndex(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
@@ -282,7 +282,7 @@ Shader "DeferredLighting"
         	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
 
         	// Shading Model / Sun Shadow Receive: the word's other two fields, decoded from the same integer fetch (the
-        	// slot is R32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
+        	// slot is RG32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
         	// ratio hue walk, so neighbouring indices differ); green = receives the sun's cascades, red = opted out.
         	if (dbg == 10)
         	{

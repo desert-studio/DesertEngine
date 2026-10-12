@@ -10,7 +10,7 @@
 //     Guid <decimal 64-bit Common::UUID>;
 //     Payload
 //     {
-//         <CustomData0|CustomData1> <DisplayName>;   // at most kMaxPayloadFloats lines, each pin at most once
+//         <CustomData0..CustomData3> <DisplayName>;  // at most kMaxPayloadFloats lines, each pin at most once
 //     }
 //     Inputs
 //     {
@@ -52,7 +52,7 @@
 // Refusals — every one names the file (ParseShadingModelManifest's error text starts with the path):
 //   * no Guid, a Guid that does not parse, or the null Guid;
 //   * a missing Payload or Inputs block, an unknown line inside one;
-//   * Payload with more than kMaxPayloadFloats lines, a pin that is not CustomData0/CustomData1, a pin twice;
+//   * Payload with more than kMaxPayloadFloats lines, a pin that is not CustomData0..3, a pin twice;
 //   * an Inputs field that is not a SurfaceOutput field (checked by ShadingModelRegistry, which reads
 //     SurfaceOutput from Mesh/Surface/SurfaceTypes.glslh — the struct is the one list of fields);
 //   * a body that does not define both Evaluate and EvaluateAmbient.
@@ -79,7 +79,9 @@ namespace Desert::Core::ShadingModels
 
     // The index is four bits of the shading word: at most 16 models, Unlit always 0.
     inline constexpr std::size_t kMaxShadingModels = 16;
-    inline constexpr std::size_t kMaxPayloadFloats = 2;
+    // UE's GBufferD (CustomData.rgba, RGBA8): four 8-bit floats. Three of them carry TwoSidedFoliage's
+    // SubsurfaceColor.rgb (UE DeferredShadingCommon.ush ExtractSubsurfaceColor reads CustomData.rgb).
+    inline constexpr std::size_t kMaxPayloadFloats = 4;
 
     // The two models the engine itself relies on, by identity. Unlit gets index 0 (a G-buffer writer that forgets
     // the index shades as emission only — visible at once, as in UE, MSM_Unlit = 0). DefaultLit is the model of a
@@ -87,13 +89,15 @@ namespace Desert::Core::ShadingModels
     inline constexpr std::uint64_t kUnlitGuid      = 6633879868943240298ull;
     inline constexpr std::uint64_t kDefaultLitGuid = 6570679776162095495ull;
 
-    // The payload pins, UE's CustomData0/1: SurfaceOutput fields the material writes and DesertPayload fields the
-    // model reads. The order is the order of the shading word's payload fields below.
-    inline constexpr std::array<std::string_view, kMaxPayloadFloats> kPayloadPins{ "CustomData0", "CustomData1" };
+    // The payload pins, UE's CustomData.rgba: SurfaceOutput fields the material writes and DesertPayload fields
+    // the model reads. The order is the order of the shading word's payload fields below.
+    inline constexpr std::array<std::string_view, kMaxPayloadFloats> kPayloadPins{ "CustomData0", "CustomData1",
+                                                                                   "CustomData2", "CustomData3" };
 
     // ------------------------------------------------------------------------------------------------------------
-    // Where the payload lives: the shading word, the G-buffer's R32_UINT target (kGBufferShadingWord,
-    // Pass_GBuffer.glslh location 2), written and read with integer operations. ShadingModelContract.glslh
+    // Where the payload lives: the shading word, the G-buffer's RG32_UINT target (kGBufferShadingWord,
+    // Pass_GBuffer.glslh location 2), written and read with integer operations. The table numbers the bits of
+    // the WHOLE word: bits 0..31 are its .x, bits 32..63 its .y (a field never straddles the two). ShadingModelContract.glslh
     // (DESERT_SHADING_WORD_*) is the GLSL half of this table, and the ShadingModelContract suite holds the two
     // equal.
     struct ShadingWordField
@@ -103,15 +107,17 @@ namespace Desert::Core::ShadingModels
         std::uint8_t     BitCount;
     };
 
-    inline constexpr std::uint8_t kShadingWordBits = 32;
+    inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 5> kShadingWordFields{ {
-         { "INDEX", 0, 4 },          // shading-model index, 0..15
-         { "TEXTURES", 4, 4 },       // sampled-texture count (Material Complexity), clamped to 15
-         { "PAYLOAD0", 8, 8 },       // CustomData0, unorm8
-         { "PAYLOAD1", 16, 8 },      // CustomData1, unorm8
-         { "NO_SUN_SHADOWS", 24, 1 } // set = the sun's cascades do not shadow the surface
-                                     // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
+    inline constexpr std::array<ShadingWordField, 7> kShadingWordFields{ {
+         { "INDEX", 0, 4 },           // shading-model index, 0..15
+         { "TEXTURES", 4, 4 },        // sampled-texture count (Material Complexity), clamped to 15
+         { "PAYLOAD0", 8, 8 },        // CustomData0, unorm8
+         { "PAYLOAD1", 16, 8 },       // CustomData1, unorm8
+         { "NO_SUN_SHADOWS", 24, 1 }, // set = the sun's cascades do not shadow the surface
+                                      // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
+         { "PAYLOAD2", 32, 8 },       // CustomData2, unorm8 (.y)
+         { "PAYLOAD3", 40, 8 }        // CustomData3, unorm8 (.y)
     } };
 
     // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.

@@ -47,11 +47,13 @@ struct SurfaceOutput
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
-    // The shading model's payload (UE's CustomData0/1 pins), in [0, 1]: the floats a model's `Payload` block names
+    // The shading model's payload (UE's GBufferD CustomData.rgba), in [0, 1]: the floats a model's `Payload` block names
     // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through the G-buffer shading word's
     // 8-bit fields in the deferred path and quantized the same way in the forward one.
     float CustomData0;
     float CustomData1;
+    float CustomData2;
+    float CustomData3;
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -70,6 +72,8 @@ SurfaceOutput DefaultSurfaceOutput()
     s.Refraction          = 1.0;
     s.CustomData0         = 0.0;
     s.CustomData1         = 0.0;
+    s.CustomData2         = 0.0;
+    s.CustomData3         = 0.0;
     return s;
 }
 

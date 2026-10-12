@@ -340,12 +340,19 @@ namespace Desert::Core::ShadingModels
                   "DesertPayload P )",
                   "EvaluateAmbient", "A, S, P" );
 
-        // The shading word (ShadingModelContract.glslh): a uint, packed and unpacked with integer operations. The
-        // NO_SUN_SHADOWS bit is not one of these fields and is left to the pass.
+        // The shading word (ShadingModelContract.glslh): a uvec2, packed and unpacked with integer operations, its
+        // bits numbered across the pair (0..31 = .x, 32..63 = .y). The NO_SUN_SHADOWS bit is not one of these
+        // fields and is left to the pass.
         out += R"(
-uint DesertShadingWordField( uint word, int firstBit, int bits )
+uint DesertShadingWordField( uvec2 word, int firstBit, int bits )
 {
-    return ( word >> uint( firstBit ) ) & ( ( 1u << uint( bits ) ) - 1u );
+    const uint part = firstBit >= 32 ? word.y : word.x;
+    return ( part >> uint( firstBit & 31 ) ) & ( ( 1u << uint( bits ) ) - 1u );
+}
+
+uvec2 DesertShadingWordBits( uint value, int firstBit )
+{
+    return firstBit >= 32 ? uvec2( 0u, value << uint( firstBit - 32 ) ) : uvec2( value << uint( firstBit ), 0u );
 }
 
 float DesertQuantizePayloadFloat( float value )
@@ -359,45 +366,56 @@ DesertPayload DesertQuantizePayload( DesertPayload P )
     DesertPayload q;
     q.CustomData0 = DesertQuantizePayloadFloat( P.CustomData0 );
     q.CustomData1 = DesertQuantizePayloadFloat( P.CustomData1 );
+    q.CustomData2 = DesertQuantizePayloadFloat( P.CustomData2 );
+    q.CustomData3 = DesertQuantizePayloadFloat( P.CustomData3 );
     return q;
 }
 
-uint DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P )
+uint DesertPayloadUnorm( float value )
+{
+    const uint payloadMax = ( 1u << uint( DESERT_SHADING_WORD_PAYLOAD_BITS ) ) - 1u;
+    return uint( round( clamp( value, 0.0, 1.0 ) * float( payloadMax ) ) );
+}
+
+uvec2 DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P )
 {
     const uint indexMax   = ( 1u << uint( DESERT_SHADING_WORD_INDEX_BITS ) ) - 1u;
     const uint textureMax = ( 1u << uint( DESERT_SHADING_WORD_TEXTURES_BITS ) ) - 1u;
-    const uint payloadMax = ( 1u << uint( DESERT_SHADING_WORD_PAYLOAD_BITS ) ) - 1u;
-    uint word = uint( clamp( index, 0, int( indexMax ) ) ) << uint( DESERT_SHADING_WORD_INDEX_FIRST_BIT );
-    word |= min( uint( round( max( sampledTextureCount, 0.0 ) ) ), textureMax )
-            << uint( DESERT_SHADING_WORD_TEXTURES_FIRST_BIT );
-    word |= uint( round( clamp( P.CustomData0, 0.0, 1.0 ) * float( payloadMax ) ) )
-            << uint( DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT );
-    word |= uint( round( clamp( P.CustomData1, 0.0, 1.0 ) * float( payloadMax ) ) )
-            << uint( DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT );
+    uvec2 word = DesertShadingWordBits( uint( clamp( index, 0, int( indexMax ) ) ), DESERT_SHADING_WORD_INDEX_FIRST_BIT );
+    word |= DesertShadingWordBits( min( uint( round( max( sampledTextureCount, 0.0 ) ) ), textureMax ),
+                                   DESERT_SHADING_WORD_TEXTURES_FIRST_BIT );
+    word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData0 ), DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT );
+    word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData1 ), DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT );
+    word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData2 ), DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT );
+    word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData3 ), DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT );
     return word;
 }
 
-int DesertShadingModelIndex( uint shadingWord )
+int DesertShadingModelIndex( uvec2 shadingWord )
 {
     return int( DesertShadingWordField( shadingWord, DESERT_SHADING_WORD_INDEX_FIRST_BIT,
                                         DESERT_SHADING_WORD_INDEX_BITS ) );
 }
 
-float DesertSampledTextureCount( uint shadingWord )
+float DesertSampledTextureCount( uvec2 shadingWord )
 {
     return float( DesertShadingWordField( shadingWord, DESERT_SHADING_WORD_TEXTURES_FIRST_BIT,
                                           DESERT_SHADING_WORD_TEXTURES_BITS ) );
 }
 
-DesertPayload DesertUnpackPayload( uint shadingWord )
+float DesertPayloadField( uvec2 shadingWord, int firstBit )
 {
-    const uint  word  = shadingWord;
     const float steps = float( ( 1u << uint( DESERT_SHADING_WORD_PAYLOAD_BITS ) ) - 1u );
+    return float( DesertShadingWordField( shadingWord, firstBit, DESERT_SHADING_WORD_PAYLOAD_BITS ) ) / steps;
+}
+
+DesertPayload DesertUnpackPayload( uvec2 shadingWord )
+{
     DesertPayload P;
-    P.CustomData0 = float( DesertShadingWordField( word, DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT,
-                                                   DESERT_SHADING_WORD_PAYLOAD_BITS ) ) / steps;
-    P.CustomData1 = float( DesertShadingWordField( word, DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT,
-                                                   DESERT_SHADING_WORD_PAYLOAD_BITS ) ) / steps;
+    P.CustomData0 = DesertPayloadField( shadingWord, DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT );
+    P.CustomData1 = DesertPayloadField( shadingWord, DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT );
+    P.CustomData2 = DesertPayloadField( shadingWord, DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT );
+    P.CustomData3 = DesertPayloadField( shadingWord, DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT );
     return P;
 }
 
