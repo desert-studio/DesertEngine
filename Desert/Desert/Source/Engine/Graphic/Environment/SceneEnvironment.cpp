@@ -248,10 +248,10 @@ namespace Desert::Graphic
         processingInfo.ShaderName  = "PanoramaToCubemap";
         // The tag becomes the image's own name AND the compute pipeline's Vulkan debug label
         // (ComputeImages.cpp:103 and :116). It is NOT a cache key — PipelineCache deliberately does not
-        // hash DebugName — so a shared name collides with nothing, which is exactly why the literal
-        // "TODO" that used to sit here survived: it broke only the GPU capture, and only at the moment
-        // someone was reading one. Two different compute dispatches both labelled "TODO" is the least
-        // useful thing a capture of this 727 ms bake chain can say.
+        // hash DebugName — so a shared name collides with nothing, which is exactly why the placeholder
+        // label that used to sit here survived: it broke only the GPU capture, and only at the moment
+        // someone was reading one. Two different compute dispatches under one placeholder label is the
+        // least useful thing a capture of this 727 ms bake chain can say.
         processingInfo.Tag = "EnvRadiance";
         // The face sizes and mip counts live in SkyRules.hpp beside the cost report, because the report
         // has to compute the same numbers and a second copy of them is how a report starts lying — the

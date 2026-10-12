@@ -121,12 +121,12 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( dir.DirectionLights.data() ), size );
             }
 
-        // `Name` is a static member and not part of the object, so the block is just the three counts.
-        const uint32_t counts[3] = { static_cast<uint32_t>( dir.DirectionLights.size() ),
-                                     static_cast<uint32_t>( point.PointLights.size() ),
-                                     static_cast<uint32_t>( spot.SpotLights.size() ) };
+        const ShaderProtocols::LightsMetadata counts{
+             .DirectionLightsCount = static_cast<uint32_t>( dir.DirectionLights.size() ),
+             .PointLightsCount     = static_cast<uint32_t>( point.PointLights.size() ),
+             .SpotLightsCount      = static_cast<uint32_t>( spot.SpotLights.size() ) };
         if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
-            ub->SetRawData( reinterpret_cast<const std::byte*>( counts ), sizeof( counts ) );
+            ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
     /// The cascaded directional shadow maps (R32F light-space depth) and their per-cascade light

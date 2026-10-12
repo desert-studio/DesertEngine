@@ -143,7 +143,7 @@ namespace Desert::UI::Walk
     ElementStyle  StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e );
     UITextData    Themed( const ElementStyle& st, UITextData t );
     float         HoverEase( WalkCtx& ctx, NodeId e, bool hovered );
-    void          RequestScreen( WalkCtx& ctx, const std::string& name, bool back );
+    void RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back );
     float         Ease( UIEasing e, float t );
     TweenSample   SampleTween( WalkCtx& ctx, IUITree& tree, NodeId e );
     void          ApplyAnimClip( WalkCtx& ctx, NodeId e, TweenSample& out );
@@ -153,6 +153,7 @@ namespace Desert::UI::Walk
     bool          PointIn( const Rect& r, const glm::vec2& p );
     bool          Accepts( const UIDropTargetData& t, const std::string& payload );
     std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d );
     bool                     IsFocusable( IUITree& tree, NodeId e );
     TextureRef               ResolveSpriteImage( IUICanvasResources& res, const Common::AssetHandle& handle );
     const void*              ResolveUIMaterial( WalkCtx& ctx, NodeId e, const Common::AssetHandle& handle );

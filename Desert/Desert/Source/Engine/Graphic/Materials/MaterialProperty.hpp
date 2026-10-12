@@ -36,9 +36,8 @@ namespace Desert::Graphic
             MaterialPropertyType  Type = MaterialPropertyType::Invalid;
             MaterialPropertyValue Value;
             MaterialPropertyValue DefaultValue;
-            bool                  bIsOverridden    = false;
-            bool                  bIsTexture       = false;
-            uint32_t              LastUpdatedFrame = 0;
+            bool                  bIsOverridden = false;
+            bool                  bIsTexture    = false;
         };
 
 

@@ -45,8 +45,8 @@
 //         }
 //     }
 //
-// The parser emits the same structures the legacy `#pragma` format produces
-// (ShaderProgramMeta + per-stage GLSL), so everything downstream — shaderc, SPIR-V
+// The parser emits ShaderProgramMeta + per-stage GLSL, the only shader form the engine reads
+// (the legacy `#pragma` format is refused by ShaderPreprocess), so everything downstream — shaderc, SPIR-V
 // reflection, DataDrivenMaterial, the material UI — works unchanged. Emitted GLSL contains
 // #line directives so shaderc errors point at the original .shader lines.
 
@@ -187,8 +187,8 @@ namespace Desert::Core::Preprocess
     class DShaderParser
     {
     public:
-        // True when the source is written in the DSL (first meaningful token is `Shader`);
-        // false for the legacy `#pragma use_stage` format.
+        // True when the source is written in the DSL (first meaningful token is `Shader`); false for
+        // anything else, which ShaderPreprocess refuses as "not a DSL shader".
         static bool IsDShader( const std::string& source );
 
         // Errors carry the source line: `DShader parse error (line N): message`.

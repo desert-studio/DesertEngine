@@ -12,6 +12,9 @@
 #include <UI/UIRichText.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <UI/UIScreenMachine.hpp>
+
+#include <utility>
 
 #include <algorithm>
 #include <span>
@@ -140,13 +143,30 @@ namespace Desert::UI::Walk
     }
 
     // --- Screens ----------------------------------------------------------------------------------
-    // A canvas can hold several UIScreen sub-trees; exactly one is current, and a ShowScreen button
-    // moves between them (BackScreen returns). Like the tweens, the live state is kept in the view's
-    // context and not in the component: navigating in the editor must not rewrite the authored scene.
-    void RequestScreen( WalkCtx& ctx, const std::string& name, bool back )
+    // A ShowScreen / BackScreen action from element @p from. The machine it drives is resolved NOW, against
+    // this frame's index (UIScreenMachine.hpp): the switcher nearest to the button for ShowScreen, the
+    // button's nearest machine with history for Back. Applied when the walk ends. Like the tweens, the live
+    // state is kept in the view's context and not in the component: navigating in the editor must not
+    // rewrite the authored scene.
+    void RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back )
     {
-        ctx.Canvas.ScreenReq     = name;
-        ctx.Canvas.ScreenReqBack = back;
+        UIScreenRequest r;
+        r.Back = back;
+        r.Name = name;
+        r.Owner =
+             back ? BackScreenTarget( ctx.Canvas, tree, from ) : ShowScreenTarget( ctx.Canvas, tree, from, name );
+        if ( r.Owner == NodeId::Null )
+        {
+            if ( !back ) // Back with nowhere to go is ignored, as it always was; a missing page is an error
+                LOG_ERROR( "[UI] ShowScreen '{}': no UIScreen of that name on this canvas", name );
+            return;
+        }
+        if ( !back )
+        {
+            const NodeId tabs = TabsOf( tree, from );
+            r.PushHistory     = tabs == NodeId::Null || tree.Get<UITabsData>( tabs )->PushHistory;
+        }
+        ctx.Canvas.ScreenRequests.push_back( std::move( r ) );
     }
 
     float Ease( UIEasing e, float t )
@@ -204,6 +224,24 @@ namespace Desert::UI::Walk
         }
     }
 
+    // Is the nearest UIButton at or above @p e highlighted on THIS frame? The button records it while it is
+    // drawn, and a button is drawn before its children, so its tweens read the current frame's answer. No
+    // button above: never highlighted (the tween rests at From). The walk is bounded by the tree's size, as
+    // every ancestor walk is: a Parent cycle is authorable.
+    static bool HighlightedThisFrame( WalkCtx& ctx, IUITree& tree, NodeId e )
+    {
+        NodeId n = e;
+        for ( std::size_t guard = 0; n != NodeId::Null && guard <= tree.NodeBound();
+              ++guard, n = tree.Parent( n ) )
+        {
+            if ( !tree.Has<UIButtonData>( n ) )
+                continue;
+            const auto it = ctx.Canvas.HighlightedOn.find( n );
+            return it != ctx.Canvas.HighlightedOn.end() && it->second == ctx.View.FrameIndex;
+        }
+        return false;
+    }
+
     // A generic from->to animation, evaluated here on the way to the screen and NEVER written back
     // into the authored component — so a tween is safe to run in the editor, previews live in Design
     // mode, and stopping it simply restores the authored look. Its playhead therefore lives in the
@@ -223,12 +261,27 @@ namespace Desert::UI::Walk
             clock = 0.0f;
         lastSeen = ctx.View.FrameIndex;
 
-        if ( tw.Playing )
-            clock += ctx.View.FrameDt;
-
         const float dur = std::max( 0.001f, tw.Duration );
-        float       t   = ( clock - tw.Delay ) / dur; // <0 while delayed
-        switch ( tw.Loop )
+        float       t   = 0.0f;
+        if ( tw.Trigger == UITweenTrigger::WhileHighlighted )
+        {
+            // The playhead follows the nearest button at or above this element: forward while it is
+            // highlighted this frame, backward otherwise, held inside [0, Delay + Duration] so leaving
+            // mid-way reverses from where it is instead of jumping.
+            if ( tw.Playing )
+            {
+                const bool lit = HighlightedThisFrame( ctx, tree, e );
+                clock = std::clamp( clock + ( lit ? ctx.View.FrameDt : -ctx.View.FrameDt ), 0.0f, tw.Delay + dur );
+            }
+            t = std::clamp( ( clock - tw.Delay ) / dur, 0.0f, 1.0f );
+        }
+        else
+        {
+            if ( tw.Playing )
+                clock += ctx.View.FrameDt;
+            t = ( clock - tw.Delay ) / dur; // <0 while delayed
+        }
+        switch ( tw.Trigger == UITweenTrigger::WhileHighlighted ? UITweenLoop::Once : tw.Loop )
         {
             case UITweenLoop::Loop:
                 t = t > 0.0f ? std::fmod( t, 1.0f ) : 0.0f;
@@ -419,11 +472,35 @@ namespace Desert::UI::Walk
         return out;
     }
 
+    // The options of a dropdown (UE UComboBoxString's option list, ComboBoxString.h:21). Bound: one per record
+    // of the data-store collection, labelled by its LabelField — read in place each frame, so a script that
+    // adds a server to the list adds an option. Unbound: the authored ';'-separated Options.
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d )
+    {
+        if ( d.Collection.empty() )
+            return SplitOptions( text, d.Options );
+        std::vector<std::string> out;
+        if ( const UICollection* c = UIDataStore::Get().FindCollection( d.Collection ) )
+        {
+            out.reserve( static_cast<std::size_t>( c->Size() ) );
+            for ( int i = 0; i < c->Size(); ++i )
+                out.push_back(
+                     text.Resolve( c->Record( i ).Text( d.LabelField ).value_or( std::string() ), std::nullopt )
+                          .Text );
+        }
+        return out;
+    }
+
     // Keyboard-focusable controls (Tab cycles between them; Enter activates the focused one).
     bool IsFocusable( IUITree& tree, NodeId e )
     {
-        return tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
-               tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e );
+        if ( tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
+             tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e ) )
+            return true;
+        // A SELECTABLE list takes focus (its arrows move the cursor); a display-only one does not, so Tab does
+        // not stop on a chat log.
+        const UIListViewData* lv = tree.Get<UIListViewData>( e );
+        return lv != nullptr && lv->SelectionMode != UISelectionMode::None;
     }
 
     // Resolve a sprite AssetHandle to its runtime GPU Image2D (non-owning; the image service owns it and

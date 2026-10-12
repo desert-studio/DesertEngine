@@ -60,7 +60,7 @@ namespace Desert::Graphic::QualityBoot
         }
 
         using Common::Settings::MachineSettings;
-        MachineSettings::Load( machineJson, table.GetValue() );
+        MachineSettings::Load( machineJson );
         const MachineSettings& machine = MachineSettings::Get();
 
         // The present pacing lives in machine.json beside the quality (DisplaySettings.hpp); the window rebuilds

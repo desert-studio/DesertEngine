@@ -1,5 +1,6 @@
 #include "ViewSettings.hpp"
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -136,21 +137,16 @@ namespace Desert::Graphic
         for ( const Contribution& c : contributions )
             BlendPostProcessSettings( result.Post, c.Settings.get(), c.Weight );
 
-        const auto lights = registry.view<const ECS::DirectionLightComponent, const ECS::TransformComponent>();
-        for ( const entt::entity entity : lights )
+        // The shadow settings are the SUN'S — the same light the sky stands on and the deferred pass shades
+        // with (ECS::PickAtmosphereSun), not whichever directional light the view happens to visit first.
+        if ( const auto sun = ECS::PickAtmosphereSun( registry, ECS::SunCandidacy::Lit ).Sun() )
         {
-            if ( ECS::IsHidden( registry, entity ) )
-                continue;
-            if ( !ECS::Rules::DirectionalLightTravel(
-                      lights.get<const ECS::TransformComponent>( entity ).Translation ) )
-                continue;
-            const ECS::DirectionalLightData& light = lights.get<const ECS::DirectionLightComponent>( entity ).Data;
+            const ECS::DirectionalLightData& light = registry.get<ECS::DirectionLightComponent>( *sun ).Data;
             result.Shadows.Enabled                 = light.CastShadows;
             result.Shadows.Bias                    = { .BiasCm       = light.ShadowBias,
                                                        .SlopeBiasCm  = light.ShadowSlopeBias,
                                                        .Distribution = light.ShadowCascadeBiasDistribution };
             result.Shadows.CascadeSplitLambda      = light.CascadeSplitLambda;
-            break;
         }
 
         return result;

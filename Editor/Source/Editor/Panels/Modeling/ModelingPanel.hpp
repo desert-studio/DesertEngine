@@ -20,10 +20,10 @@ namespace Desert::Core
 
 namespace Desert::Editor
 {
-    // UE5-style Modeling Mode palette: a left category rail (Create / Select / XForm / …), a 2-column tool
-    // grid, and a Tool Properties section for the active tool. Currently the Create category's CubeGrid tool
-    // is functional (the rest are placeholders). Selecting CubeGrid switches the viewport into Modeling mode;
-    // the actual geometry editing happens in the viewport (CubeGridTool), driven through Core::ModelingState.
+    // UE5-style Modeling Mode palette: a left rail of the palettes something of ours lives in (Selection,
+    // Shapes, Create, PolyModel, TriModel, Transform, Collision, in UE's order), each palette's tool buttons,
+    // and a Tool Properties section for the active tool. A tool picked here switches the viewport into
+    // Modeling mode; the geometry editing itself happens in the viewport, driven through Core::ModelingState.
     class ModelingPanel final : public IPanel
     {
     public:

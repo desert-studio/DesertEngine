@@ -179,7 +179,7 @@ namespace
         model.Name         = "MaterialUB";
         model.BindingPoint = 1;
         model.Size         = kFieldSize;
-        model.Fields.push_back( { Core::Formats::ShaderValueType::Float4, "Tint", kFieldSize, 0, 1 } );
+        model.Fields.push_back( { "Tint", kFieldSize, 0, 1 } );
         return model;
     }
 

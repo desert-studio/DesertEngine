@@ -1,0 +1,153 @@
+{
+    "Channels": [
+        {
+            "Name": "WorldStatic",
+            "DefaultResponse": "Block"
+        },
+        {
+            "Name": "WorldDynamic",
+            "DefaultResponse": "Block"
+        },
+        {
+            "Name": "Pawn",
+            "DefaultResponse": "Block"
+        },
+        {
+            "Name": "PhysicsBody",
+            "DefaultResponse": "Block"
+        },
+        {
+            "Name": "Vehicle",
+            "DefaultResponse": "Block"
+        },
+        {
+            "Name": "Destructible",
+            "DefaultResponse": "Block"
+        }
+    ],
+    "Profiles": [
+        {
+            "Name": "NoCollision",
+            "Enabled": "NoCollision",
+            "ObjectChannel": "WorldStatic",
+            "Responses": [
+                {
+                    "Channel": "WorldStatic",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "WorldDynamic",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "Pawn",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "PhysicsBody",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "Vehicle",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "Destructible",
+                    "Response": "Ignore"
+                }
+            ]
+        },
+        {
+            "Name": "BlockAll",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "WorldStatic",
+            "Responses": []
+        },
+        {
+            "Name": "BlockAllDynamic",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "WorldDynamic",
+            "Responses": []
+        },
+        {
+            "Name": "OverlapAllDynamic",
+            "Enabled": "QueryOnly",
+            "ObjectChannel": "WorldDynamic",
+            "Responses": [
+                {
+                    "Channel": "WorldStatic",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "WorldDynamic",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Pawn",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "PhysicsBody",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Vehicle",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Destructible",
+                    "Response": "Overlap"
+                }
+            ]
+        },
+        {
+            "Name": "Pawn",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "Pawn",
+            "Responses": []
+        },
+        {
+            "Name": "PhysicsActor",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "PhysicsBody",
+            "Responses": []
+        },
+        {
+            "Name": "Destructible",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "Destructible",
+            "Responses": []
+        },
+        {
+            "Name": "Trigger",
+            "Enabled": "QueryAndPhysics",
+            "ObjectChannel": "WorldDynamic",
+            "Responses": [
+                {
+                    "Channel": "WorldStatic",
+                    "Response": "Ignore"
+                },
+                {
+                    "Channel": "WorldDynamic",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Pawn",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "PhysicsBody",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Vehicle",
+                    "Response": "Overlap"
+                },
+                {
+                    "Channel": "Destructible",
+                    "Response": "Overlap"
+                }
+            ]
+        }
+    ]
+}

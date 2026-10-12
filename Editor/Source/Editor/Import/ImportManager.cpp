@@ -686,7 +686,7 @@ namespace Desert::Editor
         // tree at Content/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
         // the asset browser, reusable), like UE.
         // Meaningful name, NO handle in it (stable identity lives in the file: its header GUID).
-        // Unified .demat schema (legacy ".mat" cooker output is gone; SurfaceMaterialAsset::Load still READS old).
+        // Unified .demat schema, the only one SurfaceMaterialAsset::Load reads (no legacy ".mat" reader is left).
         //
         // The per-mesh subfolder is CookPaths::MaterialFolder and not `MATERIAL_PATH / stem` spelled here.
         // The stem alone put two same-named meshes from different folders in one folder, where the

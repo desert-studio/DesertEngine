@@ -12,6 +12,16 @@
 
 namespace Desert::UI
 {
+    // How a list view's rows are selected (UE ESelectionMode, ListView.h:72). None: rows are not selectable
+    // and the list takes no focus. Single: one row, a click selects it. SingleToggle: one row, a click on
+    // the selected row clears it. Multi: Ctrl toggles a row, Shift selects the range from the anchor.
+    enum class UISelectionMode
+    {
+        None,
+        Single,
+        SingleToggle,
+        Multi,
+    };
     // A vertical scroll view: clips its children to its rect and scrolls them by the mouse wheel. Children are
     // positioned relative to the content top (offset up by ScrollY). ContentHeight is the total scrollable
     // height in design px (author-set); scrolling clamps to [0, ContentHeight - viewport height].
@@ -111,5 +121,62 @@ namespace Desert::UI
         PROPERTY( DisplayName( "Follow End" ), Category( "UI List View" ),
                   Tooltip( "Stay scrolled to the end while at the end when records are added (chat)" ) )
         bool FollowEnd = false;
+
+        // SELECTION (UE UListView: SelectionMode, OnItemSelectionChanged). A selectable list takes keyboard
+        // focus: arrows move the cursor, Home/End/PageUp/PageDown jump, Space toggles, Ctrl+A selects all
+        // (Multi). Which rows are selected is runtime state of the canvas cell, never serialized — a saved
+        // menu does not reopen with yesterday's pick, as a UMG list does not.
+        PROPERTY( DisplayName( "Selection Mode" ), Category( "UI List View" ) )
+        UISelectionMode SelectionMode = UISelectionMode::None;
+
+        PROPERTY( DisplayName( "Selection Color" ), Category( "UI List View" ), Color )
+        glm::vec3 SelectionColor = glm::vec3( 0.20f, 0.36f, 0.60f );
+
+        // Drawn under the row the pointer is over, in a selectable list only.
+        PROPERTY( DisplayName( "Hover Color" ), Category( "UI List View" ), Color )
+        glm::vec3 HoverColor = glm::vec3( 0.16f, 0.18f, 0.24f );
+
+        // Sent like a button's SendEvent as "<message>|<row>" (0-based row index of the item the change was
+        // made on) whenever the set of selected rows changes. Empty = not sent.
+        PROPERTY( DisplayName( "On Selection Changed Message" ), Category( "UI List View" ) )
+        std::string OnSelectionChangedMessage;
+    };
+
+    // A TILE VIEW (UE UTileView, TileView.h:15): a modifier on a UIListView that lays its items out in a grid
+    // of ItemWidth x ItemHeight tiles, as many per line as fit the list's width, and virtualises by LINE. The
+    // list keeps everything else — binding, scroll, selection; Left/Right step a tile, Up/Down a line. A
+    // subclass in UE, a modifier here, because the rows-are-arithmetic contract is the list's and the tile
+    // only changes the arithmetic.
+    struct UITileViewData
+    {
+        REFLECT()
+
+        static constexpr ArgKind Arg = ArgKind::TileView;
+
+        PROPERTY( DisplayName( "Item Width" ), Category( "UI Tile View" ), Range( 1.0f, 1024.0f ) )
+        float ItemWidth = 96.0f;
+    };
+
+    // A TREE VIEW (UE UTreeView, TreeView.h:20): a modifier on a COLLECTION-BOUND UIListView. Each record may
+    // name, in ChildrenField, the data-store collection holding its children; a row with children shows an
+    // expander, and only expanded rows' children are ever read (UE STreeView linearises the expanded items
+    // only), so a collapsed subtree costs nothing however large it is. Rows are indented Indent design px
+    // per level. Expansion is runtime state of the canvas cell; Left/Right collapse/expand from the keyboard.
+    struct UITreeViewData
+    {
+        REFLECT()
+
+        static constexpr ArgKind Arg = ArgKind::TreeView;
+
+        PROPERTY( DisplayName( "Children Field" ), Category( "UI Tree View" ),
+                  Tooltip( "Record field naming the data-store collection of the record's children "
+                           "(Lua ui.list_add)" ) )
+        std::string ChildrenField = "children";
+
+        PROPERTY( DisplayName( "Indent" ), Category( "UI Tree View" ), Range( 0.0f, 128.0f ) )
+        float Indent = 18.0f;
+
+        PROPERTY( DisplayName( "Expander Color" ), Category( "UI Tree View" ), Color )
+        glm::vec3 ExpanderColor = glm::vec3( 0.80f, 0.83f, 0.90f );
     };
 } // namespace Desert::UI

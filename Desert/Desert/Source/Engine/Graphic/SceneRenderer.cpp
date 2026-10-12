@@ -11,6 +11,7 @@
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -312,6 +313,17 @@ namespace Desert::Graphic
                 else
                 {
                     meshSystem->AddShadowCaster( terrainSystem );
+                }
+
+                // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
+                // copy.
+                RegisterSystem<System::WaterRenderer>( "WaterSystem", this, m_TargetFramebuffer );
+                if ( const auto init =
+                          SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
+                     !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
+                               init.GetError() );
                 }
                 return "Terrain";
             }
@@ -974,17 +986,6 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateMorphTargets();
         }
 
-        // The terrain's frame data, once, before any of its three passes records (the cascades in
-        // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph).
-        {
-            DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
-            // type
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame();
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
-
         // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
         // Copy) that declares what it reads and writes; the graph orders them by those declarations and places
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
@@ -1059,6 +1060,28 @@ namespace Desert::Graphic
         };
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
+
+        // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
+        // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
+        {
+            DESERT_PROFILE_PASS( "Water: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->PrepareFrame();
+        }
+
+        // The terrain's frame data, once, before any of its three passes records (the cascades in
+        // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph). INSIDE the view's
+        // frame and handed it: the terrain's velocity rows read this frame's ViewProjection and the previous
+        // one, which exist only once BeginFrame accepted the frame (before it, GetViewFrame() is nullptr — the
+        // terrain read it there and a scene with landscape tiles faulted on a null ViewFrame).
+        {
+            DESERT_PROFILE_PASS( "Terrain: PrepareFrame" );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
+            // type
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
+            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
         if ( const Common::BoolResultStr physical =
                   m_ViewState.History().AllocatePhysical( DeviceImageFactory{}, RendererGraphImageImporter{} );
              !physical )
@@ -1178,6 +1201,9 @@ namespace Desert::Graphic
             if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
                 AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
 
+            // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
+            // the glass, which then refracts the water behind it.
+            AddFrameWater( graph, textures );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
@@ -1284,6 +1310,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->ClearQueue();
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
@@ -1508,6 +1536,16 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
+                                                 float maxDrawDistance ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
+            return true;
+        return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                     transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+    }
+
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
                                     const glm::mat4& transform, const RenderSubmissionExtra& extra )
     {
@@ -1545,6 +1583,12 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
+    }
+
+    void SceneRenderer::SubmitWaterZone( System::WaterZoneDraw zone )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Submit( std::move( zone ) );
     }
 
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

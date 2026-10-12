@@ -66,6 +66,9 @@ namespace Desert::UI
         // computing the same fact.
         bool  MouseRightDown = false;
         float ScrollDelta    = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
+        // The modifiers HELD this frame, for the pointer: a Shift-click extends a list's selection and a
+        // Ctrl/Cmd-click toggles a row (UE FPointerEvent::GetModifierKeys). Keys carry their own.
+        UIKeyMods Mods = UIKeyMods::None;
         // THE KEYBOARD, AS EVENTS. Every key press the host saw this frame, in the order it saw them, and the
         // UTF-8 text typed. The host reports keys and nothing else: what a key MEANS to the UI (Tab advances
         // focus, Enter activates, Escape closes the innermost overlay, Up/W and Down/S step focus) is decided

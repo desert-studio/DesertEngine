@@ -1220,7 +1220,6 @@ namespace Desert::Graphic::System
                 // Only the visible transforms are appended, so the slice named by firstInstance is exactly
                 // the instances that survived: nothing downstream needs to know culling happened.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // Visible instances and their levels, gathered in ONE pass over the component's array.
                 // The LOD question is per instance for the same reason the visibility question is: the
@@ -1228,8 +1227,9 @@ namespace Desert::Graphic::System
                 // of a single ISM are not the same object to a renderer.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
-                                     camera->GetPosition(), camera->GetPosition(), maxLevel, visible, levels );
+                const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, mainView,
+                                     mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;

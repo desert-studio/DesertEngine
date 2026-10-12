@@ -137,10 +137,24 @@
             }
         },
         {
-            "Key": "settings.resolution",
-            "Comment": "Settings row. The resolution itself is placeholder content in this demo screen.",
+            "Key": "settings.tab.video",
+            "Comment": "Settings tab; switches the page under the tab bar.",
             "Forms": {
-                "other": "Resolution      1920 x 1080"
+                "other": "VIDEO"
+            }
+        },
+        {
+            "Key": "settings.tab.audio",
+            "Comment": "Settings tab; switches the page under the tab bar.",
+            "Forms": {
+                "other": "AUDIO"
+            }
+        },
+        {
+            "Key": "settings.resolution",
+            "Comment": "Label beside the resolution list on the Video tab of the settings screen.",
+            "Forms": {
+                "other": "Resolution"
             }
         },
         {
@@ -152,9 +166,9 @@
         },
         {
             "Key": "settings.note",
-            "Comment": "Explains what this screen demonstrates: Back returns to the screen underneath.",
+            "Comment": "Rich text (UIText RichText): the [color]/[i] tags are markup, not words; 'Esc' is a KEY NAME and '< BACK' must match settings.back.",
             "Forms": {
-                "other": "Screen stack: Back returns to Main"
+                "other": "[color=#FF7A33]Esc[/color] or [i]< BACK[/i] returns to Main"
             }
         },
         {

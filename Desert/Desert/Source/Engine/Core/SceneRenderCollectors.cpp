@@ -11,6 +11,7 @@
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
+#include <Engine/ECS/System/WaterZoneECSSystem.hpp>
 
 namespace Desert::Core
 {
@@ -27,6 +28,8 @@ namespace Desert::Core
         scene.AddSystem<ECS::HeightFogECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
         scene.AddSystem<ECS::LandscapeECSSystem>();
+        // The water zones and the bodies inside them (WATER-W6): one command per zone.
+        scene.AddSystem<ECS::WaterZoneECSSystem>();
         scene.AddSystem<ECS::PointLightECSSystem>();
         scene.AddSystem<ECS::SpotLightECSSystem>();
     }

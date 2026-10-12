@@ -205,6 +205,10 @@ namespace
               "drops the hidden light from its candidates so nothing lit is affected." },
          Row{ "VolumetricCloudECSSystem.hpp", Verdict::Honours,
               "the cloud layer and every sculpted hero body; same stale-state argument as the fog." },
+         Row{ "WaterZoneECSSystem.hpp", Verdict::Honours,
+              "WATER-W6: it emits the frame's water surface; a hidden zone draws no surface and a hidden body "
+              "contributes no footprint, as a hidden mesh is no geometry (the physics half, WaterBodyGather, "
+              "keeps the body for buoyancy)." },
          Row{ "WaterBodyGather.hpp", Verdict::MustNot,
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
@@ -260,8 +264,8 @@ namespace
                "view<ECS::HeroCloudComponent, ECS::TransformComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the Sky Atmosphere election", "view<ECS::SkyAtmosphereComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the HDR cubemap", "view<ECS::SkyboxComponent>" },
-         Site{ "SkyboxECSSystem.hpp", "the atmosphere sun candidates",
-               "view<ECS::DirectionLightComponent, ECS::TransformComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water body footprints", "view<WaterBodyComponent, TransformComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water zones", "for ( const entt::entity entity : zones )" },
          Site{ "PointLightSystem.hpp", "point lights", "view<PointLightComponent, TransformComponent>" },
          Site{ "SpotLightSystem.hpp", "spot lights", "view<SpotLightComponent, TransformComponent>" },
     };
@@ -536,7 +540,9 @@ TEST( VisibilityCensus, NoSystemOpenCodesTheVisibilityCheck )
 }
 
 // The sun is not a system. It is collected inline in Scene.cpp, which is why it was missed — a sweep
-// of Engine/ECS/System/ finds nothing wrong and the owner's first example stays broken.
+// of Engine/ECS/System/ finds nothing wrong and the owner's first example stays broken. Since SUN-SOURCE
+// every reader of the sun (Scene.cpp's light list, the sky collector, the shadow settings) takes it from
+// ECS::PickAtmosphereSun with SunCandidacy::Lit, so the hidden check lives once, in that pick.
 TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
 {
     const std::string root = RepositoryRoot();
@@ -550,13 +556,24 @@ TEST( VisibilityCensus, TheDirectionalLightSiteHonoursItToo )
          << "the directional-light collection moved out of Scene.cpp; this census has to follow it "
             "rather than go quietly green.";
 
-    // Within the same lambda, not merely somewhere in a 3000-line file.
-    const size_t lambda = code.rfind( "dirLightGroup.each", collection );
-    ASSERT_NE( lambda, std::string::npos );
-    const std::string block = code.substr( lambda, collection - lambda );
+    const size_t pick = code.rfind( "PickAtmosphereSun(", collection );
+    ASSERT_NE( pick, std::string::npos ) << "Scene.cpp collects a directional light that is not the picked sun";
+    EXPECT_NE( code.substr( pick, collection - pick ).find( "SunCandidacy::Lit" ), std::string::npos )
+         << "the directional light is collected with a candidacy that keeps hidden lights, so unticking "
+            "Visible on the SUN leaves the scene lit and shadowed by it.";
 
-    EXPECT_NE( block.find( "ECS::IsHidden(" ), std::string::npos )
-         << "the directional light is collected without asking whether its entity is hidden, so "
-            "unticking Visible on the SUN leaves the scene lit and shadowed by it — the owner's first "
-            "example, and the one no sweep of the ECS systems can see.";
+    for ( const char* reader : { "Desert/Desert/Source/Engine/ECS/System/SkyboxECSSystem.hpp",
+                                 "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp" } )
+    {
+        const std::string text = StripComments( ReadFile( root + reader ) );
+        EXPECT_NE( text.find( "SunCandidacy::Lit )" ), std::string::npos )
+             << reader << " reads the sun without the Lit candidacy (hidden lights must drop out).";
+    }
+
+    const std::string rule =
+         StripComments( ReadFile( root + "Desert/Desert/Source/Engine/ECS/AtmosphereSunLight.hpp" ) );
+    const size_t lit = rule.find( "candidacy == SunCandidacy::Lit && IsHidden(" );
+    EXPECT_NE( lit, std::string::npos )
+         << "ECS::PickAtmosphereSun no longer drops hidden lights for SunCandidacy::Lit — the sun, the sky "
+            "and the shadows all keep a hidden sun.";
 }

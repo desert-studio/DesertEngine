@@ -17,6 +17,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
@@ -43,7 +44,6 @@ namespace Desert::Editor
 
         // UE's minimum on-screen grid cell (SWorldPartitionEditorGrid2D PaintGrid): finer levels would be noise.
         constexpr double kMinGridPixels = 24.0;
-        constexpr float  kDashSegments  = 64.0f;
 
         ImU32 ToU32( glm::vec4 rgba )
         {
@@ -56,17 +56,37 @@ namespace Desert::Editor
             return { origin.x + static_cast<float>( local.x ), origin.y + static_cast<float>( local.y ) };
         }
 
-        void DashedCircle( ImDrawList& list, ImVec2 centre, float radius, ImU32 colour )
+        // A source's shape on the map (Rules::SourceSector), in world space so the map's axes stay its own:
+        // the circle, or the slice's arc and its two sides. @p dashed draws every other segment (the unload band).
+        void PaintSector( ImDrawList& list, const Map::View& view, glm::dvec2 size, ImVec2 origin,
+                          const ::Desert::Core::Rules::SourceSector& sector, double scale, double angleScale,
+                          ImU32 colour, bool dashed )
         {
-            // Every other segment of a 2·kDashSegments polygon.
-            const float step = std::numbers::pi_v<float> / kDashSegments;
-            for ( int i = 0; i < static_cast<int>( 2.0f * kDashSegments ); i += 2 )
+            const double radius = sector.Radius * scale;
+            const double angle  = std::min( 360.0, sector.Angle * angleScale );
+            const int    pieces = std::max( 8, static_cast<int>( 96.0 * angle / 360.0 ) );
+            const auto   rim    = [&]( double degrees )
             {
-                const float a0 = step * static_cast<float>( i );
-                const float a1 = a0 + step;
-                list.AddLine( ImVec2( centre.x + radius * std::cos( a0 ), centre.y + radius * std::sin( a0 ) ),
-                              ImVec2( centre.x + radius * std::cos( a1 ), centre.y + radius * std::sin( a1 ) ),
-                              colour, 1.5f );
+                const double r = degrees * std::numbers::pi / 180.0;
+                // The same turn as the rules (about +Y): +X goes to −Z.
+                const glm::dvec2 axis = sector.Axis;
+                const glm::dvec2 dir( axis.x * std::cos( r ) + axis.y * std::sin( r ),
+                                      -axis.x * std::sin( r ) + axis.y * std::cos( r ) );
+                return ToScreen( view, size, origin, sector.Centre + dir * radius );
+            };
+            for ( int i = 0; i < pieces; ++i )
+            {
+                if ( dashed && ( i % 2 ) != 0 )
+                    continue;
+                const double a0 = -angle * 0.5 + angle * i / pieces;
+                const double a1 = -angle * 0.5 + angle * ( i + 1 ) / pieces;
+                list.AddLine( rim( a0 ), rim( a1 ), colour, 1.5f );
+            }
+            if ( angle < 360.0 )
+            {
+                const ImVec2 apex = ToScreen( view, size, origin, sector.Centre );
+                list.AddLine( apex, rim( -angle * 0.5 ), colour, 1.5f );
+                list.AddLine( apex, rim( angle * 0.5 ), colour, 1.5f );
             }
         }
 
@@ -135,6 +155,8 @@ namespace Desert::Editor
         m_Scene         = scene;
         m_EditPlanStale = true;
         m_FocusPending  = true;
+        m_Selection.reset();
+        m_DragFrom.reset();
     }
 
     void WorldPartitionPanel::RebuildEditPlan()
@@ -147,7 +169,45 @@ namespace Desert::Editor
             m_EditPlanStatus = "No active scene.";
             return;
         }
-        m_PlanSource = m_Scene->GetWorldPartition();
+        m_PlanSource    = m_Scene->GetWorldPartition();
+        m_PlanFromIndex = false;
+        m_EditCells.clear();
+        // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
+        // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
+        // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
+        if ( m_PlanSource && m_Scene->Packages()->BaselinePath() )
+        {
+            if ( m_PlanSource->Grids.empty() )
+            {
+                m_EditPlanStatus = "This scene's WorldPartition block states no grid.";
+                return;
+            }
+            auto index = ::Desert::Core::DescriptorIndex::Refresh( *m_Scene->Packages()->BaselinePath() );
+            if ( !index )
+            {
+                m_EditPlanStatus = "The world's descriptor index could not be read: " + index.GetError();
+                return;
+            }
+            const std::vector<::Desert::Core::Rules::EntityDescriptor> descriptors =
+                 ::Desert::Core::DescriptorIndex::Descriptors( index.GetValue().Index );
+            m_EditPartition = *m_PlanSource;
+            m_EditPlan      = ::Desert::Core::Rules::PlanWorldPartition(
+                 std::span<const ::Desert::Core::Rules::EntityDescriptor>( descriptors ), m_EditPartition,
+                 ::Desert::Core::RegistryMeshBounds() );
+            m_PlanFromIndex = true;
+            // What of each cell the editor holds now: a region load marks the plan stale, so this is remade
+            // whenever the held set changes.
+            std::vector<std::uint64_t> rowIds;
+            rowIds.reserve( index.GetValue().Index.Entities.size() );
+            for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
+                rowIds.push_back( row.Id );
+            const ::Desert::Core::EntityPackages& packages = *m_Scene->Packages();
+            m_EditCells =
+                 WorldPartitionMap::EditorCellStates( *m_EditPlan, rowIds, [&packages]( std::uint64_t id )
+                                                      { return packages.IsLoaded( Common::UUID( id ) ); } );
+            m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
+            return;
+        }
         // The loader's own path from a scene to a plan, so the map shows the partition Play and the cook make.
         const std::string json   = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).SerializeToJson();
         auto              parsed = ::Desert::Core::ParseLoadableScene( "<World Partition panel>", json );
@@ -205,7 +265,7 @@ namespace Desert::Editor
         }
         else
         {
-            ImGui::TextUnformatted( "Edit: partition plan" );
+            ImGui::TextUnformatted( m_PlanFromIndex ? "Edit: the world on disk" : "Edit: partition plan" );
             ImGui::SameLine();
             if ( ImGui::Button( "Refresh" ) )
                 RebuildEditPlan();
@@ -251,26 +311,34 @@ namespace Desert::Editor
         if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() &&
              m_Scene->Packages()->BaselinePath().has_value() )
         {
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::InputFloat2( "Min X/Z (m)", &m_RegionMinM.x, "%.0f" );
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::InputFloat2( "Max X/Z (m)", &m_RegionMaxM.x, "%.0f" );
-            ImGui::SameLine();
+            ImGui::BeginDisabled( !m_Selection.has_value() );
             if ( ImGui::Button( "Load Region" ) )
             {
-                ::Desert::Core::Rules::CellBounds region;
-                region.MinX = std::min( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
-                region.MinZ = std::min( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
-                region.MaxX = std::max( m_RegionMinM.x, m_RegionMaxM.x ) * 100.0f;
-                region.MaxZ = std::max( m_RegionMinM.y, m_RegionMaxM.y ) * 100.0f;
-                if ( const auto loaded = LoadRegion( region ); !loaded )
+                RegionRequest request;
+                request.Regions.push_back( *m_Selection );
+                if ( const auto loaded = LoadRegion( request ); !loaded )
                     m_RegionStatus = loaded.GetError();
             }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if ( ImGui::Button( "Unload All" ) )
+                if ( const auto loaded = LoadRegion( RegionRequest{} ); !loaded )
+                    m_RegionStatus = loaded.GetError();
             ImGui::SameLine();
             if ( ImGui::Button( "Load All" ) )
-                if ( const auto loaded = LoadRegion( std::nullopt ); !loaded )
+                if ( const auto loaded = LoadRegion( RegionRequest{ {}, true } ); !loaded )
                     m_RegionStatus = loaded.GetError();
+            ImGui::SameLine();
+            if ( m_Selection )
+                ImGui::TextDisabled( "selection %.0f..%.0f x %.0f..%.0f m; %zu record(s) on disk",
+                                     static_cast<double>( m_Selection->MinX ) / 100.0,
+                                     static_cast<double>( m_Selection->MaxX ) / 100.0,
+                                     static_cast<double>( m_Selection->MinZ ) / 100.0,
+                                     static_cast<double>( m_Selection->MaxZ ) / 100.0,
+                                     m_Scene->Packages()->NotLoadedCount() );
+            else
+                ImGui::TextDisabled( "drag on the map to select a region; %zu record(s) on disk",
+                                     m_Scene->Packages()->NotLoadedCount() );
             if ( !m_RegionStatus.empty() )
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
         }
@@ -294,17 +362,16 @@ namespace Desert::Editor
         DrawMap( *plan, *partition, residency, streamer );
     }
 
-    Common::BoolResultStr
-    WorldPartitionPanel::LoadRegion( std::optional<::Desert::Core::Rules::CellBounds> region )
+    Common::BoolResultStr WorldPartitionPanel::LoadRegion( const RegionRequest& request )
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
         auto* assets = m_Assets;
         auto  changed =
-             region.has_value()
-                   ? ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( &*region, 1 ) )
-                   : ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets );
+             request.Whole
+                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets )
+                   : ::Desert::Core::EditorRegions::LoadRegions(
+                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ) );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
@@ -375,6 +442,9 @@ namespace Desert::Editor
         {
             ::Desert::Core::Rules::StreamingSource source;
             source.Position = camera->GetPosition();
+            // The view's forward is the third row of the view rotation, negated.
+            const glm::mat4 view = camera->GetViewMatrix();
+            source.Facing        = glm::vec3( -view[0][2], -view[1][2], -view[2][2] );
             sources.push_back( source );
         }
         // The map follows the first: the pawn's when the level has one and nothing else is a source.
@@ -415,6 +485,32 @@ namespace Desert::Editor
             m_Fitted = false;
         }
 
+        // ── region selection (Edit, a world opened from its files): UE's box selection on the grid. A left drag
+        // spans a rectangle; a click takes the cell under the cursor, or clears the selection over empty ground.
+        if ( streamer == nullptr && m_PlanFromIndex )
+        {
+            const glm::dvec2 mouseWorld =
+                 Map::ScreenToWorld( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y } );
+            if ( ImGui::IsItemActivated() && ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                m_DragFrom = mouseWorld;
+            if ( m_DragFrom && ImGui::IsItemActive() && ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
+                m_Selection = Map::RegionBetween( *m_DragFrom, mouseWorld );
+            if ( m_DragFrom && ImGui::IsMouseReleased( ImGuiMouseButton_Left ) )
+            {
+                const float threshold = io.MouseDragThreshold;
+                if ( io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold )
+                {
+                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level ) )
+                        m_Selection = plan.Cells[*index].Square;
+                    else
+                        m_Selection.reset();
+                }
+                m_DragFrom.reset();
+            }
+        }
+        else
+            m_DragFrom.reset();
+
         ImDrawList&  list = *ImGui::GetWindowDrawList();
         const ImVec2 corner( origin.x + avail.x, origin.y + avail.y );
         list.PushClipRect( origin, corner, true );
@@ -445,7 +541,7 @@ namespace Desert::Editor
         for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
         {
             const auto&          cell  = plan.Cells[index];
-            const Map::CellState state = Map::StateOf( plan, residency, index );
+            const Map::CellState state = Map::StateOf( plan, residency, index, m_EditCells );
             const glm::vec4 fill = Map::ColorOf( state );
             const ImVec2    a    = ToScreen( m_View, size, origin, { cell.Square.MinX, cell.Square.MinZ } );
             const ImVec2    b    = ToScreen( m_View, size, origin, { cell.Square.MaxX, cell.Square.MaxZ } );
@@ -462,6 +558,17 @@ namespace Desert::Editor
             list.AddLine( ImVec2( zero.x, origin.y ), ImVec2( zero.x, corner.y ), IM_COL32( 0, 255, 0, 102 ) );
         }
 
+        // ── the selected region ──
+        if ( streamer == nullptr && m_Selection )
+        {
+            const ImVec2 a = ToScreen( m_View, size, origin, { m_Selection->MinX, m_Selection->MinZ } );
+            const ImVec2 b = ToScreen( m_View, size, origin, { m_Selection->MaxX, m_Selection->MaxZ } );
+            const ImVec2 lo( std::min( a.x, b.x ), std::min( a.y, b.y ) );
+            const ImVec2 hi( std::max( a.x, b.x ), std::max( a.y, b.y ) );
+            list.AddRectFilled( lo, hi, IM_COL32( 64, 140, 255, 48 ) );
+            list.AddRect( lo, hi, IM_COL32( 96, 170, 255, 230 ), 0.0f, 0, 2.0f );
+        }
+
         // ── every streaming source: its loading circle, its unload band; where the view looks, in Edit ──
         for ( const ::Desert::Core::Rules::StreamingSource& source : sources )
         {
@@ -469,15 +576,16 @@ namespace Desert::Editor
             const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            const ImU32  ring   = IM_COL32( 255, 255, 255, 200 );
-            list.AddCircle( at, static_cast<float>( Map::RadiusPixels( m_View, loadCm ) ), ring, 96, 1.5f );
-            DashedCircle( list, at, static_cast<float>( Map::RadiusPixels( m_View, loadCm * ( 1.0 + margin ) ) ),
-                          IM_COL32( 255, 255, 255, 120 ) );
-            if ( camera && streamer == nullptr )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, partition.Grids[0] ) )
             {
-                // The view's forward is the third row of the view rotation, negated.
-                const glm::mat4  view = camera->GetViewMatrix();
-                const glm::dvec2 forward( -view[0][2], -view[2][2] );
+                PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
+                PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
+                             IM_COL32( 255, 255, 255, 120 ), true );
+            }
+            // Where the source faces (UE's view direction): the camera's in Edit, the entity's forward in Play.
+            if ( source.Facing )
+            {
+                const glm::dvec2 forward( source.Facing->x, source.Facing->z );
                 if ( const double length = glm::length( forward ); length > 1e-6 )
                 {
                     const glm::dvec2 dir = forward / length;
@@ -490,7 +598,7 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level );
+            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
@@ -514,7 +622,8 @@ namespace Desert::Editor
                 ImGui::BeginTooltip();
                 ImGui::Text( "%s  (%d, %d)", Map::LevelLabel( cellSize, cell.Level ).c_str(), cell.Cell.X,
                              cell.Cell.Z );
-                ImGui::Text( "%s, %zu composite(s)", Map::NameOf( Map::StateOf( plan, residency, *index ) ),
+                ImGui::Text( "%s, %zu composite(s)",
+                             Map::NameOf( Map::StateOf( plan, residency, *index, m_EditCells ) ),
                              cell.Composites.size() );
                 ImGui::EndTooltip();
             }

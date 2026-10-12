@@ -31,20 +31,14 @@
 // call the same QualityState API; the renderer READS ResolvedQuality and never sees a group or a level. No
 // renderer reads a Level — if one does, the table has a missing parameter.
 //
-// MIGRATION OF THE FORMER MachineSettings FIELDS (DONE in SCAL1-S2, no legacy bridge, §4; MigrateRetiredKeys):
-//     MachineSettings field   -> Parameter                 (Group)
-//     AAMethod                -> AntiAliasingMethod        (AntiAliasing)
-//     MSAASamples             -> AntiAliasingSamples       (AntiAliasing)
-//     TextureFilterMode       -> TextureFilter             (Filtering)
-//     Anisotropy              -> Anisotropy                (Filtering)
-//     MeshLOD                 -> MeshLOD                   (ViewDistance)
-//     CloudQualityTier        -> CloudQuality              (Effects; UE puts volumetric clouds under
-//     sg.EffectsQuality)
+// THE FORMER MachineSettings FIELDS (SCAL1-S2) — each is now a Parameter of the table:
+//     AAMethod -> AntiAliasingMethod, MSAASamples -> AntiAliasingSamples (AntiAliasing); TextureFilterMode ->
+//     TextureFilter, Anisotropy -> Anisotropy (Filtering); MeshLOD -> MeshLOD (ViewDistance); CloudQualityTier ->
+//     CloudQuality (Effects; UE puts volumetric clouds under sg.EffectsQuality).
 //   The six fields were DELETED from MachineSettings and its JSON; MachineSettings gained
-//   `std::optional<QualitySelection> Quality`. MachineSettings::MigrateRetiredKeys turns each retired key a
-//   machine.json still carries into an Override on an all-High selection — except a value equal to the High table
-//   value, which writes no override (an untouched machine comes out with zero overrides) — removes the keys and
-//   logs once. The former per-setting AA resolvers and RenderConfig's device maxima were replaced by
+//   `std::optional<QualitySelection> Quality`. Nothing migrates the old keys at load: a machine.json that still
+//   carries one keeps it as an unknown key (named in a WARN). The former per-setting AA resolvers and
+//   RenderConfig's device maxima were replaced by
 //   ResolvedQuality and QualityState::Apply (RenderConfig keeps only the atomic TextureFilter / AnisotropyLevel
 //   push the sampler path reads, written by QualityBoot's listener). The old AntiAliasingMethod enum in
 //   MachineSettings.hpp was deleted in favour of Common::Scalability::AntiAliasingMethod (same leading values).

@@ -50,7 +50,31 @@ namespace Desert::UI::Walk
         // (ResolveLabel already subsumes `binding.Text` — see its own comment).
         UITextData text = Themed( st, *tree.Get<UITextData>( e ) );
         text.Text       = ResolveLabel( ctx.View.Resources().Text(), text.Text, binding );
-        DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
+
+        // [link=msg] — a click on a link raises its message the way a SendEvent button raises its own
+        // (the host dispatches *OutClicked to the scripts as a UI event). The pointer is offered only
+        // while this element is the hot one, so a link under another control neither lights nor fires.
+        if ( !text.RichText )
+        {
+            DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time );
+            return;
+        }
+        RichTextLinks links;
+        const bool    pointerHere = frame.Input != nullptr && frame.Hot;
+        if ( pointerHere )
+            links.Pointer = frame.PointerPx;
+        DrawText2D( ctx.View.Resources(), dl, text, rect, scale, ctx.View.Tint, ctx.View.Time, &links );
+        if ( pointerHere && frame.OutClicked && frame.Input->MouseReleased && !ctx.View.Drag.Active )
+        {
+            for ( const RichTextLinks::Hit& hit : links.Hits )
+            {
+                if ( PointIn( hit.Box, frame.PointerPx ) )
+                {
+                    *frame.OutClicked = hit.Message;
+                    break;
+                }
+            }
+        }
     }
 
     void DrawIconWidget( ElementFrame& frame )

@@ -25,8 +25,12 @@ namespace Desert::UI
         std::string Name; // referenced by a ShowScreen button; empty = never selectable
     };
 
-    // How screens hand over. Lives on the canvas; the current screen and the back-stack are RUNTIME state
-    // kept outside the component, so navigating in the editor never rewrites the authored scene.
+    // How screens hand over, and WHERE a switcher is: the screens below this element (down to the next
+    // element carrying its own stack) are this stack's states — UE's UWidgetSwitcher. On the canvas it is
+    // the page machine of the whole menu; on a child it is a nested switcher (the pages of a Settings
+    // screen), with its own current screen and back history. The current screen and the history are
+    // RUNTIME state kept outside the component (UIScreenMachine.hpp), so navigating in the editor never
+    // rewrites the authored scene.
     struct UIScreenStackData
     {
         REFLECT()
@@ -44,5 +48,20 @@ namespace Desert::UI
 
         PROPERTY( DisplayName( "Easing" ), Category( "UI Screens" ) )
         UIEasing Easing = UIEasing::CubicOut;
+    };
+
+    // A tab bar — UE's UCommonTabListWidgetBase. Every ShowScreen button below this element is a TAB: it
+    // draws Selected exactly while the screen it names is current in the switcher it drives (the nearest
+    // one to the button), so the author never keeps Selected in sync by hand.
+    struct UITabsData
+    {
+        REFLECT()
+
+        static constexpr ArgKind Arg = ArgKind::Tabs;
+
+        // A switcher is not a stack: by default a tab switch replaces the current page without growing the
+        // back history, so Back on a tabbed page returns to the page BEFORE it rather than to the last tab.
+        PROPERTY( DisplayName( "Tabs Push History" ), Category( "UI Tabs" ) )
+        bool PushHistory = false;
     };
 } // namespace Desert::UI

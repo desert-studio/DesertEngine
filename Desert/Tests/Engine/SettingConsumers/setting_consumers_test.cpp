@@ -91,6 +91,8 @@ namespace
     constexpr const char* kSkySettings = "Desert/Desert/Source/Engine/Graphic/SkySettings.hpp";
     constexpr const char* kTimeOfDay   = "Desert/Desert/Source/Engine/ECS/System/TimeOfDayECSSystem.hpp";
     constexpr const char* kCollector   = "Desert/Desert/Source/Engine/ECS/System/SkyboxECSSystem.hpp";
+    // The one rule for which directional light is the sun (SUN-SOURCE) — every reader of the sun calls it.
+    constexpr const char* kSunPick = "Desert/Desert/Source/Engine/ECS/AtmosphereSunLight.hpp";
     constexpr const char* kSkyWidget =
          "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyAtmosphereComponent.cpp";
 
@@ -379,6 +381,8 @@ namespace
     constexpr const char* kUIRichText      = "Desert/UI/Source/UI/UIRichText.cpp";
     constexpr const char* kUIWalkCtx       = "Desert/UI/Source/UI/UIWalkCtx.cpp";
     constexpr const char* kUIFocus         = "Desert/UI/Source/UI/UIFocus.cpp";
+    constexpr const char* kUIScreenMachine = "Desert/UI/Source/UI/UIScreenMachine.cpp";
+    constexpr const char* kUIListSelection = "Desert/UI/Source/UI/UIListSelection.cpp";
 
     constexpr Row kCanvasRows[] = {
          // The canvas rect and its scale: ResolveCanvas, at the top of the walk.
@@ -583,8 +587,8 @@ namespace
     constexpr Row kDirLightRows[] = {
          { "Color", kScene },
          { "Intensity", kScene },
-         { "AtmosphereSunLight", kCollector },
-         { "AtmosphereSunLightIndex", kCollector },
+         { "AtmosphereSunLight", kSunPick },
+         { "AtmosphereSunLightIndex", kSunPick },
          { "AffectedByAtmosphereTransmittance", kCollector },
          { "LightShaftBloom", kCollector },
          { "BloomScale", kCollector },
@@ -907,6 +911,15 @@ namespace
          { "OceanExtents", kWaterBodyGather },
          { "TargetWaveMaskDepth", kWaterBodyGather },
     };
+    // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
+    // water renderer walks.
+    constexpr const char* kWaterZoneSystem = "Desert/Desert/Source/Engine/ECS/System/WaterZoneECSSystem.hpp";
+    constexpr Row         kWaterZoneRows[] = {
+         { "ZoneExtent", kWaterZoneSystem },
+         { "TileSize", kWaterZoneSystem },
+         { "TessellationFactor", kWaterZoneSystem },
+         { "LODScale", kWaterZoneSystem },
+    };
     // A ragdoll (RAG1b): the asset and the mode are read by ECS::RagdollLifetime (create / drive / write back).
     constexpr const char* kRagdollSync   = "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp";
     constexpr Row         kRagdollRows[] = {
@@ -947,6 +960,11 @@ namespace
          { "OverrideLoadingRange", kWorldStreamer },
          { "LoadingRange", kWorldStreamer },
          { "Priority", kWorldStreamer },
+         { "IsSector", kWorldStreamer },
+         { "SectorAngle", kWorldStreamer },
+         { "ShapeOffset", kWorldStreamer },
+         { "ShapeYaw", kWorldStreamer },
+         { "UseVelocityForSorting", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {
@@ -1011,6 +1029,23 @@ namespace
          // chat behaviour that pins the scroll to the end — both read by the canvas walk.
          { "Collection", kUIScrollList },
          { "FollowEnd", kUIScrollList },
+         // UI-LIST+: selection (mode, the two row brushes, the change message) — the list's input and row
+         // backdrop in the walk.
+         { "SelectionMode", kUIScrollList },
+         { "SelectionColor", kUIScrollList },
+         { "HoverColor", kUIScrollList },
+         { "OnSelectionChangedMessage", kUIScrollList },
+    };
+
+    // UI-LIST+: the tile grid's width is read where a list's rows are resolved for both walks; the tree's
+    // children field there too, its indent and expander where the rows are drawn.
+    constexpr Row kTileViewRows[] = {
+         { "ItemWidth", kUIListSelection },
+    };
+    constexpr Row kTreeViewRows[] = {
+         { "ChildrenField", kUIListSelection },
+         { "Indent", kUIScrollList },
+         { "ExpanderColor", kUIScrollList },
     };
 
     constexpr Row kInputFieldRows[] = {
@@ -1034,15 +1069,18 @@ namespace
     };
 
     constexpr Row kDropdownRows[] = {
-         { "Options", kCanvasRenderer },   { "SelectedIndex", kUIDropdown },    { "Open", kUIDropdown },
-         { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer },
-         { "Highlight", kCanvasRenderer }, { "CornerRadius", kCanvasRenderer },
+         // The options — authored or from a collection — are resolved in one place, DropdownOptions.
+         { "Options", kUIWalkCtx },           { "Collection", kUIWalkCtx },     { "LabelField", kUIWalkCtx },
+         { "SelectedIndex", kUIDropdown },    { "Open", kUIDropdown },          { "FontSize", kCanvasRenderer },
+         { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer }, { "Highlight", kCanvasRenderer },
+         { "CornerRadius", kCanvasRenderer },
     };
 
     constexpr Row kTweenRows[] = {
-         { "Property", kUIWalkCtx }, { "From", kUIWalkCtx },    { "To", kUIWalkCtx },
-         { "Duration", kUIWalkCtx }, { "Delay", kUIWalkCtx },   { "Easing", kUIWalkCtx },
-         { "Loop", kUIWalkCtx },     { "Playing", kUIWalkCtx }, { "RewindOnHide", kUIWalkCtx },
+         { "Property", kUIWalkCtx },     { "From", kUIWalkCtx },  { "To", kUIWalkCtx },
+         { "Duration", kUIWalkCtx },     { "Delay", kUIWalkCtx }, { "Easing", kUIWalkCtx },
+         { "Trigger", kUIWalkCtx },      { "Loop", kUIWalkCtx },  { "Playing", kUIWalkCtx },
+         { "RewindOnHide", kUIWalkCtx },
     };
 
     constexpr Row kBindingRows[] = {
@@ -1053,14 +1091,21 @@ namespace
     };
 
     constexpr Row kScreenRows[] = {
-         { "Name", kCanvasRenderer },
+         { "Name", kUIScreenMachine },
     };
 
+    // UI-SWITCHER: every stack, the canvas's and each nested switcher's, is seeded and advanced by
+    // UpdateScreenMachines.
     constexpr Row kScreenStackRows[] = {
-         { "InitialScreen", kCanvasRenderer },
-         { "TransitionTime", kCanvasRenderer },
-         { "SlidePx", kCanvasRenderer },
-         { "Easing", kCanvasRenderer },
+         { "InitialScreen", kUIScreenMachine },
+         { "TransitionTime", kUIScreenMachine },
+         { "SlidePx", kUIScreenMachine },
+         { "Easing", kUIScreenMachine },
+    };
+
+    // UI-SWITCHER: read by RequestScreen when a tab switches its switcher.
+    constexpr Row kTabsRows[] = {
+         { "PushHistory", kUIWalkCtx },
     };
 
     constexpr Row kPointerEventsRows[] = {
@@ -1174,6 +1219,7 @@ namespace
          { "ProceduralFoliageData", "ProceduralFoliageComponent", nullptr, CENSUS_ROWS( kProceduralFoliageRows ) },
          { "DestructibleData", "DestructibleComponent", nullptr, CENSUS_ROWS( kDestructibleRows ) },
          { "WaterBodyData", "WaterBodyComponent", nullptr, CENSUS_ROWS( kWaterBodyRows ) },
+         { "WaterZoneData", "WaterZoneComponent", nullptr, CENSUS_ROWS( kWaterZoneRows ) },
          { "RagdollData", "RagdollComponent", nullptr, CENSUS_ROWS( kRagdollRows ) },
          { "RadialImpulseFieldData", "RadialImpulseFieldComponent", nullptr,
            CENSUS_ROWS( kRadialImpulseFieldRows ) },
@@ -1188,6 +1234,8 @@ namespace
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
          { "UIScrollViewData", "UIScrollViewComponent", nullptr, CENSUS_ROWS( kScrollViewRows ) },
          { "UIListViewData", "UIListViewComponent", nullptr, CENSUS_ROWS( kListViewRows ) },
+         { "UITileViewData", "UITileViewComponent", nullptr, CENSUS_ROWS( kTileViewRows ) },
+         { "UITreeViewData", "UITreeViewComponent", nullptr, CENSUS_ROWS( kTreeViewRows ) },
          { "UIInputFieldData", "UIInputFieldComponent", nullptr, CENSUS_ROWS( kInputFieldRows ) },
          { "UIDropdownData", "UIDropdownComponent", nullptr, CENSUS_ROWS( kDropdownRows ) },
          { "UITweenData", "UITweenComponent", nullptr, CENSUS_ROWS( kTweenRows ) },
@@ -1200,6 +1248,7 @@ namespace
          { "UIOverlayData", "UIOverlayComponent", nullptr, CENSUS_ROWS( kOverlayRows ) },
          { "UIOverlayTriggerData", "UIOverlayTriggerComponent", nullptr, CENSUS_ROWS( kOverlayTriggerRows ) },
          { "UINavigationData", "UINavigationComponent", nullptr, CENSUS_ROWS( kNavigationRows ) },
+         { "UITabsData", "UITabsComponent", nullptr, CENSUS_ROWS( kTabsRows ) },
     };
 
 #undef CENSUS_ROWS
@@ -1397,7 +1446,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
     // -> 64 with the int/b10 gameplay types (GP1-GP5) merged beside it.
     // -> 65 with LEG-PROJECTILE's ProjectileData (kProjectileRows: every field read by ProjectileMovement.cpp).
-    EXPECT_EQ( all.size(), 65u );
+    // -> 66 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
+    // -> 67 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
+    // -> 69 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
+    EXPECT_EQ( all.size(), 69u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
@@ -1856,8 +1908,10 @@ TEST( SettingConsumers, TheSunIsDrivenFromTheTimeOfDayComponentNotTheSky )
     ASSERT_FALSE( text.empty() );
     EXPECT_NE( text.find( "registry.view<ECS::TimeOfDayComponent>" ), std::string::npos )
          << "TimeOfDayECSSystem does not view TimeOfDayComponent";
-    EXPECT_NE( text.find( "DirectionLightComponent" ), std::string::npos )
-         << "TimeOfDayECSSystem no longer drives the directional light";
+    // SUN-SOURCE: the light it drives is the one ECS::PickAtmosphereSun names for the sky, the lighting and
+    // the shadows alike.
+    EXPECT_NE( text.find( "PickAtmosphereSun(" ), std::string::npos )
+         << "TimeOfDayECSSystem no longer drives the atmosphere's sun light";
     EXPECT_EQ( text.find( "SkyAtmosphere" ), std::string::npos )
          << "TimeOfDayECSSystem reads the sky: the clock is TimeOfDayComponent alone";
 }

@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -130,11 +131,24 @@ namespace Desert::Core
                  WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             const Rules::FoliageHLODSource foliageInHLOD =
                  WorldCells::FoliageInHLODFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
+            // The same layer and the same mesh builder the cook uses (WP-FAR-7), over the editor's registry.
+            if ( auto layers = Rules::ValidateHLODLayers( *partition ); !layers )
+                return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                  "': " + layers.GetError() );
+            const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *partition );
+            const Rules::HLODMeshBuilder     meshBuilder =
+                 MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
+            for ( std::size_t unit = plan.AlwaysLoaded.size();
+                  hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
-                const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD(
-                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues,
-                     foliageInHLOD );
+                auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
+                                                       Rules::ResidencyUnitMembers( plan, unit ), customShader,
+                                                       issues, foliageInHLOD, meshBuilder );
+                if ( !builtCell )
+                    return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
+                                                      Rules::DescribeResidencyUnit( plan, unit ) + ": " +
+                                                      builtCell.GetError() );
+                const Rules::InstancingHLOD built = builtCell.ExtractValue();
                 for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
                     holes.push_back( missing.Reason );
                 if ( built.Batches.empty() )
@@ -232,7 +246,8 @@ namespace Desert::Core
     }
 
     std::vector<Rules::StreamingSource>
-    WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments )
+    WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
+                                  std::vector<std::uint32_t>* entities )
     {
         std::vector<Rules::StreamingSource> sources;
         entt::registry&                     registry = scene.GetRegistry();
@@ -241,15 +256,48 @@ namespace Desert::Core
             const ECS::StreamingSourceData& data = registry.get<ECS::StreamingSourceComponent>( entity ).Data;
             if ( !data.Enabled )
                 continue;
+            const glm::mat4        world = ECS::Entity( entity, registry ).GetWorldTransform();
             Rules::StreamingSource source;
-            source.Position = glm::vec3( ECS::Entity( entity, registry ).GetWorldTransform()[3] );
-            if ( data.OverrideLoadingRange )
-                source.LoadingRange = data.LoadingRange;
-            source.Priority = data.Priority;
-            sources.push_back( source );
+            source.Position = glm::vec3( world[3] );
+            // The entity's forward is its local −Z (the camera's convention), in world axes.
+            source.Facing                = -glm::vec3( world[2] );
+            source.Priority              = data.Priority;
+            source.UseVelocityForSorting = data.UseVelocityForSorting;
+            // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
+            // the circle of the range a source with no shapes loads in.
+            Rules::StreamingSourceShape shape;
+            shape.UseGridLoadingRange = !data.OverrideLoadingRange;
+            shape.Radius              = data.LoadingRange;
+            shape.IsSector            = data.IsSector;
+            shape.SectorAngle         = data.SectorAngle;
+            shape.Location            = data.ShapeOffset;
+            shape.Yaw                 = data.ShapeYaw;
+            source.Shapes.push_back( shape );
+            sources.push_back( std::move( source ) );
+            if ( entities != nullptr )
+                entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
         return sources;
+    }
+
+    void WorldStreamer::StampVelocities( std::vector<Rules::StreamingSource>& sources,
+                                         std::span<const std::uint32_t> entities, double nowSeconds )
+    {
+        // UE's UWorldPartitionSubsystem::UpdateStreamingSourcesVelocity: the distance an entity's source moved
+        // since the last Tick, over the time between them. A source new this Tick has none yet.
+        const double                                 elapsed = nowSeconds - m_SourcesAt;
+        std::unordered_map<std::uint32_t, glm::vec3> now;
+        for ( std::size_t index = 0; index < entities.size(); ++index )
+        {
+            now[entities[index]] = sources[index].Position;
+            const auto before    = m_SourcePositions.find( entities[index] );
+            if ( before != m_SourcePositions.end() && elapsed > 0.0 )
+                sources[index].Velocity =
+                     ( sources[index].Position - before->second ) / static_cast<float>( elapsed );
+        }
+        m_SourcePositions = std::move( now );
+        m_SourcesAt       = nowSeconds;
     }
 
     void WorldStreamer::UseSources( std::vector<Rules::StreamingSource> sources )
@@ -268,7 +316,10 @@ namespace Desert::Core
     Common::BoolResultStr WorldStreamer::Tick( double                                  nowSeconds,
                                                std::span<const Rules::StreamingSource> instruments )
     {
-        UseSources( GatherSources( *m_Scene, instruments ) );
+        std::vector<std::uint32_t>          entities;
+        std::vector<Rules::StreamingSource> gathered = GatherSources( *m_Scene, instruments, &entities );
+        StampVelocities( gathered, entities, nowSeconds );
+        UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
 
         m_LastTick = TickReport{};
@@ -427,8 +478,18 @@ namespace Desert::Core
                            : std::to_string( holes.size() ) +
                                   " drawing record(s) have none and leave a hole while their cell is not drawn: " +
                                   Rules::DescribeHLODHoles( holes );
-        LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
-                  m_SceneName, units.size(), records.size(), holesText );
+        // A hole is something the player sees vanish (WP-FAR-1: a whole landscape beyond the loading range), so
+        // it is a warning, not a line among the info.
+        if ( holes.empty() )
+        {
+            LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
+                      m_SceneName, units.size(), records.size(), holesText );
+        }
+        else
+        {
+            LOG_WARN( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
+                      m_SceneName, units.size(), records.size(), holesText );
+        }
         return BOOLSUCCESS;
     }
 

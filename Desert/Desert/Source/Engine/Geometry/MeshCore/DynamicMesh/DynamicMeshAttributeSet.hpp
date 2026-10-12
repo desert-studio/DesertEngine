@@ -367,7 +367,7 @@ namespace Desert::Geometry
 
         // These functions are called by the DynamicMesh3 to update the various
         // attributes when the parent mesh topology has been modified.
-        // TODO(danya100kg): would it be better to register all the overlays and attributes with the base set and
+        // UE: would it be better to register all the overlays and attributes with the base set and
         // not overload these?  maybe!
         void OnNewTriangle( int TriangleID, bool bInserted ) override;
         void OnNewVertex( int VertexID, bool bInserted ) override;

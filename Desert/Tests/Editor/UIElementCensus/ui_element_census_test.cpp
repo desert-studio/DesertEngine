@@ -52,6 +52,8 @@ namespace
          // UI-FW2: the walk reads an IUITree, and one element's resolve step and each widget's draw moved
          // out of UICanvasRenderer2D.cpp into UIWalkCtx.cpp and Widgets/ -- still the same walk.
          "Desert/UI/Source/UI/UIWalkCtx.cpp",
+         // UI-SWITCHER: the screen machines (UIScreenStack, UITabs) are seeded and resolved here.
+         "Desert/UI/Source/UI/UIScreenMachine.cpp",
          "Desert/UI/Source/UI/Widgets/Button.cpp",
          "Desert/UI/Source/UI/Widgets/Dropdown.cpp",
          "Desert/UI/Source/UI/Widgets/Image.cpp",
@@ -63,9 +65,12 @@ namespace
          "Desert/UI/Source/UI/Widgets/Slider.cpp",
          "Desert/UI/Source/UI/Widgets/Text.cpp",
          "Desert/UI/Source/UI/Widgets/Toggle.cpp",
+         // UI-LIST+: a list's shape (tile grid, tree rows) is resolved once for both walks -- layout and
+         // draw -- in UIListSelection.cpp (ResolveListShape), which is where UITileView is read.
+         "Desert/UI/Source/UI/UIListSelection.cpp",
     };
     constexpr const char* kRenderer = "the UI walk (UICanvasRenderer2D.cpp + UIWalkCtx.cpp + Widgets/ + "
-                                      "UIOverlay.cpp + UIAnimationPlayback.cpp)";
+                                      "UIOverlay.cpp + UIAnimationPlayback.cpp + UIListSelection.cpp)";
 
     // The registry adapter behind the walk's IUITree: `Row<ECS::UIxxxComponent, Kind>` per ArgKind. The walk
     // asks the tree for UI argument data (`tree.Has<UIPanelData>`), and this table is what names the
@@ -97,7 +102,10 @@ namespace
                                 "it is an invisible box" },
          { "UIScreenComponent", "the screen machine: a screen with no name is skipped by the renderer's "
                                 "seeding loop, so a menu-created one would be invisible" },
-         { "UIScreenStackComponent", "belongs on the canvas entity, not on a child element" },
+         { "UIScreenStackComponent", "the switcher of the screens below it — added in Details to the canvas "
+                                     "or to an existing container that holds a nested set of screens" },
+         { "UITabsComponent", "modifier — makes an existing container a tab bar whose ShowScreen buttons "
+                              "select themselves; added in Details" },
          // TRUE SINCE U7-2 AND NOT BEFORE IT. This row said "added in Details" while the only control that
          // added one was a button inside the Sequencer panel; the timeline is a document over this
          // component now, so a window cannot exist without it and the button moved to Details ▸ UI Layout
@@ -122,6 +130,10 @@ namespace
                                "point: theming must not require an edit of every entity" },
          { "UINavigationComponent", "modifier — per-direction navigation rules, explicit targets and the "
                                     "initial-focus mark of an existing control or container; added in Details" },
+         { "UITileViewComponent", "modifier — lays an existing UIListView's items out as tiles (UE UTileView); "
+                                  "added in Details" },
+         { "UITreeViewComponent", "modifier — makes an existing collection-bound UIListView a tree of records "
+                                  "and their children collections (UE UTreeView); added in Details" },
          { "UIRetainerComponent", "modifier — retains an existing element and its subtree into an offscreen "
                                   "layer composited through one effect (UE Retainer Box); added in Details" },
     };

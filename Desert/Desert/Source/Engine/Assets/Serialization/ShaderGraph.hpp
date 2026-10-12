@@ -11,15 +11,15 @@
  * lives here, beside `Serialization/ControlRig.hpp`, in exactly the same shape.
  *
  * WHAT DELIBERATELY DID NOT MOVE: the node CATALOGUE (`Editor::ShaderGraph::Specs()`), the compiler to
- * Desert Shader Language, and the catalogue migration. Those are authoring semantics — they answer
- * "what does a `Multiply` node do", which is a question no runtime asks, because the runtime reads the
+ * Desert Shader Language, and the node reconstruction against the catalogue. Those are authoring semantics — they
+ * answer "what does a `Multiply` node do", which is a question no runtime asks, because the runtime reads the
  * COMPILED `.shader` and never a graph. Splitting them the other way would drag the whole node table and
  * the GLSL emitter into the engine for one file read.
  *
  * SO `Deserialize` IS NOT HERE EITHER, and that is the same line drawn once more: parsing bytes into a
  * `Document` is a format question and lives here; bringing a `Document` up to the CURRENT node catalogue
  * is an authoring question and stays with the catalogue. The editor's `Deserialize` is this file's
- * `ParseShaderGraph` followed by that migration, and it is the only spelling either half has.
+ * `ParseShaderGraph` followed by that reconstruction, and it is the only spelling either half has.
  */
 
 #include <Common/Core/ResultStr.hpp>
@@ -133,7 +133,7 @@ namespace Desert::Assets::Serialization::ShaderGraph
     /// The document as JSON. Never fails: every field has a value and reflect-cpp writes all of them.
     [[nodiscard]] std::string Serialize( const Document& doc );
 
-    /// JSON -> document, with NO catalogue migration — see the file note for why that half is the
+    /// JSON -> document, with NO node reconstruction — see the file note for why that half is the
     /// editor's. Missing fields take their defaults (a graph written by an older build is readable);
     /// malformed JSON is an error carrying reflect-cpp's own message, never a quietly empty graph.
     [[nodiscard]] Common::ResultStr<Document> ParseShaderGraph( const std::string& json );

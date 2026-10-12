@@ -94,7 +94,6 @@
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"
-#include "Editor/Builtin/BuiltinMeshRegistry.hpp"
 
 // 3. Editor Panels
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
@@ -251,8 +250,6 @@ namespace Desert::Editor
         // THE FIRST LEVEL (EditorStartup::ChooseInitialLevel; UE: UEditorEngine::InitEditor's EditorStartupMap):
         // the capture's own scene, the project's DefaultScene, or the Basic level template as an untitled scene.
         m_Startup.ChooseInitialLevel( m_Shots );
-
-        BuiltinMeshRegistry::Init( nullptr );
 
         // Crash recovery: the pop-up for the previous session's autosave after an unclean exit, then this
         // session's lock (SessionRecovery::OfferAndArm); a clean shutdown (OnDetach) removes it.

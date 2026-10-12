@@ -3,6 +3,7 @@
 #include "System.hpp"
 #include "SystemRules.hpp"
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -18,6 +19,7 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -93,8 +95,7 @@ namespace Desert::ECS
                 // leave the last one it saw on screen — and would keep publishing an AtmosphereEnv marked
                 // valid for a sky that no longer exists.
                 renderCommandBuffer.Emplace<Graphic::Render::ProceduralSkyCommand>(
-                     false, Rules::FallbackAtmosphereSunDirection(), /*bakeNow=*/false, Graphic::SkySettings{},
-                     Graphic::SunLightFx{} );
+                     false, kNoSunDirection, /*bakeNow=*/false, Graphic::SkySettings{}, Graphic::SunLightFx{} );
             }
             else
             {
@@ -104,12 +105,26 @@ namespace Desert::ECS
                 const bool bakeNow     = atmosphere.RequestBake;
                 atmosphere.RequestBake = false;
 
-                atmosphereEnabled = atmosphere.Data.Enabled;
+                atmosphereEnabled = atmosphere.Data.Enabled && sun.has_value();
+
+                // NO SUN, NO ATMOSPHERE — and an error, not a default sun. The physical sky is the sun's light
+                // scattered; a direction nobody authored would light a dome the ground below it does not
+                // share (Scene.cpp collects no directional light in the same case). UE's sky atmosphere
+                // likewise has nothing to scatter without an Atmosphere Sun Light.
+                if ( atmosphere.Data.Enabled && !sun && !m_NoSunLogged )
+                {
+                    LOG_ERROR( "[SkyAtmosphere] Sky Atmosphere on '{}' is enabled but the scene has no visible "
+                               "directional light with a usable direction — the atmosphere is NOT drawn. Add a "
+                               "Directional Light and mark it Atmosphere Sun Light.",
+                               EntityName( registry, skyEntities[*primarySky] ) );
+                }
+                m_NoSunLogged = atmosphere.Data.Enabled && !sun;
 
                 // ONE conversion from the authored component to the renderer's transport struct — the
                 // degrees-to-radians, diameter-to-radius and kilometres-to-world-units steps all live in it.
                 renderCommandBuffer.Emplace<Graphic::Render::ProceduralSkyCommand>(
-                     atmosphere.Data.Enabled, sun, bakeNow, Graphic::MakeSkySettings( atmosphere.Data ), m_SunFx );
+                     atmosphereEnabled, sun.value_or( kNoSunDirection ), bakeNow,
+                     Graphic::MakeSkySettings( atmosphere.Data ), m_SunFx );
             }
 
             // The HDR cubemap is the other Sky-pass mode: only when no atmosphere is driving the sky, and
@@ -201,43 +216,20 @@ namespace Desert::ECS
             return names;
         }
 
-        // Direction TOWARD the sun for this frame. The choice of WHICH light is a pure rule
-        // (Rules::SelectAtmosphereSun); this function only fetches its arguments and reports what it said.
-        glm::vec3 ResolveAtmosphereSun( entt::registry& registry )
+        // Direction TOWARD the sun for this frame, or nothing when the scene has no sun. The choice of WHICH
+        // light is ECS::PickAtmosphereSun — the same call the deferred light list, the shadow settings and
+        // the clock make — and this function only reports what it said.
+        std::optional<glm::vec3> ResolveAtmosphereSun( entt::registry& registry )
         {
-            // Reset to defaults FIRST: the fallback paths below return without choosing a light, and a
-            // stale FX slice from a light deleted last frame would keep its shafts in the sky.
+            // Reset to defaults FIRST: the no-sun path returns without choosing a light, and a stale FX
+            // slice from a light deleted last frame would keep its shafts in the sky.
             m_SunFx = Graphic::SunLightFx{};
 
-            std::vector<Rules::SunCandidate> candidates;
-            std::vector<entt::entity>        entities;
-
-            auto dirLights = registry.view<ECS::DirectionLightComponent, ECS::TransformComponent>();
-            for ( const auto entity : dirLights )
-            {
-                // A HIDDEN SUN IS NOT A SUN CANDIDATE. The sun disc, the light shafts and the atmosphere's
-                // in-scattering are all that one light's contribution, and the same entity is dropped from
-                // the deferred light list in Scene.cpp — dropping it in only one of the two places gives a
-                // sky lit by a light that lights nothing, which is worse than either answer alone.
-                //
-                // TimeOfDayECSSystem deliberately does NOT filter here: it drives the sun's TRANSFORM from
-                // the clock, and freezing that on hide would make unhiding a sun a jump back in time.
-                if ( ECS::IsHidden( registry, entity ) )
-                    continue;
-
-                const auto& transform = dirLights.get<ECS::TransformComponent>( entity );
-                const auto& light     = dirLights.get<ECS::DirectionLightComponent>( entity );
-
-                entities.push_back( entity );
-                candidates.push_back( Rules::SunCandidate{
-                     .Id             = EntityId( registry, entity ),
-                     .Marked         = light.Data.AtmosphereSunLight,
-                     .Index          = light.Data.AtmosphereSunLightIndex,
-                     .DirectionValid = Rules::IsSunDirectionValid( transform.Translation ) } );
-            }
-
-            // v1 renders exactly one directional light, so index 0 is the only one that can be the sun.
-            const auto selection = Rules::SelectAtmosphereSun( candidates, /*wantedIndex=*/0 );
+            // A HIDDEN SUN IS NOT A SUN CANDIDATE (SunCandidacy::Lit): the sun disc, the shafts and the
+            // atmosphere's in-scattering are that one light's contribution, and Scene.cpp drops the same
+            // entity from the deferred light list through the same call.
+            const AtmosphereSunPick pick      = PickAtmosphereSun( registry, SunCandidacy::Lit );
+            const auto&             selection = pick.Selection;
 
             if ( !m_SunSelectionLogged )
             {
@@ -246,30 +238,27 @@ namespace Desert::ECS
                 for ( const size_t i : selection.Collisions )
                     LOG_WARN( "[SkyAtmosphere] Entity '{}' is also marked as Atmosphere Sun Light at index 0; "
                               "the lowest-id light drives the sky and this one is ignored.",
-                              EntityName( registry, entities[i] ) );
+                              EntityName( registry, pick.Entities[i] ) );
 
                 for ( const size_t i : selection.WrongIndex )
                     LOG_WARN( "[SkyAtmosphere] Entity '{}' is marked as Atmosphere Sun Light at index {}, but "
                               "the engine renders one directional light — only index 0 drives the sky.",
-                              EntityName( registry, entities[i] ), candidates[i].Index );
+                              EntityName( registry, pick.Entities[i] ), pick.Candidates[i].Index );
 
                 if ( selection.Fallback && selection.Chosen )
                     LOG_INFO( "[SkyAtmosphere] No directional light is marked as the Atmosphere Sun Light; "
                               "'{}' (lowest id) drives the sky.",
-                              EntityName( registry, entities[*selection.Chosen] ) );
-
-                if ( !selection.Chosen )
-                    LOG_INFO( "[SkyAtmosphere] No directional light with a usable direction; the sky falls "
-                              "back to its documented default sun." );
+                              EntityName( registry, pick.Entities[*selection.Chosen] ) );
             }
 
-            if ( !selection.Chosen )
-                return Rules::FallbackAtmosphereSunDirection();
+            const auto sun = pick.Sun();
+            if ( !sun )
+                return std::nullopt;
 
             // The chosen light's render effects travel WITH its direction: the shafts are properties of
             // the sun, and reading them from any other light would let an unmarked light in the corner
             // of the scene tint the sky's own sun.
-            const auto& light          = registry.get<ECS::DirectionLightComponent>( entities[*selection.Chosen] );
+            const auto& light                         = registry.get<ECS::DirectionLightComponent>( *sun );
             m_SunFx.LightShaftBloom    = light.Data.LightShaftBloom;
             m_SunFx.BloomScale         = light.Data.BloomScale;
             m_SunFx.BloomThreshold     = light.Data.BloomThreshold;
@@ -278,7 +267,7 @@ namespace Desert::ECS
             m_SunFx.AffectedByAtmosphereTransmittance = light.Data.AffectedByAtmosphereTransmittance;
             m_SunFx.OuterSpaceIlluminance             = light.Data.Color * light.Data.Intensity;
 
-            const auto& transform = registry.get<ECS::TransformComponent>( entities[*selection.Chosen] );
+            const auto& transform = registry.get<ECS::TransformComponent>( *sun );
             return Rules::AtmosphereSunDirection( transform.Translation );
         }
 
@@ -290,5 +279,12 @@ namespace Desert::ECS
         // how a real message becomes invisible.
         bool m_SunSelectionLogged = false;
         bool m_DuplicateSkyLogged = false;
+        // Latched on the STATE: the error is said when the sun goes missing and again if it goes missing
+        // after coming back, never sixty times a second.
+        bool m_NoSunLogged = false;
+
+        // The direction a DISABLED sky command carries. It is never evaluated (SkyboxRenderer publishes an
+        // empty AtmosphereEnv and uploads nothing while the sky is off); it only has to be a unit vector.
+        static constexpr glm::vec3 kNoSunDirection{ 0.0f, 1.0f, 0.0f };
     };
 } // namespace Desert::ECS

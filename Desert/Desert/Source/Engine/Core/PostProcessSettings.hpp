@@ -57,8 +57,11 @@ namespace Desert::Core
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 
+        // On by default (SSR1B, scene v48): the trace + resolve cost 0.25-0.29 ms after SSR1, so a view no volume
+        // touches reflects, as UE's ScreenSpaceReflectionIntensity default does. v47 files stated the old default
+        // false on every volume; MigrateSSRDefaultOnV47ToV48 (Tools/SceneMigrator) states true in its place.
         PROPERTY( DisplayName( "Enable SSR" ), Category( "Reflections" ) )
-        bool EnableSSR = false;
+        bool EnableSSR = true;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Reflections" ), Range( 0.0f, 1.0f ) )
         float SSRIntensity = 1.0f;
         PROPERTY( DisplayName( "SSR Max Distance" ), Category( "Reflections" ), Length, Range( 100.0f, 20000.0f ) )

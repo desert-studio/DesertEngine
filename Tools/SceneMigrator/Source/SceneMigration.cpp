@@ -30,6 +30,7 @@
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
@@ -943,6 +944,56 @@ namespace Desert::Migration
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     raise( override_.Components, who );
+        }
+        return report;
+    }
+
+    SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char* kKey = "EnableSSR";
+        SSRDefaultOnReport    report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            // Only the record's own volume: an override's EnableSSR is a delta against its prefab record,
+            // which the prefab's own migration raises.
+            EditBlock( entity.Components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           rfl::Generic::Object settings;
+                           if ( const auto stated = block.get( "Settings" ); stated.has_value() )
+                           {
+                               auto fields = stated.value().to_object();
+                               if ( !fields.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                     rfl::json::write( stated.value() ) ) );
+                                   return false;
+                               }
+                               settings = std::move( fields.value() );
+                           }
+                           if ( const auto enabled = settings.get( kKey ); enabled.has_value() )
+                           {
+                               const auto flag = enabled.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( enabled.value() ) ) );
+                                   return false;
+                               }
+                               if ( flag.value() )
+                                   return false;
+                               DropKey( settings, kKey );
+                           }
+                           settings[kKey] = rfl::Generic( true );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
         }
         return report;
     }
@@ -2790,6 +2841,18 @@ namespace Desert::Migration
                 report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV46ToV47( entities );
             }
 
+            // SSR is on by default (SSR1B): every volume states true where v47 stated the old default false.
+            if ( statedSceneVersion < kSceneVersionSSRDefaultOn )
+            {
+                report.SSRDefaultOnRaised = true;
+                report.SSRDefaultOn       = MigrateSSRDefaultOnV47ToV48( entities );
+                if ( !report.SSRDefaultOn.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SSRDefaultOn.Refused );
+                    return;
+                }
+            }
+
             // The shadow bias is centimetres at the caster (SHADOW-BIAS): a stated NDC fraction is re-stated.
             if ( statedSceneVersion < kSceneVersionShadowBiasCentimetres )
             {
@@ -3122,6 +3185,15 @@ namespace Desert::Migration
         return report;
     }
 
+    bool MigrateHLODLayersV49ToV50( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
+             scene.WorldPartition->DefaultHLODLayer.has_value() )
+            return false;
+        Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+        return true;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -3196,6 +3268,13 @@ namespace Desert::Migration
                                  report.InstanceTransforms.UnknownNames.front();
                 return report; // unstamped, as every refusal
             }
+        }
+
+        // Scene-only: the WorldPartition block is a scene's (WP-FAR-7).
+        if ( statedSceneVersion < kSceneVersionHLODLayers )
+        {
+            report.HLODLayersRaised = true;
+            report.HLODLayerStated  = MigrateHLODLayersV49ToV50( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

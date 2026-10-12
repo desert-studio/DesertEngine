@@ -187,6 +187,17 @@ namespace Desert::UI
                            "string-table key" ) )
         std::string Options = "Option A;Option B;Option C";
 
+        // FED FROM DATA (UE UComboBoxString filled by AddOption from game code): when set, the options are the
+        // records of this data-store collection (Lua ui.list_add), each labelled by its LabelField, and the
+        // authored Options above are not read. A leading hash on a label makes it a string-table key.
+        PROPERTY( DisplayName( "Collection" ), Category( "UI Dropdown" ),
+                  Tooltip( "Data-store collection key; its records are the options (overrides Options)" ) )
+        std::string Collection;
+
+        PROPERTY( DisplayName( "Label Field" ), Category( "UI Dropdown" ),
+                  Tooltip( "Record field shown as the option's label" ) )
+        std::string LabelField = "label";
+
         PROPERTY( DisplayName( "Selected Index" ), Category( "UI Dropdown" ) )
         int SelectedIndex = 0;
 

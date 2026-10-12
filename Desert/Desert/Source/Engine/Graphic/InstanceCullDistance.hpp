@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic
@@ -34,6 +35,24 @@ namespace Desert::Graphic
             return Max > 0.0f;
         }
     };
+
+    /// The cull an ISM's instances get: the foliage type's fade, clipped to the component's MaxDrawDistance (UE's
+    /// LDMaxDrawDistance), so neither limit is lost when both are set. maxDrawDistance <= 0: the fade as it is.
+    [[nodiscard]] inline InstanceCullDistance ClipToMaxDrawDistance( const InstanceCullDistance& fade,
+                                                                     float                       maxDrawDistance )
+    {
+        if ( maxDrawDistance <= 0.0f )
+            return fade;
+        const float max = fade.Culls() ? std::min( fade.Max, maxDrawDistance ) : maxDrawDistance;
+        return { std::min( fade.Min, max ), max };
+    }
+
+    /// The cull as seen through a lens: both ends stretched by Graphic::DrawDistanceScale, so a narrow FOV
+    /// draws a foliage field farther out, as it does every MaxDrawDistance.
+    [[nodiscard]] inline InstanceCullDistance ScaledByLens( const InstanceCullDistance& cull, float scale )
+    {
+        return { cull.Min * scale, cull.Max * scale };
+    }
 
     /// The instance's place in the fade, in [0, 1): an instance is dropped once the fade has advanced past it.
     /// A hash of the index and not of the position, so moving an instance does not change whether it fades.
@@ -69,24 +88,26 @@ namespace Desert::Graphic
      * @brief The instances of one ISM a pass draws, and the LOD level of each.
      *
      * ONE function for the geometry pass and every shadow cascade, so an instance the camera does not see is
-     * not a caster either: the frustum and the LOD position are the pass's, but the cull distance is measured
-     * from @p cullViewPosition, which every caller passes as the MAIN camera's position — a cascade has no
-     * position of its own that the fade could be measured from without leaving shadows of absent trees.
+     * not a caster either: the frustum and the LOD view are the pass's, but the cull distance is measured
+     * from @p cullView, which every caller passes as the MAIN camera's view — a cascade has no position of
+     * its own that the fade could be measured from without leaving shadows of absent trees — and stretched by
+     * that view's lens (DrawDistanceScale).
      */
     inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
-                                     const glm::vec3& cullViewPosition, const glm::vec3& lodViewPosition,
-                                     uint32_t maxLevel, std::vector<glm::mat4>& visible,
+                                     const Geometry::LODView& cullView, const Geometry::LODView& lodView,
+                                     std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
                                      std::vector<uint32_t>& levels )
     {
         visible.clear();
         levels.clear();
+        const InstanceCullDistance lensCull = ScaledByLens( cull, DrawDistanceScale( cullView ) );
         for ( std::size_t i = 0; i < transforms.size(); ++i )
         {
             const glm::mat4& instanceTransform = transforms[i];
-            if ( !KeepsInstanceAtDistance( cull, static_cast<uint32_t>( i ), glm::vec3( instanceTransform[3] ),
-                                           cullViewPosition ) )
+            if ( !KeepsInstanceAtDistance( lensCull, static_cast<uint32_t>( i ), glm::vec3( instanceTransform[3] ),
+                                           cullView.Origin ) )
                 continue;
             // Tested on the box the WIND can reach, not the authored one: a swaying tip leaves the mesh's box
             // by up to Strength, and a test on the authored box would drop the instance - and its shadow -
@@ -97,8 +118,7 @@ namespace Desert::Graphic
                 continue;
             visible.push_back( instanceTransform );
             levels.push_back(
-                 std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodViewPosition, -1, 0 ),
-                           maxLevel ) );
+                 Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, lodScreenSizes, -1, 0 ) );
         }
     }
 } // namespace Desert::Graphic

@@ -41,6 +41,7 @@
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
+#include "Systems/Scene/Water/WaterRenderer.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
@@ -222,6 +223,13 @@ namespace Desert::Graphic
             return m_ViewExtent;
         }
 
+        // WHETHER A MESH IS WITHIN ITS MAX DRAW DISTANCE FROM THIS VIEW (UE's LDMaxDrawDistance): asked by the
+        // mesh draw commands before they submit, so a mesh beyond it enters no queue and no pass — lit, shadow,
+        // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
+        // (Graphic::IsWithinDrawDistance). maxDrawDistance <= 0, or no camera yet: drawn.
+        [[nodiscard]] bool IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
+                                                    float maxDrawDistance ) const;
+
         // The slot binding is taken BY SHARED HANDLE, not by reference to the caller's storage: the
         // caller is a draw command whose recorder (an ECS component) may already be gone. See
         // Graphic::MaterialSlotBinding (A8-3).
@@ -232,6 +240,10 @@ namespace Desert::Graphic
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
+
+        // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
+        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
+        void SubmitWaterZone( System::WaterZoneDraw zone );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
@@ -683,6 +695,9 @@ namespace Desert::Graphic
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer );
+        // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
+        // glass.
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's

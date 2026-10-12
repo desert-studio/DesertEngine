@@ -243,6 +243,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
          { "TerrainSystem", "Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp", false, false,
            "material entries are keyed by texture set and only read for terrains in this frame's queue; "
            "the draw queue is cleared every frame" },
+         { "WaterSystem", "Graphic/Systems/Scene/Water/WaterRenderer.hpp", false, false,
+           "the zones are resubmitted every frame and ClearQueue drops them with the frame's draws; PrepareFrame "
+           "traverses this frame's queue from this frame's camera, so nothing carries" },
          { "TonemapSystem", "Graphic/Systems/Scene/PostProcessing/TonemapRenderer.hpp", false, false,
            "every parameter is pushed from SceneSettings in BeginScene" },
          { "BackdropBlurSystem", "Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp", false, false,

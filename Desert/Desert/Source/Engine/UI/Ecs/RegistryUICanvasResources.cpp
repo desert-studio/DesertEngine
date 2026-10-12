@@ -1,5 +1,6 @@
 #include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
@@ -26,6 +27,18 @@ namespace Desert::UI
             return {};
         return RefOf( dynamic_cast<Graphic::Image2D*>(
              Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) ) );
+    }
+
+    uint64_t RegistryUICanvasResources::ImageAtPath( const std::string& path )
+    {
+        if ( const auto known = m_ImageAtPath.find( path ); known != m_ImageAtPath.end() )
+            return known->second;
+        const auto row = Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::Texture, path );
+        if ( !row )
+            return 0;
+        const auto handle = static_cast<uint64_t>( row->Handle );
+        m_ImageAtPath.emplace( path, handle );
+        return handle;
     }
 
     TextureRef RegistryUICanvasResources::AnimatedFrame( const Common::AssetHandle& sprite )

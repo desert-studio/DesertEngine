@@ -22,6 +22,18 @@ namespace Desert::UI
         Color    // tint: multiplies the element's colour
     };
 
+    // WHEN a tween's playhead moves. UMG plays a widget animation from the widget's events (OnHovered ->
+    // PlayAnimation, OnUnhovered -> PlayAnimationReverse); the same pattern as data instead of a script:
+    // WhileHighlighted runs the playhead FORWARD while the nearest button at or above this element is
+    // highlighted -- hovered by the pointer or holding keyboard/gamepad focus, the two ways a menu row is
+    // "the one you are on" -- and BACKWARD when it stops being, so an underline that slid in slides out.
+    // Loop is not read for it: a highlight has an end state, not a cycle.
+    enum class UITweenTrigger
+    {
+        OnShow,          // starts when the element appears (Rewind On Hide replays it)
+        WhileHighlighted // follows the highlight of the nearest UIButton ancestor (or this element)
+    };
+
     enum class UITweenLoop
     {
         Once,
@@ -56,6 +68,11 @@ namespace Desert::UI
 
         PROPERTY( DisplayName( "Easing" ), Category( "UI Tween" ) )
         UIEasing Easing = UIEasing::CubicOut;
+
+        PROPERTY( DisplayName( "Trigger" ), Category( "UI Tween" ),
+                  Tooltip( "On Show: plays when the element appears. While Highlighted: forward while the "
+                           "nearest button above is hovered or focused, back when it is not." ) )
+        UITweenTrigger Trigger = UITweenTrigger::OnShow;
 
         PROPERTY( DisplayName( "Loop" ), Category( "UI Tween" ) )
         UITweenLoop Loop = UITweenLoop::Once;

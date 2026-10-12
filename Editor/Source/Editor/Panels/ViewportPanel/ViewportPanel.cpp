@@ -16,6 +16,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Core/ViewportCameraProperties.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/NodeActors.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -1397,14 +1398,8 @@ namespace Desert::Editor
             ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 8.0f, 6.0f ) );
             if ( ImGui::Combo( "##ViewMode", &vm, kViewModes, IM_ARRAYSIZE( kViewModes ) ) )
             {
-                // Reset every debug channel, then set the one this mode needs. LightingDebug is in the
-                // list because it is a channel like the others: left out, "Lighting" would be the one mode
-                // you could not leave, and the dropdown would keep reporting it whatever else was picked.
-                view.WireframeMode = false;
-                view.ShowNormals   = false;
-                view.LightingDebug = false;
-                view.DeferredDebug = Graphic::DeferredDebugMode::Off;
-                view.ShadowDebug   = Graphic::ShadowDebugMode::Off;
+                // Reset every debug channel, then set the one this mode needs.
+                view.ClearViewMode();
                 switch ( vm )
                 {
                     case VM_Wireframe:
@@ -1526,7 +1521,8 @@ namespace Desert::Editor
                     {
                         float fov = editorCam->GetFOV();
                         ImGui::SetNextItemWidth( kW );
-                        if ( ImGui::SliderFloat( "FOV", &fov, 20.0f, 120.0f, "%.0f" ) )
+                        if ( ImGui::SliderFloat( "FOV", &fov, kViewportCameraMinFOV, kViewportCameraMaxFOV,
+                                                 "%.0f" ) )
                             editorCam->SetFOV( fov );
                     }
                     else
@@ -1612,11 +1608,13 @@ namespace Desert::Editor
             // starts. Calling Scene::Resize() here (inside OnUIRender) destroys descriptor set
             // pools while their DS are still bound to the recording command buffer.
             m_PendingViewportSize = m_ViewportData.Size;
-            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x,
-                                                m_ViewportData.Size.y ); // TODO: Move to scene
+            // The camera's aspect follows this panel's rect at once: unlike the scene's targets, a
+            // projection matrix holds no GPU object that a recording could still be reading.
+            mainCamera->UpdateProjectionMatrix( m_ViewportData.Size.x, m_ViewportData.Size.y );
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+        m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
@@ -1652,11 +1650,18 @@ namespace Desert::Editor
         // in-scene WYSIWYG handles (select marquee + drag/resize/anchor) as before.
         {
             auto& pv = ::Desert::Editor::Core::UIPreview::Get();
-            if ( m_UIPreview )
+            // PLAY IS PREVIEW. In UE's PIE the game's widgets take the pointer and the keyboard the moment
+            // Play starts — nobody toggles a Design/Preview switch for a running game. Here a level in Play
+            // drove its canvases with no input at all unless the user had also flipped the authoring
+            // toggle, so a menu could not be walked with the arrows in Play. The keyboard follows window
+            // FOCUS, as Slate's does (FSlateUser keyboard focus), not the hover the pointer needs: a menu
+            // keeps answering ↑/↓ while the cursor rests on another panel.
+            const bool playing = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+            if ( m_UIPreview || playing )
             {
                 const bool down = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Left );
                 pv.Enabled      = true;
-                pv.HasInput     = m_ViewportData.IsHovered;
+                pv.HasInput     = m_ViewportData.IsHovered || m_ViewportData.IsFocused;
                 pv.MousePx      = m_ViewportData.MousePosition;
                 pv.DisplaySize  = m_ViewportData.Size;
                 pv.Released     = pv.Down && !down; // down->up edge
@@ -1679,6 +1684,7 @@ namespace Desert::Editor
                         mods = mods | ::Desert::UI::UIKeyMods::Alt;
                     if ( io.KeySuper )
                         mods = mods | ::Desert::UI::UIKeyMods::Super;
+                    pv.Mods = mods;
                     using Common::KeyCode;
                     static constexpr std::pair<ImGuiKey, KeyCode> kUIKeys[] = {
                          { ImGuiKey_Tab, KeyCode::Tab },
@@ -1688,6 +1694,9 @@ namespace Desert::Editor
                          { ImGuiKey_Delete, KeyCode::Delete },
                          { ImGuiKey_Home, KeyCode::Home },
                          { ImGuiKey_End, KeyCode::End },
+                         { ImGuiKey_PageUp, KeyCode::PageUp },
+                         { ImGuiKey_PageDown, KeyCode::PageDown },
+                         { ImGuiKey_Space, KeyCode::Space },
                          { ImGuiKey_LeftArrow, KeyCode::Left },
                          { ImGuiKey_RightArrow, KeyCode::Right },
                          { ImGuiKey_UpArrow, KeyCode::Up },

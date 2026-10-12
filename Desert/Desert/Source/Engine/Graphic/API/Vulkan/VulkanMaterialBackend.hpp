@@ -80,7 +80,9 @@ namespace Desert::Graphic::API::Vulkan
         // fine — Vulkan compares set layouts by content.
         void ReportShapeDriftOnce();
 
-        std::shared_ptr<VulkanShader> m_VulkanShader; // TODO: weak ptr
+        // Strong on purpose: every set below was allocated against this shader and every refusal names it, so
+        // the backend cannot outlive it; the material that owns this backend holds the same shader anyway.
+        std::shared_ptr<VulkanShader> m_VulkanShader;
 
         // The layouts every set below was allocated from, held for as long as those sets exist. Not
         // re-read from the shader: a recompile publishes new layouts, and a set allocated from the old

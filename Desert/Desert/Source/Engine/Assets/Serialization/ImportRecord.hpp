@@ -122,6 +122,16 @@ namespace Desert::Assets::Serialization
         // orbit (ThumbnailInfo.hpp); a stated default is refused, so one picture has one spelling. An entry is a
         // ThumbnailOrbitRecord: a member it leaves out is that member's default (Resolve).
         std::optional<std::map<std::string, ThumbnailOrbitRecord>> Thumbnail;
+
+        // THE SCREEN SIZE AT WHICH EACH LEVEL OF DETAIL BEGINS, per mesh this import writes (UE:
+        // FStaticMeshSourceModel::ScreenSize, one per LOD, saved in the mesh's package - here the record, for the
+        // reason Thumbnail gives). Keyed like Thumbnail; the list is LOD 0 first, each entry the bounding sphere's
+        // diameter as a fraction of the screen (Geometry::LODScreenSizesDefect states what a list must be). A
+        // mesh without an entry has its sizes computed (UE bAutoComputeLODScreenSize, the default every import
+        // starts from: Geometry::ComputeLODScreenSize); levels past the end of a list are computed the same way.
+        // Not a build input: the render data is resolved against it after the cache, as UE's ResolveSectionInfo
+        // does, so an edit re-derives nothing.
+        std::optional<std::map<std::string, std::vector<float>>> LodScreenSize;
     };
 
     // THE RECORD STATES WHAT THE SOURCE IMPORTS AS (UE: an imported asset's class - a UStaticMesh, a
@@ -189,6 +199,33 @@ namespace Desert::Assets::Serialization
     /// error for an orbit IsValidThumbnailOrbit refuses.
     Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
                                                     const std::string& meshFile, const ThumbnailOrbit& orbit );
+
+    /// The per-LOD screen sizes @p source's record states for the mesh asset named @p meshFile
+    /// (ImportRecordData::LodScreenSize); nullopt when it states none (computed). An error naming the record when
+    /// it is missing or unreadable.
+    Common::ResultStr<std::optional<std::vector<float>>>
+    ReadImportRecordLodScreenSizes( const std::filesystem::path& source, const std::string& meshFile );
+
+    /// Rewrites them (UE: editing a source model's ScreenSize in the Static Mesh editor). nullopt removes the
+    /// entry (back to computed), the last removal the whole key. The record must exist; written only on a change.
+    /// An error for a list Geometry::LODScreenSizesDefect refuses.
+    Common::BoolResultStr SetImportRecordLodScreenSizes( const std::filesystem::path&             source,
+                                                         const std::string&                       meshFile,
+                                                         const std::optional<std::vector<float>>& sizes );
+
+    /// THE AUTHORED SCREEN SIZES OF THE MESH ASSET AT @p meshAsset, read where they live: the record of the source
+    /// the asset was imported from (the combined mesh of `<stem>.<raw ext>` with a record beside it, keyed by
+    /// the source's file name). nullopt for a mesh no import record speaks for (hand-authored, a node mesh,
+    /// a primitive) and for one whose record states none - both computed. Read at every mesh build (MeshService).
+    struct MeshLodScreenSizesHome
+    {
+        std::filesystem::path Source;
+        std::string           MeshFile;
+    };
+    [[nodiscard]] std::optional<MeshLodScreenSizesHome>
+    LodScreenSizesHomeOf( const std::filesystem::path& meshAsset );
+    Common::ResultStr<std::optional<std::vector<float>>>
+    ReadMeshLodScreenSizes( const std::filesystem::path& meshAsset );
 
     /// ... and its `Settings` rewritten to @p settings, the options this import ran with, and its header's Kind to
     /// @p kind, what the source imports as (IsImportRecordKind). Written by EVERY import, static or skinned (UE:

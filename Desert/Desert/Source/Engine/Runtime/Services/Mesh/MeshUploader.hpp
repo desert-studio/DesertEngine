@@ -35,11 +35,6 @@ namespace Desert::Runtime
         /// in the resource ledger under the asset's handle. nullptr when the build is refused; the uploader
         /// has logged which precondition failed.
         [[nodiscard]] virtual std::shared_ptr<Mesh> Upload( const std::shared_ptr<Assets::MeshAsset>& asset ) = 0;
-
-        /// Upload a procedural mesh's buffers (the mesh constructor does not) and claim them as PROCEDURAL:
-        /// built from no file, so nothing may ever release them.
-        [[nodiscard]] virtual Common::BoolResultStr UploadProcedural( const std::shared_ptr<Mesh>& mesh,
-                                                                      const Assets::AssetHandle&   handle ) = 0;
     };
 
     /// The device implementation: `Graphic::MeshFactory` plus the resource ledger. Defined in

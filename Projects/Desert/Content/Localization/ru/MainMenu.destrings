@@ -121,9 +121,21 @@
             }
         },
         {
+            "Key": "settings.tab.video",
+            "Forms": {
+                "other": "ВИДЕО"
+            }
+        },
+        {
+            "Key": "settings.tab.audio",
+            "Forms": {
+                "other": "ЗВУК"
+            }
+        },
+        {
             "Key": "settings.resolution",
             "Forms": {
-                "other": "Разрешение      1920 x 1080"
+                "other": "Разрешение"
             }
         },
         {
@@ -135,7 +147,7 @@
         {
             "Key": "settings.note",
             "Forms": {
-                "other": "Экран-состояние: Back возвращает на Main"
+                "other": "[color=#FF7A33]Esc[/color] или [i]< НАЗАД[/i] возвращает на Main"
             }
         },
         {

@@ -1,6 +1,7 @@
 #include "TerrainRenderer.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
@@ -123,7 +124,8 @@ namespace Desert::Graphic::System
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
             return LandscapeLodFromScreenSize(
                  MakeLandscapeLodSettings( l.QuadsPerTile ),
-                 LandscapeScreenRadiusSquared( center, radius, viewOrigin, projection ) );
+                 Geometry::BoundsScreenRadiusSquared( center, radius,
+                                                      Geometry::LODView{ viewOrigin, projection } ) );
         }
     } // namespace
 
@@ -216,12 +218,11 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::PrepareFrame()
+    void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
-        const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( ( camera == nullptr ) || m_Queue.empty() )
+        if ( m_Queue.empty() )
             return;
 
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
@@ -250,11 +251,9 @@ namespace Desert::Graphic::System
         m_FrameDraws.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
-        const glm::vec3 viewOrigin = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
         for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] =
-                 TileLod( t.Landscape, viewOrigin, camera->GetProjectionMatrix() );
+            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, frame.CameraPosition, frame.Projection );
 
         for ( const auto& t : m_Queue )
         {
@@ -330,12 +329,11 @@ namespace Desert::Graphic::System
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
         TerrainUB ub{};
-        ub.View       = camera->GetViewMatrix();
-        ub.Projection = camera->GetProjectionMatrix();
+        ub.View       = frame.View;
+        ub.Projection = frame.Projection;
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
-        const auto* viewFrame = m_SceneRenderer->GetViewFrame();
-        ub.ViewProjection     = viewFrame->ViewProjection;
-        ub.PrevViewProjection = viewFrame->PrevViewProjection;
+        ub.ViewProjection     = frame.ViewProjection;
+        ub.PrevViewProjection = frame.PrevViewProjection;
 
         for ( const auto& group : m_FrameGroups )
         {

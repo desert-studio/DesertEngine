@@ -95,6 +95,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data,
                                      "Destructible" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RagdollComponent, Data, "RagdollData", "Ragdoll" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterZoneComponent, Data, "WaterZoneData", "Water Zone" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )
@@ -170,6 +171,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UISliderComponent, Data, "UI
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIScrollViewComponent, Data, "UIScrollViewData",
                                      "UI Scroll View" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIListViewComponent, Data, "UIListViewData", "UI List View" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITileViewComponent, Data, "UITileViewData", "UI Tile View" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITreeViewComponent, Data, "UITreeViewData", "UI Tree View" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIInputFieldComponent, Data, "UIInputFieldData",
                                      "UI Input Field" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIDropdownComponent, Data, "UIDropdownData", "UI Dropdown" )
@@ -178,6 +181,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayTriggerComponent, D
                                      "UI Overlay Trigger" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UINavigationComponent, Data, "UINavigationData",
                                      "UI Navigation" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITabsComponent, Data, "UITabsData", "UI Tabs" )
 // Exponential Height Fog is the plain reflected one-liner: every field is a value, nothing needs the
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,
@@ -1435,6 +1439,16 @@ namespace Desert::Editor
                                                      "Skip every instance in the shadow (depth) passes" );
                 ::ImGui::Checkbox( "##ism_castshadows", &c.CastShadows );
                 U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow(
+                     "Max Draw Distance",
+                     "cm from the camera beyond which an instance is not drawn (0 = no limit); scaled by the "
+                     "camera's field of view, so a zoomed-in camera draws farther. A foliage type's Cull "
+                     "Distance is clipped to it" );
+                ::ImGui::DragFloat( "##ism_maxdraw", &c.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
+                                    c.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
+                c.MaxDrawDistance = std::max( c.MaxDrawDistance, 0.0f );
+                U::ImGuiUtilities::EndPropertyRow();
             }
 
             // ── THE INSTANCE LIST ─────────────────────────────────────────────────────────────────
@@ -2272,10 +2286,11 @@ namespace
 
 // SINGLE SOURCE OF TRUTH: materials (shader + params + textures) are authored ONLY in the Material Editor
 // window, on a `.demat`. A mesh entity names one per slot; a landscape root names one, in LandscapeMaterialData.
-// MaterialComponent is no longer authored ANYWHERE in the editor: it remains only (a) the RUNTIME override
-// channel for scripts (Lua setMaterialParam) — surfaced by the lit Materials banner with one-click clear —
-// and (b) legacy-scene compatibility. The terrain was the last thing authoring it, and the v6 -> v7 scene
-// migration takes it off terrain entities in the files as well.
+// MaterialComponent is no longer authored ANYWHERE in the editor: it remains only as the RUNTIME Shader
+// Override a script sets (Lua setShader + setMaterialParam on that shader) — surfaced by the lit Materials
+// banner with one-click clear. A script's lit-path writes go to StaticMeshComponent::ScriptSlotParams.
+// The terrain was the last thing authoring it, and the v6 -> v7 scene migration takes it off terrain entities
+// in the files as well.
 // Script component: an entity can run SEVERAL scripts (like UE ActorComponents), shown as a list of slots.
 // Per slot: pick the .lua from a dropdown OR drag one from the File Explorer, Reload (hot-reload), and edit
 // the script's exposed Properties. "+ Add Script" appends a slot; the X removes one.

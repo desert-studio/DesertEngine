@@ -143,8 +143,9 @@ namespace Desert::Core
         // drops the three keys from the files at scene schema v19.
 
         // Time of Day was removed: the sun's single source of truth is the directional-light ENTITY
-        // (its position encodes the direction; sky + lighting follow it). Old scene files may still
-        // carry the fields — unknown keys are ignored on load.
+        // (its position encodes the direction; sky + lighting follow it). An old scene file that still
+        // carries the fields keeps them: SceneSerializer::Deserialize preserves every key it cannot name,
+        // writes it back on save, and names it once in a load warning.
 
         // Splash screen: an image the standalone Runtime shows full-screen when THIS scene loads (the boot
         // scene's splash is the game's startup splash). Duration 0 = no splash; Fade = in/out seconds.

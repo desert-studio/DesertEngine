@@ -45,7 +45,7 @@ namespace Desert::UI::Walk
         const auto  ScreenBounds = [&dl]( const Rect& r ) { return ScreenBoundsOf( dl, r ); };
 
         auto&      d       = *tree.GetState<UIDropdownData>( e );
-        const auto options = SplitOptions( ctx.View.Resources().Text(), d.Options );
+        const auto options = DropdownOptions( ctx.View.Resources().Text(), d );
 
         // Resolved once: the arrow is the same ink as the label, and two lookups would be two
         // chances for them to stop being.

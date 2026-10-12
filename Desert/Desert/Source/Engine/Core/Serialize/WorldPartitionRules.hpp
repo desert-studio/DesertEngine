@@ -499,6 +499,10 @@ namespace Desert::Core::Rules
          // read from the entity's point would unload the sea under a boat standing far from its origin. A
          // bounded body kind gets its own row (or ByField on the kind) when it exists, with its extent.
          { "WaterBody", ComponentLoading::Global },
+         // WATER-W6's zone is the quadtree the surface of every body inside it is drawn from (UE AWaterZone,
+         // bIsSpatiallyLoaded = false, WaterZoneActor.cpp:133): its own point says nothing about where its water
+         // is, and unloading it with one cell would take the sea's surface away everywhere.
+         { "WaterZone", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
@@ -589,12 +593,15 @@ namespace Desert::Core::Rules
          { "UIRenderTexture", ComponentLoading::Spatial },
          { "UIRetainer", ComponentLoading::Spatial },
          { "UIScreen", ComponentLoading::Spatial },
-         { "UIScreenStack", ComponentLoading::Spatial }, // lives on a canvas entity
+         { "UIScreenStack", ComponentLoading::Spatial }, // on a canvas, or on a nested switcher element
          { "UIScrollView", ComponentLoading::Spatial },
          { "UISlider", ComponentLoading::Spatial },
          { "UIStyle", ComponentLoading::Spatial },
+         { "UITabs", ComponentLoading::Spatial }, // UI-SWITCHER: a tab bar container
          { "UIText", ComponentLoading::Spatial },
+         { "UITileView", ComponentLoading::Spatial },
          { "UIToggle", ComponentLoading::Spatial },
+         { "UITreeView", ComponentLoading::Spatial },
          { "UITween", ComponentLoading::Spatial },
     };
 
