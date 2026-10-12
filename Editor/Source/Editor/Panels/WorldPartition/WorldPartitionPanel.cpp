@@ -44,7 +44,6 @@ namespace Desert::Editor
 
         // UE's minimum on-screen grid cell (SWorldPartitionEditorGrid2D PaintGrid): finer levels would be noise.
         constexpr double kMinGridPixels = 24.0;
-        constexpr float  kDashSegments  = 64.0f;
 
         ImU32 ToU32( glm::vec4 rgba )
         {
@@ -57,17 +56,37 @@ namespace Desert::Editor
             return { origin.x + static_cast<float>( local.x ), origin.y + static_cast<float>( local.y ) };
         }
 
-        void DashedCircle( ImDrawList& list, ImVec2 centre, float radius, ImU32 colour )
+        // A source's shape on the map (Rules::SourceSector), in world space so the map's axes stay its own:
+        // the circle, or the slice's arc and its two sides. @p dashed draws every other segment (the unload band).
+        void PaintSector( ImDrawList& list, const Map::View& view, glm::dvec2 size, ImVec2 origin,
+                          const ::Desert::Core::Rules::SourceSector& sector, double scale, double angleScale,
+                          ImU32 colour, bool dashed )
         {
-            // Every other segment of a 2·kDashSegments polygon.
-            const float step = std::numbers::pi_v<float> / kDashSegments;
-            for ( int i = 0; i < static_cast<int>( 2.0f * kDashSegments ); i += 2 )
+            const double radius = sector.Radius * scale;
+            const double angle  = std::min( 360.0, sector.Angle * angleScale );
+            const int    pieces = std::max( 8, static_cast<int>( 96.0 * angle / 360.0 ) );
+            const auto   rim    = [&]( double degrees )
             {
-                const float a0 = step * static_cast<float>( i );
-                const float a1 = a0 + step;
-                list.AddLine( ImVec2( centre.x + radius * std::cos( a0 ), centre.y + radius * std::sin( a0 ) ),
-                              ImVec2( centre.x + radius * std::cos( a1 ), centre.y + radius * std::sin( a1 ) ),
-                              colour, 1.5f );
+                const double r = degrees * std::numbers::pi / 180.0;
+                // The same turn as the rules (about +Y): +X goes to −Z.
+                const glm::dvec2 axis = sector.Axis;
+                const glm::dvec2 dir( axis.x * std::cos( r ) + axis.y * std::sin( r ),
+                                      -axis.x * std::sin( r ) + axis.y * std::cos( r ) );
+                return ToScreen( view, size, origin, sector.Centre + dir * radius );
+            };
+            for ( int i = 0; i < pieces; ++i )
+            {
+                if ( dashed && ( i % 2 ) != 0 )
+                    continue;
+                const double a0 = -angle * 0.5 + angle * i / pieces;
+                const double a1 = -angle * 0.5 + angle * ( i + 1 ) / pieces;
+                list.AddLine( rim( a0 ), rim( a1 ), colour, 1.5f );
+            }
+            if ( angle < 360.0 )
+            {
+                const ImVec2 apex = ToScreen( view, size, origin, sector.Centre );
+                list.AddLine( apex, rim( -angle * 0.5 ), colour, 1.5f );
+                list.AddLine( apex, rim( angle * 0.5 ), colour, 1.5f );
             }
         }
 
@@ -422,6 +441,9 @@ namespace Desert::Editor
         {
             ::Desert::Core::Rules::StreamingSource source;
             source.Position = camera->GetPosition();
+            // The view's forward is the third row of the view rotation, negated.
+            const glm::mat4 view = camera->GetViewMatrix();
+            source.Facing        = glm::vec3( -view[0][2], -view[1][2], -view[2][2] );
             sources.push_back( source );
         }
         // The map follows the first: the pawn's when the level has one and nothing else is a source.
@@ -553,15 +575,16 @@ namespace Desert::Editor
             const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            const ImU32  ring   = IM_COL32( 255, 255, 255, 200 );
-            list.AddCircle( at, static_cast<float>( Map::RadiusPixels( m_View, loadCm ) ), ring, 96, 1.5f );
-            DashedCircle( list, at, static_cast<float>( Map::RadiusPixels( m_View, loadCm * ( 1.0 + margin ) ) ),
-                          IM_COL32( 255, 255, 255, 120 ) );
-            if ( camera && streamer == nullptr )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, partition.Grids[0] ) )
             {
-                // The view's forward is the third row of the view rotation, negated.
-                const glm::mat4  view = camera->GetViewMatrix();
-                const glm::dvec2 forward( -view[0][2], -view[2][2] );
+                PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
+                PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
+                             IM_COL32( 255, 255, 255, 120 ), true );
+            }
+            // Where the source faces (UE's view direction): the camera's in Edit, the entity's forward in Play.
+            if ( source.Facing )
+            {
+                const glm::dvec2 forward( source.Facing->x, source.Facing->z );
                 if ( const double length = glm::length( forward ); length > 1e-6 )
                 {
                     const glm::dvec2 dir = forward / length;
