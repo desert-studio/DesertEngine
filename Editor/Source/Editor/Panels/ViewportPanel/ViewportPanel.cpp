@@ -1348,14 +1348,8 @@ namespace Desert::Editor
             ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 8.0f, 6.0f ) );
             if ( ImGui::Combo( "##ViewMode", &vm, kViewModes, IM_ARRAYSIZE( kViewModes ) ) )
             {
-                // Reset every debug channel, then set the one this mode needs. LightingDebug is in the
-                // list because it is a channel like the others: left out, "Lighting" would be the one mode
-                // you could not leave, and the dropdown would keep reporting it whatever else was picked.
-                view.WireframeMode = false;
-                view.ShowNormals   = false;
-                view.LightingDebug = false;
-                view.DeferredDebug = Graphic::DeferredDebugMode::Off;
-                view.ShadowDebug   = Graphic::ShadowDebugMode::Off;
+                // Reset every debug channel, then set the one this mode needs.
+                view.ClearViewMode();
                 switch ( vm )
                 {
                     case VM_Wireframe:

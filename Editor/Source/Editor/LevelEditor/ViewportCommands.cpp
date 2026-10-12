@@ -137,6 +137,27 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
+        // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
+        // combo could not be photographed over the channel. Same channel reset as the dropdown
+        // (DebugViewState::ClearViewMode); persisted the way the dropdown persists it.
+        constexpr struct
+        {
+            const char* Label;
+            bool        Wireframe;
+        } kViewModes[] = { { "View mode: Lit", false }, { "View mode: Wireframe", true } };
+        for ( const auto& mode : kViewModes )
+        {
+            const bool wireframe = mode.Wireframe;
+            commands.push_back( { "View", mode.Label, [wireframe]
+                                  {
+                                      auto& view = EditorPreferences::Get().DebugView;
+                                      view.ClearViewMode();
+                                      view.WireframeMode = wireframe;
+                                      EditorPreferences::Save();
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         // THE VIEWPORT'S FOUR AUTHORING MODES (07 §14.2), and the reason they are palette entries rather
         // than only toolbar segments is Г14's rule applied to this tier: a capability reachable only by a
         // mouse click does not exist for the control channel, so no unattended run could ever photograph
