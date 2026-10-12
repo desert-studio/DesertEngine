@@ -116,6 +116,10 @@ project "SceneMigrator"
 
     dependson { "Desert" }
 
+    -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
+    -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).
+    defines { "DESERT_REFLECTION_DATA_ONLY" }
+
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",

@@ -28,8 +28,10 @@ void RegisterReflection_VFX()
         using T = ::Desert::VFX::VFXLibrary;
         TypeBuilder( "VFXLibrary", sizeof( T ) )
             .ScriptName( "VFX" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
                     .Function( ::Desert::Reflection::MakeFunction<&T::UseChannel>( "UseChannel", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Registers the data channel asset of that name (as a script names IA_Jump) on the played scene; false (logged) when it cannot.", .ScriptName = "useChannel", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::WriteChannel>( "WriteChannel", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "entries", "const std::vector<Reflection::Value::Map>&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Appends one entry per record for this frame; true when every field was written.", .ScriptName = "writeChannel", .ScriptMethod = false } ) )
+#endif
             .WithDefault<T>()
             .Register();
     }

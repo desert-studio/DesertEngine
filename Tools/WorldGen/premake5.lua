@@ -39,6 +39,10 @@ project "WorldGen"
 
     dependson { "Desert" }
 
+    -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
+    -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).
+    defines { "DESERT_REFLECTION_DATA_ONLY" }
+
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",

@@ -1242,6 +1242,7 @@ namespace
                                           .Set( "scriptName", t.scriptName )
                                           .Set( "scriptStruct", t.scriptStruct )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
+                                          .Set( "hasFunctions", !t.functions.empty() )
                                           .Set( "functions", Common::Json::Value( std::move( functions ) ) )
                                           .Set( "events", Common::Json::Value( std::move( events ) ) )
                                           .Build() );

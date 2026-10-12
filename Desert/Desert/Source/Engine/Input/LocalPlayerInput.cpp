@@ -129,7 +129,19 @@ namespace Desert::Input
         {
             for ( const auto& [handle, priority] : PlayerContextPriorities( player ) )
             {
-                const auto context = assets.FindByHandle<Assets::InputMappingContextAsset>( handle );
+                // The component holds the context's handle (its header GUID fold); nothing else in Play loads
+                // that asset, so a context not already open in some editor is created here from its registry
+                // row, exactly as AddContext creates one it finds by name.
+                auto context = assets.FindByHandle<Assets::InputMappingContextAsset>( handle );
+                if ( !context )
+                {
+                    if ( const auto row =
+                              Assets::ContentRegistry::RowOf( Common::Content::ContentKind::InputMappingContext,
+                                                              static_cast<uint64_t>( handle ) ) )
+                        context =
+                             assets.CreateAsset<Assets::InputMappingContextAsset>( row->Path,
+                                                                                   /*loadAfterCreate=*/false );
+                }
                 if ( !context )
                 {
                     LOG_ERROR( "[Input] the player names mapping context handle {} that no loaded asset carries",
