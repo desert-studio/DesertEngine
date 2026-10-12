@@ -582,7 +582,12 @@ TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfin
     block["SpacingCm"] = Common::Json::Value( 1e300 );
     const auto issues  = ReadAt( ThroughJsonText( block ), landscape );
     EXPECT_EQ( landscape.SpacingCm, spacing );
-    ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "SpacingCm" ).ToString() );
-    EXPECT_EQ( issues[0].Expected, "number" );
+    // The block carries no EditLayers either, which is refused on its own path; only SpacingCm's is asked here.
+    const std::string path = BlockPath().Key( "SpacingCm" ).ToString();
+    const auto        refused =
+         std::count_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    ASSERT_EQ( refused, 1 );
+    const auto found =
+         std::find_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    EXPECT_EQ( found->Expected, "number" );
 }
