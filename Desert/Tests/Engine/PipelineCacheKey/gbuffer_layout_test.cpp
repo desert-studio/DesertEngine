@@ -151,7 +151,9 @@ TEST( GBufferLayout, EveryGBufferWriterDeclaresTheSlotsTypeAtTheSlotsLocation )
                  << " colour slots and the velocity after them";
             EXPECT_EQ( name, kGBuffer[index].ShaderName ) << file << " location " << index;
             const char* wanted =
-                 Desert::Core::Formats::IsIntegerFormat( kGBuffer[index].Format ) ? "uint" : "vec4";
+                 Desert::Core::Formats::IsIntegerFormat( kGBuffer[index].Format )
+                      ? ( Desert::Core::Formats::PreservedChannelCount( kGBuffer[index].Format ) == 2 ? "uvec2" : "uint" )
+                      : "vec4";
             EXPECT_EQ( type, wanted ) << file << ": " << name << " vs " << kGBuffer[index].Constant;
         }
     }

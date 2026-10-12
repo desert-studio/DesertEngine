@@ -601,10 +601,10 @@ TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
 
     const std::string pass = read( "Editor/Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh" );
     ASSERT_FALSE( pass.empty() );
-    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuintoGBufferShadingWord;" ),
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuvec2oGBufferShadingWord;" ),
                std::string::npos )
          << "Pass_GBuffer declares the shading word in the RSM permutation too.";
-    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuintword=" ), std::string::npos )
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuvec2word=" ), std::string::npos )
          << "Pass_GBuffer writes the shading word in the RSM permutation too.";
 }
 
