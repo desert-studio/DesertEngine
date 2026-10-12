@@ -1,0 +1,14 @@
+{
+    "Categories": [
+        {
+            "Id": "Template",
+            "DisplayName": "Emitter Templates",
+            "Color": [
+                0.6,
+                0.6,
+                0.7,
+                1.0
+            ]
+        }
+    ]
+}

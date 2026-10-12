@@ -27,6 +27,7 @@
 #include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include "Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp"
+#include "Editor/Panels/VFXSystem/VFXSystemDocument.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -42,6 +43,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -158,6 +160,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::VFXDataChannelDocument>(
                            Assets::AssetHandle( subject.Owner ), assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE VFX SYSTEM EDITOR (VFX-12). The `.dfx` emitters, module stacks and templates; no renderer slot yet.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::VFXSystem ) ),
+             Registration{
+                  "VFXSystem", ICON_MDI_FIRE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::VFXSystemDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                          assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -550,6 +567,10 @@ namespace Desert::Editor
              { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kVFXSystemExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestVFXSystemDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Animation::Timeline::kLevelSequenceExtension ) },
              [&documents, &assetManager]( const std::string& path ) {

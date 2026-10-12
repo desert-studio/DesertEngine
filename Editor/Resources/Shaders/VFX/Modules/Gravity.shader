@@ -9,7 +9,7 @@ Shader "Gravity"
     {
         Attribute PhysicsForce vec3
         Attribute Mass float
-        Input Gravity vec3
+        Input Gravity vec3 Units=cm/s2 Range=-2000..2000 Default=0,-980,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

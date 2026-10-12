@@ -9,7 +9,7 @@ Shader "ColorOverLife"
     {
         Attribute Color vec4
         Attribute InitialColor vec4
-        Input Scale vec4
+        Input Scale vec4 Range=0..1 Default=1,1,1,1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -18,7 +18,7 @@ Shader "SolveForcesAndVelocity"
         Attribute PhysicsDrag float
         Attribute PhysicsRotationalDrag float
         Attribute Mass float
-        Input SpeedLimit float
+        Input SpeedLimit float Units=cm/s Range=0..10000 Default=0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

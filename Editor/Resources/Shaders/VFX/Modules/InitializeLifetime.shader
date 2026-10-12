@@ -10,7 +10,7 @@ Shader "InitializeLifetime"
     {
         Attribute Age float
         Attribute Lifetime float
-        Input Lifetime float
+        Input Lifetime float Units=s Range=0..30 Default=2
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

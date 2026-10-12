@@ -17,12 +17,12 @@ Shader "SubUVAnimation"
         Attribute SubImageIndex float
         Attribute Age float
         Attribute Lifetime float
-        Input Mode int
-        Input NumFrames int
-        Input StartFrame int
-        Input EndFrame int
-        Input LoopsPerSecond float
-        Input RandomChangeInterval float
+        Input Mode int Range=0..3 Default=2
+        Input NumFrames int Range=1..256 Default=16
+        Input StartFrame int Range=0..255 Default=0
+        Input EndFrame int Range=0..255 Default=15
+        Input LoopsPerSecond float Units=1/s Range=0..60 Default=1
+        Input RandomChangeInterval float Units=s Range=0..10 Default=0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -9,8 +9,8 @@ Shader "ShapeSphere"
     Particle
     {
         Attribute Position vec3
-        Input Radius float
-        Input Offset vec3
+        Input Radius float Units=cm Range=0..5000 Default=50
+        Input Offset vec3 Units=cm Range=-5000..5000 Default=0,0,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

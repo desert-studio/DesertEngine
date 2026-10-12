@@ -11,7 +11,7 @@ Shader "UpdateRotation"
         Attribute SpriteRotation float
         Attribute SpriteRotationRate float
         Attribute PhysicsRotationalDrag float
-        Input RateScale float
+        Input RateScale float Units=x Range=0..10 Default=1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

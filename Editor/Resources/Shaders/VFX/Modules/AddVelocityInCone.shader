@@ -11,10 +11,10 @@ Shader "AddVelocityInCone"
     Particle
     {
         Attribute Velocity vec3
-        Input Speed float
-        Input Angle float
-        Input Falloff float
-        Input Axis vec3
+        Input Speed float Units=cm/s Range=0..5000 Default=100
+        Input Angle float Units=deg Range=0..180 Default=30
+        Input Falloff float Range=0..1 Default=0
+        Input Axis vec3 Range=-1..1 Default=0,1,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

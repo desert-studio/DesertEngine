@@ -1,0 +1,635 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "df7319ea128d46aba475588d59d93bb2",
+        "Versions": {
+            "VFXS": 1
+        },
+        "Dependencies": []
+    },
+    "Category": "Template",
+    "Tags": [
+        "template",
+        "explosion"
+    ],
+    "Duration": 1.0,
+    "Loop": true,
+    "Seed": 0,
+    "Bounds": {
+        "Min": [
+            -656,
+            -656,
+            -656
+        ],
+        "Max": [
+            656,
+            656,
+            656
+        ]
+    },
+    "UserParams": [],
+    "LocalModules": [],
+    "Emitters": [
+        {
+            "Name": "Explosion",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 1024,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.5,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnBurst",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnCount",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    400.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "SpawnTime",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:ShapePoint",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeLifetime",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        0.48,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        0.6,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        320.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        800.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    180.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    1.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Value",
+                                "Value": [
+                                    1.0,
+                                    1.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [
+                                    1.0,
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    -200.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SizeOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec2",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 50.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.0625,
+                                            "Value": 50.351562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.125,
+                                            "Value": 51.40625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.1875,
+                                            "Value": 53.164062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.25,
+                                            "Value": 55.625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.3125,
+                                            "Value": 58.789062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.375,
+                                            "Value": 62.65625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.4375,
+                                            "Value": 67.226562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5,
+                                            "Value": 72.5,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5625,
+                                            "Value": 78.476562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.625,
+                                            "Value": 85.15625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.6875,
+                                            "Value": 92.539062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.75,
+                                            "Value": 100.625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.8125,
+                                            "Value": 109.414062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.875,
+                                            "Value": 118.90625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.9375,
+                                            "Value": 129.101562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 140.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 50.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.0625,
+                                            "Value": 50.351562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.125,
+                                            "Value": 51.40625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.1875,
+                                            "Value": 53.164062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.25,
+                                            "Value": 55.625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.3125,
+                                            "Value": 58.789062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.375,
+                                            "Value": 62.65625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.4375,
+                                            "Value": 67.226562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5,
+                                            "Value": 72.5,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5625,
+                                            "Value": 78.476562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.625,
+                                            "Value": 85.15625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.6875,
+                                            "Value": 92.539062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.75,
+                                            "Value": 100.625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.8125,
+                                            "Value": 109.414062,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.875,
+                                            "Value": 118.90625,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.9375,
+                                            "Value": 129.101562,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 140.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:ColorOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec4",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0,
+                                            "Value": 1,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1,
+                                            "Value": 0.3,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0,
+                                            "Value": 0.7,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0,
+                                            "Value": 0.2,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        }
+    ]
+}

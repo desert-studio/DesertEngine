@@ -11,8 +11,8 @@ Shader "Drag"
     {
         Attribute PhysicsDrag float
         Attribute PhysicsRotationalDrag float
-        Input Drag float
-        Input RotationalDrag float
+        Input Drag float Units=1/s Range=0..20 Default=1
+        Input RotationalDrag float Units=1/s Range=0..20 Default=1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

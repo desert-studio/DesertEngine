@@ -13,10 +13,10 @@ Shader "CurlNoiseForce"
     {
         Attribute Position vec3
         Attribute PhysicsForce vec3
-        Input Strength float
-        Input Frequency float
-        Input Pan vec3
-        Input Offset vec3
+        Input Strength float Units=cm/s2 Range=0..5000 Default=200
+        Input Frequency float Units=1/cm Range=0..0.1 Default=0.01
+        Input Pan vec3 Units=cm/s Range=-1000..1000 Default=0,0,0
+        Input Offset vec3 Units=cm Range=-10000..10000 Default=0,0,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -7,7 +7,7 @@ Shader "ShapePoint"
     Particle
     {
         Attribute Position vec3
-        Input Offset vec3
+        Input Offset vec3 Units=cm Range=-5000..5000 Default=0,0,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

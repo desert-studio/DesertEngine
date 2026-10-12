@@ -9,7 +9,7 @@ Shader "SizeOverLife"
     {
         Attribute SpriteSize vec2
         Attribute InitialSpriteSize vec2
-        Input Scale vec2
+        Input Scale vec2 Units=x Range=0..100 Default=1,1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

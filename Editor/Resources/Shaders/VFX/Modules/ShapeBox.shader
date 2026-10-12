@@ -9,10 +9,10 @@ Shader "ShapeBox"
     Particle
     {
         Attribute Position vec3
-        Input Size vec3
-        Input SurfaceOnly bool
-        Input Thickness vec3
-        Input Offset vec3
+        Input Size vec3 Units=cm Range=0..5000 Default=100,100,100
+        Input SurfaceOnly bool Default=0
+        Input Thickness vec3 Units=cm Range=0..1000 Default=0,0,0
+        Input Offset vec3 Units=cm Range=-5000..5000 Default=0,0,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

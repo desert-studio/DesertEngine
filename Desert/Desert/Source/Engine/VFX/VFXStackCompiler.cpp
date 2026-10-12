@@ -14,6 +14,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 
 namespace Desert::VFX
 {
@@ -295,17 +296,86 @@ namespace Desert::VFX
 
             std::string name;
             std::string typeWord;
-            std::string extra;
-            words >> name >> typeWord >> extra;
+            words >> name >> typeWord;
             VFXValueType type = VFXValueType::Float;
-            if ( !IsIdentifier( name ) || !ParseType( typeWord, type ) || !extra.empty() )
+            if ( !IsIdentifier( name ) || !ParseType( typeWord, type ) )
                 return Common::MakeFormattedError<VFXParticleModule>(
                      "{}: '{}' is not `{} <Name> <float|vec2|vec3|vec4|int|bool>`", where, line, keyword );
+            VFXModuleDecl decl{ name, type };
+            // An Input's display metadata: `Units=<unit>` and `Range=<min>..<max>`, each at most once.
+            std::string extra;
+            while ( words >> extra )
+            {
+                const bool isUnits   = extra.starts_with( "Units=" ) && extra.size() > 6 && decl.Units.empty();
+                const bool isRange   = extra.starts_with( "Range=" ) && !decl.Range.has_value();
+                const bool isDefault = extra.starts_with( "Default=" ) && !decl.Default.has_value();
+                if ( keyword != "Input" || ( !isUnits && !isRange && !isDefault ) )
+                    return Common::MakeFormattedError<VFXParticleModule>(
+                         "{}: '{}' - after `{} <Name> <type>` only an Input may state Units=<unit>, "
+                         "Range=<min>..<max> and Default=<c0>,<c1>..., once each",
+                         where, line, keyword );
+                if ( isUnits )
+                {
+                    decl.Units = extra.substr( 6 );
+                    continue;
+                }
+                if ( isDefault )
+                {
+                    glm::vec4         value( 0.0f );
+                    uint32_t          count = 0;
+                    std::stringstream parts( extra.substr( 8 ) );
+                    std::string       part;
+                    bool              ok = true;
+                    while ( ok && std::getline( parts, part, ',' ) )
+                    {
+                        std::size_t used = 0;
+                        try
+                        {
+                            if ( count < 4 )
+                                value[static_cast<int>( count )] = std::stof( part, &used );
+                        }
+                        catch ( const std::exception& )
+                        {
+                            used = 0;
+                        }
+                        ok = count < 4 && !part.empty() && used == part.size();
+                        ++count;
+                    }
+                    if ( !ok || count != S::ComponentCount( type ) )
+                        return Common::MakeFormattedError<VFXParticleModule>(
+                             "{}: '{}' - Default is {} comma-separated number(s), one per component of {}", where,
+                             line, S::ComponentCount( type ), typeWord );
+                    decl.Default = value;
+                    continue;
+                }
+                const std::string bounds = extra.substr( 6 );
+                const std::size_t dots   = bounds.find( ".." );
+                VFXInputRange     range;
+                std::size_t       usedMin = 0;
+                std::size_t       usedMax = 0;
+                try
+                {
+                    if ( dots != std::string::npos )
+                    {
+                        range.Min = std::stof( bounds.substr( 0, dots ), &usedMin );
+                        range.Max = std::stof( bounds.substr( dots + 2 ), &usedMax );
+                    }
+                }
+                catch ( const std::exception& )
+                {
+                    usedMin = 0;
+                }
+                if ( dots == std::string::npos || usedMin != dots || usedMax != bounds.size() - dots - 2 ||
+                     !( range.Min < range.Max ) )
+                    return Common::MakeFormattedError<VFXParticleModule>(
+                         "{}: '{}' - Range is `Range=<min>..<max>` with min < max", where, line );
+                decl.Range = range;
+            }
             auto& names = keyword == "Attribute" ? attributeNames : inputNames;
             if ( !names.insert( name ).second )
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
                                                                       keyword, name );
-            ( keyword == "Attribute" ? module.Attributes : module.Inputs ).push_back( { name, type } );
+            ( keyword == "Attribute" ? module.Attributes : module.Inputs ).push_back( std::move( decl ) );
             pos = end + 1;
         }
         module.Body = pos < source.size() ? source.substr( pos ) : std::string{};

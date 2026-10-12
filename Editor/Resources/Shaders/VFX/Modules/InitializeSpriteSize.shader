@@ -10,7 +10,7 @@ Shader "InitializeSpriteSize"
     {
         Attribute SpriteSize vec2
         Attribute InitialSpriteSize vec2
-        Input Size vec2
+        Input Size vec2 Units=cm Range=0..1000 Default=20,20
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -10,10 +10,10 @@ Shader "ShapeCone"
     Particle
     {
         Attribute Position vec3
-        Input Angle float
-        Input Length float
-        Input Axis vec3
-        Input Offset vec3
+        Input Angle float Units=deg Range=0..180 Default=30
+        Input Length float Units=cm Range=0..5000 Default=100
+        Input Axis vec3 Range=-1..1 Default=0,1,0
+        Input Offset vec3 Units=cm Range=-5000..5000 Default=0,0,0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

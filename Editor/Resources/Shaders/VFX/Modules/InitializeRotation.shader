@@ -10,8 +10,8 @@ Shader "InitializeRotation"
     {
         Attribute SpriteRotation float
         Attribute SpriteRotationRate float
-        Input Rotation float
-        Input RotationRate float
+        Input Rotation float Units=deg Range=0..360 Default=0
+        Input RotationRate float Units=deg/s Range=-720..720 Default=0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {
