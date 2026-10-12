@@ -996,10 +996,14 @@ namespace Desert::Editor::ShaderGraph
                                  NodeLabel( node ), side, pin.Name, node.Kind );
                     return std::nullopt;
                 };
-                if ( auto error = orphan( node.Inputs, spec->Inputs, "input" ) )
-                    return *error;
-                if ( auto error = orphan( node.Outputs, spec->Outputs, "output" ) )
-                    return *error;
+                // An orphan sits AFTER the catalogue's pins, so it only exists where the list is longer;
+                // a same-length list with a wrong name is answered positionally further down.
+                if ( node.Inputs.size() > spec->Inputs.size() )
+                    if ( auto error = orphan( node.Inputs, spec->Inputs, "input" ) )
+                        return *error;
+                if ( node.Outputs.size() > spec->Outputs.size() )
+                    if ( auto error = orphan( node.Outputs, spec->Outputs, "output" ) )
+                        return *error;
 
                 // A node whose pin list disagrees with its kind is the crash case, not just a bad
                 // message: the emitter indexes node.Inputs[i] positionally for every kind it knows,
