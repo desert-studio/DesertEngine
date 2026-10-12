@@ -399,6 +399,10 @@ namespace
                "MeshRenderer::CullPermutation — the CullMode None twin of a mesh pipeline, built the first time a "
                "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
                "it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererMorph.cpp", "kMorphShader",
+               Verdict::Shipped,
+               "the morph-target compute pass: an imported mesh with blend shapes deforms through it in the "
+               "product" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"StaticMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
@@ -515,19 +519,23 @@ namespace
 
              // ── particles ───────────────────────────────────────────────────────────────────────────
              // VFX-07b/VFX-08: the scene pool's simulation kernels, and one pipeline per material sprite cell.
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "name", Verdict::Shipped,
-               "the particle simulation/sort kernels, named by the kernel table" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "cellShader", Verdict::Shipped,
-               "a material's ParticleSprite cell, named by its shader" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "name",
+               Verdict::Shipped, "the particle simulation/sort kernels, named by the kernel table" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "cellShader",
+               Verdict::Shipped, "a material's ParticleSprite cell, named by its shader" },
 
              // ── the view's temporal and lens chain (TAA1, DOF, motion blur, upscalers) ─────────────────
-             { "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp", "name", Verdict::Shipped, "the six DOF kernels" },
-             { "Desert/Desert/Source/Engine/Graphic/View/MotionBlur.cpp", "name", Verdict::Shipped, "the four motion-blur kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp", "name", Verdict::Shipped,
+               "the six DOF kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/MotionBlur.cpp", "name", Verdict::Shipped,
+               "the four motion-blur kernels" },
              { "Desert/Desert/Source/Engine/Graphic/View/SpatialUpscale.cpp", "ShaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp", "pipelineName", Verdict::Shipped, "one per TAA variant define" },
-             { "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp", "kResolveShaderName", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp", "\"PopulateSceneDepth\"",
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp", "pipelineName", Verdict::Shipped,
+               "one per TAA variant define" },
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp", "kResolveShaderName",
                Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp",
+               "\"PopulateSceneDepth\"", Verdict::Shipped, "" },
 
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"", Verdict::Shipped,

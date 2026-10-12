@@ -842,8 +842,9 @@ namespace Desert::Physics
                     const JPH::Body& parent = *joint.Constraint->GetBody1();
                     const JPH::Body& child  = *joint.Constraint->GetBody2();
                     const JPH::Quat  frame1 = parent.GetRotation() * joint.ToBody1;
-                    const JPH::Quat  q      = frame1.Conjugated() * ( child.GetRotation() * joint.ToBody2 );
-                    JPH::Quat        swing, twist;
+                    const JPH::Quat  q =
+                         ( frame1.Conjugated() * ( child.GetRotation() * joint.ToBody2 ) ).Normalized();
+                    JPH::Quat swing, twist;
                     q.GetSwingTwist( swing, twist );
                     JPH::uint clamped = 0u;
                     joint.Limits.ClampSwingTwist( swing, twist, clamped );
@@ -1873,12 +1874,14 @@ namespace Desert::Physics
             {
                 return JPH::Mat44( JPH::Vec4( twistAxis, 0.0f ), JPH::Vec4( planeAxis.Cross( twistAxis ), 0.0f ),
                                    JPH::Vec4( planeAxis, 0.0f ), JPH::Vec4( 0.0f, 0.0f, 0.0f, 1.0f ) )
-                     .GetQuaternion();
+                     .GetQuaternion()
+                     .Normalized();
             };
             joint.ToBody1 = frame( local->mTwistAxis1, local->mPlaneAxis1 );
             joint.ToBody2 = frame( local->mTwistAxis2, local->mPlaneAxis2 );
             joint.Pivot1  = JPH::Vec3( local->mPosition1 );
             joint.Pivot2  = JPH::Vec3( local->mPosition2 );
+            joint.Limits.SetSwingType( local->mSwingType );
             joint.Limits.SetLimits(
                  joint.Constraint->GetTwistMinAngle(), joint.Constraint->GetTwistMaxAngle(),
                  -joint.Constraint->GetPlaneHalfConeAngle(), joint.Constraint->GetPlaneHalfConeAngle(),
