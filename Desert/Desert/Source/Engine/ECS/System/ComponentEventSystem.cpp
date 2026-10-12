@@ -82,18 +82,18 @@ namespace Desert::ECS
             if ( broke == nullptr || collided == nullptr || removed == nullptr )
                 return 0;
             std::size_t calls = 0;
-            for ( const DestructionBreakEvent& fact : queue.Breaks )
+            for ( const DestructibleBreakEvent& fact : queue.Breaks )
                 if ( events.IsBound( fact.Self, *broke ) )
                     calls += Fire( events, fact.Self, *broke,
                                    Reflection::EventPayload<DestructibleData::OnBreak>(
                                         fact.Node, fact.Position, fact.Velocity, fact.MassKg, fact.PieceCount ) );
-            for ( const DestructionCollisionEvent& fact : queue.Collisions )
+            for ( const DestructibleCollisionEvent& fact : queue.Collisions )
                 if ( events.IsBound( fact.Self, *collided ) )
                     calls += Fire(
                          events, fact.Self, *collided,
                          Reflection::EventPayload<DestructibleData::OnCollision>(
                               fact.Node, fact.Position, fact.Normal, fact.Impulse, fact.Velocity, fact.MassKg ) );
-            for ( const DestructionRemovalEvent& fact : queue.Removals )
+            for ( const DestructibleRemovalEvent& fact : queue.Removals )
                 if ( events.IsBound( fact.Self, *removed ) )
                     calls += Fire( events, fact.Self, *removed,
                                    Reflection::EventPayload<DestructibleData::OnRemoved>(

@@ -287,19 +287,19 @@ namespace Desert::ECS
             const DestructionEventQueue news = *queue; // a callback may destroy, never re-publish
             using V                          = Reflection::Value;
             const auto vec3                  = []( const glm::vec3& v ) { return V::Vec3( { v.x, v.y, v.z } ); };
-            for ( const DestructionBreakEvent& e : news.Breaks )
+            for ( const DestructibleBreakEvent& e : news.Breaks )
             {
                 const std::array<V, 5> args = { V::Int( e.Node ), vec3( e.Position ), vec3( e.Velocity ),
                                                 V::Float( e.MassKg ), V::Int( e.PieceCount ) };
                 CallSlots( registry, e.Self, "OnBreak", args );
             }
-            for ( const DestructionCollisionEvent& e : news.Collisions )
+            for ( const DestructibleCollisionEvent& e : news.Collisions )
             {
                 const std::array<V, 6> args = { V::Int( e.Node ),      vec3( e.Position ), vec3( e.Normal ),
                                                 V::Float( e.Impulse ), vec3( e.Velocity ), V::Float( e.MassKg ) };
                 CallSlots( registry, e.Self, "OnCollision", args );
             }
-            for ( const DestructionRemovalEvent& e : news.Removals )
+            for ( const DestructibleRemovalEvent& e : news.Removals )
             {
                 const std::array<V, 4> args = { V::Int( e.Node ), vec3( e.Position ), V::Float( e.MassKg ),
                                                 V::Int( e.PieceCount ) };

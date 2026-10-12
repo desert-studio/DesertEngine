@@ -23,7 +23,7 @@
 namespace Desert::ECS
 {
     /// A group of Self's pieces broke off as a body of its own (UE FChaosBreakEvent).
-    struct DestructionBreakEvent
+    struct DestructibleBreakEvent
     {
         entt::entity Self       = entt::null;
         int32_t      Node       = -1;                   ///< The first fracture node of the group
@@ -34,7 +34,7 @@ namespace Desert::ECS
     };
 
     /// A contact on one of Self's bodies at or above its Collision Event Min Impulse (UE FChaosCollisionEvent).
-    struct DestructionCollisionEvent
+    struct DestructibleCollisionEvent
     {
         entt::entity Self     = entt::null;
         int32_t      Node     = -1;                   ///< The unit touched
@@ -46,7 +46,7 @@ namespace Desert::ECS
     };
 
     /// One of Self's pieces left the simulation: slept long enough, or a kill field (UE FChaosRemovalEvent).
-    struct DestructionRemovalEvent
+    struct DestructibleRemovalEvent
     {
         entt::entity Self       = entt::null;
         int32_t      Node       = -1;                   ///< The member that left
@@ -59,9 +59,9 @@ namespace Desert::ECS
     /// that made them, read until the next frame's publish replaces them.
     struct DestructionEventQueue
     {
-        std::vector<DestructionBreakEvent>     Breaks;
-        std::vector<DestructionCollisionEvent> Collisions;
-        std::vector<DestructionRemovalEvent>   Removals;
+        std::vector<DestructibleBreakEvent>     Breaks;
+        std::vector<DestructibleCollisionEvent> Collisions;
+        std::vector<DestructibleRemovalEvent>   Removals;
         /// Bumped by every publish (see PhysicsEventQueue::Publication).
         std::uint64_t Publication = 0;
 
