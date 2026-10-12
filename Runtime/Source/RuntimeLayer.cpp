@@ -145,7 +145,7 @@ namespace
     /// (a Shift-click in a list), asked of one function so the two cannot disagree about Cmd vs Ctrl.
     Desert::UI::UIKeyMods HeldUIMods()
     {
-        using Desert::Common::KeyCode;
+        using ::Common::KeyCode;
         using Desert::Input::Keyboard;
         using Desert::UI::UIKeyMods;
         UIKeyMods mods = UIKeyMods::None;
