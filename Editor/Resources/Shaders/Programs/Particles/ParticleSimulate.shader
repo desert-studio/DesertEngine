@@ -16,7 +16,9 @@ Shader "ParticleSimulate"
         // A module's Kill (UpdateAge at Lifetime) leaves lifetime 0: the next compact frees the particle. After the
         // stack the host writes the DRAWN particle (Common/ParticleState.glslh) from the stack's Position /
         // SpriteSize / Color / Age / Lifetime / Velocity attributes (absent = 0, 1 or white), which is all the sprite
-        // vertex path reads. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
+        // vertex path reads. A Spawn from Channel newborn hands its record's direction, colour and scalars to the
+        // stack in VFXSim (the Initialize / velocity modules read them, UE's Data Channel read); only the bound
+        // position is the host's, as the shape modules place a newborn around zero. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
         // Local one is drawn at emitter + Position every step.
         LocalSize(64, 1, 1);
 
@@ -62,7 +64,7 @@ Shader "ParticleSimulate"
         {
             vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
             vec4 Direction; // xyz start velocity direction, w = 1 when bound
-            vec4 Color;     // linear rgba -> the particle's Tint when Scalars.z = 1
+            vec4 Color;     // linear rgba, bound when Scalars.z = 1
             vec4 Scalars;   // x = lifetime seconds, y = base-size scale (1 when unbound), z = 1 when the colour is
                             // bound, w = 1 when the lifetime is
         };
@@ -154,6 +156,9 @@ Shader "ParticleSimulate"
             sim.Step       = u_Stack.x + step;
             sim.Spawned    = spawned;
             sim.Kill       = false;
+            sim.ChannelDirection = channel.Direction;
+            sim.ChannelColor     = channel.Color;
+            sim.ChannelScalars   = channel.Scalars;
             VFX_SimulateParticle( n, sim );
 
             vec3 position = vec3( 0.0 );
@@ -171,8 +176,6 @@ Shader "ParticleSimulate"
 #endif
             float lifetime = 3.0e38; // no Lifetime attribute: the particle never dies of age
 #ifdef VFX_ATTR_LIFETIME
-            if ( spawned && channel.Scalars.w > 0.5 )
-                VFX_WriteFloat( n, VFX_ATTR_LIFETIME, channel.Scalars.x );
             if ( VFX_ReadFloat( n, VFX_ATTR_LIFETIME ) > 0.0 )
                 lifetime = VFX_ReadFloat( n, VFX_ATTR_LIFETIME );
 #endif
@@ -194,18 +197,13 @@ Shader "ParticleSimulate"
                           VFX_ReadFloat( n, VFX_ATTR_COLOR + 2u ), VFX_ReadFloat( n, VFX_ATTR_COLOR + 3u ) );
 #endif
 
-            Particle old  = u_Particles[i];
-            vec4     tint = spawned ? ( channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 ) ) : old.Tint;
-            float    scale = spawned ? channel.Scalars.y : old.SizeScale.x;
-
             Particle p;
-            p.PosSize   = vec4( local ? u_EmitterPos.xyz + position : position, size * scale );
-            p.Color     = color * tint;
-            p.VelLife   = vec4( velocity, sim.Kill ? 0.0 : lifetime );
-            p.Age       = vec4( age, 0.0, 0.0, 0.0 );
-            p.Tint      = tint;
-            // y carries the particle's id between steps (its random streams are keyed by it).
-            p.SizeScale = vec4( scale, uintBitsToFloat( id ), 0.0, 0.0 );
+            p.PosSize = vec4( local ? u_EmitterPos.xyz + position : position, size );
+            p.Color   = color;
+            p.VelLife = vec4( velocity, sim.Kill ? 0.0 : lifetime );
+            p.Age     = vec4( age, 0.0, 0.0, 0.0 );
+            // x carries the particle's id between steps (its random streams are keyed by it).
+            p.Ids     = uvec4( id, 0u, 0u, 0u );
             if ( sim.Kill )
                 p.Color.a = 0.0; // dead => invisible
             u_Particles[i] = p;
@@ -232,7 +230,7 @@ Shader "ParticleSimulate"
             if ( t < alive )
             {
                 uint i = u_Alive[2u * base + slot * u_Counts.x + t];
-                Run( i, false, floatBitsToUint( u_Particles[i].SizeScale.y ), step, none );
+                Run( i, false, u_Particles[i].Ids.x, step, none );
             }
 
             if ( t < min( u_Steps[step].Budget, freeCount ) )

@@ -66,7 +66,7 @@ namespace Desert::Graphic::System
     {
         glm::vec4 Position  = glm::vec4( 0.0f ); // xyz world cm, w = 1 when the module binds a Position field
         glm::vec4 Direction = glm::vec4( 0.0f ); // xyz start velocity direction, w = 1 when bound
-        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> the particle's Tint when Scalars.z = 1
+        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> InitializeColor when Scalars.z = 1
         glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, z = 1 colour bound, w = 1 lifetime bound
     };
     static_assert( sizeof( ParticleChannelSpawnGpu ) == kParticleChannelSpawnStride );
