@@ -57,8 +57,10 @@ namespace Desert::Tests::CloudAuthoredRef
         using glm::abs;
         using glm::clamp;
         using glm::dot;
+        using glm::exp;
         using glm::floor;
         using glm::length;
+        using glm::log;
         using glm::max;
         using glm::min;
         using glm::mix;
@@ -144,9 +146,13 @@ namespace Desert::Tests::CloudAuthoredRef
         // which is the sky a hero cloud is placed into.
         struct ProceduralState
         {
-            std::vector<unsigned char>                 Voxels;
-            Desert::Assets::CloudProceduralFieldParams Params;
-            glm::vec2                                  OriginKm{ 0.0f };
+            /// The three clip levels the march reads (CLIP-3), each its toroidal bake around the camera at
+            /// the origin, and the minimum corner of each level's window.
+            std::array<std::vector<unsigned char>, Desert::Assets::kCloudProceduralClipLevels> Levels;
+            std::array<glm::vec2, Desert::Assets::kCloudProceduralClipLevels>                  LevelOriginKm{};
+            Desert::Assets::CloudProceduralFieldParams                                         Params;
+            /// The far path's statistics of the coarsest level (CloudProceduralClipmap::FarStatistics).
+            Desert::Assets::CloudProceduralFarStatistics Far{};
         };
 
         /// The sky the seam's OTHER producer is putting up, at a given coverage.
@@ -176,7 +182,6 @@ namespace Desert::Tests::CloudAuthoredRef
             built.Params.LayerBottomKm     = std::max( envelope.BottomKm, 0.0f );
             built.Params.LayerThicknessKm  = std::max( envelope.TopKm - built.Params.LayerBottomKm, 0.001f );
             built.Params.BlendRadiusKm     = 0.06f;
-            built.Params.ProfileDepthKm    = 0.36f;
             built.Params.Coverage          = coverage;
             built.Params.CoverageContrast  = 1.0f;
             built.Params.Seed              = 1u;
@@ -189,11 +194,22 @@ namespace Desert::Tests::CloudAuthoredRef
             species.Anisotropy = 1.0f;
             built.Params.Species.push_back( species );
 
-            built.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( built.Params, 0.0f, 0.0f );
+            Desert::Assets::CloudProceduralVoxelBox box;
+            box.Width = Desert::Assets::kCloudProceduralVolumeSide;
+            box.Depth = Desert::Assets::kCloudProceduralVolumeSide;
+            for ( std::uint32_t level = 0; level < Desert::Assets::kCloudProceduralClipLevels; ++level )
+            {
+                const glm::ivec2 originVoxel =
+                     Desert::Assets::CloudProceduralLevelOriginVoxel( built.Params, level, 0.0f, 0.0f );
+                built.LevelOriginKm[level] =
+                     Desert::Assets::CloudProceduralLevelOriginKm( built.Params, level, 0.0f, 0.0f );
 
-            const auto baked = Desert::Assets::BakeCloudProceduralVolume( built.Params, built.OriginKm );
-            if ( baked )
-                built.Voxels = baked.GetValue();
+                const auto baked = Desert::Assets::BakeCloudProceduralBox( built.Params, level, originVoxel, box );
+                if ( baked )
+                    built.Levels[level] = baked.GetValue();
+            }
+            built.Far = Desert::Assets::CloudProceduralFarStatisticsOf(
+                 built.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u], Desert::Assets::kCloudProceduralVolumeSide );
 
             return cache.emplace( key, std::move( built ) ).first->second;
         }
@@ -206,15 +222,20 @@ namespace Desert::Tests::CloudAuthoredRef
             return coverage;
         }
 
-        /// A trilinear, REPEAT-wrapped fetch, as VulkanImage3D creates every sampled volume.
+        /// A trilinear, REPEAT-wrapped fetch, as VulkanImage3D creates every sampled volume — of the
+        /// stacked image the renderer binds (CLIP-3): level k in rows [32k, 32k + 32).
         vec4 CloudSampleProceduralTexture( vec3 uvw )
         {
-            const std::vector<unsigned char>& voxels = Procedural( BoundCoverage() ).Voxels;
-            if ( voxels.empty() )
-                return vec4( 0.0f );
+            const ProceduralState& state = Procedural( BoundCoverage() );
+            for ( const std::vector<unsigned char>& level : state.Levels )
+            {
+                if ( level.empty() )
+                    return vec4( 0.0f );
+            }
 
-            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+            constexpr int width       = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+            constexpr int levelHeight = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+            constexpr int height = levelHeight * static_cast<int>( Desert::Assets::kCloudProceduralClipLevels );
             constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
 
             const float x = uvw.x * static_cast<float>( width ) - 0.5f;
@@ -240,7 +261,9 @@ namespace Desert::Tests::CloudAuthoredRef
 
             const auto texel = [&]( int ix, int iy, int iz )
             {
-                const size_t base = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
+                const std::vector<unsigned char>& voxels = state.Levels[static_cast<size_t>( iy / levelHeight )];
+                const int                         row    = iy % levelHeight;
+                const size_t base = ( ( static_cast<size_t>( iz ) * levelHeight + row ) * width + ix ) *
                                     Desert::Assets::kCloudProceduralBytesPerVoxel;
                 return vec4( voxels[base] / 255.0f, voxels[base + 1] / 255.0f, voxels[base + 2] / 255.0f,
                              voxels[base + 3] / 255.0f );
@@ -257,6 +280,14 @@ namespace Desert::Tests::CloudAuthoredRef
         }
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleProceduralTexture( p )
+#define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
+    Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( Procedural( BoundCoverage() ).Params ), \
+                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
+                                     Procedural( BoundCoverage() ).Params.PatchTileKm )
+#define CLOUD_SAMPLE_LAYOUT_PATTERN( uv )                                                                         \
+    Desert::Assets::SampleCloudLayoutPatternTexel( Procedural( BoundCoverage() ).Params.PatternSource.get(), ( uv ) )
+#define CLOUD_SAMPLE_LAYOUT_MASK( uv )                                                                            \
+    Desert::Assets::SampleCloudLayoutMaskUnorm( Procedural( BoundCoverage() ).Params.MaskSource.get(), ( uv ) )
 
         // ------------------------------------------------------------------------------------------
         // Producer A: the baked body, and the device's own filter over it
@@ -483,18 +514,43 @@ namespace Desert::Tests::CloudAuthoredRef
                 // One species and therefore one volume, which is what a layer of one type resolves to and
                 // what every scene in the repository is in. The point of the assertion this suite adds is
                 // that the SCULPTED side asks for this slot too.
-                params.SpeciesNoise[slot] = 0;
+                params.SpeciesNoise[slot]    = 0;
+                params.SpeciesWispBase[slot] = 0.0f;
+                params.SpeciesWispTop[slot]  = 0.0f;
             }
 
             params.SpeciesEdge[0] =
                  vec4( shape.DetailCharacter, shape.DetailFactor, shape.DensityFactor, shape.ExtinctionFactor );
+            {
+                const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
+                     shape, Procedural( BoundCoverage() ).Params.LayerBottomKm,
+                     Procedural( BoundCoverage() ).Params.LayerThicknessKm );
+                params.SpeciesWispBase[0] = wisp.x;
+                params.SpeciesWispTop[0]  = wisp.y;
+            }
 
             // WHERE THE PROCEDURAL VOLUME IS, which is what the placement basis used to be. The tile, the
             // coverage and its contrast are not fields of this struct any more: they decide what is IN the
             // volume and are consumed by the bake, so they are set on Procedural() above and reach the
             // seam through the bytes.
-            params.RegionOriginKm  = Procedural( BoundCoverage() ).OriginKm;
-            params.InvRegionSizeKm = 1.0f / Procedural( BoundCoverage() ).Params.RegionSizeKm;
+            for ( std::uint32_t level = 0; level < Desert::Assets::kCloudProceduralClipLevels; ++level )
+            {
+                const ProceduralState& sky = Procedural( BoundCoverage() );
+                params.ProceduralLevel[level] =
+                     vec4( sky.LevelOriginKm[level].x, sky.LevelOriginKm[level].y,
+                           1.0f / Desert::Assets::CloudProceduralLevelSideKm( sky.Params, level ), 0.0f );
+            }
+            // As CloudUnpackFieldParams unpacks u_CloudWeather: .yw the weather, .x the far path's read scale.
+            const vec4 farWeather = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
+            params.Weather        = vec2( farWeather.y, farWeather.w );
+            params.FarScale       = farWeather.x;
+            for ( std::uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+            {
+                params.FarPresence[band] = Procedural( BoundCoverage() ).Far.Presence[band];
+                params.FarProfile[band]  = Procedural( BoundCoverage() ).Far.Profile[band];
+            }
+            params.LayoutPlace    = Desert::Assets::CloudLayoutPlaceUniform( Procedural( BoundCoverage() ).Params );
+            params.LayoutStrength = Desert::Assets::CloudLayoutStrengthUniform( Procedural( BoundCoverage() ).Params );
 
             return params;
         }

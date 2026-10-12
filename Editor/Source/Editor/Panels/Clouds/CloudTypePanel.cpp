@@ -142,6 +142,12 @@ namespace Desert::Editor
                8.0f, "%.2f", nullptr, false, false,
                "How much longer this kind's patches are ALONG THE WIND than across it. 1 is round; above 1 "
                "they are drawn out downwind into bands, which is what makes fibrous cirrus read as cirrus." },
+             { "BodyDiameterKm", "Body Diameter", &Graphic::CloudTypeShape::BodyDiameterKm, 0.2f, 16.0f, "%.2f km",
+               nullptr, false, false,
+               "The mean width of one cloud of this kind. A patch is many such bodies, drawn from the "
+               "exponential size law observed cumulus fields follow: many small, few large. Below about 3 km "
+               "(fibrous kinds: more) the lumps of a body sit on the volume's voxel floor and a cloud reads "
+               "as a pile of equal spheres - measure with LatticePeak --bodies." },
         };
     } // namespace
 
@@ -405,6 +411,22 @@ namespace Desert::Editor
             ImGui::TreePop();
         }
 
+        // THE ALTITUDE DENSITY H (format version 6): how much matter the type has at each of the same sixteen
+        // heights, multiplied into the profile before the coverage remap. Its rising part is the wispy base.
+        if ( ImGui::TreeNode( "Altitude density (base first)" ) )
+        {
+            for ( uint32_t row = 0; row < Graphic::kCloudProfileSamples; row += 4 )
+            {
+                ImGui::PushID( static_cast<int>( row ) + 100 );
+                ImGui::SetNextItemWidth( -1.0f );
+                ImGui::DragFloat4( "##densityRow", &profile.Density[row], 0.005f, 0.0f, 1.0f, "%.3f" );
+                ImGui::PopID();
+            }
+            if ( ImGui::Button( "Base ramp" ) )
+                profile.Density = Graphic::CloudProfileDensityBaseRamp();
+            ImGui::TreePop();
+        }
+
         // THE PRESETS ARE THE ENGINE'S OWN FUNCTIONS, not a second set of numbers written out here. The
         // tower and the deck are what the delivery frames were shot with and what the tests assert
         // against, so a preset that drifted from them would make the panel and the evidence disagree.
@@ -505,7 +527,6 @@ namespace Desert::Editor
 
         params.RegionSizeKm      = std::max( latticeKm * 6.0f, 16.1f );
         params.BlendRadiusKm     = std::max( 0.02f * latticeKm, 1e-3f );
-        params.ProfileDepthKm    = std::max( 0.12f * latticeKm, 1e-3f );
         params.ResolvableChordKm = Graphic::CloudFinestResolvableChordKm( 256.0f );
 
         // EVERY CELL ALIVE, because the preview is about the SHAPE of one cloud and not about how many
@@ -520,8 +541,12 @@ namespace Desert::Editor
 
         const glm::vec2 origin( 0.0f, 0.0f );
 
-        const std::vector<Assets::CloudModellingBlob> blobs =
-             Assets::GenerateCloudProceduralBlobs( params, 0u, origin );
+        const std::vector<Assets::CloudProceduralLump> lumps =
+             Assets::GenerateCloudProceduralLumps( params, 0u, origin, Assets::CloudProceduralLumpSet::KeptCells );
+        std::vector<Assets::CloudModellingBlob> blobs;
+        blobs.reserve( lumps.size() );
+        for ( const Assets::CloudProceduralLump& lump : lumps )
+            blobs.push_back( lump.Blob );
 
         if ( blobs.empty() )
         {
@@ -556,9 +581,9 @@ namespace Desert::Editor
             const float altitudeKm = bottomKm + fraction * spanKm;
 
             m_ProfileCore[i] = Assets::EvaluateCloudProceduralProfile(
-                 params, blobs, glm::vec3( tallest.x, altitudeKm, tallest.z ) );
+                 params, 0u, lumps, glm::vec3( tallest.x, altitudeKm, tallest.z ) );
             m_ProfileEdge[i] = Assets::EvaluateCloudProceduralProfile(
-                 params, blobs, glm::vec3( tallest.x + widest, altitudeKm, tallest.z ) );
+                 params, 0u, lumps, glm::vec3( tallest.x + widest, altitudeKm, tallest.z ) );
         }
 
         ImGui::PlotLines( "##profileCore", m_ProfileCore.data(), kPreviewSamples, 0, "through the core", 0.0f,

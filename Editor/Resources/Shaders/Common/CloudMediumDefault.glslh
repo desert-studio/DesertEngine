@@ -68,6 +68,28 @@ int CloudNoiseSlotOf( float slot )
     return int( clamp( floor( slot + 0.5f ), 0.0f, float( CLOUD_SPECIES_SLOTS - 1 ) ) );
 }
 
+// THE DECK'S OWN COMPOSITE (p.122) of one read of an erosion volume, and it uses all four channels.
+//
+// Each character of erosion is a blend of ITS OWN pair across frequency, and the blend is driven by the
+// profile — deep inside the body the coarse octave, out at the edge the fine one, which is the
+// frequency-follows-depth relation the deck states on p.101 and p.105. The wispy end blends linearly;
+// the billowy end blends on the fourth root, so a billowy cloud reaches its fine octave much earlier
+// and its edge breaks into lobes rather than fading into one smooth frequency.
+//
+// Only THEN do the two characters mix, on DetailType. Written the other way round — pick a channel by
+// type and never blend by depth — the erosion has one frequency everywhere inside a cloud, which is
+// what the two-channel version this replaces did.
+float CloudDefaultErosionComposite( CloudFieldSample field, vec4 noise )
+{
+    float wispy   = mix( noise.x, noise.y, field.Profile );
+    // THE BILLOWY PAIR IS CUT WHERE IT IS LOW (CLOUD-SHAPE-f). Its channels are billows — high at a
+    // billow's centre — and an erosion that cuts where its value is high cut each billow's centre, a pit,
+    // so a lump's surface read as pocked cotton with its round outline untouched. Inverted, the cut lands
+    // in the gaps BETWEEN billows and leaves rounded heads standing, which is the cauliflower silhouette.
+    float billowy = 1.0f - mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
+    return clamp( mix( wispy, billowy, clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+}
+
 // The up-rez: turn the low-frequency profile into something with a cloud's edge.
 //
 // The erosion is a REMAP, not a subtraction (deck p.120, `ValueErosion`). The difference shows at the
@@ -89,36 +111,32 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // THE VOLUME IS THE WINNING SPECIES', not the layer's. Until this argument existed there was one
     // `sampler3D` on the march and a Cirrus standing beside a Cumulus was cut from the cumulus' volume —
     // the last recorded debt of the cloud programme, and a dead setting in three of a layer's four slots.
-    vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
+    vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_LF_RATIO );
 
-    // THE DECK'S OWN COMPOSITE (p.122), and it uses all four channels rather than two of them.
-    //
-    // Each character of erosion is a blend of ITS OWN pair across frequency, and the blend is driven by the
-    // profile — deep inside the body the coarse octave, out at the edge the fine one, which is the
-    // frequency-follows-depth relation the deck states on p.101 and p.105. The wispy end blends linearly;
-    // the billowy end blends on the fourth root, so a billowy cloud reaches its fine octave much earlier
-    // and its edge breaks into lobes rather than fading into one smooth frequency.
-    //
-    // Only THEN do the two characters mix, on DetailType. Written the other way round — pick a channel by
-    // type and never blend by depth — the erosion has one frequency everywhere inside a cloud, which is
-    // what the two-channel version this replaces did.
-    float wispy   = mix( noise.x, noise.y, field.Profile );
-    float billowy = mix( noise.z, noise.w, pow( field.Profile, 0.25f ) );
+    // A SECOND, FINER READ OF THE SAME VOLUME (Nubis Cubed's high-frequency octave). The tile's period is
+    // chosen against a body, so its lobes are the size of the lumps the modelling volume already placed —
+    // it scales a body instead of breaking its surface into smaller lobes, and every cumulus stayed a
+    // smooth ball (CLOUD-SHAPE-d). The same composite read CLOUD_DETAIL_HF_RATIO times finer puts billows
+    // on the billows. It is the same volume and not a second texture, so a cloud type's `.dcnv` still
+    // decides the character of both octaves, and the wispy-at-the-base / billowy-at-the-crown relation
+    // carries over through DetailType unchanged.
+    vec4 fineNoise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * ( CLOUD_DETAIL_LF_RATIO * CLOUD_DETAIL_HF_RATIO ) );
 
-    float detailField = clamp( mix( wispy, billowy, clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+    float detailField = mix( CloudDefaultErosionComposite( field, noise ),
+                             CloudDefaultErosionComposite( field, fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
 
-    // THE EROSION IS WEIGHTED BY DEPTH, and this is the difference between clouds and fog.
+    // THE EROSION IS THE DECK'S VALUE EROSION, UNWEIGHTED (Nubis Cubed p.120: `remap(profile, erosion, 1,
+    // 0, 1)`). The remap is what protects the core — a profile already near one stays near one whatever is
+    // subtracted from it — so the cut lands where the body is ending without a second weight saying so.
     //
-    // Applied uniformly, the erosion subtracts as much from the core of a cloud as from its edge — and
-    // since the profile is only high in a thin band anyway, a strength of 0.5 removes most of the layer
-    // and what survives is a translucent veil. That is not a tuning failure: a cut of fixed depth into a
-    // field whose typical value is small removes the field.
+    // WHAT STOOD HERE multiplied the cut by (1 - Profile) as well. Against a profile that rises over the
+    // depth of the body's deepest lump that double weight could never cut deeper than e / (1 + e) of the
+    // ramp — a fifth of it at the shipped strength — so the billowy noise never reached the depth where a
+    // lobe separates from its neighbour, and the bodies stayed smooth balls (CLOUD-SHAPE-c: shapes under
+    // ~400 m are the shader's or nobody's, the modelling volume is 188 m a voxel). The fear it answered —
+    // a uniform cut turning the layer into a veil — was the field it was written against, a profile high
+    // only in a thin band; the lump field's profile reaches one inside every body.
     //
-    // Weighting by (1 - Profile) puts the whole cut where the cloud is already ending. The core, which is
-    // deep inside the body, keeps its density and stays solid; the edge, which is barely inside it, is
-    // eaten into billows and wisps. It is the same principle the deck states as a frequency blend driven
-    // by the dimensional profile (p.101, p.105) — the profile decides how much detail belongs here — and
-    // it is why that field means "depth inside the body" rather than "density".
     // THE DEPTH OF THE CUT IS THE WINNING SPECIES', multiplied into the layer's own strength here rather
     // than folded together on the CPU as it was while a layer had one kind of cloud in it. A lenticular
     // has to stay a smooth lens and a cirrus has to stay shredded when the two are in the same sky, and a
@@ -128,12 +146,13 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // so the unbounded version turns "erosion off" into a NaN density for every sample in the body. See
     // the note on CLOUD_MATERIAL_FACTOR_MAX: on every value either producer can legally carry, this bound
     // is the identity.
-    float edgeWeight = 1.0f - clamp( field.Profile, 0.0f, 1.0f );
-    float erosion    = detailField *
-                    clamp( params.DetailStrength * CLOUD_MATERIAL_FACTOR( field.DetailFactor ), 0.0f, 1.0f ) *
-                    edgeWeight;
+    float erosion =
+        detailField * clamp( params.DetailStrength * CLOUD_MATERIAL_FACTOR( field.DetailFactor ), 0.0f, 1.0f );
 
-    float density = CloudRemap( field.Profile, erosion, 1.0f, 0.0f, 1.0f );
+    // THEN THE EDGE IS SHARPENED (CLOUD_EDGE_SHARPEN): the eroded surface becomes a surface rather than a
+    // gradient hundreds of metres deep. Zero stays zero, so a strength of zero still returns the profile's
+    // own silhouette, only with a hard edge.
+    float density = pow( CloudRemap( field.Profile, erosion, 1.0f, 0.0f, 1.0f ), CLOUD_EDGE_SHARPEN );
 
     return clamp( density * field.DensityScale, 0.0f, 1.0f );
 }

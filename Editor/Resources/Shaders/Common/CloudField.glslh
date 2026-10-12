@@ -37,7 +37,12 @@
 //     CLOUD_SAMPLE_MODELLING( vec3 uvw )           ->  vec4, the procedural MODELLING VOLUME — ONE CHANNEL
 //                                                      PER SPECIES, in the order of the layer's slots,
 //                                                      each of them that species' Dimensional Profile
+//     CLOUD_SAMPLE_WEATHER( vec2 uv )              ->  float, the world weather W (standard normal) at
+//                                                      uv = windPos.xz / its period, REPEAT
 //     CLOUD_SAMPLE_AUTHORED( vec3 uvw )            ->  vec4, four channels of the sculpted-body ATLAS
+//     CLOUD_SAMPLE_LAYOUT_PATTERN( vec2 uv )       ->  vec4, the painted layout's pattern, channel k species
+//                                                      slot k, 0..1, REPEAT (white where nothing is painted)
+//     CLOUD_SAMPLE_LAYOUT_MASK( vec2 uv )          ->  float, the layout's mask as unorm (raw / 255), REPEAT
 //
 // The third arrives on the same terms as the first two, and the instance list it is addressed with — plus
 // the atlas's slab count — comes from Common/CloudAuthored.glslh, which must have been included first.
@@ -63,6 +68,14 @@
 // (EpicDoc_CloudMaterial.md §2-3 fixes four types to R, G, B and A). Graphic::kCloudSpeciesSlots is the
 // same constant on the C++ side. The LIBRARY on disk is not limited by this; a single LAYER is.
 #define CLOUD_SPECIES_SLOTS 4
+
+// HOW MANY CLIP LEVELS THE PROCEDURAL MODELLING VOLUME HAS: one world field, three camera-centred windows
+// of the same 256 x 32 x 256 grid at ratio two, stacked vertically in one image (level k in rows
+// [32k, 32k + 32)). Assets::kCloudProceduralClipLevels is the same number on the C++ side, and
+// Desert/Tests/Engine/CloudField asserts the two agree.
+#define CLOUD_PROCEDURAL_CLIP_LEVELS 3
+// The far path's height bands — Assets::kCloudFarBands, asserted by Desert/Tests/Engine/CloudField.
+#define CLOUD_FAR_BANDS 8
 
 // What every producer returns and what the whole renderer consumes.
 //
@@ -110,12 +123,40 @@ struct CloudFieldParams
     // uniform across the wave. That is what makes this cost nothing where nothing was asked for.
     int SpeciesNoise[CLOUD_SPECIES_SLOTS];
 
-    // WHERE THE MODELLING VOLUME IS, and it is two numbers rather than a matrix because the region is
-    // axis-aligned by construction: the minimum corner of the region in world kilometres, and the
-    // reciprocal of its side. Both are the CPU's — Assets::CloudProceduralRegionOriginKm decides the
-    // corner and snaps it to the lump lattice, and the march only maps a position through it.
-    vec2  RegionOriginKm;
-    float InvRegionSizeKm;
+    // Per species k: the wispy base in the LAYER's height fraction — where the type's band starts and where
+    // its altitude density H first reaches its maximum (Graphic::CloudProfileWispTopFraction). Between the
+    // two the winner's DetailCharacter rises from 0 (wispy) to its own: Nubis' wispy-at-the-base erosion,
+    // driven by the curve the bake multiplies the profile by.
+    float SpeciesWispBase[CLOUD_SPECIES_SLOTS];
+    float SpeciesWispTop[CLOUD_SPECIES_SLOTS];
+
+    // WHERE THE MODELLING VOLUME'S THREE CLIP LEVELS ARE (CLIP-3): per level k, xy the minimum corner of the
+    // level's window in world kilometres (in the WIND frame — the window is chosen around the camera minus
+    // the wind), z the reciprocal of the window's side, w unused. All three are the CPU's — Assets::
+    // CloudProceduralLevelOriginKm decides each corner and snaps it to the level's own voxel, and the march
+    // only asks which window a position is inside. Level 0 is the finest (side RegionSize / 4), level
+    // CLOUD_PROCEDURAL_CLIP_LEVELS - 1 is the whole region. Common/CloudParams.glslh fills it from
+    // u_CloudLevel[k].
+    vec4 ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS];
+
+    // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
+    // weather's period in km. A vec2 because the payload's x and z are unread (Graphic::kCloudUnreadSlots) —
+    // the Coverage slider is the bake's (CUT-AT-BAKE) — and the unpack fetches only what is read, as
+    // LayoutStrength does (WX-PAINT-b). A MEMBER AND NOT A MACRO, because
+    // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
+    // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
+    // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
+    // as macros; every block value arrives here through CloudUnpackFieldParams.
+    vec2 Weather;
+    // THE FAR PATH (CLOUD-SEAM24): FarScale the read scale of the world weather map that draws the far
+    // column field, 1/km (Assets::CloudFarFieldScale); per height band, per species, the coarsest level's
+    // share of cloud voxels and their mean profile (Assets::CloudProceduralFarStatistics). Zero draws no
+    // far cloud.
+    float FarScale;
+    vec4  FarPresence[CLOUD_FAR_BANDS];
+    vec4  FarProfile[CLOUD_FAR_BANDS];
+    vec4 LayoutPlace;    // Assets::CloudLayoutPlaceUniform: xy offset km, zw (cos, sin) * repeats / region
+    vec2 LayoutStrength; // Assets::CloudLayoutStrengthUniform: x pattern, y mask (0 = not read)
 
     vec3 WindOffsetKm; // accumulated wind displacement, subtracted from the sample position
 
@@ -175,6 +216,50 @@ struct CloudFieldParams
 #define CLOUD_DETAIL_FREQ_X 1.0f
 #define CLOUD_DETAIL_FREQ_Y 0.833f // 25 / 30 — BELOW one: this octave is stretched upward
 #define CLOUD_DETAIL_FREQ_Z 1.333f // 40 / 30
+
+// ---------------------------------------------------------------------------------------------------
+// THE EROSION'S SECOND OCTAVE — how much finer it reads the same volume, and how much of the cut is its.
+// ---------------------------------------------------------------------------------------------------
+//
+// Nubis Cubed reads its erosion twice: the tile and a high-frequency octave of it. One octave whose period
+// is a kilometre carves lobes the size of the modelling volume's own lumps, so it moves a body's outline
+// without breaking it — the cumulus stays a cotton ball. FOUR times finer puts the second octave at
+// 250 m on the shipped 1 km tile: above the march's finest resolvable chord, below the smallest lump.
+// A WHOLE NUMBER because the volume repeats on the tile; a fraction would seam at every tile boundary.
+// The weight is the share of the composite the fine octave carries — the coarse one still decides where
+// a body's big lobes are, the fine one only breaks their surfaces.
+//
+// THE COARSE OCTAVE READS THE VOLUME AT HALF THE TILE'S FREQUENCY (CLOUD-SHAPE-f, CLOUD_DETAIL_LF_RATIO).
+// At the tile's own frequency both octaves were grain against the modelling volume's lumps: a deeper cut
+// (Detail Strength 0.85) only shrank each lump into a smaller fuzzy ball, and a sharper contrast on the
+// noise turned the grain into sparkle (probe frames, CLOUD-SHAPE-f/probe). Read at half the frequency the
+// coarse octave's billows are the size of a head on a lump, so the cut separates heads in the silhouette,
+// and the fine octave (four times finer again, 500 m on the shipped 1 km tile) grains the heads. A HALF so
+// that two tiles hold one whole period of the volume: no seam, as with the whole-number HF ratio.
+// THE FINE OCTAVE CARRIES 0.3, NOT HALF (CLOUD-GAUNTLET r02). At half the composite every lit face was stippled
+// with a micro-shadow per pebble: the shading went into grain and no face read as lit, no fold as shaded. At 0.3
+// the heads keep their rounded faces and the shade collects in the folds between them.
+#define CLOUD_DETAIL_LF_RATIO  0.5f
+#define CLOUD_DETAIL_HF_RATIO  4.0f
+#define CLOUD_DETAIL_HF_WEIGHT 0.3f
+
+// ---------------------------------------------------------------------------------------------------
+// THE EDGE SHARPENING — the exponent the eroded density is raised to (Nubis Cubed, SIGGRAPH 2023, the
+// up-rez's last line: `pow(density, lerp(0.3, 0.6, density_scale^4))`).
+// ---------------------------------------------------------------------------------------------------
+//
+// The profile is a DEPTH: it rises from the body's surface over the depth of the body's deepest lump,
+// 0.4-0.5 km for a cumulus mediocris (Engine/Assets/CloudProceduralVolume.cpp). Read as a density
+// unchanged, that is a cloud whose edge fades over hundreds of metres — the soft "cotton ball" the owner
+// refused (ACCEPT-CLOUDS, 2026-10-08). A power below one leaves zero and one where they are and lifts
+// everything between toward one, so the density saturates within the first tens of metres inside the
+// eroded surface and the billows the erosion cut read as hard-edged lobes rather than as blur. It is
+// applied AFTER the erosion and not to the profile, because the erosion's frequency blend and its cut
+// both need the depth as a depth.
+//
+// ONE NUMBER, the deck's upper bound: its lower bound belongs to a layer thinned toward haze, which here
+// is the Density Scale slider multiplying the result afterwards, not a second exponent.
+#define CLOUD_EDGE_SHARPEN 0.6f
 
 // THE CEILING ON THE THREE MATERIAL FACTORS, and it is here because a `max(x, 0)` is only half a bound.
 //
@@ -259,28 +344,246 @@ struct CloudFieldParams
 // caught as a macro redefinition rather than as a silently wrong fetch.
 #define CLOUD_PROCEDURAL_VOLUME_HEIGHT 32.0f
 
-// WHERE A WORLD POSITION LANDS IN THE VOLUME.
-//
-// HORIZONTALLY IT IS NOT CLAMPED AND MUST NOT BE. The bake splats every lump at its wrapped positions too,
-// so the volume is exactly periodic — and REPEAT sampling of a periodic volume is the DEGENERATE FAR PATH
-// of §3 point 3: past the region the sky is the region again, at a distance where a cloud's angular size is
-// already below what the march resolves (§4.5). Clamping instead would put a smear of the edge column
-// across everything beyond 24 km.
-//
-// VERTICALLY IT IS CLAMPED TO THE TEXEL CENTRES, and that is not symmetry-breaking for its own sake: the
-// volume spans the shell exactly, every sampler in this engine is REPEAT, and without the clamp a height
-// fraction of 1 wraps to the bottom row — so the top of the layer would grow the bases of its own clouds
-// back on top of itself. The same clamp, for the same reason, that the profile table needed.
-vec3 CloudProceduralVolumeUvw( CloudFieldParams params, float heightFraction, vec3 windPos )
-{
-    float halfV = 0.5f / CLOUD_PROCEDURAL_VOLUME_HEIGHT;
+// THE HORIZONTAL TEXEL COUNT of every level, which the level weight needs to keep a trilinear fetch off the
+// window's edge texel (CloudProceduralLevelWeight). Assets::kCloudProceduralVolumeSide is the same number,
+// asserted by Desert/Tests/Engine/CloudField. Read, unlike the dead width the note above records.
+#define CLOUD_PROCEDURAL_VOLUME_SIDE 256.0f
 
-    return vec3( ( windPos.x - params.RegionOriginKm.x ) * params.InvRegionSizeKm,
-                 clamp( heightFraction, halfV, 1.0f - halfV ),
-                 ( windPos.z - params.RegionOriginKm.y ) * params.InvRegionSizeKm );
+// THE BLEND BAND: over the outermost 12 % of a level's side (measured from its edge) the level fades into
+// the next coarser one, which holds that ground at half the resolution (CLOUD-RES-PLAN §1 point 5). The
+// next level's window is twice as wide and centred on the same camera, so the whole band sits a quarter of
+// its side deep inside it — the coarser fetch never meets its own edge there.
+#define CLOUD_PROCEDURAL_CLIP_BLEND 0.12f
+
+// WHERE A WORLD POSITION LANDS IN LEVEL @p level OF THE STACKED VOLUME.
+//
+// HORIZONTALLY IT IS TOROIDAL AND NOT RELATIVE TO THE WINDOW: world voxel i of a level is stored at texel
+// i mod 256 (Assets::CloudProceduralLevelTexel), so a camera move re-bakes only the entering columns and the
+// address is the world position over the level's side, REPEAT-wrapped by the sampler. The window corner is
+// not part of the address at all — it only decides which level answers (CloudProceduralLevelWeight). Past
+// the coarsest window no level is read at all: the far path answers (CloudSampleProceduralFar, CLOUD-SEAM24)
+// — the wrap onto the other side of the window that stood there repeated the region at the horizon.
+//
+// VERTICALLY IT IS CLAMPED TO THE LEVEL'S OWN TEXEL CENTRES, and that is not symmetry-breaking for its own
+// sake: a level spans the shell exactly and its rows sit directly on the next level's, so without the clamp
+// a height fraction of 1 would blend with the FLOOR of the level above it in the stack (and level 2's top
+// with level 0's floor, through REPEAT) — the top of the layer would grow the bases of other clouds on top
+// of itself. The same clamp, for the same reason, that the profile table needed.
+vec3 CloudProceduralLevelUvw( CloudFieldParams params, int level, float heightFraction, vec3 windPos )
+{
+    float row       = clamp( heightFraction * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                             CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    float stackRows = CLOUD_PROCEDURAL_VOLUME_HEIGHT * float( CLOUD_PROCEDURAL_CLIP_LEVELS );
+    float invSide   = params.ProceduralLevel[level].z;
+
+    return vec3( windPos.x * invSide, ( float( level ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT + row ) / stackRows,
+                 windPos.z * invSide );
 }
 
-#if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED )
+// HOW MUCH LEVEL @p level ANSWERS FOR THE WIND-SHIFTED COLUMN @p windPosXz: 1 deep inside its window, 0
+// where a trilinear fetch would first reach past the window's edge texel (half a texel in from the edge),
+// linear across the blend band between. Linear and not smoothstepped because the blend is a lerp of two
+// fetches of the same field at two resolutions: a ramp of slope one band keeps the per-metre change of
+// the blended sample within that of its two operands, which is what TheLevelBlendHasNoStep measures.
+float CloudProceduralLevelWeight( CloudFieldParams params, int level, vec2 windPosXz )
+{
+    vec4  window = params.ProceduralLevel[level];
+    vec2  local  = ( windPosXz - vec2( window.x, window.y ) ) * window.z;
+    vec2  edges  = min( local, vec2( 1.0f ) - local );
+    float edge   = min( edges.x, edges.y );
+    float guard  = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
+
+    return clamp( ( edge - guard ) / ( CLOUD_PROCEDURAL_CLIP_BLEND - guard ), 0.0f, 1.0f );
+}
+
+// THE FINEST LEVEL THAT HOLDS @p windPosXz — the first whose weight is above zero — or the coarsest, which
+// answers everywhere (inside its window from its own bake, beyond it through CloudSampleProceduralFar).
+int CloudProceduralLevelOf( CloudFieldParams params, vec2 windPosXz )
+{
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1; ++level )
+    {
+        if ( CloudProceduralLevelWeight( params, level, windPosXz ) > 0.0f )
+            return level;
+    }
+    return CLOUD_PROCEDURAL_CLIP_LEVELS - 1;
+}
+
+#if defined( CLOUD_SAMPLE_NOISE ) && defined( CLOUD_SAMPLE_MODELLING ) && defined( CLOUD_SAMPLE_AUTHORED ) && \
+     defined( CLOUD_SAMPLE_WEATHER ) &&                                                                          \
+     defined( CLOUD_SAMPLE_LAYOUT_PATTERN ) && defined( CLOUD_SAMPLE_LAYOUT_MASK )
+
+// THE FAR PATH (CLOUD-SEAM24) — what answers past the coarsest level's window, where nothing is baked.
+//
+// IT USED TO BE THE COARSEST LEVEL'S TORUS, wrapped by REPEAT: the 48 km region repeated at the horizon, and
+// every period of it was the same sky. Unreal's Volumetric Cloud has no such edge because its shape is a
+// function of a WORLD weather map at every distance; this is that function. A world column field u(x, z),
+// uniform on [0, 1], is drawn from the world weather map itself (N(0, 1), CLOUD_SAMPLE_WEATHER) read at cloud
+// scale: two reads, the second turned by asin(0.6) and scaled by the golden ratio, so neither read's period
+// (1 / FarScale ~ 100 km, and ~62 km) is a period of their sum inside the view, and their normalised sum is
+// still N(0, 1). Each species gets its own blend of the two reads (cos, sin of a quarter-turn step), so the
+// kinds of cloud do not all stand in the same columns. A column is that species' cloud at a height where u
+// is below the coarsest level's share of cloud voxels there (FarPresence), so the far sky has the level's
+// own coverage at every height and the two meet in the level's blend band with the same statistics; how
+// far below sets the depth, scaled so the mean profile is the level's (FarProfile). Taller columns are the
+// ones further under the share, so the far bodies are domes over the level's own base — the shape of the
+// level's height statistics, not of any one of its bodies.
+#define CLOUD_FAR_READ_TURN_COS 0.8f
+#define CLOUD_FAR_READ_TURN_SIN 0.6f
+#define CLOUD_FAR_READ_SCALE    1.6180339887f
+
+float CloudNormalCdf( float x );
+
+// The band table at height fraction @p heightFraction: linear between band centres, flat past the outer two.
+vec4 CloudFarBand( vec4 table[CLOUD_FAR_BANDS], float heightFraction )
+{
+    float at    = clamp( heightFraction * float( CLOUD_FAR_BANDS ) - 0.5f, 0.0f, float( CLOUD_FAR_BANDS - 1 ) );
+    int   below = min( int( at ), CLOUD_FAR_BANDS - 2 );
+    float t     = at - float( below );
+    return table[below] * ( 1.0f - t ) + table[below + 1] * t;
+}
+
+vec4 CloudSampleProceduralFar( CloudFieldParams params, float heightFraction, vec2 windPosXz )
+{
+    vec4 result = vec4( 0.0f );
+    if ( params.FarScale <= 0.0f )
+        return result;
+
+    vec2  a     = vec2( windPosXz.x * params.FarScale, windPosXz.y * params.FarScale );
+    vec2  b     = vec2( CLOUD_FAR_READ_TURN_COS * a.x - CLOUD_FAR_READ_TURN_SIN * a.y,
+                        CLOUD_FAR_READ_TURN_SIN * a.x + CLOUD_FAR_READ_TURN_COS * a.y ) *
+             CLOUD_FAR_READ_SCALE;
+    float first  = CLOUD_SAMPLE_WEATHER( a );
+    float second = CLOUD_SAMPLE_WEATHER( b );
+
+    vec4 presence = CloudFarBand( params.FarPresence, heightFraction );
+    vec4 profile  = CloudFarBand( params.FarProfile, heightFraction );
+    for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
+    {
+        float share = presence[slot];
+        if ( share <= 0.0f )
+            continue;
+        // Species k blends the two reads at angle k * pi / 4: cos^2 + sin^2 = 1 keeps it N(0, 1).
+        float angle = float( slot ) * 0.7853981634f;
+        float u     = CloudNormalCdf( cos( angle ) * first + sin( angle ) * second );
+        float depth = clamp( ( share - u ) / share, 0.0f, 1.0f );
+        // depth is uniform on [0, 1] inside the share, so 2 * mean * depth has the level's mean profile.
+        result[slot] = depth > 0.0f ? min( 2.0f * profile[slot] * depth, 1.0f ) : 0.0f;
+    }
+    return result;
+}
+
+// THE ONE READ OF THE PROCEDURAL MODELLING VOLUME (CLIP-3): every consumer — the march, the shadow map and
+// the sky occlusion bake through SampleCloudField, the diagnostic view — asks this and never addresses a
+// level itself. The finest level that holds the column answers; inside its blend band it is lerped toward
+// the next coarser level — and the coarsest toward the far path (CLOUD-SEAM24) — so a second read is paid
+// only in a band. Returns the four species channels.
+vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
+{
+    vec2  column = vec2( windPos.x, windPos.z );
+    int   level  = CloudProceduralLevelOf( params, column );
+    float weight = CloudProceduralLevelWeight( params, level, column );
+    if ( level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1 && weight <= 0.0f )
+        return CloudSampleProceduralFar( params, heightFraction, column );
+
+    vec4 fine = CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, heightFraction, windPos ) );
+    if ( weight >= 1.0f )
+        return fine;
+
+    vec4 coarse = level == CLOUD_PROCEDURAL_CLIP_LEVELS - 1
+                       ? CloudSampleProceduralFar( params, heightFraction, column )
+                       : CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level + 1, heightFraction, windPos ) );
+    return mix( coarse, fine, weight );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE WEATHER — the GPU half of Assets::CloudProceduralCoverRemap by Assets::CloudProceduralLocalWeather
+// ---------------------------------------------------------------------------------------------------
+
+// The standard normal's CDF, Abramowitz & Stegun 7.1.26 for erf (absolute error 1.5e-7). The CPU's is
+// std::erfc in double; the two agree far inside one rank byte (1/255), which is the only resolution the
+// comparison below has.
+float CloudNormalCdf( float x )
+{
+    float z = abs( x ) * 0.7071067811865476f;
+    float t = 1.0f / ( 1.0f + 0.3275911f * z );
+    float poly =
+         ( ( ( ( 1.061405429f * t - 1.453152027f ) * t + 1.421413741f ) * t - 0.284496736f ) * t + 0.254829592f ) *
+         t;
+    float erfAbs = 1.0f - poly * exp( -z * z );
+    return x >= 0.0f ? 0.5f * ( 1.0f + erfAbs ) : 0.5f * ( 1.0f - erfAbs );
+}
+
+// THE LAYOUT'S UV at a wind-space column — Assets::CloudLayoutUv: shift by the offset, then the quarter turn
+// and the repeat as one exact 2x2 ((cos, sin) * repeats / region, Assets::CloudLayoutPlaceUniform).
+vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
+{
+    float sx = windPosXz.x - place.x;
+    float sy = windPosXz.y - place.y;
+    return vec2( place.z * sx - place.w * sy, place.w * sx + place.z * sy );
+}
+
+#define CLOUD_LAYOUT_MASK_NEUTRAL 128.0f
+
+// THE LOCAL WEATHER at a world column for species @p slot — Assets::CloudProceduralLocalWeather, written for the
+// GPU (WX-NUBIS, WX-PAINT, CUT-AT-BAKE): Nubis' weather map W = 1 - PatternStrength * (1 - painted) when a
+// pattern is bound (Unreal's Layout, per pixel), else the world weather map W = 1 - smoothstep(f - d, f + d,
+// Phi(w)), f = 1 - s, d = CLOUD_WEATHER_SHORE * min(f, s): one where there is weather, true zeros where the sky
+// is clear (Assets::CloudWeatherPresence, FIELD-GRAIN-b); plus the mask, which adds. The Coverage slider is not
+// in it: the bake chose the clusters by it.
+#define CLOUD_WEATHER_SHORE 0.15f // Assets::kCloudWeatherShore
+
+float CloudWeatherPresence( float strength, float w )
+{
+    float u     = CloudNormalCdf( w );
+    float f     = 1.0f - strength;
+    float delta = CLOUD_WEATHER_SHORE * min( f, strength );
+    if ( delta <= 1e-6f )
+        return u < f ? 1.0f : 0.0f;
+    float t = clamp( ( u - ( f - delta ) ) / ( 2.0f * delta ), 0.0f, 1.0f );
+    return 1.0f - t * t * ( 3.0f - 2.0f * t );
+}
+
+float CloudLocalWeather( vec2 weather, vec4 layoutPlace, vec2 layoutStrength, int slot, vec2 windPosXz )
+{
+    float modulated = 1.0f;
+    vec2  uv        = CloudLayoutUv( layoutPlace, windPosXz );
+
+    if ( layoutStrength.x > 1e-4f )
+    {
+        float painted = clamp( CLOUD_SAMPLE_LAYOUT_PATTERN( uv )[slot], 0.0f, 1.0f );
+        modulated     = 1.0f - layoutStrength.x * ( 1.0f - painted );
+    }
+    else if ( weather.x > 1e-4f )
+    {
+        float w   = CLOUD_SAMPLE_WEATHER( vec2( windPosXz.x * weather.y, windPosXz.y * weather.y ) );
+        modulated = CloudWeatherPresence( clamp( weather.x, 0.0f, 1.0f ), w );
+    }
+
+    if ( layoutStrength.y > 1e-4f )
+    {
+        // Signed about neutral, the two sides normalised separately (Assets::SampleCloudLayoutMask).
+        float centred = CLOUD_SAMPLE_LAYOUT_MASK( uv ) * 255.0f - CLOUD_LAYOUT_MASK_NEUTRAL;
+        float signedMask =
+             centred >= 0.0f ? centred / ( 255.0f - CLOUD_LAYOUT_MASK_NEUTRAL ) : centred / CLOUD_LAYOUT_MASK_NEUTRAL;
+        modulated += layoutStrength.y * signedMask;
+    }
+
+    return clamp( modulated, 0.0f, 1.0f );
+}
+
+// NUBIS'S COVERAGE REMAP — Assets::CloudProceduralCoverRemap, written for the GPU: ValueRemap(profile,
+// 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach)) (Schneider, "Nubis" 2017). Times the reach, so
+// the cut keeps the profile's own gradient at every reach (PROFILE-BODY) instead of steepening into a facet. The bake makes it per cluster with the
+// cluster's reach past the Coverage slider; the march makes it here with the column's weather W, a continuous
+// 2D field, so nothing discrete is ever interpolated across the voxel grid. Air (profile 0) never becomes
+// cloud at any weather.
+float CloudCoverRemap( float profile, float reach )
+{
+    if ( reach <= 0.0f || profile <= 0.0f )
+        return 0.0f;
+    float g = min( reach, 1.0f );
+    return clamp( profile - ( 1.0f - g ), 0.0f, 1.0f );
+}
 
 // The procedural producer — ONE FETCH, four species.
 //
@@ -315,26 +618,51 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     result.NoiseSlot = 0;
 
     // THE WIND IS A SHIFT OF THE SAMPLE AND NOT OF THE VOLUME, which is what keeps the wind free: the
-    // region's origin is chosen around the camera MINUS this same offset (Assets::
-    // CloudProceduralRegionOriginKm, called with the shifted camera), so the point being asked about is
+    // level windows are chosen around the camera MINUS this same offset (Assets::
+    // CloudProceduralLevelOriginKm, called with the shifted camera), so the point being asked about is
     // inside the region that was baked for it however far the wind has run.
     vec3 windPos = vec3( positionKm.x - params.WindOffsetKm.x, positionKm.y - params.WindOffsetKm.y,
                          positionKm.z - params.WindOffsetKm.z );
 
-    vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, heightFraction, windPos ) );
+    vec4 volume = CloudSampleProceduralVolume( params, heightFraction, windPos );
 
     int speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
+    if ( speciesCount <= 0 )
+        return result;
+
+    int   winner = 0;
+    float best   = 0.0f;
 
     for ( int slot = 0; slot < speciesCount; ++slot )
     {
         float speciesProfile = clamp( volume[slot], 0.0f, 1.0f );
-        if ( speciesProfile <= result.Profile )
+        if ( speciesProfile <= best )
             continue;
+        best   = speciesProfile;
+        winner = slot;
+    }
 
+    // THE BAKE CHOSE THE CLUSTERS; THE WEATHER IS APPLIED HERE (CUT-AT-BAKE). The winning species' profile is
+    // the form, already cut per cluster by the Coverage slider; the weather the world (or the painting) leaves
+    // this column remaps it, as Nubis's weather map does — continuous in both factors, so the seam between a
+    // live and an absent cloud is the profile's own surface and never a voxel column.
+    vec2  weather    = params.Weather;
+    float cutProfile = CloudCoverRemap(
+         best, CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength, winner, vec2( windPos.x, windPos.z ) ) );
+    if ( cutProfile <= 0.0f )
+        return result;
+
+    {
+        int  slot = winner;
         vec4 edge = params.SpeciesEdge[slot];
 
-        result.Profile          = speciesProfile;
-        result.DetailType       = clamp( edge.x, 0.0f, 1.0f );
+        result.Profile          = cutProfile;
+        // WISPY AT THE BASE, the type's own character above the top of H's rise. A band whose H peaks at
+        // its first sample has top == base and the step returns 1 everywhere above the base.
+        float wispBase          = params.SpeciesWispBase[slot];
+        float wispRise          = max( params.SpeciesWispTop[slot] - wispBase, 1e-4f );
+        float wispCharacter     = clamp( ( heightFraction - wispBase ) / wispRise, 0.0f, 1.0f );
+        result.DetailType       = clamp( edge.x, 0.0f, 1.0f ) * wispCharacter;
         result.DetailFactor     = CLOUD_MATERIAL_FACTOR( edge.y );
         result.DensityScale     = CLOUD_MATERIAL_FACTOR( params.DensityScale ) * CLOUD_MATERIAL_FACTOR( edge.z );
         result.ExtinctionFactor = CLOUD_MATERIAL_FACTOR( edge.w );
@@ -730,6 +1058,11 @@ CloudFieldSample SampleCloudField( CloudFieldParams params, float heightFraction
 // ---------------------------------------------------------------------------------------------------
 // THE EXTINCTION WAS TAKEN AS THAT NEXT TASK AND MEASURED TO THE FRAME. IT DOES NOT PAY. Task Р18,
 // 2026-09-03.
+//
+// SUPERSEDED 2026-10-09 (CLOUD-SHAPE-e, lead decision over D-32): the sweep below measured what extinction
+// does to the EROSION'S reach; what it does to the EDGE is the larger effect. At 8/km a 100 m chord of
+// saturated cloud still passes 45 % of the light, so every edge reads translucent over ~300 m — the
+// cotton ball. The shipped value is now the physical 75/km and the stored materials were rewritten to it.
 // ---------------------------------------------------------------------------------------------------
 //
 // THE SWEEP THE PARAGRAPH ABOVE ASKS FOR, taken with this file's own instrument — Desert/Tests/Engine/
@@ -883,6 +1216,6 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
     return accumulated * marchKm;
 }
 
-#endif // CLOUD_SAMPLE_NOISE && CLOUD_SAMPLE_MODELLING && CLOUD_SAMPLE_AUTHORED
+#endif // CLOUD_SAMPLE_NOISE && CLOUD_SAMPLE_MODELLING && CLOUD_SAMPLE_AUTHORED && CLOUD_SAMPLE_LAYOUT_*
 
 #endif // CLOUD_FIELD_GLSLH

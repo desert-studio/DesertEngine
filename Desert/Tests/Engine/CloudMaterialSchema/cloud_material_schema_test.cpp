@@ -162,6 +162,7 @@ namespace
          { "PhaseGBackward", 1, false },
          { "PhaseBlend", 1, false },
          { "AmbientOcclusionStrength", 1, false },
+         { "SkyLightCloudBottomOcclusion", 1, false },
          { "MultiScatterOctaves", 1, true },
          { "MultiScatterContribution", 1, false },
          { "MultiScatterOcclusion", 1, false },
@@ -280,6 +281,7 @@ TEST( CloudMaterialSchema, TheSchemaDefaultsAreTheMirrorsToTheDigit )
     EXPECT_FLOAT_EQ( def( "PhaseGBackward" ).x, mirror.PhaseGBackward );
     EXPECT_FLOAT_EQ( def( "PhaseBlend" ).x, mirror.PhaseBlend );
     EXPECT_FLOAT_EQ( def( "AmbientOcclusionStrength" ).x, mirror.AmbientOcclusionStrength );
+    EXPECT_FLOAT_EQ( def( "SkyLightCloudBottomOcclusion" ).x, mirror.SkyLightCloudBottomOcclusion );
     EXPECT_EQ( static_cast<int32_t>( def( "MultiScatterOctaves" ).x ), mirror.MultiScatterOctaves );
     EXPECT_FLOAT_EQ( def( "MultiScatterContribution" ).x, mirror.MultiScatterContribution );
     EXPECT_FLOAT_EQ( def( "MultiScatterOcclusion" ).x, mirror.MultiScatterOcclusion );
@@ -432,6 +434,7 @@ namespace
         O14_SAME( PhaseGBackward );
         O14_SAME( PhaseBlend );
         O14_SAME( AmbientOcclusionStrength );
+        O14_SAME( SkyLightCloudBottomOcclusion );
         O14_SAME( MultiScatterOctaves );
         O14_SAME( MultiScatterContribution );
         O14_SAME( MultiScatterOcclusion );

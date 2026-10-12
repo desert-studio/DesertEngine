@@ -68,7 +68,6 @@ namespace
         params.LayerBottomKm     = 2.20f;
         params.LayerThicknessKm  = 3.60f;
         params.BlendRadiusKm     = 0.06f;
-        params.ProfileDepthKm    = 0.36f;
         params.Coverage          = 0.60f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 1u;
@@ -127,33 +126,66 @@ namespace
     }
 
     /// What fraction of the region's columns carry any cloud at all, measured on the REAL bake. The same
-    /// quantity TheCoverageSliderStillMeansTheSkyAtTheShippedPlacement measures, lifted out of it so the
-    /// zero-mean relation can measure the same thing rather than something like it.
-    double SkyCover( const CloudProceduralFieldParams& params )
+    /// quantity TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement measures, lifted out
+    /// of it so the zero-mean relation can measure the same thing rather than something like it.
+    // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
+    // when any of its voxels is kept at the local cover of the column's WORLD site — rank under the cover and
+    // within the air's reach of its body (CloudProceduralColumnKept, FARWX-b15). Measured at many whole-region
+    // shifts, because the weather is a world field and one region holds only a couple of its systems.
+    glm::vec2 RegionShiftKm( const CloudProceduralFieldParams& params, int shift )
     {
+        // Whole regions, so the bake's column index is unchanged; scattered so the weather is not.
+        return glm::vec2( static_cast<float>( ( shift * 7 ) % 41 ), static_cast<float>( ( shift * 13 ) % 37 ) ) *
+               params.RegionSizeKm * static_cast<float>( 1 + shift / 41 );
+    }
+
+    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
+                                    const std::vector<unsigned char>& bake, const glm::vec2& origin, int shift )
+    {
+        const uint32_t     side  = params.VolumeSideVoxels;
+        const float        voxel = params.RegionSizeKm / static_cast<float>( side );
+        const glm::vec2    base  = origin + RegionShiftKm( params, shift );
+        std::vector<float> map( static_cast<size_t>( side ) * side, 0.0f );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                          ( static_cast<float>( z ) + 0.5f ) * voxel );
+                const size_t    at    = static_cast<size_t>( z ) * side + x;
+                map[at] =
+                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ) )
+                          ? 1.0f
+                          : 0.0f;
+            }
+        return map;
+    }
+
+    double KeptCover( const CloudProceduralFieldParams& shipped, int shifts )
+    {
+        // AT THE COARSEST GRID THE COMPONENT OFFERS: the cover is the same sky sampled more coarsely
+        // (ACoarserGridIsTheSameSkySampledMoreCoarsely holds it within a hundredth), and the bake and the
+        // world weather per column are the whole cost of this measurement — a quarter of it at 128.
+        CloudProceduralFieldParams params = shipped;
+        params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+
         const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
+        const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
         if ( !baked )
             return -1.0;
+        const size_t columns = static_cast<size_t>( params.VolumeSideVoxels ) * params.VolumeSideVoxels;
+        double       sum     = 0.0;
+        for ( int shift = 0; shift < shifts; ++shift )
+        {
+            const std::vector<float> map = KeptColumns( params, baked.GetValue(), origin, shift );
+            for ( float v : map )
+                sum += v;
+        }
+        return sum / ( static_cast<double>( shifts ) * static_cast<double>( columns ) );
+    }
 
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) *
-                                             kCloudProceduralVolumeSide +
-                                        x ) *
-                                      kCloudProceduralBytesPerVoxel;
-                    if ( baked.GetValue()[at] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
-
-        return static_cast<double>( columns ) /
-               static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
+    double SkyCover( const CloudProceduralFieldParams& params )
+    {
+        return KeptCover( params, 64 );
     }
 
     /// The lumps of one region, rasterised into the top-down column integral described in the file note.
@@ -227,6 +259,26 @@ namespace
         double LagKm = 0.0;
     };
 
+    /// THE PLACEMENT ITSELF: one count per lump at the pixel of its CLUSTER's site, over EVERY cell. The lattice
+    /// is a property of where the clusters are put, not of how much sky the slider keeps or how wide a cluster is
+    /// drawn — measured on cover or thickness, overlapping clusters fill the map and the confined arm's lattice
+    /// drowns with the free arm's absence of one.
+    std::vector<float> PlacedCentres( const CloudProceduralFieldParams& params, const glm::vec2& originKm )
+    {
+        std::vector<float> map( static_cast<size_t>( kMapSide ) * kMapSide, 0.0f );
+        const float        perVoxelKm = params.RegionSizeKm / static_cast<float>( kMapSide );
+        for ( const CloudProceduralLump& lump :
+              GenerateCloudProceduralLumps( params, 0u, originKm, CloudProceduralLumpSet::EveryCell ) )
+        {
+            int x = static_cast<int>( std::floor( ( lump.ClusterKm.x - originKm.x ) / perVoxelKm ) );
+            int z = static_cast<int>( std::floor( ( lump.ClusterKm.y - originKm.y ) / perVoxelKm ) );
+            x     = ( ( x % kMapSide ) + kMapSide ) % kMapSide;
+            z     = ( ( z % kMapSide ) + kMapSide ) % kMapSide;
+            map[static_cast<size_t>( z ) * kMapSide + x] += 1.0f;
+        }
+        return map;
+    }
+
     LatticeVerdict MeasurePlacement( const CloudProceduralFieldParams& params, int regions )
     {
         const float perVoxelKm = params.RegionSizeKm / static_cast<float>( kMapSide );
@@ -247,8 +299,7 @@ namespace
             const float     cameraKm = static_cast<float>( region ) * params.RegionSizeKm * 4.0f;
             const glm::vec2 origin   = CloudProceduralRegionOriginKm( params, cameraKm, cameraKm );
 
-            const std::vector<float> map = RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ),
-                                                             origin, params.RegionSizeKm );
+            const std::vector<float> map = PlacedCentres( params, origin );
 
             curvesX.push_back( LatticePeak::CircularAutocorrelation( map, kMapSide, kMapSide, true, maxLag ) );
             curvesZ.push_back( LatticePeak::CircularAutocorrelation( map, kMapSide, kMapSide, false, maxLag ) );
@@ -289,9 +340,7 @@ namespace
 
     double CoverOfPlacement( const CloudProceduralFieldParams& params )
     {
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        return CoverOf(
-             RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm ) );
+        return KeptCover( params, 64 );
     }
 } // namespace
 
@@ -487,7 +536,10 @@ TEST( CloudPlacementSpectrum, TheShippedPlacementHasNoLatticeAndConfiningItAgain
 {
     constexpr int kRegions = 8;
 
-    const CloudProceduralFieldParams shipped = ShippedParams();
+    // THE PLACEMENT, WEATHER APART: the weather is a world layer applied at the march now (FARWX-a), so
+    // it is not part of the lattice the placement makes and would only add its own noise to both arms.
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.PatchStrength              = 0.0f;
 
     CloudProceduralFieldParams confined = shipped;
     confined.PlacementScatter           = 0.0f;
@@ -562,8 +614,8 @@ TEST( CloudPlacementSpectrum, EveryPlacementKnobChangesTheLumps )
 // THE DENSITY REDISTRIBUTES MATTER RATHER THAN ADDING IT, and that is a property by construction rather
 // than a coincidence: a cell carrying `d` clusters gives each of them one over the square root of `d` of
 // the width, so the ground they cover between them is the ground one covered. It is asserted because it is
-// what lets the Coverage slider keep its meaning at every setting of the density — without it, decision
-// D-20's mapping would have to be re-measured for each one, which is a knob that invalidates another knob.
+// what keeps the density and Coverage from being two knobs for one quantity — without it, every calibration
+// of Coverage (RECAL) would have to be re-measured for each density, a knob that invalidates another knob.
 TEST( CloudPlacementSpectrum, TheDensityDoesNotMoveTheSkysCover )
 {
     CloudProceduralFieldParams params = ShippedParams();
@@ -583,7 +635,7 @@ TEST( CloudPlacementSpectrum, TheDensityDoesNotMoveTheSkysCover )
 
 // AND SO DOES THE SIZE SPREAD, for the same reason stated differently: the draw is uniform in AREA and not
 // in width, so its mean is one whatever the spread. A spread that was uniform in the RADIUS would have
-// raised the mean area by a twelfth of the spread squared and taken the coverage mapping with it.
+// raised the mean area by a twelfth of the spread squared and taken Coverage's calibration with it.
 TEST( CloudPlacementSpectrum, TheSizeVarietyDoesNotMoveTheSkysCover )
 {
     CloudProceduralFieldParams params = ShippedParams();
@@ -600,59 +652,34 @@ TEST( CloudPlacementSpectrum, TheSizeVarietyDoesNotMoveTheSkysCover )
                                     << std::abs( none - full );
 }
 
-// THE SLIDER STILL MEANS THE SKY AT THE PLACEMENT THAT SHIPS, and this test exists because a sabotage
-// found the hole it fills. `CloudProceduralField` already measures the Coverage slider against the sky and
-// allows it a TENTH — a bound set for a placement that kept every cluster near its own lattice site, on a
-// fixture whose cell is finer than the shipped one. Deleting the packing compensation entirely left that
-// suite GREEN: its worst deviation went from 0.033 to 0.050 and a tenth swallowed both.
-//
-// The compensation is what pays for the free placement's worse packing, so it has to be asserted where it
-// bites — at the shipped 3 km cell, near the top of the slider, on the REAL bake. With the compensation the
-// sky delivered at 0.75 is 0.741; without it, 0.703.
-TEST( CloudPlacementSpectrum, TheCoverageSliderStillMeansTheSkyAtTheShippedPlacement )
+// COVERAGE IS MONOTONE AT THE PLACEMENT THAT SHIPS, AND ONE IS NOT AN OVERCAST (WX-NUBIS). Owner, 10-08:
+// Coverage is "how busy the weather is where there is weather" (Nubis' localCover = Coverage * W), not the
+// fraction of sky. So on the REAL bake at the shipped 3 km cell the sky's cover must rise with it, and at one
+// the weather map's true zeros must still leave the sky well short of full: an overcast is a stratus deck,
+// its own cloud type, never Coverage 1.
+TEST( CloudPlacementSpectrum, TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement )
 {
-    double worst = 0.0;
-
-    for ( const float wanted : { 0.35f, 0.75f } )
+    double previous = -1.0;
+    for ( const float coverage : { 0.35f, 0.75f, 1.0f } )
     {
         CloudProceduralFieldParams params = ShippedParams();
-        params.Coverage                   = wanted;
+        params.Coverage                   = coverage;
 
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
-        ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+        const double measured = KeptCover( params, 32 );
+        ASSERT_GE( measured, 0.0 ) << "the ranked bake failed";
+        std::printf( "[CloudPlacementSpectrum] coverage %.2f -> %.3f of the sky\n", coverage, measured );
 
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) *
-                                             kCloudProceduralVolumeSide +
-                                        x ) *
-                                      kCloudProceduralBytesPerVoxel;
-                    if ( baked.GetValue()[at] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
+        EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
+        previous = measured;
 
-        const double measured = static_cast<double>( columns ) /
-                                static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
-
-        std::printf( "[CloudPlacementSpectrum] coverage %.2f -> %.3f of the sky (%+.3f)\n", wanted, measured,
-                     measured - wanted );
-
-        worst = std::max( worst, std::abs( measured - static_cast<double>( wanted ) ) );
+        if ( coverage >= 1.0f )
+        {
+            const double ps        = static_cast<double>( params.PatchStrength );
+            const double zeroShare = ps - 0.15 * std::min( ps, 1.0 - ps );
+            EXPECT_LT( measured, 1.0 - 0.5 * zeroShare )
+                 << "Coverage 1 kept cloud over " << measured << " of the sky: the weather's gaps were filled";
+        }
     }
-
-    // A FORTIETH, AND THE NUMBER IS THE GAP RATHER THAN AN AMBITION. With the compensation the worst of the
-    // two settings is out by 0.009; with it deleted, by 0.047. Anything between the two separates them, and
-    // 0.025 sits in the middle with a factor of two of headroom on each side.
-    EXPECT_LT( worst, 0.025 ) << "the Coverage slider is out by " << worst
-                              << " of the sky at the shipped placement, which is where the packing the free "
-                                 "placement costs has to be paid for";
 }
 
 // A PATCH FINER THAN THREE CELLS IS A CHECKERBOARD, NOT A WEATHER SYSTEM, and it is refused by name rather
@@ -974,7 +1001,18 @@ TEST( CloudPlacementSpectrum, TheTowersFootprintConstantsSayWhatTheLayoutActuall
         params.Species[0].Shape.AnvilStrength = 0.0f;
         params.Species[0].Shape.Profile       = Desert::Graphic::CloudProfileFromTaper( taper );
         params.Coverage                       = 0.5f;
-        return SkyCover( params );
+        // THE BODIES' FOOTPRINT AND NOT THE SKY THE MARCH KEEPS. Since FARWX-a3 the cut grows the clouds
+        // into the rank's falloff until the column CDF hands out exactly the slider, so the kept sky is
+        // the same at every taper by construction (0.5166 / 0.5167 measured) and says nothing about the
+        // footprint. What the constants predict is the area of the BODIES the alive cells place — the
+        // lumps of the cells under the local cover, rasterised the way the bake draws them.
+        const glm::vec2          origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        const std::vector<float> map =
+             RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm );
+        size_t covered = 0;
+        for ( float v : map )
+            covered += ( v > 0.0f ) ? 1u : 0u;
+        return static_cast<double>( covered ) / static_cast<double>( map.size() );
     };
 
     const double flat    = skyAtTaper( 0.4f );
@@ -1081,10 +1119,6 @@ TEST( CloudPlacementSpectrum, EveryFieldTheBakeReadsMakesTheCachedVolumeStale )
     moved               = base;
     moved.BlendRadiusKm = 0.09f;
     notices( moved, "the blend radius" );
-
-    moved                = base;
-    moved.ProfileDepthKm = 0.50f;
-    notices( moved, "the profile depth" );
 
     moved          = base;
     moved.Coverage = 0.30f;
@@ -1264,7 +1298,7 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
 {
     const CloudProceduralFieldParams params;
 
-    // TWENTY FIELDS. If this line stops compiling, a field was added to or removed from
+    // NINETEEN FIELDS. If this line stops compiling, a field was added to or removed from
     // CloudProceduralFieldParams. Do BOTH of these before you touch this list:
     //
     //   1. add a line for it to EveryFieldTheBakeReadsMakesTheCachedVolumeStale above, and
@@ -1273,10 +1307,10 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     // or the artist will move it in the editor and nothing at all will happen — the dead setting §1.3 of
     // the contract forbids, arrived at from the far side where the knob is wired and the CACHE is what eats
     // it.
-    const auto& [regionSizeKm, volumeSideVoxels, layerBottomKm, layerThicknessKm, blendRadiusKm, profileDepthKm,
-                 coverage, coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety,
-                 patchTileKm, patchStrength, windAxis, layoutPlacement, patternSource, maskSource,
-                 resolvableChordKm, species] = params;
+    const auto& [regionSizeKm, volumeSideVoxels, layerBottomKm, layerThicknessKm, blendRadiusKm, coverage,
+                 coverageContrast, seed, placementDensity, placementScatter, placementSizeVariety, patchTileKm,
+                 patchStrength, windAxis, layoutPlacement, patternSource, maskSource, resolvableChordKm, species] =
+         params;
 
     // Named so the decomposition is not optimised away as unused, and asserted on the three that the walk
     // above cannot reach through CloudProceduralParamsEqual at all — a defaulted set must be the shipped
@@ -1294,7 +1328,6 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     (void)layerBottomKm;
     (void)layerThicknessKm;
     (void)blendRadiusKm;
-    (void)profileDepthKm;
     (void)coverage;
     (void)coverageContrast;
     (void)seed;
@@ -1307,7 +1340,7 @@ TEST( CloudPlacementSpectrum, AddingAFieldToTheBakesParametersForcesAVisitToTheS
     (void)resolvableChordKm;
     (void)species;
 
-    std::printf( "[CloudPlacementSpectrum] CloudProceduralFieldParams is %zu bytes over 20 fields\n",
+    std::printf( "[CloudPlacementSpectrum] CloudProceduralFieldParams is %zu bytes over 19 fields\n",
                  sizeof( CloudProceduralFieldParams ) );
 }
 
@@ -1380,48 +1413,80 @@ TEST( CloudPlacementSpectrum, ThePaintingRepeatsExactlyWithTheRegionAtEveryRotat
                                   "field grows a seam at every region face";
 }
 
-// THE PAINTING REDISTRIBUTES THE SKY RATHER THAN ADDING TO IT, and this is the single relation that keeps
-// decision D-20 true once a layout can be bound.
+// THE PAINTED PATTERN IS THE AUTHORED WEATHER (WX-NUBIS-b): it enters as a MULTIPLIER in W, exactly as the
+// world weather does — localCover = Coverage * W, W = 1 - PatternStrength * (1 - painted) — so black paint is
+// clear sky and the slider is never shifted. The relation this replaces held the painting zero-mean about the
+// slider (decision D-20's "Coverage is the fraction of sky"), which Coverage * W retired for the procedural
+// weather; one slider with two meanings depending on which W is bound is the second path the contract forbids.
 //
-// `Coverage` addresses a FRACTION OF SKY directly, and every shipped scene was re-authorised against that
-// mapping (CALIBRATION.md §RW: out by at most 0.019 over five settings). The painted pattern is ON the
-// moment a layout is dropped into the slot, so if it could move the sky's average cover then the slider
-// would quietly stop meaning the sky for every painted layer — and the artist would discover it as "my
-// clouds got thicker when I loaded my picture".
-//
-// What prevents it is one subtraction: the pattern is applied about its OWN MEAN, which the container
-// computes once and carries in its header. Delete `- layout->PatternMean[...]` in
-// Assets::CloudCellCoverage and this goes red.
-TEST( CloudPlacementSpectrum, APaintedPatternRedistributesTheSkyRatherThanAddingToIt )
+// Asserted twice: per cell on the function the bake calls (the formula, exactly, with the world weather
+// switched ON to show it stands down), and on the real bake (half the stripe black at full strength keeps
+// about half the sky, and never more than the unpainted slider).
+// MUTATION: put `+ 2 * centred` back in Assets::CloudCellCoverage and both halves go red.
+namespace
 {
+    std::shared_ptr<const CloudLayoutData> RippleLayout( uint32_t resolution ); // defined with the map tests
+} // namespace
+
+TEST( CloudPlacementSpectrum, APaintedPatternIsTheWeatherAMultiplierOnTheSliderNotAShiftOfIt )
+{
+    {
+        CloudProceduralFieldParams params       = ShippedParams();
+        params.Coverage                         = 0.6f;
+        params.PatchStrength                    = 0.7f;
+        params.PatternSource                    = RippleLayout( 64u );
+        params.LayoutPlacement.PatternStrength  = 0.5f;
+        params.LayoutPlacement.MaskStrength     = 0.0f;
+        params.LayoutPlacement.RepeatsPerRegion = 2u;
+        ASSERT_TRUE( params.PatternSource ) << "the fixture painting could not be built";
+
+        float darkest = 1.0f;
+        for ( int j = 0; j < 24; ++j )
+            for ( int i = 0; i < 24; ++i )
+            {
+                const glm::vec2 at( ( static_cast<float>( i ) + 0.37f ) * 2.0f - 24.0f,
+                                    ( static_cast<float>( j ) + 0.61f ) * 2.0f - 24.0f );
+                const float     painted = std::clamp(
+                     SampleCloudLayoutPattern( *params.PatternSource, 0u,
+                                                   CloudLayoutUv( params.LayoutPlacement, params.RegionSizeKm, at ) ),
+                     0.0f, 1.0f );
+                darkest = std::min( darkest, painted );
+
+                const float expected = params.Coverage * ( 1.0f - 0.5f * ( 1.0f - painted ) );
+                ASSERT_NEAR( CloudProceduralCellCoverage( params, 0u, at ), expected, 1e-5f )
+                     << "at (" << at.x << ", " << at.y << ") km, painted " << painted
+                     << ": a cell's cover is not Coverage * (1 - PatternStrength * (1 - painted))";
+            }
+        ASSERT_LT( darkest, 0.5f ) << "the ripple never went dark, so the multiplier was not exercised";
+    }
+
     CloudProceduralFieldParams plain = ShippedParams();
     plain.Coverage                   = 0.5f;
+    plain.PatchStrength              = 0.0f; // W = 1 without the painting: the slider's own sky
 
     const double unpainted = SkyCover( plain );
-    ASSERT_GE( unpainted, 0.0 ) << "the unpainted bake failed, so there is nothing to compare against";
+    ASSERT_GT( unpainted, 0.0 ) << "the unpainted bake failed or kept nothing, so there is nothing to compare";
 
-    CloudProceduralFieldParams painted = plain;
-    painted.PatternSource              = StripeLayout();
+    CloudProceduralFieldParams painted      = plain;
+    painted.PatternSource                   = StripeLayout();
+    painted.LayoutPlacement.PatternStrength = 1.0f;
     ASSERT_TRUE( painted.PatternSource ) << "the fixture painting could not be built";
-
-    // HALF STRENGTH AND NOT FULL, and the reason is that the fixture is the harshest painting there is: a
-    // hard black-and-white stripe. At full strength the lit half asks for twice the slider and the dark
-    // half for none, so both ends CLAMP — and a clamped mean is no longer the mean that was subtracted.
-    // At a half the modulation spans 0.25..0.75 around a slider of 0.5 and nothing clamps, which is what
-    // makes this a measurement of the zero-mean rule rather than of the clamp.
-    painted.LayoutPlacement.PatternStrength = 0.5f;
 
     const double withPainting = SkyCover( painted );
     ASSERT_GE( withPainting, 0.0 ) << "the painted bake failed";
 
-    std::printf( "[CloudPlacementSpectrum] sky at Coverage 0.50: %.3f unpainted, %.3f painted (%+.3f)\n",
-                 unpainted, withPainting, withPainting - unpainted );
+    std::printf( "[CloudPlacementSpectrum] sky at Coverage 0.50: %.3f unpainted, %.3f under a half-black stripe "
+                 "(ratio %.3f, E[W] 0.5)\n",
+                 unpainted, withPainting, withPainting / unpainted );
 
-    EXPECT_NEAR( withPainting, unpainted, 0.10 )
-         << "binding a painting moved the sky's cover by " << std::abs( withPainting - unpainted )
-         << " at the same Coverage. The pattern must be applied about its own mean, or the slider stops "
-            "meaning the fraction of sky it delivers and decision D-20's re-authorisation of every shipped "
-            "scene stops holding for any painted layer";
+    // E[W] = 0.5 for a half-black stripe at full strength. Not exact in columns: a cluster on the white side
+    // reaches over the stripe's two edges by its radius (1.5 km of a 24 km half), hence a tenth.
+    EXPECT_NEAR( withPainting / unpainted, 0.5, 0.1 )
+         << "a stripe half black at full strength left " << withPainting / unpainted
+         << " of the slider's sky: the painting is not a multiplier in W with black as clear sky";
+    EXPECT_LE( withPainting, unpainted + 0.01 )
+         << "binding a painting added cloud to the sky, so the pattern still shifts the slider instead of "
+            "multiplying it";
 
     // AND THE PAINTING IS NOT INERT, which the assertion above cannot say on its own: a pattern that did
     // nothing at all would pass it perfectly. The stripe must actually move cloud from one half of the sky
@@ -2284,18 +2349,21 @@ namespace
     /// A painting carrying one vertical bar @p width texels wide whose left edge is at @p firstColumn,
     /// wrapping past the right edge. The fixture the stroke measure is asked about, because a bar has
     /// exactly one width and it is known before the measurement runs.
+    ///
+    /// DRAWN AS THE PANEL DRAWS (WX-PAINT): a canvas starts WHITE (full cover, MakeCloudLayoutCanvas) and the
+    /// brush carves clear sky in BLACK, so the stroke is the dark bar on a white field.
     CloudLayoutData BarLayout( uint32_t resolution, uint32_t firstColumn, uint32_t width )
     {
-        std::vector<unsigned char> pixels( static_cast<size_t>( resolution ) * resolution * 4u, 0u );
+        std::vector<unsigned char> pixels( static_cast<size_t>( resolution ) * resolution * 4u, 255u );
 
         for ( uint32_t y = 0; y < resolution; ++y )
             for ( uint32_t k = 0; k < width; ++k )
             {
                 const uint32_t x  = ( firstColumn + k ) % resolution;
                 const size_t   at = ( static_cast<size_t>( y ) * resolution + x ) * 4u;
-                pixels[at + 0]    = 255u;
-                pixels[at + 1]    = 255u;
-                pixels[at + 2]    = 255u;
+                pixels[at + 0]    = 0u;
+                pixels[at + 1]    = 0u;
+                pixels[at + 2]    = 0u;
                 pixels[at + 3]    = 128u;
             }
 
@@ -2730,8 +2798,9 @@ TEST( CloudPlacementSpectrum, ABrushStrokeOnTheSeamComesOutOfTheOtherEdge )
          surface.Pattern, kSide, 0u, kCloudLayoutChannels,
          { glm::vec2( 0.0f, -4.0f ), glm::vec2( 0.0f, static_cast<float>( kSide ) + 4.0f ) }, brush ) );
 
-    EXPECT_GT( surface.Pattern[( 32u * kSide + 0u ) * 4u], 200u ) << "the seam column itself was not painted";
-    EXPECT_GT( surface.Pattern[( 32u * kSide + ( kSide - 1u ) ) * 4u], 200u )
+    // The brush carves clear sky (Ink 0) into a white canvas, so a painted texel is a DARK one.
+    EXPECT_LT( surface.Pattern[( 32u * kSide + 0u ) * 4u], 55u ) << "the seam column itself was not painted";
+    EXPECT_LT( surface.Pattern[( 32u * kSide + ( kSide - 1u ) ) * 4u], 55u )
          << "the stroke stopped at the edge instead of wrapping, so a figure on the seam is cut in half at "
             "every region face";
 
@@ -2908,7 +2977,7 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
     CloudLayoutBrush lay;
     lay.RadiusTexels = 8.0f;
     lay.Hardness     = 1.0f;
-    lay.Ink          = 1.0f;
+    lay.Ink          = 0.0f; // a canvas starts white: the stroke carves clear sky
 
     auto canvas = MakeCloudLayoutCanvas( kSide );
     ASSERT_TRUE( canvas );
@@ -2924,16 +2993,16 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
     ASSERT_TRUE( PaintCloudLayoutPolyline( surface.Mask, kSide, 0u, 1u, path, lay ) );
 
     const size_t middle = 24u * kSide + 24u;
-    ASSERT_EQ( surface.Pattern[middle * 4u], 255u );
-    ASSERT_EQ( surface.Mask[middle], 255u );
+    ASSERT_EQ( surface.Pattern[middle * 4u], 0u );
+    ASSERT_EQ( surface.Mask[middle], 0u );
 
     // AND NO GAPS: the neighbour texel along the stroke is painted too, which is what a wrong stride
     // would break and what a single-texel probe would miss.
-    ASSERT_EQ( surface.Mask[middle + 1u], 255u ) << "the stroke on the mask skipped a texel, so the plane "
+    ASSERT_EQ( surface.Mask[middle + 1u], 0u ) << "the stroke on the mask skipped a texel, so the plane "
                                                     "was walked with the wrong stride";
 
     CloudLayoutBrush erasePattern = lay;
-    erasePattern.Ink              = 0.0f;
+    erasePattern.Ink              = 1.0f;
 
     CloudLayoutBrush eraseMask = lay;
     eraseMask.Ink              = static_cast<float>( kCloudLayoutMaskNeutral ) / 255.0f;
@@ -2942,7 +3011,7 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
          PaintCloudLayoutPolyline( surface.Pattern, kSide, 0u, kCloudLayoutChannels, path, erasePattern ) );
     ASSERT_TRUE( PaintCloudLayoutPolyline( surface.Mask, kSide, 0u, 1u, path, eraseMask ) );
 
-    EXPECT_EQ( surface.Pattern[middle * 4u], 0u ) << "erasing a pattern channel left cloud behind";
+    EXPECT_EQ( surface.Pattern[middle * 4u], 255u ) << "erasing a pattern channel left clear sky behind";
     EXPECT_EQ( surface.Mask[middle], kCloudLayoutMaskNeutral )
          << "erasing the mask left it at " << static_cast<int>( surface.Mask[middle] )
          << " rather than at neutral, so an erased mask still says something about the sky";
@@ -3026,4 +3095,458 @@ TEST( CloudPlacementSpectrum, TheShellHoldsNoAltitudeTheBakeCannotFill )
     // that simply always says "no anvil": the shipped cumulonimbus' own numbers DO reach the canopy, so the
     // shell must still be taken up to it.
     check( 0.85f, 1.80f, "the shipped cumulonimbus' canopy" );
+}
+
+// ===================================================================================================
+// CLOUD-VARIETY — THE FIELD IS A CUMULUS FIELD: MANY SMALL CLOUDS AND FEW LARGE, IN BUSY REGIONS WITH GAPS
+// ===================================================================================================
+//
+// The owner's frame (10-07, Clouds_Showcase from 0,200,0 looking along -z): "all spawned by one pattern,
+// not random", and a solid carpet at the horizon. Two properties of a real field were missing, and each is
+// measured here on the column map the rest of this file measures — what a person looking up would see —
+// rather than on the generator's internals:
+//
+//   * SIZES: observed cumulus number densities fall as a power of the diameter (n(D) ~ D^-2), so the sky
+//     holds many small clouds and a tail of large ones. The draw this replaced was uniform in area within a
+//     factor of 2.6, so the commonest cloud was the middle one.
+//   * CLUSTERING: busy regions and clear gaps tens of kilometres across. The value-noise patch this replaced
+//     was too concentrated to drive any patch near empty at any knob setting.
+
+namespace
+{
+    /// Every connected body in the column map, as the diameter of the disc of the same area, kilometres.
+    /// Four-connected and periodic, because the region is: a body over a face is one body.
+    std::vector<double> BodyDiametersKm( const std::vector<float>& map, float regionKm )
+    {
+        const double pixelKm = static_cast<double>( regionKm ) / static_cast<double>( kMapSide );
+
+        std::vector<int>    label( map.size(), -1 );
+        std::vector<size_t> stack;
+        std::vector<double> diameters;
+
+        for ( size_t seed = 0; seed < map.size(); ++seed )
+        {
+            if ( map[seed] <= 0.0f || label[seed] >= 0 )
+                continue;
+
+            const int id = static_cast<int>( diameters.size() );
+            size_t    pixels = 0;
+
+            label[seed] = id;
+            stack.push_back( seed );
+            while ( !stack.empty() )
+            {
+                const size_t at = stack.back();
+                stack.pop_back();
+                ++pixels;
+
+                const int x = static_cast<int>( at % kMapSide );
+                const int z = static_cast<int>( at / kMapSide );
+
+                const int nx[4] = { ( x + 1 ) % kMapSide, ( x + kMapSide - 1 ) % kMapSide, x, x };
+                const int nz[4] = { z, z, ( z + 1 ) % kMapSide, ( z + kMapSide - 1 ) % kMapSide };
+                for ( int n = 0; n < 4; ++n )
+                {
+                    const size_t next = static_cast<size_t>( nz[n] ) * kMapSide + static_cast<size_t>( nx[n] );
+                    if ( map[next] > 0.0f && label[next] < 0 )
+                    {
+                        label[next] = id;
+                        stack.push_back( next );
+                    }
+                }
+            }
+
+            const double areaKm2 = static_cast<double>( pixels ) * pixelKm * pixelKm;
+            diameters.push_back( 2.0 * std::sqrt( areaKm2 / 3.141592653589793 ) );
+        }
+
+        return diameters;
+    }
+
+    /// The column map of one realisation. Realisations differ by SEED and not by camera, because the
+    /// weather is periodic with the region: two regions of one seed share their weather exactly.
+    std::vector<float> ColumnsOfSeed( CloudProceduralFieldParams params, uint32_t seed )
+    {
+        params.Seed            = seed;
+        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        return RasteriseColumns( GenerateCloudProceduralBlobs( params, 0u, origin ), origin, params.RegionSizeKm );
+    }
+
+    struct SizeLaw
+    {
+        size_t Bodies       = 0;
+        double MedianKm     = 0.0;
+        double P90Km        = 0.0;
+        double TailFraction = 0.0; ///< bodies at least twice the median diameter
+    };
+
+    SizeLaw MeasureSizes( const CloudProceduralFieldParams& params, uint32_t seeds )
+    {
+        std::vector<double> all;
+        for ( uint32_t seed = 1; seed <= seeds; ++seed )
+        {
+            const std::vector<double> some = BodyDiametersKm( ColumnsOfSeed( params, seed ), params.RegionSizeKm );
+            all.insert( all.end(), some.begin(), some.end() );
+        }
+
+        SizeLaw law;
+        law.Bodies = all.size();
+        if ( all.empty() )
+            return law;
+
+        std::sort( all.begin(), all.end() );
+        law.MedianKm = all[all.size() / 2];
+        law.P90Km    = all[std::min( all.size() - 1, ( all.size() * 9 ) / 10 )];
+
+        size_t tail = 0;
+        for ( double d : all )
+            tail += ( d >= 2.0 * law.MedianKm ) ? 1u : 0u;
+        law.TailFraction = static_cast<double>( tail ) / static_cast<double>( all.size() );
+        return law;
+    }
+
+    struct Clustering
+    {
+        double Mean = 0.0; ///< the sky's cover over every block
+        double Std  = 0.0; ///< how much the cover differs from one block to the next
+        double Gaps = 0.0; ///< the fraction of blocks that are nearly clear
+    };
+
+    /// The sky cut into square blocks @p blockPixels wide, and how unevenly the cloud is shared between them.
+    Clustering MeasureClustering( const CloudProceduralFieldParams& params, uint32_t seeds, int blockPixels )
+    {
+        std::vector<double> covers;
+        const int           blocks = kMapSide / blockPixels;
+
+        for ( uint32_t seed = 1; seed <= seeds; ++seed )
+        {
+            CloudProceduralFieldParams seeded = params;
+            seeded.Seed                       = seed;
+            const glm::vec2 origin            = CloudProceduralRegionOriginKm( seeded, 0.0f, 0.0f );
+            const auto      baked             = BakeCloudProceduralVolume( seeded, origin, {} );
+            if ( !baked )
+                continue;
+            for ( int shift = 0; shift < 4; ++shift )
+            {
+                const std::vector<float> map = KeptColumns( seeded, baked.GetValue(), origin, shift );
+                for ( int bz = 0; bz < blocks; ++bz )
+                    for ( int bx = 0; bx < blocks; ++bx )
+                    {
+                        size_t touched = 0;
+                        for ( int z = 0; z < blockPixels; ++z )
+                            for ( int x = 0; x < blockPixels; ++x )
+                                touched += ( map[static_cast<size_t>( bz * blockPixels + z ) * kMapSide +
+                                                 static_cast<size_t>( bx * blockPixels + x )] > 0.0f )
+                                                ? 1u
+                                                : 0u;
+                        covers.push_back( static_cast<double>( touched ) /
+                                          static_cast<double>( blockPixels * blockPixels ) );
+                    }
+            }
+        }
+
+        Clustering out;
+        for ( double c : covers )
+            out.Mean += c;
+        out.Mean /= static_cast<double>( covers.size() );
+
+        size_t gaps = 0;
+        for ( double c : covers )
+        {
+            out.Std += ( c - out.Mean ) * ( c - out.Mean );
+            gaps += ( c < 0.1 ) ? 1u : 0u;
+        }
+        out.Std  = std::sqrt( out.Std / static_cast<double>( covers.size() ) );
+        out.Gaps = static_cast<double>( gaps ) / static_cast<double>( covers.size() );
+        return out;
+    }
+} // namespace
+
+// MANY SMALL AND FEW LARGE. Measured at a LOW coverage and with the weather off, so that bodies are mostly
+// single clusters rather than merged banks and the size law is not confounded with the clustering. The
+// same placement with the spread at zero is the control: whatever tail it has comes from the fill ramp and
+// from merging, and the shipped spread must add a real one on top.
+TEST( CloudPlacementSpectrum, TheCloudSizesFallAsAPowerLawManySmallAndFewLarge )
+{
+    constexpr uint32_t kSeeds = 8u;
+
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.Coverage                   = 0.15f;
+    shipped.PatchStrength              = 0.0f;
+
+    CloudProceduralFieldParams flat = shipped;
+    flat.PlacementSizeVariety       = 0.0f;
+
+    const SizeLaw law     = MeasureSizes( shipped, kSeeds );
+    const SizeLaw control = MeasureSizes( flat, kSeeds );
+
+    std::printf( "[CloudPlacementSpectrum] sizes, variety %.2f: %zu bodies, median %.3f km, p90 %.3f km, "
+                 "%.3f at twice the median or more\n",
+                 shipped.PlacementSizeVariety, law.Bodies, law.MedianKm, law.P90Km, law.TailFraction );
+    std::printf( "[CloudPlacementSpectrum] sizes, variety 0.00: %zu bodies, median %.3f km, p90 %.3f km, "
+                 "%.3f at twice the median or more\n",
+                 control.Bodies, control.MedianKm, control.P90Km, control.TailFraction );
+
+    ASSERT_GT( law.Bodies, 100u ) << "too few bodies to say anything about their sizes";
+    ASSERT_GT( control.Bodies, 100u ) << "too few bodies in the control to say anything about their sizes";
+
+    // n(D) ~ D^-2 over an eightfold range puts about a fifth of the bodies at twice the median or more.
+    EXPECT_GE( law.TailFraction, 0.08 ) << "the shipped sky has no tail of large clouds: only "
+                                        << law.TailFraction << " of the bodies reach twice the median";
+    EXPECT_GE( law.TailFraction, 2.0 * control.TailFraction )
+         << "the size spread adds no more large clouds than the fill ramp and the merging already make";
+    EXPECT_GE( law.P90Km / law.MedianKm, 1.4 * ( control.P90Km / control.MedianKm ) )
+         << "the size spread barely widens the distribution: p90/median " << law.P90Km / law.MedianKm
+         << " against " << control.P90Km / control.MedianKm << " with no spread at all";
+
+    // AND MANY SMALL: the median body is SMALLER than the control's, which is what a law that piles the
+    // count up at the small end does to a distribution whose mean AREA it holds still.
+    EXPECT_LT( law.MedianKm, control.MedianKm )
+         << "the commonest cloud did not get smaller, so the spread is not a power law falling with size";
+}
+
+// BUSY REGIONS AND CLEAR GAPS, on 12 km blocks — the scale the owner's frame shows between 10 and 24 km
+// from the camera. The cover must vary from block to block far more than independent cells make it, some
+// blocks must be nearly clear, and the weather may only REMOVE cloud (W <= 1, WX-NUBIS), never add it.
+//
+// THE CONTROL HOLDS THE SAME AMOUNT OF CLOUD (WX-NUBIS-b). Under Coverage * W the weathered sky keeps
+// Coverage * E[W] of the cells, so the sky without weather at the SAME Coverage carries 1 / E[W] (2.8 at the
+// shipped 0.7) times the cloud, and a block-to-block spread grows with the cover itself: comparing the two
+// measured the amount of cloud, not the weather. The control is therefore the slider at Coverage * E[W] with
+// W = 1 — the same cells kept, placed by the cells alone. The copula epoch's absolute floor (a spread of 0.18
+// at Coverage 0.5) is gone with it: Coverage * W bounds a 12 km block's cover by about Coverage * std(W) =
+// 0.5 * 0.33, under the floor before a single cell is placed.
+TEST( CloudPlacementSpectrum, TheWeatherOpensClearGapsTensOfKilometresAcrossAndOnlyRemovesCloud )
+{
+    constexpr uint32_t kSeeds       = 8u;
+    constexpr int      kBlockPixels = 64; // 12 km of the 48 km region
+
+    CloudProceduralFieldParams shipped = ShippedParams();
+    shipped.Coverage                   = 0.50f;
+
+    // E[W] for W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, u uniform: f (the shore is symmetric).
+    const double s     = static_cast<double>( shipped.PatchStrength );
+    const double meanW = 1.0 - s;
+    ASSERT_GT( s, 0.0 ) << "the shipped layer has no weather, so there is nothing to measure";
+
+    CloudProceduralFieldParams flat = shipped;
+    flat.PatchStrength              = 0.0f;
+    flat.Coverage                   = static_cast<float>( shipped.Coverage * meanW );
+
+    CloudProceduralFieldParams slider = shipped;
+    slider.PatchStrength              = 0.0f;
+
+    const Clustering weather = MeasureClustering( shipped, kSeeds, kBlockPixels );
+    const Clustering matched = MeasureClustering( flat, kSeeds, kBlockPixels );
+    const Clustering none    = MeasureClustering( slider, kSeeds, kBlockPixels );
+
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, patch strength %.2f at Coverage %.2f: cover %.3f, spread "
+                 "%.3f, %.3f nearly clear\n",
+                 shipped.PatchStrength, shipped.Coverage, weather.Mean, weather.Std, weather.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, no weather at Coverage %.3f (= Coverage * E[W]): cover "
+                 "%.3f, spread %.3f, %.3f nearly clear\n",
+                 flat.Coverage, matched.Mean, matched.Std, matched.Gaps );
+    std::printf( "[CloudPlacementSpectrum] 12 km blocks, no weather at Coverage %.2f: cover %.3f, spread %.3f\n",
+                 slider.Coverage, none.Mean, none.Std );
+
+    EXPECT_GE( weather.Std, 2.0 * matched.Std )
+         << "with the same amount of cloud, the weather spreads it between 12 km blocks no more than "
+            "independent cells already do";
+    EXPECT_GE( weather.Gaps, 0.05 ) << "no 12 km block of the shipped sky is nearly clear, so there are no gaps";
+
+    EXPECT_LT( weather.Mean, none.Mean )
+         << "the weather added cloud to the sky, so W is not a presence map under one (Coverage * W)";
+}
+
+// A SOLID DECK IS A LAYER WITHOUT WEATHER, not a new field of the type (WX-NUBIS-b, decision 2). Under
+// Coverage * W the world weather empties a fraction 1 - 1/(2 s) of the sky at every Coverage, so an overcast
+// cannot come from the slider of a weathered layer; it comes from a layer whose W is one — PatchStrength 0 —
+// carrying a sheet type. This pins that the arrangement delivers: Stratus and Stratocumulus (the shipped
+// `.decloudtype` placement numbers: scale 4.00 and 0.35, anisotropy 1.00 and 1.60, profile taper 0.35) at
+// Coverage 1 and PatchStrength 0 cover the whole sky, and the same layer with the shipped weather does not.
+TEST( CloudPlacementSpectrum, ALayerWithNoWeatherAtCoverageOneIsASolidDeck )
+{
+    struct Deck
+    {
+        const char* Name;
+        float       BottomKm;
+        float       TopKm;
+        float       EdgeTop;
+        float       PlacementScale;
+        float       Anisotropy;
+    };
+
+    for ( const Deck& deck : { Deck{ "Stratus", 0.15f, 0.55f, 0.88f, 4.00f, 1.00f },
+                               Deck{ "Stratocumulus", 0.60f, 1.60f, 0.80f, 0.35f, 1.60f } } )
+    {
+        Desert::Graphic::CloudTypeShape shape = Congestus();
+        shape.BaseAltitudeKm                  = deck.BottomKm;
+        shape.TopAltitudeKm                   = deck.TopKm;
+        shape.EdgeTopFraction                 = deck.EdgeTop;
+        shape.Profile                         = Desert::Graphic::CloudProfileFromTaper( 0.35f );
+        shape.PlacementScale                  = deck.PlacementScale;
+        shape.PlacementAnisotropy             = deck.Anisotropy;
+
+        CloudProceduralFieldParams params = ShippedParams();
+        params.LayerBottomKm              = deck.BottomKm;
+        params.LayerThicknessKm           = deck.TopKm - deck.BottomKm;
+        params.Species.front().Shape      = shape;
+        params.Coverage                   = 1.0f;
+        params.PatchStrength              = 0.0f;
+
+        CloudProceduralFieldParams weathered = params;
+        weathered.PatchStrength              = 0.7f;
+
+        const double solid  = SkyCover( params );
+        const double broken = SkyCover( weathered );
+        std::printf( "[CloudPlacementSpectrum] %s at Coverage 1: %.3f of the sky with PatchStrength 0, %.3f with "
+                     "0.70\n",
+                     deck.Name, solid, broken );
+
+        EXPECT_GE( solid, 0.99 ) << deck.Name << " at Coverage 1 with no weather covers only " << solid
+                                 << " of the sky, so a solid deck cannot be authored as a layer with W = 1";
+        EXPECT_LT( broken, solid - 0.1 ) << deck.Name << ": the weather opened no gaps in the deck, so "
+                                         << "PatchStrength 0 is not what makes it solid";
+    }
+}
+
+// THE WEATHER MAP AT ITS SOURCE, OVER THE WORLD (WX-NUBIS). A cell's cover is Coverage * W with
+// W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, d = 0.15 min(f, s), u the weather's uniform rank, so over the
+// world its mean is Coverage * (1 - s) and a fraction s - d of the cells is EXACTLY empty at every Coverage
+// (FIELD-GRAIN-b). Measured over many regions across the far torus, on the function the bake calls.
+// MUTATION: f = s instead of 1 - s in CloudWeatherPresence and the zero census goes red.
+TEST( CloudPlacementSpectrum, TheWeatherMapScalesTheCellsCoverAndEmptiesItsZeros )
+{
+    constexpr int kWorldRegions = 32;
+
+    for ( const float coverage : { 0.15f, 0.35f, 0.60f, 1.0f } )
+    {
+        double sumOfMeans = 0.0;
+        double sumOfZeros = 0.0;
+
+        for ( uint32_t seed = 1; seed <= 8u; ++seed )
+        {
+            CloudProceduralFieldParams params = ShippedParams();
+            params.Coverage                   = coverage;
+            params.Seed                       = seed;
+
+            const glm::vec2 extent = CloudProceduralCellExtentKm( params, params.Species[0] );
+            const int       across = static_cast<int>( params.RegionSizeKm / extent.x + 0.5f );
+
+            double sum = 0.0, zeros = 0.0;
+            for ( int shift = 0; shift < kWorldRegions; ++shift )
+            {
+                const glm::vec2 region = RegionShiftKm( params, shift );
+                for ( int iz = 0; iz < across; ++iz )
+                    for ( int ix = 0; ix < across; ++ix )
+                    {
+                        const glm::vec2 centre =
+                             region + glm::vec2( ( static_cast<float>( ix ) + 0.5f ) * extent.x,
+                                                 ( static_cast<float>( iz ) + 0.5f ) * extent.y );
+                        const double local = CloudProceduralCellCoverage( params, 0u, centre );
+                        EXPECT_LE( local, coverage + 1e-6 ) << "the weather raised a cell over Coverage";
+                        sum += local;
+                        zeros += local <= 0.0 ? 1.0 : 0.0;
+                    }
+            }
+
+            const double cells = static_cast<double>( across * across ) * static_cast<double>( kWorldRegions );
+            sumOfMeans += sum / cells;
+            sumOfZeros += zeros / cells;
+        }
+
+        // W = 1 - smoothstep(f - d, f + d, u), f = 1 - s, d = 0.15 min(f, s): E[W] = f, zero over s - d.
+        const double s         = static_cast<double>( ShippedParams().PatchStrength );
+        const double presence  = 1.0 - s;
+        const double zeroShare = s - 0.15 * std::min( s, 1.0 - s );
+        const double mean      = sumOfMeans / 8.0;
+        const double empty     = sumOfZeros / 8.0;
+        std::printf( "[CloudPlacementSpectrum] coverage %.2f: cells' cover %.4f (expected %.4f), %.3f empty "
+                     "(expected %.3f)\n",
+                     coverage, mean, coverage * presence, empty, zeroShare );
+
+        EXPECT_NEAR( mean, coverage * presence, 0.03 * coverage ) << "at Coverage " << coverage;
+        EXPECT_NEAR( empty, zeroShare, 0.05 ) << "the weather's true zeros moved at Coverage " << coverage;
+    }
+}
+
+// THE HORIZON'S GAPS ARE NOT CLOSED BY THE REGION'S OWN REPEAT (FARWX-a). The bake tiles with the region,
+// so the weather must not: a weather periodic with the region (WeatherGaussian's fmod(world, region)) put
+// every gap's copy one region further out along the sight line, and at 2 degrees above the owner's horizon
+// a sight line crosses the layer for a hundred kilometres. Two measurements: the weather's own
+// autocorrelation along a 2-degree heading at a lag of one region, and the fraction of the columns a
+// 2-degree sight line crosses inside the layer that the march keeps CLEAR at Coverage 0.55.
+// MUTATION: kCloudFarWeatherPeriodKm = RegionSizeKm (48) makes the correlation 1 and this test red.
+TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
+{
+    CloudProceduralFieldParams params = ShippedParams();
+    params.Coverage                   = 0.55f;
+
+    constexpr float kElevation = 2.0f * 0.017453292519943295f;
+
+    double sxy = 0.0, sxx = 0.0, syy = 0.0;
+    for ( uint32_t seed = 1; seed <= 8u; ++seed )
+    {
+        CloudProceduralFieldParams seeded = params;
+        seeded.Seed                       = seed;
+        const uint32_t weatherSeed        = CloudFarWeatherSeed( seeded );
+        for ( int ray = 0; ray < 64; ++ray )
+        {
+            const float     azimuth = kElevation + static_cast<float>( ray ) * 0.0982f;
+            const glm::vec2 heading( std::cos( azimuth ), std::sin( azimuth ) );
+            const glm::vec2 start =
+                 glm::vec2( 131.0f, 77.0f ) * static_cast<float>( ray + 64 * static_cast<int>( seed ) );
+            for ( int d = 0; d < 300; ++d )
+            {
+                const float a =
+                     CloudFarWeather( weatherSeed, start + heading * static_cast<float>( d ), seeded.PatchTileKm );
+                const float b = CloudFarWeather(
+                     weatherSeed, start + heading * ( static_cast<float>( d ) + seeded.RegionSizeKm ),
+                     seeded.PatchTileKm );
+                sxy += a * b;
+                sxx += a * a;
+                syy += b * b;
+            }
+        }
+    }
+    const double correlation = sxy / std::sqrt( std::max( sxx * syy, 1e-30 ) );
+
+    const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+
+    const int   side  = static_cast<int>( params.VolumeSideVoxels );
+    const float voxel = params.RegionSizeKm / static_cast<float>( side );
+    size_t      clear = 0, crossed = 0;
+    for ( int ray = 0; ray < 32; ++ray )
+    {
+        const float     azimuth = static_cast<float>( ray ) * 0.19635f;
+        const glm::vec2 heading( std::cos( azimuth ), std::sin( azimuth ) );
+        for ( float d = 0.0f; d < 300.0f; d += 0.25f )
+        {
+            const float altitude = d * std::tan( kElevation );
+            if ( altitude < params.LayerBottomKm || altitude > params.LayerBottomKm + params.LayerThicknessKm )
+                continue;
+            const glm::vec2 world = heading * d;
+            int             x     = static_cast<int>( std::floor( ( world.x - origin.x ) / voxel ) ) % side;
+            int             z     = static_cast<int>( std::floor( ( world.y - origin.y ) / voxel ) ) % side;
+            x                     = ( x + side ) % side;
+            z                     = ( z + side ) % side;
+            ++crossed;
+            if ( !CloudProceduralColumnKept( baked.GetValue(), static_cast<uint32_t>( side ),
+                                             static_cast<uint32_t>( x ), static_cast<uint32_t>( z ),
+                                             CloudProceduralLocalWeathers( params, world ) ) )
+                ++clear;
+        }
+    }
+    const double clearFraction =
+         static_cast<double>( clear ) / static_cast<double>( std::max<size_t>( crossed, 1 ) );
+
+    std::printf( "[CloudPlacementSpectrum] 2-degree sight lines: %.3f of %zu crossed columns clear; weather "
+                 "autocorrelation at one region (%.0f km) %.3f\n",
+                 clearFraction, crossed, params.RegionSizeKm, correlation );
+
+    EXPECT_LT( correlation, 0.3 )
+         << "the weather repeats with the region, so every horizon gap is closed by its copy";
+    EXPECT_GE( clearFraction, 0.15 ) << "a 2-degree sight line meets cloud in almost every column it crosses";
 }

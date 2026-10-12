@@ -91,6 +91,7 @@ project "SceneMigrator"
         -- bytes in, bytes out; no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/SoundFormat.cpp", -- v42 reads `.desound` (SOUND-ASSET)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",

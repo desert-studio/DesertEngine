@@ -62,14 +62,18 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     //
     // xy the region's minimum corner in world kilometres, SNAPPED to the lump lattice; z the RECIPROCAL of
     // its horizontal side; w the erosion's period in kilometres.
-    vec4  u_CloudRegion;
+    // CLIP-2: THE CLIPMAP'S LEVELS, finest first (Graphic::CloudProceduralClipmap::LevelUniforms): xy the
+    // level's minimum corner, world km; z 1 / its side; w its voxel, km. Level k lives in rows
+    // [32k, 32k + 32) of the modelling volume, TOROIDALLY: world point p (km) is at texel coordinate p * z
+    // (REPEAT). The last level is periodic and is the far path.
+    vec4  u_CloudLevel[3];
     // w is HOW MANY SPECIES this layer carries, 0..4, and it is the bound of the march's per-species loop.
     // It is a count rather than a mask because the slots are filled from the front by PackCloudParams.
     //
     // z HELD THE SCALAR SCATTERING ALBEDO and holds nothing now: the albedo became a colour and moved to
     // u_CloudAlbedo below. Written zero by the packer and read by nobody — see Graphic::kCloudUnreadSlots,
     // which is where its row lives.
-    vec4  u_CloudDetail;    // x detail strength, y density scale, z UNREAD, w species count
+    vec4  u_CloudDetail;    // x detail strength, y density scale, z detail tile (km), w species count
     vec4  u_CloudWind;      // xyz accumulated wind offset (km), w phase g
     vec4  u_CloudSun;       // xyz TOWARD the sun (normalized), w light march distance (km)
     vec4  u_CloudSunColour; // rgb sun irradiance (linear), w light march sample count
@@ -111,7 +115,28 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // 16 while glm::vec3 aligns to 4, so a vec4 appended after u_CloudAerial would sit at 272 here and at
     // 268 in Graphic::CloudGpuPayload — a silent divergence between the two halves of one layout, which is
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
-    vec4  u_CloudAlbedo;
+    vec4  u_CloudAlbedo;    // rgb scattering albedo, w Sky Light Cloud Bottom Occlusion (CloudLighting.glslh)
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x the far path's read scale, y rho, z not read since
+    // CUT-AT-BAKE, w 1 / the weather's period in km. Unpacked into
+    // CloudFieldParams::Weather for Common/CloudField.glslh's procedural producer. Before u_CloudAerial for
+    // the reason u_CloudAlbedo is.
+    vec4  u_CloudWeather;
+    // THE WISPY BASE, PER SPECIES (Graphic::CloudGpuPayload::SpeciesWispBase/Top), x species 0 .. w species
+    // 3, in the layer's height fraction: where the type's band starts and where its altitude density H first
+    // stands at its maximum. Unpacked into CloudFieldParams for the procedural producer's DetailType blend.
+    // Before u_CloudAerial for the reason u_CloudAlbedo is.
+    vec4  u_CloudSpeciesWispBase;
+    vec4  u_CloudSpeciesWispTop;
+    // THE PAINTED LAYOUT (Graphic::CloudGpuPayload::LayoutPlace / LayoutStrength, WX-PAINT): xy offset km, zw
+    // (cos, sin) * repeats / region; x pattern strength, y mask strength, 0 when not bound — z and w are
+    // not read (Graphic::kCloudUnreadSlots). Before u_CloudAerial for the reason u_CloudAlbedo is.
+    vec4  u_CloudLayoutPlace;
+    vec4  u_CloudLayoutStrength;
+    // THE FAR PATH (Graphic::CloudGpuPayload::FarPresence / FarProfile, CLOUD-SEAM24): per height band, per
+    // species, the coarsest clip level's share of cloud voxels and their mean profile. Before u_CloudAerial
+    // for the reason u_CloudAlbedo is.
+    vec4  u_CloudFarPresence[8];
+    vec4  u_CloudFarProfile[8];
     // x = aerial-perspective volume far extent (km), y = its read-side view-distance scale,
     // z = 1 when the volume exists and must be sampled.
     //
@@ -119,12 +144,12 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // used to be a vec4 whose fourth slot carried the cloud type's variance, and then the domain warp's
     // amount; the warp was measured and taken out (see the note in Common/CloudField.glslh), so rather
     // than leave a float nobody reads — which is where the next parameter would get stashed without a
-    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 272 and the block
-    // is 284 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
+    // name, a range or a tooltip — the block ends in a vec3. std430 puts it at offset 352 and the block
+    // is 364 bytes; Graphic::CloudGpuPayload pins exactly that with a static_assert.
     vec3  u_CloudAerial;
 };
 
-// The block is ELEVEN vec4s, a vec4[4], two more vec4s and a vec3, and it stops there. Seeds and octave counts are absent
+// The block is ELEVEN vec4s, a vec4[4], five more vec4s and a vec3, and it stops there. Seeds and octave counts are absent
 // on purpose: they decide what the baked volumes CONTAIN, not how the march reads them, so they belong to
 // the generators and would be four values copied into every dispatch here for nothing.
 
@@ -146,7 +171,7 @@ CloudLayer CloudUnpackLayer()
 CloudFieldParams CloudUnpackFieldParams()
 {
     CloudFieldParams p;
-    p.DetailTileKm   = u_CloudRegion.w;
+    p.DetailTileKm   = u_CloudDetail.z;
     p.DetailStrength = u_CloudDetail.x;
     p.DensityScale   = u_CloudDetail.y;
     p.SpeciesCount   = int( clamp( u_CloudDetail.w, 0.0f, float( CLOUD_SPECIES_SLOTS ) ) );
@@ -160,10 +185,22 @@ CloudFieldParams CloudUnpackFieldParams()
         // sky from the wrong volume with nothing in the log.
         p.SpeciesNoise[slot] =
              int( clamp( u_CloudSpeciesNoise[slot], 0.0f, float( CLOUD_SPECIES_SLOTS - 1 ) ) );
+        p.SpeciesWispBase[slot] = u_CloudSpeciesWispBase[slot];
+        p.SpeciesWispTop[slot]  = u_CloudSpeciesWispTop[slot];
     }
 
-    p.RegionOriginKm  = vec2( u_CloudRegion.x, u_CloudRegion.y );
-    p.InvRegionSizeKm = u_CloudRegion.z;
+    // The clip levels' windows, finest first; the last one is periodic (sky occlusion, the far path).
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+        p.ProceduralLevel[level] = u_CloudLevel[level];
+    p.Weather         = u_CloudWeather.yw;
+    p.FarScale        = u_CloudWeather.x;
+    for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+    {
+        p.FarPresence[band] = u_CloudFarPresence[band];
+        p.FarProfile[band]  = u_CloudFarProfile[band];
+    }
+    p.LayoutPlace     = u_CloudLayoutPlace;
+    p.LayoutStrength  = u_CloudLayoutStrength.xy;
 
     p.WindOffsetKm = vec3( u_CloudWind.x, u_CloudWind.y, u_CloudWind.z );
 

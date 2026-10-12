@@ -5,17 +5,79 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <cstring>
+#include <cstdint>
+#include <functional>
 #include <limits>
 #include <mutex>
+#include <unordered_map>
+
+// Common/CloudNoise.glslh COMPILED AS C++ for the body's silhouette noise (SHAPE-NOISE), the arrangement
+// CloudNoiseVolumeGenerator.cpp established: the same text the noise volume is generated from, so the
+// Perlin and the billow channel here are THE engine's and not a copy that could drift. A NAMED namespace,
+// not an anonymous one, because this file calls two of the library's functions and an anonymous copy would
+// warn on every one it leaves unused. The dialect rules are the .glslh's own: glm supplies the GLSL types
+// and built-ins and `uint` is GLSL's 32-bit word. The shader root is on every project that compiles this.
+namespace Desert::Assets::CloudShapeNoiseGlsl
+{
+    using vec3 = glm::vec3;
+    using vec4 = glm::vec4;
+
+    using uint = std::uint32_t;
+
+    using glm::clamp;
+    using glm::floor;
+    using glm::max;
+    using glm::min;
+    using glm::mix;
+    using glm::mod;
+    using glm::pow;
+
+#include <Common/CloudNoise.glslh>
+} // namespace Desert::Assets::CloudShapeNoiseGlsl
 
 namespace Desert::Assets
 {
     namespace
     {
+        /// THE SILHOUETTE NOISE'S LATTICE, in placement cells (SHAPE-NOISE): two fifths of the slot's CellKm,
+        /// which at the shipped 3 km cell is a 1.2 km Perlin cell against a cluster about 4 km across — three
+        /// to four bumps over one body, the scale Nubis 2017's low-frequency Perlin-Worley carves its base at.
+        /// Finer and the silhouette is the detail noise's job (CloudMedium's erosion); coarser and a whole
+        /// cluster sits inside one bump and is merely shifted, still an ellipse.
+        constexpr float kCloudShapeNoiseCellsPerCell = 0.4f;
+
+        /// How far the silhouette noise moves a lump's surface, in its own CloudProceduralLumpDepthKm. At
+        /// 0.6 the deepest carve leaves two fifths of the lump's thinnest radius, so a lump is reshaped and
+        /// never cut through; the growth side is the same distance outward, paid for in the bake's boxes.
+        constexpr float kCloudShapeNoiseReachOfDepth = 0.6f;
+
+        /// The median of `mix(billow, 1, perlin)` for two channels whose medians are 0.5 (CloudAlligator01 is
+        /// shaped to it; the periodic Perlin is symmetric about 0): 0.5 + 0.5 * 0.5. The signed noise is 0
+        /// there, so on average a body neither grows nor shrinks and the cover stays the Coverage mapping's.
+        constexpr float kCloudShapeNoiseMedian = 0.75f;
+
+        /// The silhouette noise's strength at the type's base against its top (CLOUD-SHAPE), the noise rising
+        /// linearly between: see CloudProceduralShapeNoise.
+        constexpr float kCloudShapeNoiseAtBase = 0.5f;
+
+        /// THE CAULIFLOWER OCTAVE (CLOUD-SHAPE-c): a second, finer billow lattice of this share of the
+        /// silhouette noise's cell — 0.48 km at the shipped 3 km placement cell, two and a half voxels of
+        /// the shipped volume — that only GROWS the body, round heads pushed out of its surface where the
+        /// Alligator billow is above its median. One octave of 1.2 km bumps over a 4 km body leaves it a
+        /// lumpy ball; the heads on the heads are what make it read as cumulus.
+        constexpr float kCloudShapeBillowCellOfShape = 0.4f;
+
+        /// The cauliflower octave's growth at the type's top, in the lump's shape reach; it falls to
+        /// kCloudShapeNoiseAtBase of this at the base (CLOUD-SHAPE-f: from zero, which left the flanks smooth),
+        /// growth only, so the floor's own flat cut stays where it is and the crown boils hardest. The sum with
+        /// the coarse octave is clamped to [-1, 1], the range the bake's boxes are grown by.
+        constexpr float kCloudShapeBillowAtTop = 1.0f;
+
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
         /// FOURTEEN, AND THE NUMBER IS A QUANTISATION ARGUMENT rather than a feel. A dropped lump's term
@@ -32,73 +94,23 @@ namespace Desert::Assets
         /// Desert/Tests/Engine/CloudProceduralField failing exactly where it was written to.
         constexpr float kJoinCutoffRadii = 14.0f;
 
-        /// HOW MUCH WIDER A CLUSTER IS MADE, per unit of coverage, to pay for the packing the free
-        /// placement costs.
-        ///
-        /// WHAT IT PAYS FOR, AND IT IS NOT A FUDGE. A jittered lattice packs EFFICIENTLY: one cluster per
-        /// cell, kept near its own site, so neighbours barely overlap and almost every square kilometre of
-        /// cluster is a square kilometre of sky. Letting a cluster wander a whole cell is the cure for the
-        /// grid — Tools/LatticePeak measures the lattice bump falling from 0.066 to 0.011 on that change
-        /// alone — and independently placed bodies overlap, so the same amount of cloud covers less sky.
-        /// Measured: at the shipped scene's coverage the sky went from 0.781 to 0.733 on the scatter
-        /// alone, and to 0.640 with the size spread and the patches as well.
-        ///
-        /// THE SHAPE IS A LINE THROUGH ONE AT ZERO, because at zero coverage there is nothing to overlap
-        /// and nothing to compensate, and the loss grows with how much cloud is in the sky.
-        ///
-        /// THE SLOPE IS MEASURED AT THE SHIPPED PLACEMENT AND NOWHERE ELSE, and saying so is the honest
-        /// part: it is fitted on the top-down projection of the baked volume at five settings of the
-        /// slider, with the density, the scatter and the size spread at the values this component ships.
-        /// At 0.08 the sky the slider asks for and the sky it delivers are
-        ///
-        ///     Coverage  0.15   0.24   0.35   0.50   0.75
-        ///     measured  0.169  0.249  0.357  0.519  0.741
-        ///
-        /// — out by at most 0.019, against the tenth Desert/Tests/Engine/CloudProceduralField allows and
-        /// against the 0.11 the free placement was out by before this line existed.
-        ///
-        /// IT DOES NOT DEPEND ON THE SIZE SPREAD, which is by construction: the size draw is uniform in
-        /// AREA with a mean of one. It depends only weakly on the density, which is what
-        /// kDensityCompensation is for. It DOES depend on the SCATTER, which is precisely what it is
-        /// compensating — an artist who returns the scatter to zero gets a sky a few points fuller than
-        /// the slider says, which is inside the suite's tenth and is stated on the knob's own tooltip.
-        ///
-        /// AND IT DOES NOT DEPEND ON THE CELL, WHICH WAS MEASURED RATHER THAN ASSUMED — §CB, and it is
-        /// recorded here because two phases in a row named the opposite as the cause of the cumulonimbus'
-        /// slider and neither tested it. Both this line and the alive exponent below are fitted at the
-        /// 3 km cell and neither carries a cell term, which LOOKS like the defect. It is not: the cover a
-        /// placement delivers is SCALE-FREE in the cell, because the clusters per unit area fall as the
-        /// cell's area exactly as fast as one cluster's footprint rises with it, so the cell cancels out of
-        /// the expected cover. Measured at `Coverage 0.5` on ONE genus with the cell the only thing that
-        /// changes — the shipped congestus at five settings of its Placement Scale, 8 realisations:
-        ///
-        ///     cell     1.500  2.400  3.000  6.000  12.000 km
-        ///     sky      0.502  0.505  0.512  0.532  0.503
-        ///
-        /// — eight times of cell for a spread of 0.030, and NOT MONOTONE: the widest cell in the library
-        /// is the second most accurate row. What is left is the estimator's own wobble on a region that
-        /// holds only four coarse cells across, not a law. Against it, the cumulonimbus was out by 0.356.
-        /// What its 6 km cell was carrying is its ANVIL, and that is priced by CloudClusterFootprintGain.
-        constexpr float kPackingCompensation = 0.08f;
+        /// HOW MUCH BODY AREA ONE PATCH HOLDS, in units of the patch's own disc (FIELD-GRAIN). One: the
+        /// bodies' summed mean area is the disc's, so a patch alone covers 1 - e^-1 of it (Boolean model)
+        /// and the discs of neighbouring cells, 1.63 cell-areas each, overlap into a sky with no grid. The
+        /// sky's cover against the Coverage slider is RECAL's to re-measure; this number is the grain's.
+        constexpr float kBodyFillOfPatch = 1.0f;
 
-        /// How fast a cluster narrows as a cell is given more of them, as the exponent of the count.
+        /// A PATCH'S footprint radius in cell means: the disc its bodies are spread over (FIELD-GRAIN; it was
+        /// one cluster's radius until bodies got their own size law).
         ///
-        /// A HALF IS THE ANSWER TO THE WRONG QUESTION, and the suite is what said so. A half preserves the
-        /// total AREA of the clusters in a cell exactly — `d` of them, each of `1/sqrt(d)` the width — and
-        /// that would be the right compensation if the ground they covered were the sum of their areas. It
-        /// is not, because they OVERLAP, and how much they overlap depends on how many there are: one
-        /// cluster at the shipped size covers 1.63 cell-areas, so it saturates its own cell and spills into
-        /// its neighbours, while four clusters of a quarter that area each cover 0.41 of a cell and between
-        /// them leave 12 per cent of it open. Measured on the placement, a half took the sky's cover from
-        /// 0.701 at a density of 1 to 0.597 at 4 — a tenth of the sky, which is the whole tolerance
-        /// Desert/Tests/Engine/CloudProceduralField allows the Coverage slider.
-        ///
-        /// 0.40 IS MEASURED AND NOT DERIVED, and the difference is worth naming: the derivation would need
-        /// the saturation of a cluster wider than its own cell, which depends on the coverage as well as on
-        /// the count. What is asserted instead is the RELATION — Desert/Tests/Engine/CloudPlacementSpectrum
-        /// re-measures the cover at a density of 1 and of 4 on every run and fails if they part company by
-        /// more than a twentieth of the sky.
-        constexpr float kDensityCompensation = 0.40f;
+        /// SIZED FOR THE BODY AND NOT FOR THE SKY. 0.72 is the cluster an alive cell is mostly full of, and
+        /// the bake of every cell covers about 0.69 of the columns with it (Boolean model, 1 - e^-1.17). The
+        /// rest of the sky up to Coverage 1 is NOT bought by inflating the bodies — that glued neighbouring
+        /// clusters into one and moved the size law, the body widths and the anisotropy's cover with the
+        /// slider (FARWX-a2, five red CloudPlacementSpectrum tests). It is bought the way Nubis buys it: the
+        /// weather decides which clusters exist (CUT-CORE: Nubis's localCover = Coverage x W, piece WX-NUBIS),
+        /// and the air between them is never grown into cloud.
+        constexpr float kClusterFootprintCells = 0.72f;
 
         /// How many lumps one cluster is built from. A COUNT AND NOT A CEILING ANY MORE, and the change is
         /// the visible half of §SIL.
@@ -178,6 +190,59 @@ namespace Desert::Assets
         /// the SIZE OF A BODY: a taller lump fuses with its neighbours across a wider front.
         constexpr float kLumpVerticalOverHorizontal = kCloudLumpVerticalOverHorizontal;
 
+        /// HOW MUCH TALLER THAN ITS BASE LUMP THE TOP OF A STACK STANDS (CLOUD-SHAPE): a lump at stack
+        /// parameter `t` is `kLumpVerticalOverHorizontal * (1 + kTurretStretch * t)` tall over its width,
+        /// so the base lump keeps the calibrated 0.75 and the crown's turrets are ~1.35 — Nubis's cumulus
+        /// "flat base, towers above" read as the lumps' own aspect rather than as a second vertical
+        /// multiplier (D-22: the band clamp below still bounds every lump).
+        constexpr float kTurretStretch = 0.8f;
+
+        /// HOW FAR THE TURRETS STAND OUT FROM THE BODY'S AXIS at the top of the stack, against the base's
+        /// half-cluster-radius disc. The disc used to close to 45 % of it (`1 - 0.55 t`), which piled the
+        /// upper lumps onto the axis and made one smooth dome — a ball. At 75 % the crown is several
+        /// distinct turrets that each show their own shoulder above a common floor.
+        constexpr float kTurretDiscAtTop = 0.75f;
+
+        /// THE CROWN GROWS IN TURRETS, NOT AS A DOME (CLOUD-SHAPE-b). The stack above is six lumps one golden
+        /// angle apart whose union, seen from the side, is still one rounded cap: the top lump is the widest
+        /// thing near the top and every other lump is under it. A cumulus crown is several SMALLER towers
+        /// standing on the body's shoulders, each with its own rounded head (Nubis 2017's "billowy towers";
+        /// UE's cumulus presets read the same way). So the stack is fitted into the band less one turret's
+        /// height and THREE turrets — a third of the crown lump wide each — stand on its shoulders, their
+        /// heads reaching the band's top. Three, because two read as ears and five fuse back into a dome at
+        /// a turret a third of the crown wide.
+        constexpr uint32_t kTurretsPerCrown = 3u;
+
+        /// THE CROWN'S TURRET COUNT VARIES PER BODY (CLOUD-SHAPE-c): `kTurretsPerCrown` plus or minus one, so
+        /// one body is a twin-headed tower and its neighbour a cauliflower of four — the varied silhouettes a
+        /// cumulus field has, rather than one crown repeated.
+        constexpr uint32_t kTurretsSpreadPerCrown = 1u;
+
+        /// THE BILLOWS ON A TURRET (CLOUD-SHAPE-c): every turret carries this many smaller heads on its own
+        /// outer flank, half its size, so the crown is a head of heads — the cauliflower of a growing cumulus
+        /// (Nubis 2017's "billowy" crown) at the scale the volume can hold, the detail noise carrying the
+        /// finer ones. Each stands on the turret's surface and never above its top, so the band still bounds it.
+        constexpr uint32_t kBillowsPerTurret = 2u;
+
+        /// A billow's size against the turret it grows from.
+        constexpr float kBillowOfTurret = 0.55f;
+
+        /// A turret's width against the crown lump it stands on. 0.55 (CLOUD-SHAPE-c, from 0.45): at the
+        /// shipped mediocris a 0.45 turret was 480 m wide — under three voxels — and read as a ripple.
+        constexpr float kTurretRadiusOfCrown = 0.55f;
+
+        /// How far from the crown lump's axis a turret stands, in the crown lump's radius: on its shoulder.
+        /// ITS CENTRE IS ON THE CROWN'S SURFACE THERE (CLOUD-SHAPE-c), so its lower half is always inside
+        /// the crown and its head grows out of it; at the crown's top height (CLOUD-SHAPE-b) a turret thinner
+        /// than the cap's fall-off over its shoulder floated as a separate dot above the body.
+        constexpr float kTurretShoulderOfCrown = 0.55f;
+
+        /// A turret is at most this share of the band tall (its full height, both halves), so a thin type's
+        /// crown stays a ripple on a sheet and a congestus's turrets stand a kilometre over the cap. 0.7
+        /// (CLOUD-SHAPE-c, from 0.3): at 0.3 the shipped mediocris' 1 km band clamped its turrets to 150 m
+        /// half-height under a 290 m half-width — flat discs on the cap, not heads.
+        constexpr float kTurretShareOfBand = 0.7f;
+
         /// HOW FAR A FULL ANVIL SPREADS BEYOND THE TOWER IT CAPS, per unit of `AnvilStrength`. It is the
         /// authored meaning of that slider: at 1.0 the canopy is 1.8 times the cluster's radius.
         ///
@@ -199,8 +264,8 @@ namespace Desert::Assets
         /// golden angle apart on a disc of `0.48 * (1 - 0.55 t)` cluster radii, each `(0.62 - 0.16 t)` wide
         /// and scaled by a wobble on [0.85, 1.15], each displaced by up to 0.18 radii — with the union taken
         /// in projection. NOTHING IN THEM IS FITTED TO A SKY: no coverage, no cell, no genus and no seed
-        /// enters the calculation, which is exactly the property `kPackingCompensation` beside them does not
-        /// have and is honest about not having.
+        /// enters the calculation. The packing gain that once stood beside them is gone: the slider decides which
+        /// clusters exist (their core rank against the local cover, CUT-CORE), not a fitted widening.
         ///
         /// THE LAW BETWEEN THE ENDS IS LINEAR TO 0.2 PER CENT — the quadrature gives 0.9363 at a taper of
         /// 0.4 against the 0.9377 the line predicts, and 0.9254 at 0.6 against 0.9268 — so a table would be
@@ -276,54 +341,10 @@ namespace Desert::Assets
             return HashUnit( word ) - 0.5f;
         }
 
-        /// One octave of smoothly interpolated value noise over the world's XZ plane, in [0, 1].
-        ///
-        /// VALUE NOISE AND NOT ANOTHER LATTICE OF LUMPS, because what this is for is the SLOW part of the
-        /// sky — where the weather is busy and where it is clear — and that has no bodies in it. Smoothstep
-        /// on the cell fraction rather than the fraction itself, so the field's first derivative is
-        /// continuous and the patches have no facets along the octave's own axes.
-        float ValueNoise( uint32_t seed, const glm::vec2& point )
+        /// The standard normal's cumulative distribution.
+        double NormalCdf( double x )
         {
-            const glm::vec2 base( std::floor( point.x ), std::floor( point.y ) );
-            const glm::vec2 frac = point - base;
-
-            const glm::vec2 weight( frac.x * frac.x * ( 3.0f - 2.0f * frac.x ),
-                                    frac.y * frac.y * ( 3.0f - 2.0f * frac.y ) );
-
-            const int32_t ix = static_cast<int32_t>( base.x );
-            const int32_t iy = static_cast<int32_t>( base.y );
-
-            const auto corner = [seed]( int32_t x, int32_t y )
-            { return HashUnit( HashCombine( HashCombine( seed, IndexWord( x ) ), IndexWord( y ) ) ); };
-
-            const float c00 = corner( ix, iy );
-            const float c10 = corner( ix + 1, iy );
-            const float c01 = corner( ix, iy + 1 );
-            const float c11 = corner( ix + 1, iy + 1 );
-
-            const float bottom = c00 + ( c10 - c00 ) * weight.x;
-            const float top    = c01 + ( c11 - c01 ) * weight.x;
-            return bottom + ( top - bottom ) * weight.y;
-        }
-
-        /// THE LARGE-SCALE MODULATION OF COVERAGE, in [0, 1] with a mean near a half.
-        ///
-        /// TWO OCTAVES AND THE SECOND IS ROTATED, because one octave of value noise is a lattice too: its
-        /// extrema sit on ITS grid, and a patch field that is itself a grid would trade one visible period
-        /// for another. The second octave runs at an irrational-ish ratio of the first's frequency and at
-        /// 31.7 degrees to it, so the two never line up over any distance the region can show.
-        float PatchField( uint32_t seed, const glm::vec2& worldKm, float tileKm )
-        {
-            const float safeTile = std::max( tileKm, 1e-3f );
-
-            const glm::vec2 coarse = worldKm / safeTile;
-
-            // cos/sin of 31.7 degrees, written out because the field's bytes depend on them.
-            const glm::vec2 rotated( worldKm.x * 0.85072f - worldKm.y * 0.52561f,
-                                     worldKm.x * 0.52561f + worldKm.y * 0.85072f );
-            const glm::vec2 fine = rotated / ( safeTile * 0.47f );
-
-            return 0.65f * ValueNoise( seed, coarse ) + 0.35f * ValueNoise( HashCombine( seed, 0x5eedu ), fine );
+            return 0.5 * std::erfc( -x * 0.7071067811865476 );
         }
 
         /// THE ONE PLACE A CELL'S COVERAGE IS DECIDED, and it is one place on purpose.
@@ -340,20 +361,21 @@ namespace Desert::Assets
         /// all — which is what makes that end of the slider a live position instead of "no modulation",
         /// a state the sky already reads as "the whole sky is cloud" (CALIBRATION.md §RW).
         ///
-        /// WHY THE PATTERN IS APPLIED ZERO-MEAN AND THE MASK IS NOT.
+        /// THE PATTERN IS A WEATHER MAP AND THE MASK IS NOT (WX-NUBIS-b).
         ///
-        ///   * The PATTERN is on by default the moment a painting is bound, so if it could move the sky's
-        ///     average cover, then `Coverage` would stop meaning the fraction of sky it delivers — and that
-        ///     mapping is what decision D-20 re-authorised every shipped scene against. Subtracting the
-        ///     painting's own mean makes it redistribute cloud exactly as the patch field it replaces does
-        ///     ("symmetric about the slider"), so the average is the slider again whatever is painted.
+        ///   * The PATTERN is the artist's W: the same presence map the world weather is, a MULTIPLIER on
+        ///     the slider — localCover = Coverage * W, W = 1 - PatternStrength * (1 - painted) — so black
+        ///     paint is clear sky and white paint is the slider's own cover. It no longer shifts Coverage
+        ///     about the painting's mean: that was decision D-20's "Coverage is the fraction of sky", which
+        ///     Coverage * W retired for the procedural weather (WX-NUBIS), and one number with two meanings
+        ///     depending on which W is bound is the second path the contract forbids. Over the sky the cover
+        ///     is Coverage * E[W] whichever W it is. This is Unreal's Layout pattern exactly: the painted
+        ///     channel multiplies the assembled coverage (Docs/Clouds/RESEARCH_LAYOUT_TEXTURES.md §3).
         ///   * The MASK is asymmetric, and that is its job: "add cloud here, remove it there" is the one
-        ///     control an artist reaches for when they want MORE sky covered, and a symmetric version of it
-        ///     could not do that. It is safe for D-20 in a way the pattern is not because a layout with no
-        ///     mask table contributes exactly nothing, so no sky moves that an artist did not paint. This is
-        ///     Unreal's own arrangement unchanged — the mask is summed into the assembled shape, and it
-        ///     subtracts by carrying a negative weight rather than by multiplying
-        ///     (Docs/Clouds/RESEARCH_LAYOUT_TEXTURES.md §3).
+        ///     control an artist reaches for when they want MORE sky covered, and a multiplier could not do
+        ///     it. A layout with no mask table contributes exactly nothing. This is Unreal's own arrangement
+        ///     unchanged — the mask is summed into the assembled shape, and it subtracts by carrying a
+        ///     negative weight rather than by multiplying (RESEARCH_LAYOUT_TEXTURES.md §3).
         ///
         /// THE SEEDS ARE DERIVED IN ONE PLACE, and it is not tidiness. The public
         /// CloudProceduralCellCoverage has to reach the same weather patch the bake's own loop reaches, or
@@ -364,15 +386,18 @@ namespace Desert::Assets
             return HashCombine( params.Seed, slot + 0x51ed270bu );
         }
 
-        uint32_t CloudPatchSeed( uint32_t speciesSeed )
-        {
-            return HashCombine( speciesSeed, 0x9a71c4u );
-        }
+        /// How many waves the far weather sums. Ninety-six random-phase cosines are Gaussian to the eye by
+        /// the central limit and cost a CPU sample under a microsecond, which is what lets the suites keep
+        /// the march at every column of a region.
+        constexpr uint32_t kCloudFarWeatherWaves = 96u;
 
-        float CloudCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot, uint32_t patchSeed,
-                                 const glm::vec2& centreKm )
+        /// The one expression both covers state: @p base times the slot's W (painted, else the world
+        /// weather's), plus the mask, clamped. CloudProceduralCellCoverage passes the Coverage slider (the
+        /// panels' map of how busy the sky is); CloudProceduralLocalWeather passes one (what the march
+        /// remaps the baked profile by, CUT-AT-BAKE).
+        float CloudCellCover( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec2& centreKm,
+                              float base )
         {
-            const float base = std::clamp( params.Coverage, 0.0f, 1.0f );
 
             const CloudLayoutData* patternSource = params.PatternSource.get();
             const CloudLayoutData* maskSource    = params.MaskSource.get();
@@ -389,15 +414,13 @@ namespace Desert::Assets
                 // The channel is the SLOT and not a genus. Unreal fixes R/G/B/A to four named types for
                 // ever; ours is whichever kind of cloud the artist dropped into that slot, which is the
                 // more general arrangement and costs nothing.
-                const float painted = SampleCloudLayoutPattern( *patternSource, slot, uv );
-                const float centred =
-                     painted - patternSource->PatternMean[std::min( slot, kCloudLayoutChannels - 1u )];
+                const float painted =
+                     std::clamp( SampleCloudLayoutPattern( *patternSource, slot, uv ), 0.0f, 1.0f );
 
-                // The same shape the patch field's own expression has, so the two sources push the slider
-                // by comparable amounts and swapping one for the other is not also a change of scale. The
-                // factor of two is what takes a centred fraction — which spans at most -1..1 and typically
-                // far less — onto the same +/-100 per cent the patch field's `2*p - 1` covers.
-                modulated = base * ( 1.0f + params.LayoutPlacement.PatternStrength * 2.0f * centred );
+                // THE PAINTED W, the same shape of answer CloudWeatherPresence gives the world weather: one at
+                // white, and at full strength zero at black, so an unpainted region is clear sky.
+                const float strength = std::clamp( params.LayoutPlacement.PatternStrength, 0.0f, 1.0f );
+                modulated            = base * ( 1.0f - strength * ( 1.0f - painted ) );
             }
             else
             {
@@ -408,8 +431,9 @@ namespace Desert::Assets
                 const float patchStrength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
                 if ( patchStrength > 1e-4f )
                 {
-                    const float patch = PatchField( patchSeed, centreKm, params.PatchTileKm );
-                    modulated         = base * ( 1.0f + patchStrength * ( 2.0f * patch - 1.0f ) );
+                    const float weather =
+                         CloudFarWeather( CloudFarWeatherSeed( params ), centreKm, params.PatchTileKm );
+                    modulated = base * CloudWeatherPresence( patchStrength, weather );
                 }
             }
 
@@ -427,27 +451,85 @@ namespace Desert::Assets
             return std::clamp( modulated, 0.0f, 1.0f );
         }
 
-        /// How many clusters this cell carries, given a mean of @p density.
+        /// THE SIZE LAW OF A CUMULUS FIELD: exponential in the diameter, `n(D) ~ exp(-D / D0)` (Plank 1969;
+        /// Wielicki & Welch 1986), with D0 the TYPE's Body Diameter (FIELD-GRAIN). Returned as the drawn
+        /// diameter over D0, from a uniform @p unit.
+        ///
+        /// WHAT IT REPLACED. A power law `D^-2` between bounds 16^variety apart around a cell-sized cluster
+        /// (CLOUD-VARIETY): a body was a whole cell, 4 km across, so the zenith's 2-4 km frame held under
+        /// two of them and was empty a fifth of the time at the Demo (CLOUD-LOOK (4)). The type's bodies are
+        /// half a kilometre to a kilometre now and a cell is a PATCH of them.
+        ///
+        /// THE VARIETY MIXES the law with its mean: `(1 - v) + v * X`, X ~ Exp(1). The mean is one at
+        /// every setting, so the type's D0 is the mean body; zero is every body that size, one is Plank's
+        /// law exactly, and in between the law sits on a smallest body of `1 - v`. The tail is cut at six
+        /// means (e^-6 of the bodies, 1.7 % of the law's area), the cut being what keeps one body from
+        /// outgrowing its patch.
+        float CloudBodyDiameterDraw( float variety, float unit )
+        {
+            const float v = std::clamp( variety, 0.0f, 1.0f );
+            const float u = std::clamp( unit, 0.0f, 1.0f - 2.4787522e-3f ); // 1 - e^-6
+            return ( 1.0f - v ) + v * -std::log( 1.0f - u );
+        }
+
+        /// The mean of the square of CloudBodyDiameterDraw: `(1 - v)^2 + 2 v (1 - v) + 2 v^2 = 1 + v^2` (the
+        /// exponential's second moment is 2). The patch's body count divides by it, so the size spread
+        /// moves how the area is shared out and not how much of it there is.
+        float CloudBodyDiameterMeanSquare( float variety )
+        {
+            const float v = std::clamp( variety, 0.0f, 1.0f );
+            return 1.0f + v * v;
+        }
+
+        /// How many bodies this patch carries, given a mean of @p mean.
         ///
         /// A WHOLE NUMBER WITH THAT MEAN EXACTLY, by taking the integer part always and the fraction with
-        /// its own probability. Rounding instead would make a density of 1.5 produce two clusters in every
-        /// cell and a mean of two, which is a knob that lies about its own units.
-        uint32_t ClusterCount( uint32_t cellSeed, float density )
+        /// its own probability. Rounding instead would make a mean of 1.5 produce two bodies in every patch.
+        uint32_t CloudBodyCount( uint32_t cellSeed, float mean )
         {
-            const float clamped = std::max( density, 0.0f );
+            const float clamped = std::max( mean, 0.0f );
             const float whole   = std::floor( clamped );
             const float frac    = clamped - whole;
 
             const uint32_t base = static_cast<uint32_t>( whole );
             return base + ( ( HashUnit( HashCombine( cellSeed, 0x0c0u ) ) < frac ) ? 1u : 0u );
         }
+
+        /// ONE BODY OF A PATCH between its draw and its emission (FIELD-GRAIN-c).
+        struct CloudPatchBody
+        {
+            uint32_t  Seed     = 0u;
+            float     Size     = 1.0f; // CloudBodyDiameterDraw, over the type's mean
+            float     Rank     = 0.0f; // against the Coverage slider; a lobe carries its massif's
+            float     RadiusKm = 0.0f;
+            glm::vec2 CentreKm{ 0.0f };
+            glm::vec2 MassifKm{ 0.0f }; // the cluster's site: the body's own for a massif
+            bool      IsLobe = false;
+        };
+
+        /// WHERE ON ITS MASSIF A LOBE STANDS, in the massif's half-extents from its centre: inside the rim,
+        /// so the two overlap and the join makes them one cloud — a turret on the flank, not a neighbour.
+        constexpr float kLobeRimNear = 0.45f;
+        constexpr float kLobeRimFar  = 0.95f;
+
+        /// IS A BODY OF THIS SIZE A LOBE OF A LARGER ONE RATHER THAN A CLOUD OF ITS OWN (FIELD-GRAIN-c)?
+        ///
+        /// THE HIERARCHY OF A CUMULUS FIELD: the small members of the size law are not scattered over the
+        /// clear sky as independent cells, they are the young turrets and the decaying fragments on the
+        /// flanks of the large ones (Nubis builds a cloud as a large shape eroded and lobed at its edge; a
+        /// field of independent smooth bodies drawn from Plank's law is a swarm of peas, which is what the
+        /// Demo showed). A body under the type's mean is a lobe with probability `variety`: at zero every body
+        /// is the mean size and its own cloud, exactly as before; at one every sub-mean body hangs on a massif.
+        bool CloudBodyIsLobe( float variety, float size, float unit )
+        {
+            return size < 1.0f && unit < std::clamp( variety, 0.0f, 1.0f );
+        }
     } // namespace
 
     float CloudProceduralLumpFloorKm( const CloudProceduralFieldParams& params )
     {
-        // TWO BOUNDS AND THE VOLUME'S IS THE LARGER ONE, which is the whole finding — see the header.
-        const float voxelKm = params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels );
-        return std::max( 0.5f * params.ResolvableChordKm, voxelKm );
+        // TWO BOUNDS, the march's and the FINEST clip level's voxel (CLIP-1) — see the header.
+        return std::max( 0.5f * params.ResolvableChordKm, CloudProceduralLevelVoxelKm( params, 0u ) );
     }
 
     glm::vec2 CloudProceduralCellExtentKm( const CloudProceduralFieldParams& params,
@@ -589,9 +671,8 @@ namespace Desert::Assets
 
         if ( a.RegionSizeKm != b.RegionSizeKm || a.LayerBottomKm != b.LayerBottomKm ||
              a.LayerThicknessKm != b.LayerThicknessKm || a.BlendRadiusKm != b.BlendRadiusKm ||
-             a.ProfileDepthKm != b.ProfileDepthKm || a.Coverage != b.Coverage ||
-             a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed || a.WindAxis != b.WindAxis ||
-             a.ResolvableChordKm != b.ResolvableChordKm )
+             a.Coverage != b.Coverage || a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed ||
+             a.WindAxis != b.WindAxis || a.ResolvableChordKm != b.ResolvableChordKm )
             return false;
 
         if ( a.PlacementDensity != b.PlacementDensity || a.PlacementScatter != b.PlacementScatter ||
@@ -667,7 +748,7 @@ namespace Desert::Assets
         // A NEW FIELD HAS TO BE CONSIDERED HERE, not silently left out of the key: these sizes are the field
         // lists SerializeCloudProceduralBakeInputs writes. Growing either struct fails the build right here.
         static_assert( sizeof( Graphic::CloudTypeShape ) ==
-                            ( 13u + Graphic::kCloudProfileSamples ) * sizeof( float ),
+                            ( 14u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
                        "CloudTypeShape gained a field: add it to SerializeCloudProceduralBakeInputs" );
         static_assert( sizeof( CloudLayoutPlacement ) == 2u * sizeof( uint32_t ) + 4u * sizeof( float ),
                        "CloudLayoutPlacement gained a field: add it to SerializeCloudProceduralBakeInputs" );
@@ -697,7 +778,6 @@ namespace Desert::Assets
         KeyF32( out, params.LayerBottomKm );
         KeyF32( out, params.LayerThicknessKm );
         KeyF32( out, params.BlendRadiusKm );
-        KeyF32( out, params.ProfileDepthKm );
         KeyF32( out, params.Coverage );
         KeyF32( out, params.CoverageContrast );
         KeyU32( out, params.Seed );
@@ -742,6 +822,8 @@ namespace Desert::Assets
             KeyF32( out, shape.BaseRampFraction );
             for ( const float halfWidth : shape.Profile.HalfWidth )
                 KeyF32( out, halfWidth );
+            for ( const float density : shape.Profile.Density )
+                KeyF32( out, density );
             KeyF32( out, shape.AnvilAltitudeKm );
             KeyF32( out, shape.AnvilThicknessKm );
             KeyF32( out, shape.AnvilStrength );
@@ -751,6 +833,7 @@ namespace Desert::Assets
             KeyF32( out, shape.ExtinctionFactor );
             KeyF32( out, shape.PlacementScale );
             KeyF32( out, shape.PlacementAnisotropy );
+            KeyF32( out, shape.BodyDiameterKm );
         }
         return out;
     }
@@ -787,13 +870,13 @@ namespace Desert::Assets
         if ( !baked.IsSuccess() )
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
-        result.Voxels = baked.GetValue();
+        result.Voxels                           = baked.GetValue();
+        const std::vector<unsigned char>& entry = result.Voxels;
 
         // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
         // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
-                                      result.Voxels.size() );
+        const std::string_view bytes( reinterpret_cast<const char*>( entry.data() ), entry.size() );
         if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
             result.CacheWriteError = put.GetError();
         return Common::MakeSuccess( std::move( result ) );
@@ -816,10 +899,6 @@ namespace Desert::Assets
         if ( !( params.BlendRadiusKm > 0.0f ) || !std::isfinite( params.BlendRadiusKm ) )
             return Common::MakeFormattedError<bool>( "blend radius must be a positive length, got {} km",
                                                      params.BlendRadiusKm );
-
-        if ( !( params.ProfileDepthKm > 0.0f ) || !std::isfinite( params.ProfileDepthKm ) )
-            return Common::MakeFormattedError<bool>( "profile depth must be a positive length, got {} km",
-                                                     params.ProfileDepthKm );
 
         if ( !( params.ResolvableChordKm > 0.0f ) || !std::isfinite( params.ResolvableChordKm ) )
             return Common::MakeFormattedError<bool>(
@@ -1044,10 +1123,21 @@ namespace Desert::Assets
         return glm::vec2( x, z );
     }
 
-    std::vector<CloudModellingBlob> GenerateCloudProceduralBlobs( const CloudProceduralFieldParams& params,
-                                                                  uint32_t slot, const glm::vec2& regionOriginKm )
+    std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
+                                                                   uint32_t slot, const glm::vec2& regionOriginKm,
+                                                                   CloudProceduralLumpSet set )
     {
-        std::vector<CloudModellingBlob> blobs;
+        return GenerateCloudProceduralLumpsInWindow( params, slot, regionOriginKm,
+                                                     glm::vec2( params.RegionSizeKm ), set );
+    }
+
+    std::vector<CloudProceduralLump>
+    GenerateCloudProceduralLumpsInWindow( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm,
+                                          CloudProceduralLumpSet set )
+    {
+        const glm::vec2&                 regionOriginKm = windowMinKm;
+        std::vector<CloudProceduralLump> blobs;
 
         if ( slot >= params.Species.size() )
             return blobs;
@@ -1070,7 +1160,6 @@ namespace Desert::Assets
         // indices is found by mapping the region's four corners into that frame and taking the extremes.
         // An index range that is a superset costs a rejected containment test per cell and never a wrong
         // cloud; a subset would cut a band off the sky.
-        const float side = params.RegionSizeKm;
 
         float minU = 0.0f;
         float maxU = 0.0f;
@@ -1078,8 +1167,8 @@ namespace Desert::Assets
         float maxV = 0.0f;
         for ( int corner = 0; corner < 4; ++corner )
         {
-            const glm::vec2 point =
-                 regionOriginKm + glm::vec2( ( corner & 1 ) ? side : 0.0f, ( corner & 2 ) ? side : 0.0f );
+            const glm::vec2 point = regionOriginKm + glm::vec2( ( corner & 1 ) ? windowSizeKm.x : 0.0f,
+                                                                ( corner & 2 ) ? windowSizeKm.y : 0.0f );
             const float u = point.x * along.x + point.y * along.y;
             const float v = point.x * across.x + point.y * across.y;
 
@@ -1131,7 +1220,8 @@ namespace Desert::Assets
         // compensation that pushed a body under it would trade a lying slider for speckle.
         const float cellMeanKm    = std::sqrt( extent.x * extent.y );
         const float footprintGain = CloudClusterFootprintGain( shape );
-        const float baseRadiusKm = std::max( 0.72f * cellMeanKm / footprintGain, 0.5f * params.ResolvableChordKm );
+        const float baseRadiusKm =
+             std::max( kClusterFootprintCells * cellMeanKm / footprintGain, 0.5f * params.ResolvableChordKm );
 
         // AND THE STRETCH THE CELL NO LONGER SPENDS ON ITS AREA IS SPENT ON THE CLUSTER'S SHAPE. A cluster
         // is drawn out along the wind by the same factor its cell is, so a cluster covers the same fraction
@@ -1155,39 +1245,17 @@ namespace Desert::Assets
 
         const uint32_t speciesSeed = CloudSpeciesSeed( params, slot );
 
-        // ---------------------------------------------------------------------------------------------
-        // WHAT FRACTION OF THE CELLS IS ALIVE, WHICH IS NOT THE SLIDER
-        // ---------------------------------------------------------------------------------------------
-        //
-        // The slider means what a person looking up would measure: the fraction of the SKY with cloud
-        // somewhere in the column. A cell being alive is not that — a cluster does not fill its cell, two
-        // neighbouring clusters overlap, and how full a cluster is depends on how deep inside the
-        // threshold its own hash fell. Taken as the alive fraction directly, the slider under-delivered
-        // by a factor that grew with the setting: 0.24 gave 0.105 of the sky and 0.75 gave 0.450 — and
-        // the frame that came out of it had clouds on the horizon and an EMPTY ZENITH, which is the
-        // defect Docs/Clouds/REVIEW_622a01a6.md names and the one the owner found by looking up.
-        //
-        // 0.68 IS MEASURED, on the top-down projection of the baked volume at five settings, and
-        // Desert/Tests/Engine/CloudProceduralField re-measures it on every run and fails if the slider
-        // and the sky part company by more than a tenth. Being a power it keeps both ends EXACT, which is
-        // the property the ends were built to have: 0 stays empty and 1 stays full.
-        //
-        // IT IS EVALUATED INSIDE THE CELL LOOP AND NOT HERE, because the patch modulation moves the
-        // threshold from place to place: the whole point of that modulation is that the sky is not equally
-        // busy everywhere, so there is no single alive fraction for a region any more.
-
-        // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT. A cell that carries `d` clusters narrows
-        // each of them by `d` to the power of kDensityCompensation, so the ground they cover between them
-        // is the ground one covered. Without this line the density knob would move the sky's cover, and
-        // the Coverage mapping decision D-20 re-authorised every scene against would have to be measured
-        // again for every setting of it — which is a knob that silently invalidates another knob.
-        const float density      = std::max( params.PlacementDensity, 0.0f );
-        const float densityScale = std::pow( std::max( density, 1e-3f ), -kDensityCompensation );
+        // THE DENSITY DOES NOT ADD MATTER, IT REDISTRIBUTES IT: a patch of density `d` holds `d` times the
+        // bodies, each `1/sqrt(d)` of the width, so their summed area is the same (see the body count below).
+        // The floor is on the body AS PLACED — the type's Body Diameter after the density has shrunk it — and
+        // it is two of the volume's lump floors: a body narrower than that is lumps the floor has already
+        // widened. Floored before the shrink, a dense patch of a small type still came out below it.
+        const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
+        const float bodyMeanKm =
+             std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ), 2.0f * CloudProceduralLumpFloorKm( params ) );
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
-
-        const uint32_t patchSeed = CloudPatchSeed( speciesSeed );
 
         for ( int32_t iv = firstV; iv <= lastV; ++iv )
         {
@@ -1207,8 +1275,7 @@ namespace Desert::Assets
                 // CloudProceduralFieldParams::PlacementScatter, and it is a strip at the region's edge
                 // 24 km from the camera.
                 const glm::vec2 local = centre - regionOriginKm;
-                if ( local.x < 0.0f || local.x >= params.RegionSizeKm || local.y < 0.0f ||
-                     local.y >= params.RegionSizeKm )
+                if ( local.x < 0.0f || local.x >= windowSizeKm.x || local.y < 0.0f || local.y >= windowSizeKm.y )
                     continue;
 
                 // THE CELL'S IDENTITY IS ITS ABSOLUTE LATTICE INDEX, which is what makes the field
@@ -1218,48 +1285,19 @@ namespace Desert::Assets
                 const uint32_t cellSeed =
                      HashCombine( HashCombine( speciesSeed, IndexWord( iu ) ), IndexWord( iv ) );
 
-                // WHERE THE WEATHER IS BUSY AND WHERE IT IS CLEAR. Sampled at the CELL's own site rather
-                // than per voxel, so it modulates whole clouds into and out of existence instead of eroding
-                // their edges — which is what a weather system does and what erosion does not.
-                //
-                // WHICH SOURCE DECIDES IT — the artist's painting or the procedural patch — is settled
-                // inside CloudCellCoverage, and it is settled in one place because two mechanisms setting
-                // one number is the second path the contract forbids. The choice is NOT made here and must
-                // not be: the moment this loop could apply both, the sky would answer to two sliders that
-                // do not know about each other.
-                const float cellCoverage = CloudCellCoverage( params, slot, patchSeed, centre );
+                // THE BODY IS CHOSEN BELOW, BY THE SLIDER (CUT-AT-BAKE, per body since FIELD-GRAIN). Each body
+                // keeps its own hash as a RANK and exists when the rank is under Coverage — one decision per
+                // body, made where the body is whole, so no voxel grid ever interpolates it. Per body and not
+                // per cell, because a cell is a PATCH of bodies now: a per-cell rank cleared 3 km at a time,
+                // which is the empty zenith CLOUD-LOOK (4) measured. The weather and the painting stay the
+                // march's, as a continuous remap of the profile per column (Nubis's weather map).
 
-                const float aliveFraction = std::pow( cellCoverage, 0.68f );
-
-                // AND THE CLUSTER IS WIDENED TO PAY FOR THE PACKING THE FREE PLACEMENT COSTS. See
-                // kPackingCompensation: the 0.68 above was calibrated against a placement that kept every
-                // cluster near its own lattice site, which packs efficiently, and the whole cure for the
-                // grid is to stop doing that. Without this line the slider would be out by fourteen points
-                // at the shipped scene's setting and the suite's tenth would fail at 0.75.
-                const float radiusGain = 1.0f + kPackingCompensation * cellCoverage;
-
-                // COVERAGE ADDRESSES A FRACTION OF SKY DIRECTLY. A cell is alive when its own hash falls
-                // below the slider, so 0 is exactly empty and 1 is exactly full — for any seed, any cell
-                // size and any species, with no distribution to calibrate. That is the property the
-                // quantile map this replaces was built to fake on a field whose spread it had to measure.
-                const float draw = HashUnit( cellSeed );
-                if ( draw >= aliveFraction )
-                    continue;
-
-                // AND CONTRAST IS THE WIDTH OF THE RAMP INTO IT. A cell that only just qualified grows a
-                // small cluster; one well inside the threshold grows a full one. Above 1 the sky is
-                // decisively cloud or decisively clear; below 1 the sizes spread out, which is what a
-                // broken deck looks like.
-                const float softness = ( 1.0f - std::clamp( params.Coverage, 0.0f, 1.0f ) ) /
-                                            std::max( params.CoverageContrast, 1e-2f ) +
-                                       0.02f;
-                const float fill =
-                     std::clamp( ( aliveFraction - draw ) / std::max( softness, 1e-4f ), 0.0f, 1.0f );
-
-                // EDGE TOP FRACTION IS WHAT A SHALLOW CLUSTER LOSES. The type says how tall it is where the
-                // patch has only just begun, and `fill` is how far inside the patch this cell is — so a
-                // rim cell is low and flat and a core cell is a tower. That is decision D-13's whole
-                // intent, carried by the placement instead of by a second axis of a table.
+                // EDGE TOP FRACTION IS WHAT A SMALL CLUSTER LOSES. The type says how tall the smallest
+                // cluster of the size law is, and the cluster's own size draw says how far from it this one
+                // is — so a small cloud is low and flat and a large one is a tower (decision D-13). The
+                // shrink near the slider's threshold is no longer a radius: it is the cluster's reach past the
+                // slider (CloudProceduralClusterReach), the remap threshold the bake cuts each cluster by, so a
+                // marginal cloud erodes to its core instead of switching off whole.
 
                 // EVERY CLUSTER GETS THE WHOLE STACK, and `fullness` shrinks the BAND it is spread over
                 // rather than the number of lobes in it. Cutting the count instead was measured and was
@@ -1268,44 +1306,114 @@ namespace Desert::Assets
                 // humilis read as a truncated congestus. Six flattened lobes over half a band is a
                 // pancake — which is what a humilis IS.
 
-                // HOW MANY CLOUDS THIS CELL HOLDS, and it is the line that removes "exactly one per cell"
-                // from the field. The count is drawn per cell with the density as its mean, so the number
-                // density of clouds stops being a constant of the lattice.
-                const uint32_t clusters = ClusterCount( cellSeed, density );
+                // THE PATCH'S SITE: the cell's lattice centre displaced by the scatter, in cells. At the shipped
+                // scatter it crosses into the neighbouring cell's territory, which is exactly what the lattice
+                // peak measures the absence of. Every body of the cell is spread over the patch around it.
+                const glm::vec2 jitter( HashSigned( HashCombine( cellSeed, 0x1u ) ) * extent.x * scatter,
+                                        HashSigned( HashCombine( cellSeed, 0x2u ) ) * extent.y * scatter );
+                const glm::vec2 siteXZ = centre + along * jitter.x + across * jitter.y;
 
-                for ( uint32_t index = 0; index < clusters; ++index )
+                // HOW MANY BODIES THIS PATCH HOLDS (FIELD-GRAIN), and the number is the Boolean model's: the
+                // bodies' mean area summed over the patch is the patch's own area, so a type's small bodies
+                // come many to a cell and its large ones few, at the same cover. The density multiplies the
+                // count and shrinks each body by its square root, so it redistributes matter instead of
+                // adding it — for bodies placed independently the cover depends on the summed area alone.
+                const float meanBodyRadiusSqKm =
+                     0.25f * bodyMeanKm * bodyMeanKm * CloudBodyDiameterMeanSquare( variety );
+                const float meanBodies =
+                     kBodyFillOfPatch * baseRadiusKm * baseRadiusKm / std::max( meanBodyRadiusSqKm, 1e-6f );
+                const uint32_t bodies = CloudBodyCount( cellSeed, meanBodies );
+
+                // THE PATCH IS DRAWN BEFORE IT IS EMITTED, BECAUSE A SMALL BODY IS PLACED BY A LARGE ONE
+                // (FIELD-GRAIN-c). Every body draws its size and rank from its own seed; then the patch is
+                // walked largest first, and a body smaller than the type's mean becomes a LOBE of a larger
+                // body with probability `variety` instead of a cloud of its own. See CloudBodyIsLobe.
+                std::vector<CloudPatchBody> patch( bodies );
+                for ( uint32_t index = 0; index < bodies; ++index )
                 {
-                    // EACH CLUSTER IS ITS OWN CLOUD. Everything below hangs off this seed rather than off
-                    // the cell's, so two clusters in one cell differ in place, in size and in which way
-                    // their lobes spiral — otherwise a density above one would put N copies of one cloud
-                    // in one place, which is one cloud with N times the arithmetic.
-                    const uint32_t clusterSeed = HashCombine( cellSeed, 0x51u + index );
+                    CloudPatchBody& body = patch[index];
+                    body.Seed            = HashCombine( cellSeed, 0x51u + index );
+                    body.Size = CloudBodyDiameterDraw( variety, HashUnit( HashCombine( body.Seed, 0x4u ) ) );
+                    body.Rank = HashUnit( HashCombine( body.Seed, 0x5u ) );
+                }
+                std::vector<uint32_t> order( bodies );
+                for ( uint32_t index = 0; index < bodies; ++index )
+                    order[index] = index;
+                std::sort( order.begin(), order.end(),
+                           [&patch]( uint32_t a, uint32_t b ) {
+                               return patch[a].Size > patch[b].Size || ( patch[a].Size == patch[b].Size && a < b );
+                           } );
 
-                    // THE CLUSTER'S DISPLACEMENT FROM ITS LATTICE SITE, in cells. At the shipped scatter it
-                    // crosses into the neighbouring cell's territory, which is exactly what the lattice
-                    // peak measures the absence of.
-                    const glm::vec2 jitter( HashSigned( HashCombine( clusterSeed, 0x1u ) ) * extent.x * scatter,
-                                            HashSigned( HashCombine( clusterSeed, 0x2u ) ) * extent.y * scatter );
+                std::vector<uint32_t> massifs;
+                for ( const uint32_t index : order )
+                {
+                    CloudPatchBody& body = patch[index];
+                    body.RadiusKm        = 0.5f * bodyMeanKm * body.Size;
 
-                    const glm::vec2 clusterXZ = centre + along * jitter.x + across * jitter.y;
+                    if ( massifs.empty() ||
+                         !CloudBodyIsLobe( variety, body.Size, HashUnit( HashCombine( body.Seed, 0x6u ) ) ) )
+                    {
+                        // A MASSIF: uniform over the patch's disc, drawn out along the wind by the cell's own
+                        // stretch, so the patch covers the same fraction of its cell at every anisotropy.
+                        const float discR = baseRadiusKm * std::sqrt( HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                        const float discAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
+                        body.CentreKm         = siteXZ + along * ( std::cos( discAngle ) * discR * stretch ) +
+                                        across * ( std::sin( discAngle ) * discR / stretch );
+                        body.MassifKm = body.CentreKm;
+                        body.IsLobe   = false;
+                        massifs.push_back( index );
+                        continue;
+                    }
 
-                    // HOW BIG THIS PARTICULAR CLOUD IS, and the draw is UNIFORM IN AREA. `size` is the
-                    // square root of a number uniform on [1 - variety, 1 + variety], whose mean is one — so
-                    // the mean area a cluster covers does not move with the setting and the Coverage
-                    // mapping stays where D-20 left it. Spreading the RADIUS uniformly instead would have
-                    // raised the mean area by a twelfth of the spread squared.
-                    const float area =
-                         1.0f - variety + 2.0f * variety * HashUnit( HashCombine( clusterSeed, 0x4u ) );
-                    const float size = std::sqrt( std::max( area, 1e-4f ) );
+                    // A LOBE: on the rim of a massif already placed (so of one at least as large), inside its
+                    // half-extent so the two overlap. It takes the massif's SITE, which is what makes it the
+                    // same cluster for the bake — joined with the massif's lumps, normalised by the massif's
+                    // body depth and cut with the massif's rank — so it lives and dies with its massif
+                    // instead of being a pea of its own in clear sky.
+                    const CloudPatchBody& massif =
+                         patch[massifs[std::min( static_cast<size_t>( HashUnit( HashCombine( body.Seed, 0x7u ) ) *
+                                                                      static_cast<float>( massifs.size() ) ),
+                                                 massifs.size() - 1u )]];
+                    const float rimKm =
+                         massif.RadiusKm * ( kLobeRimNear + ( kLobeRimFar - kLobeRimNear ) *
+                                                                 HashUnit( HashCombine( body.Seed, 0x1u ) ) );
+                    const float rimAngle = HashUnit( HashCombine( body.Seed, 0x2u ) ) * 6.2831853f;
+                    body.CentreKm        = massif.CentreKm + along * ( std::cos( rimAngle ) * rimKm * stretch ) +
+                                    across * ( std::sin( rimAngle ) * rimKm / stretch );
+                    body.MassifKm = massif.MassifKm;
+                    body.Rank     = massif.Rank;
+                    body.IsLobe   = true;
+                }
 
-                    // THE CLUSTER'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
-                    const float clusterRadiusKm =
-                         baseRadiusKm * ( 0.60f + 0.40f * fill ) * size * densityScale * radiusGain;
+                for ( const CloudPatchBody& body : patch )
+                {
+                    // EACH BODY IS ITS OWN SHAPE. Everything below hangs off this seed rather than off the
+                    // cell's, so two bodies in one patch differ in size and in which way their lobes spiral.
+                    const uint32_t clusterSeed = body.Seed;
+
+                    // ITS RANK AGAINST THE SLIDER — its own for a massif, its massif's for a lobe.
+                    const float bodyRank = body.Rank;
+                    if ( set == CloudProceduralLumpSet::KeptCells &&
+                         CloudProceduralClusterReach( bodyRank, params.Coverage,
+                                                      CloudProceduralRankSoftness( params ) ) <= 0.0f )
+                        continue;
+
+                    // WHERE THE BODY STANDS, and the cluster it belongs to: its massif's site.
+                    const glm::vec2 clusterXZ = body.CentreKm;
+                    const glm::vec2 massifXZ  = body.MassifKm;
+
+                    // HOW BIG THIS PARTICULAR CLOUD IS — drawn from the EXPONENTIAL law around the type's
+                    // Body Diameter (FIELD-GRAIN). See CloudBodyDiameterDraw. `size` is the draw over the
+                    // mean, so 1 is the type's typical body.
+                    const float size = body.Size;
+
+                    // THE BODY'S OVERALL HORIZONTAL HALF-EXTENT — the size of the CLOUD, not of a lobe.
+                    const float clusterRadiusKm = body.RadiusKm;
 
                     // A SMALL CLOUD IS ALSO A FLAT ONE, which is what a cumulus field looks like and what
                     // keeps a quarter-width cluster from being a full-height tower on a narrow base. The
                     // type's own Edge Top Fraction is still the floor, so a stratus stays a sheet.
-                    const float shortening = std::clamp( fill * size, 0.0f, 1.0f );
+                    const float shortening = std::clamp( size, 0.0f, 1.0f );
                     const float fullness   = std::clamp( shape.EdgeTopFraction, 0.0f, 1.0f ) +
                                            ( 1.0f - std::clamp( shape.EdgeTopFraction, 0.0f, 1.0f ) ) * shortening;
 
@@ -1388,18 +1496,35 @@ namespace Desert::Assets
 
                         lumpT[step]        = t;
                         lumpRadiusKm[step] = radius;
+                        const float aspect = kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch * t );
                         lumpVerticalKm[step] =
-                             std::max( std::min( kLumpVerticalOverHorizontal * radius * rampFactor * wobbleUp,
-                                                 0.5f * bandFullKm ),
+                             std::max( std::min( aspect * radius * rampFactor * wobbleUp, 0.5f * bandFullKm ),
                                        marchFloorKm );
                     }
 
-                    // The travel is what is left of the band once both end lumps have been let in, divided
-                    // by the last lump's own parameter so that the top lump's crown lands ON the top rather
-                    // than short of it — `t` is a curve and not a fraction of the band.
-                    const float travelKm =
-                         std::max( bandFullKm - lumpVerticalKm[0] - lumpVerticalKm[stackCount - 1], 0.0f ) /
-                         std::max( lumpT[stackCount - 1], 1e-4f );
+                    // THE TURRETS' HEIGHT IS TAKEN OFF THE TOP OF THE BAND FIRST (CLOUD-SHAPE-b): the stack
+                    // ends where the turrets' centres stand, so their heads — and nothing else — reach the
+                    // band's top. See kTurretsPerCrown.
+                    const float crownRadiusKm    = lumpRadiusKm[stackCount - 1];
+                    const float turretRadiusKm   = std::max( kTurretRadiusOfCrown * crownRadiusKm, lumpFloorKm );
+                    const float turretVerticalKm = std::max(
+                         std::min( kLumpVerticalOverHorizontal * ( 1.0f + kTurretStretch ) * turretRadiusKm,
+                                   0.5f * kTurretShareOfBand * bandFullKm ),
+                         marchFloorKm );
+                    const float stackBandKm = std::max( bandFullKm - turretVerticalKm, 0.0f );
+                    lumpVerticalKm[stackCount - 1] =
+                         std::min( lumpVerticalKm[stackCount - 1], 0.5f * stackBandKm );
+                    glm::vec3 crownCentreKm( 0.0f );
+                    glm::vec3 crownRadiiKm( 1.0f );
+
+                    // THE BASE LUMP'S CENTRE IS ON THE CLOUD BASE (CLOUD-SHAPE), so its lower half lies
+                    // under the type's condensation level and CloudProceduralCutJoin's base plane cuts it
+                    // off flat: the body is a flat floor with a dome and turrets over it, not a ball
+                    // standing its own radius above the base. The travel is what is left of the band once
+                    // the top lump has been let in, divided by the last lump's own parameter so that its
+                    // crown lands ON the top — `t` is a curve and not a fraction of the band.
+                    const float travelKm = std::max( stackBandKm - lumpVerticalKm[stackCount - 1], 0.0f ) /
+                                           std::max( lumpT[stackCount - 1], 1e-4f );
 
                     for ( uint32_t step = 0; step < stackCount; ++step )
                     {
@@ -1438,7 +1563,7 @@ namespace Desert::Assets
                         // clusters of separate dots: fusion is not free just because the join can express it,
                         // the bodies have to be inside one another.
                         const float angle  = phase + 2.39996323f * static_cast<float>( step );
-                        const float spread = clusterRadiusKm * 0.48f * ( 1.0f - 0.55f * t );
+                        const float spread = clusterRadiusKm * 0.48f * ( 1.0f - ( 1.0f - kTurretDiscAtTop ) * t );
 
                         CloudModellingBlob blob;
                         blob.Primitive = CloudModellingPrimitive::Ellipsoid;
@@ -1456,15 +1581,12 @@ namespace Desert::Assets
                                                      HashSigned( HashCombine( lumpSeed, 0xbu ) ) * wobble ) /
                                                    stretch;
 
-                        // WHERE THE LUMP SITS UP THE BAND. Clamped so that it is INSIDE the type's own
-                        // altitudes on both sides — the relation the layout above exists to make true, and
-                        // the one Desert/Tests/Engine/CloudPlacementSpectrum asserts lump by lump. The clamp
-                        // bites only where the resolvable floor has forced a lump taller than half its band,
-                        // which is a type authored thinner than the march can see.
-                        const float halfBandKm = 0.5f * bandFullKm;
-                        const float lowKm      = std::min( lumpVerticalKm[step], halfBandKm );
-                        const float highKm     = std::max( bandFullKm - lumpVerticalKm[step], lowKm );
-                        const float upKm       = std::clamp( lumpVerticalKm[0] + travelKm * t, lowKm, highKm );
+                        // WHERE THE LUMP SITS UP THE BAND. Its centre is never under the base (the base plane
+                        // would leave nothing of it) and its crown never over the top. What hangs below the
+                        // base is cut flat by CloudProceduralCutJoin — the cloud base is a PLANE at the type's
+                        // condensation level, as Nubis's height gradient and every cumulus field have it.
+                        const float highKm = std::max( stackBandKm - lumpVerticalKm[step], 0.0f );
+                        const float upKm   = std::clamp( travelKm * t, 0.0f, highKm );
 
                         blob.CentreKm = glm::vec3( clusterXZ.x + along.x * offsetAlong + across.x * offsetAcross,
                                                    shape.BaseAltitudeKm + upKm,
@@ -1494,7 +1616,104 @@ namespace Desert::Assets
                         blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
                         blob.DensityScale = 1.0f;
 
-                        blobs.push_back( blob );
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ, centre } );
+                        if ( step == stackCount - 1 )
+                        {
+                            crownCentreKm = blob.CentreKm;
+                            crownRadiiKm  = blob.RadiiKm;
+                        }
+                    }
+
+                    // THE TURRETS on the crown lump's shoulders, each centred ON the crown's surface above its
+                    // footprint (CLOUD-SHAPE-c) so it grows out of the body and its head stays under the band's
+                    // top (the stack was fitted a turret lower). Spread round the crown from a per-body phase,
+                    // their count varied per body (kTurretsSpreadPerCrown), each wobbled like a stack lump.
+                    // Every turret carries kBillowsPerTurret smaller heads on its outer flank.
+                    const float    turretPhase = HashUnit( HashCombine( clusterSeed, 0x4u ) ) * 6.2831853f;
+                    const uint32_t turretCount =
+                         kTurretsPerCrown - kTurretsSpreadPerCrown +
+                         std::min( static_cast<uint32_t>( HashUnit( HashCombine( clusterSeed, 0x5u ) ) *
+                                                          static_cast<float>( 2u * kTurretsSpreadPerCrown + 1u ) ),
+                                   2u * kTurretsSpreadPerCrown );
+                    const auto pushLump = [&]( const glm::vec3& centreKm, const glm::vec3& radiiKm )
+                    {
+                        CloudModellingBlob blob;
+                        blob.Primitive    = CloudModellingPrimitive::Ellipsoid;
+                        blob.CentreKm     = centreKm;
+                        blob.RadiiKm      = radiiKm;
+                        blob.RotationDeg  = glm::vec3( 0.0f, yawDeg, 0.0f );
+                        blob.Weight       = 1.0f;
+                        blob.DetailType   = std::clamp( shape.DetailCharacter, 0.0f, 1.0f );
+                        blob.DensityScale = 1.0f;
+                        blobs.push_back( CloudProceduralLump{ blob, bodyRank, massifXZ, centre } );
+                    };
+                    // The height of an ellipsoid's upper surface over its centre at a horizontal offset given
+                    // in its own frame (along, across) — 0 past its rim.
+                    const auto capHeight = []( const glm::vec3& radiiKm, float along, float across )
+                    {
+                        const float a = along / std::max( radiiKm.x, 1e-6f );
+                        const float c = across / std::max( radiiKm.z, 1e-6f );
+                        return radiiKm.y * std::sqrt( std::max( 1.0f - a * a - c * c, 0.0f ) );
+                    };
+                    const auto worldOf =
+                         [&]( const glm::vec3& originKm, float offsetAlong, float offsetAcross, float yKm )
+                    {
+                        return glm::vec3( originKm.x + along.x * offsetAlong + across.x * offsetAcross, yKm,
+                                          originKm.z + along.y * offsetAlong + across.y * offsetAcross );
+                    };
+                    for ( uint32_t turret = 0; turret < turretCount; ++turret )
+                    {
+                        const uint32_t turretSeed = HashCombine( clusterSeed, 0x200u + turret );
+                        const float    angle =
+                             turretPhase + 6.2831853f *
+                                                ( static_cast<float>( turret ) +
+                                                  0.3f * HashSigned( HashCombine( turretSeed, 0x1u ) ) ) /
+                                                static_cast<float>( turretCount );
+                        const float reach = kTurretShoulderOfCrown * crownRadiusKm *
+                                            ( 0.8f + 0.4f * HashUnit( HashCombine( turretSeed, 0x2u ) ) );
+                        const float wobble = 0.85f + 0.3f * HashUnit( HashCombine( turretSeed, 0x3u ) );
+
+                        const float offsetAlong  = std::cos( angle ) * reach * stretch;
+                        const float offsetAcross = std::sin( angle ) * reach / stretch;
+
+                        const glm::vec3 turretRadii( std::max( turretRadiusKm * wobble * stretch, lumpFloorKm ),
+                                                     turretVerticalKm,
+                                                     std::max( turretRadiusKm * wobble / stretch, lumpFloorKm ) );
+                        const float     turretY =
+                             crownCentreKm.y + capHeight( crownRadiiKm, offsetAlong, offsetAcross );
+                        const glm::vec3 turretCentre =
+                             worldOf( crownCentreKm, offsetAlong, offsetAcross, turretY );
+                        pushLump( turretCentre, turretRadii );
+
+                        // ITS BILLOWS, on the turret's outer flank: a billow's centre is on the turret's surface
+                        // at the height where the billow's own top meets the turret's, so it widens the head
+                        // without raising it out of the band.
+                        const float billowRadiusKm = std::max( kBillowOfTurret * turretRadiusKm, lumpFloorKm );
+                        const float billowVerticalKm =
+                             std::max( kBillowOfTurret * turretVerticalKm, marchFloorKm );
+                        const float rise = std::max( turretVerticalKm - billowVerticalKm, 0.0f );
+                        const float out =
+                             turretRadiusKm * wobble *
+                             std::sqrt( std::max(
+                                  1.0f - ( rise * rise ) / std::max( turretVerticalKm * turretVerticalKm, 1e-12f ),
+                                  0.0f ) );
+                        for ( uint32_t billow = 0; billow < kBillowsPerTurret; ++billow )
+                        {
+                            const uint32_t billowSeed = HashCombine( turretSeed, 0x10u + billow );
+                            const float    side       = ( static_cast<float>( billow ) + 0.5f ) /
+                                                    static_cast<float>( kBillowsPerTurret ) -
+                                               0.5f;
+                            const float billowAngle =
+                                 angle + 1.6f * side + 0.4f * HashSigned( HashCombine( billowSeed, 0x1u ) );
+                            const float billowWobble = 0.8f + 0.4f * HashUnit( HashCombine( billowSeed, 0x2u ) );
+                            const float bAlong       = std::cos( billowAngle ) * out * stretch;
+                            const float bAcross      = std::sin( billowAngle ) * out / stretch;
+                            pushLump(
+                                 worldOf( turretCentre, bAlong, bAcross, turretY + rise ),
+                                 glm::vec3( std::max( billowRadiusKm * billowWobble * stretch, lumpFloorKm ),
+                                            billowVerticalKm,
+                                            std::max( billowRadiusKm * billowWobble / stretch, lumpFloorKm ) ) );
+                        }
                     }
 
                     // THE ANVIL, and it is the shape no vertical curve could express: a lobe of cloud at the
@@ -1509,7 +1728,8 @@ namespace Desert::Assets
                     // the symptom is a shell kilometres taller than anything in it, with the vertical
                     // resolution and the march's search step paying for it silently. See the note above
                     // that predicate.
-                    if ( Graphic::CloudTypeHasAnvil( shape ) )
+                    // ONE ANVIL PER MASSIF: a lobe is the massif's flank, not a second storm.
+                    if ( !body.IsLobe && Graphic::CloudTypeHasAnvil( shape ) )
                     {
                         CloudModellingBlob anvil;
                         anvil.Primitive = CloudModellingPrimitive::Ellipsoid;
@@ -1517,8 +1737,8 @@ namespace Desert::Assets
 
                         // Wider than the tower and much flatter, which is what spreading against a stable layer
                         // looks like. The strength decides how far it spreads and how much matter is in it.
-                        const float spread = baseRadiusKm * ( 0.60f + 0.40f * fill ) * size * densityScale *
-                                             radiusGain * ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
+                        const float spread =
+                             clusterRadiusKm * ( 1.0f + kAnvilSpreadPerStrength * shape.AnvilStrength );
 
                         // THE CANOPY IS A LUMP AND IS FLOORED LIKE ONE, from the two floors the tower
                         // already uses rather than from a second copy of `0.5 * ResolvableChordKm` — which
@@ -1543,7 +1763,7 @@ namespace Desert::Assets
                         // per-voxel field over the crease between the anvil and the body.
                         anvil.DensityScale = std::clamp( shape.AnvilStrength, 0.0f, 1.0f );
 
-                        blobs.push_back( anvil );
+                        blobs.push_back( CloudProceduralLump{ anvil, bodyRank, massifXZ, centre } );
                     }
                 }
             }
@@ -1554,35 +1774,241 @@ namespace Desert::Assets
         // its lumps were emitted in sorts first. Here the emission order is a loop over a lattice, which is
         // stable — but it changes when the wind turns the frame, and a field that shifts by a 255th when
         // the wind direction is nudged is exactly the class of drift the sort removes.
-        SortCloudModellingBlobs( blobs );
-
+        std::sort( blobs.begin(), blobs.end(), []( const CloudProceduralLump& a, const CloudProceduralLump& b )
+                   { return CloudModellingBlobLess( a.Blob, b.Blob ); } );
         return blobs;
     }
 
-    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams&      params,
-                                          const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm )
+    std::vector<CloudModellingBlob> GenerateCloudProceduralBlobs( const CloudProceduralFieldParams& params,
+                                                                  uint32_t slot, const glm::vec2& regionOriginKm )
     {
-        if ( blobs.empty() )
+        std::vector<CloudModellingBlob> blobs;
+        for ( const CloudProceduralLump& lump :
+              GenerateCloudProceduralLumps( params, slot, regionOriginKm, CloudProceduralLumpSet::KeptCells ) )
+            blobs.push_back( lump.Blob );
+        return blobs;
+    }
+
+    float CloudProceduralLumpDepthKm( const CloudModellingBlob& blob )
+    {
+        switch ( blob.Primitive )
+        {
+            case CloudModellingPrimitive::Sphere:
+            case CloudModellingPrimitive::Capsule:
+                return blob.RadiiKm.x;
+            case CloudModellingPrimitive::Ellipsoid:
+                break;
+        }
+        return std::min( { blob.RadiiKm.x, blob.RadiiKm.y, blob.RadiiKm.z } );
+    }
+
+    float CloudProceduralBodyDepthKm( const CloudProceduralFieldParams& params, float deepestLumpKm )
+    {
+        const float side      = static_cast<float>( std::max( params.VolumeSideVoxels, 1u ) );
+        const float voxelXZKm = params.RegionSizeKm / side;
+        const float voxelYKm  = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+        const float floorKm   = 2.0f * std::max( voxelXZKm, voxelYKm );
+        return std::max( { deepestLumpKm, floorKm, 1e-6f } );
+    }
+
+    float CloudProceduralShapeReachKm( const CloudModellingBlob& blob )
+    {
+        return kCloudShapeNoiseReachOfDepth * CloudProceduralLumpDepthKm( blob );
+    }
+
+    float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec3& pointKm )
+    {
+        if ( slot >= params.Species.size() )
             return 0.0f;
 
-        const float invBlend = 1.0f / std::max( params.BlendRadiusKm, 1e-6f );
+        // A WHOLE NUMBER OF CELLS ACROSS THE REGION, so the noise repeats exactly where the volume does.
+        const float wantedKm = std::max( kCloudShapeNoiseCellsPerCell * params.Species[slot].CellKm, 1e-3f );
+        const float cells    = std::max( std::round( params.RegionSizeKm / wantedKm ), 1.0f );
+        const float cellKm   = params.RegionSizeKm / cells;
 
-        float nearest = 0.0f;
-        for ( size_t k = 0; k < blobs.size(); ++k )
+        const glm::vec3 lattice = pointKm / cellKm;
+        const uint32_t  seed    = HashCombine( CloudSpeciesSeed( params, slot ), 0x5a4e0153u );
+
+        // Nubis 2017's Perlin-Worley: the Perlin dilated by the billow, `remap(perlin, 0, 1, billow, 1)`.
+        const float perlin =
+             std::clamp( 0.5f + CloudShapeNoiseGlsl::CloudPerlinPeriodic( lattice, cells, seed ), 0.0f, 1.0f );
+        const float billow = CloudShapeNoiseGlsl::CloudAlligator01( lattice, cells, HashCombine( seed, 0x1u ) );
+        const float pw     = billow + ( 1.0f - billow ) * perlin;
+
+        const float signedNoise =
+             std::clamp( ( kCloudShapeNoiseMedian - pw ) / ( 1.0f - kCloudShapeNoiseMedian ), -1.0f, 1.0f );
+
+        // TIMES THE HEIGHT PROFILE (CLOUD-SHAPE; Nubis's height gradient on the base shape): half strength at
+        // the type's base and full at its top, so the flanks over the flat floor stay calm and the crown is
+        // where the large noise raises its turrets and carves its clefts.
+        const Graphic::CloudTypeShape& type   = params.Species[slot].Shape;
+        const float                    bandKm = std::max( type.TopAltitudeKm - type.BaseAltitudeKm, 1e-4f );
+        const float height = std::clamp( ( pointKm.y - type.BaseAltitudeKm ) / bandKm, 0.0f, 1.0f );
+        // THE CROWN ONLY GROWS (CLOUD-SHAPE-b): the carving half (positive — it adds to the distance) fades
+        // out going up, so the top is billows pushed OUT of the body and never clefts cut into it, while
+        // the growing half keeps the full profile. Over the flat floor both halves stay at half strength.
+        const float grow  = std::min( signedNoise, 0.0f );
+        const float carve = std::max( signedNoise, 0.0f );
+        const float coarse = grow * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height ) +
+                             carve * kCloudShapeNoiseAtBase * ( 1.0f - height );
+
+        // THE CAULIFLOWER OCTAVE, growth only and rising from nothing at the base to its full share at the
+        // top (kCloudShapeBillowCellOfShape).
+        const float billowCells =
+             std::max( std::round( params.RegionSizeKm / ( kCloudShapeBillowCellOfShape * cellKm ) ), 1.0f );
+        const float heads = CloudShapeNoiseGlsl::CloudAlligator01( pointKm * ( billowCells / params.RegionSizeKm ),
+                                                                   billowCells, HashCombine( seed, 0x2u ) );
+        const float headGrowth = std::clamp( ( heads - 0.5f ) / 0.5f, 0.0f, 1.0f );
+        // ON THE FLANKS TOO (CLOUD-SHAPE-f): from kCloudShapeNoiseAtBase of its share at the base to all of it at
+        // the top, as the coarse octave's growth does. Rising from nothing, every lump's sides kept the smooth
+        // ellipsoid and the silhouette read as a cotton ball with heads only on its cap.
+        const float headReach = kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height;
+        return std::clamp( coarse - kCloudShapeBillowAtTop * headReach * headGrowth, -1.0f, 1.0f );
+    }
+
+    namespace
+    {
+        /// One lump a point asks about: its distance (+inf when it cannot reach the point), its join weight, the
+        /// cluster it belongs to, that cluster's reach past the slider (CloudProceduralClusterReach) and the
+        /// reciprocal of that cluster's CloudProceduralBodyDepthKm.
+        struct CloudClusterCandidate
         {
-            const float distance = CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( blobs[k] ), pointKm );
-            nearest              = ( k == 0 ) ? distance : std::min( nearest, distance );
+            float    DistanceKm = 0.0f;
+            float    Weight     = 1.0f;
+            uint32_t Cluster    = 0u;
+            float    Reach      = 0.0f;
+            float    InvDepth   = 0.0f;
+        };
+
+        /// THE CLUSTERS' BODY DEPTHS (PROFILE-BODY), one per distinct ClusterKm of @p lumps in order of first
+        /// appearance: CloudProceduralBodyDepthKm of the deepest lump. Over EVERY lump of the cluster the
+        /// caller holds — the bake its whole kept set before any wrap or bin culls one, the preview what it is
+        /// handed — so a voxel's normalisation never depends on which lumps reach it.
+        /// A cluster's exact site as one word: its two floats' bits. The site IS the cluster's identity (one
+        /// float pair shared by its lumps), so equal words are the same cluster and the lookup is exact.
+        uint64_t CloudClusterSiteWord( const glm::vec2& siteKm )
+        {
+            return ( static_cast<uint64_t>( std::bit_cast<uint32_t>( siteKm.x ) ) << 32u ) |
+                   static_cast<uint64_t>( std::bit_cast<uint32_t>( siteKm.y ) );
         }
 
-        float sum = 0.0f;
-        for ( const CloudModellingBlob& blob : blobs )
+        /// The clusters of a lump set, indexed by site in order of first appearance, with each one's inverse
+        /// body depth. A HASH AND NOT A SCAN (FIELD-GRAIN): a cell is a patch of a dozen-odd bodies now, so a
+        /// region holds thousands of clusters and a linear search per lump was quadratic in them.
+        struct CloudClusterSites
         {
-            const float distance = CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( blob ), pointKm );
-            sum += CloudModellingJoinTerm( blob.Weight, distance, nearest, invBlend );
+            std::unordered_map<uint64_t, uint32_t> Index;
+            std::vector<float>                     InvDepths;
+
+            [[nodiscard]] uint32_t Of( const glm::vec2& siteKm ) const
+            {
+                return Index.at( CloudClusterSiteWord( siteKm ) );
+            }
+        };
+
+        void CloudClusterBodyDepths( const CloudProceduralFieldParams&       params,
+                                     const std::vector<CloudProceduralLump>& lumps, CloudClusterSites& sites )
+        {
+            sites.Index.clear();
+            sites.Index.reserve( lumps.size() );
+            std::vector<float> deepest;
+            for ( const CloudProceduralLump& lump : lumps )
+            {
+                const float depth = CloudProceduralLumpDepthKm( lump.Blob );
+                const auto [it, fresh] = sites.Index.try_emplace( CloudClusterSiteWord( lump.ClusterKm ),
+                                                                  static_cast<uint32_t>( deepest.size() ) );
+                if ( fresh )
+                    deepest.push_back( depth );
+                else
+                    deepest[it->second] = std::max( deepest[it->second], depth );
+            }
+            sites.InvDepths.clear();
+            sites.InvDepths.reserve( deepest.size() );
+            for ( const float depth : deepest )
+                sites.InvDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
         }
 
-        const float joined = CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-        return std::clamp( -joined / std::max( params.ProfileDepthKm, 1e-6f ), 0.0f, 1.0f );
+        /// THE VOXEL, ONE HOME (CUT-AT-BAKE-b) — the bake's and the preview's. The smooth minimum joins the
+        /// lumps of one cluster only (JOIN-PER-CLUSTER: a bridge between two clusters belonged to neither, so
+        /// a dead neighbour left a stub of it on the living one, CLOUD-AUDIT S6); the cluster's profile times
+        /// the altitude density is cut by ITS OWN reach before the clusters meet by `max` (CUT-AT-BAKE: a cut
+        /// after the max would cut every cluster of a voxel by the winner's reach). @p candidates stay in the
+        /// lumps' canonical order, which is what makes the join's floating-point sum order-independent.
+        ///
+        /// THE CLOUD BASE IS A PLANE (CLOUD-SHAPE): @p belowBaseKm is the point's signed distance under the
+        /// species' BaseAltitudeKm (positive below it), and each cluster's joined distance is intersected with
+        /// that half-space AFTER the join and the silhouette noise, so neither rounds the floor. The bodies'
+        /// base lumps are centred on the base for exactly this cut to leave a flat underside.
+        float CloudProceduralCutJoin( const std::vector<CloudClusterCandidate>& candidates, float density,
+                                      float invBlend, float blendRadiusKm, float belowBaseKm )
+        {
+            float cut = 0.0f;
+            for ( size_t k = 0; k < candidates.size(); ++k )
+            {
+                if ( !std::isfinite( candidates[k].DistanceKm ) )
+                    continue;
+                const uint32_t cluster = candidates[k].Cluster;
+                bool           seen    = false;
+                for ( size_t j = 0; j < k && !seen; ++j )
+                    seen = std::isfinite( candidates[j].DistanceKm ) && candidates[j].Cluster == cluster;
+                if ( seen )
+                    continue;
+
+                float nearest = candidates[k].DistanceKm;
+                for ( size_t j = k + 1u; j < candidates.size(); ++j )
+                    if ( candidates[j].Cluster == cluster && candidates[j].DistanceKm < nearest )
+                        nearest = candidates[j].DistanceKm;
+
+                float sum = 0.0f;
+                for ( size_t j = k; j < candidates.size(); ++j )
+                    if ( candidates[j].Cluster == cluster && std::isfinite( candidates[j].DistanceKm ) )
+                        sum += CloudModellingJoinTerm( candidates[j].Weight, candidates[j].DistanceKm, nearest,
+                                                       invBlend );
+
+                const float clusterJoined =
+                     std::max( CloudModellingJoinKm( nearest, sum, blendRadiusKm ), belowBaseKm );
+                if ( clusterJoined >= 0.0f )
+                    continue;
+                const float profile = std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f ) * density;
+                cut                 = std::max( cut, CloudProceduralCoverRemap( profile, candidates[k].Reach ) );
+            }
+            return cut;
+        }
+    } // namespace
+
+    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const std::vector<CloudProceduralLump>& lumps, const glm::vec3& pointKm )
+    {
+        if ( lumps.empty() || slot >= params.Species.size() )
+            return 0.0f;
+
+        // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
+        // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
+        // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
+        const float            softness = CloudProceduralRankSoftness( params );
+        CloudClusterSites      sites;
+        CloudClusterBodyDepths( params, lumps, sites );
+
+        // THE SILHOUETTE NOISE moves every lump's distance BEFORE the join (SHAPE-NOISE), as the bake does.
+        const float shape = CloudProceduralShapeNoise( params, slot, pointKm );
+
+        std::vector<CloudClusterCandidate> candidates;
+        candidates.reserve( lumps.size() );
+        for ( const CloudProceduralLump& lump : lumps )
+        {
+            const uint32_t cluster = sites.Of( lump.ClusterKm );
+            candidates.push_back( CloudClusterCandidate{
+                 CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
+                      CloudProceduralShapeReachKm( lump.Blob ) * shape,
+                 lump.Blob.Weight, cluster, CloudProceduralClusterReach( lump.Rank, params.Coverage, softness ),
+                 sites.InvDepths[cluster] } );
+        }
+
+        return CloudProceduralCutJoin( candidates,
+                                       CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
+                                       1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
+                                       params.Species[slot].Shape.BaseAltitudeKm - pointKm.y );
     }
 
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -1593,11 +2019,65 @@ namespace Desert::Assets
         return total;
     }
 
+    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
+                                    uint32_t z, const glm::vec4& slotWeather )
+    {
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+        {
+            const size_t at = ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * side + x ) *
+                              kCloudProceduralBytesPerVoxel;
+            if ( at + kCloudProceduralBytesPerVoxel > voxels.size() )
+                continue;
+            // THE WINNER'S WEATHER, as the march takes it: the deepest species owns the voxel (strictly
+            // deeper, so a tie stays with the earlier slot — CloudSampleProceduralField's loop), and its
+            // slot's W remaps its profile.
+            int           winner = -1;
+            unsigned char best   = 0u;
+            for ( uint32_t slot = 0; slot < kCloudProceduralBytesPerVoxel; ++slot )
+                if ( voxels[at + slot] > best )
+                {
+                    best   = voxels[at + slot];
+                    winner = static_cast<int>( slot );
+                }
+            if ( winner >= 0 &&
+                 CloudProceduralCoverRemap( static_cast<float>( best ) / 255.0f, slotWeather[winner] ) > 0.0f )
+                return true;
+        }
+        return false;
+    }
+
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
     {
         return BakeCloudProceduralVolume( params, regionOriginKm, CloudProceduralBakeProgressFn{} );
     }
+
+    namespace
+    {
+        /// WHAT ONE BAKE WRITES, stated apart from how the voxels are found — the one loop below serves the
+        /// periodic region bake (BakeCloudProceduralVolume) and the clip-level box bake
+        /// (BakeCloudProceduralBox), which differ only in these fields.
+        struct CloudProceduralGrid
+        {
+            /// World kilometres of each written column's voxel centre; the box is XKm.size() x ZKm.size().
+            std::vector<float> XKm;
+            std::vector<float> ZKm;
+            /// The rectangle a lump's box must reach to be placed, world kilometres.
+            glm::vec2 ClipMinKm{ 0.0f };
+            glm::vec2 ClipMaxKm{ 0.0f };
+            /// The period a lump is repeated with (the region's), or zero for the world field itself.
+            float WrapPeriodKm = 0.0f;
+            /// The side of one spatial bin, kilometres.
+            float BinKm = 1.0f;
+        };
+
+        using CloudProceduralLumpSource = std::function<std::vector<CloudProceduralLump>( uint32_t slot )>;
+
+        Common::ResultStr<std::vector<unsigned char>>
+        BakeCloudProceduralGrid( const CloudProceduralFieldParams& params, const CloudProceduralGrid& grid,
+                                 const CloudProceduralLumpSource&     lumpsOf,
+                                 const CloudProceduralBakeProgressFn& onProgress );
+    } // namespace
 
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
@@ -1607,298 +2087,772 @@ namespace Desert::Assets
             return Common::MakeFormattedError<std::vector<unsigned char>>( "parameters are not usable: {}",
                                                                            valid.GetError() );
 
-        const uint32_t width  = params.VolumeSideVoxels;
-        const uint32_t height = kCloudProceduralVolumeHeight;
-        const uint32_t depth  = params.VolumeSideVoxels;
-
-        std::vector<unsigned char> voxels(
-             static_cast<size_t>( CloudProceduralVoxelBytes( params.VolumeSideVoxels ) ), 0u );
-
-        // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
-        // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
-        const uint32_t slices = std::max<uint32_t>( 1u, static_cast<uint32_t>( params.Species.size() ) * depth );
-        uint32_t       sliceDone = 0u;
-
-        // THE XZ SLICES ARE ALSO THE UNIT OF PARALLELISM, and it is the same boundary because it is the
-        // same independence: a slice reads the species' lump bin and writes `height x width` voxels that
-        // no other slice touches. Slice z owns the bytes [z*height*width*4, (z+1)*height*width*4), which
-        // are contiguous and 64 KiB wide at the shipped grid — disjoint by construction, not by luck, and
-        // too far apart to share a cache line.
-        //
-        // WHY THE BAKE AND NOT ITS CALLER DOES THIS. The per-species setup — the lumps, their wrapped
-        // copies, the bin — is a third of nothing and all of it would be repeated if the caller split the
-        // volume up and baked the pieces. Splitting inside also means the tools, the tests and both
-        // renderers get it without each remembering to.
-        //
-        // PROGRESS AND CANCELLATION MOVE UNDER ONE LOCK. The hook is at most `4 x side` calls over a bake
-        // of seconds, so serialising them is free, and it buys two properties the header promises: the
-        // fraction is still strictly monotone (the counter advances in lock order, whichever slice got
-        // there), and exactly ONE call can be the one told to stop — every later slice tests the flag
-        // under the same lock and never reaches the callback. Without that, a cancelled bake would call
-        // the hook once per participant and "the bake carried on past a callback that said stop" would be
-        // reported against a bake that did no such thing.
-        std::mutex progressMutex;
-        bool       cancelled = false;
-
-        const float voxelXKm = params.RegionSizeKm / static_cast<float>( width );
-        const float voxelZKm = params.RegionSizeKm / static_cast<float>( depth );
-        const float voxelYKm = params.LayerThicknessKm / static_cast<float>( height );
-
-        // How far a lump reaches before its term in the join is below the quantisation floor. See
-        // kJoinCutoffRadii; the profile depth is added because a voxel that far INSIDE a body still has to
-        // know about it.
-        const float influenceKm = params.ProfileDepthKm + params.BlendRadiusKm * kJoinCutoffRadii;
-
-        const float invBlend   = 1.0f / params.BlendRadiusKm;
-        const float invProfile = 1.0f / params.ProfileDepthKm;
-
-        for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
+        // THE PERIODIC REGION: every lump of the cells whose centres lie in it, repeated at the region's
+        // period, so REPEAT sampling shows no seam (the file note).
+        CloudProceduralGrid grid;
+        const float         voxelKm = params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels );
+        grid.XKm.resize( params.VolumeSideVoxels );
+        grid.ZKm.resize( params.VolumeSideVoxels );
+        for ( uint32_t i = 0; i < params.VolumeSideVoxels; ++i )
         {
-            const std::vector<CloudModellingBlob> blobs =
-                 GenerateCloudProceduralBlobs( params, slot, regionOriginKm );
+            grid.XKm[i] = regionOriginKm.x + ( static_cast<float>( i ) + 0.5f ) * voxelKm;
+            grid.ZKm[i] = regionOriginKm.y + ( static_cast<float>( i ) + 0.5f ) * voxelKm;
+        }
+        grid.ClipMinKm    = regionOriginKm;
+        grid.ClipMaxKm    = regionOriginKm + glm::vec2( params.RegionSizeKm );
+        grid.WrapPeriodKm = params.RegionSizeKm;
+        grid.BinKm        = params.RegionSizeKm / 32.0f;
 
-            if ( blobs.empty() )
+        return BakeCloudProceduralGrid(
+             params, grid,
+             [&]( uint32_t slot ) {
+                 return GenerateCloudProceduralLumps( params, slot, regionOriginKm,
+                                                      CloudProceduralLumpSet::KeptCells );
+             },
+             onProgress );
+    }
+
+    namespace
+    {
+        Common::ResultStr<std::vector<unsigned char>>
+        BakeCloudProceduralGrid( const CloudProceduralFieldParams& params, const CloudProceduralGrid& grid,
+                                 const CloudProceduralLumpSource&     lumpsOf,
+                                 const CloudProceduralBakeProgressFn& onProgress )
+        {
+            const uint32_t width  = static_cast<uint32_t>( grid.XKm.size() );
+            const uint32_t height = kCloudProceduralVolumeHeight;
+            const uint32_t depth  = static_cast<uint32_t>( grid.ZKm.size() );
+
+            std::vector<unsigned char> voxels(
+                 static_cast<size_t>( width ) * height * depth * kCloudProceduralBytesPerVoxel, 0u );
+
+            // THE UNIT OF PROGRESS IS ONE XZ SLICE OF ONE SPECIES, which is also the unit of cancellation. A
+            // species that places nothing still counts, so the fraction is monotone whatever the layer holds.
+            const uint32_t slices =
+                 std::max<uint32_t>( 1u, static_cast<uint32_t>( params.Species.size() ) * depth );
+            uint32_t sliceDone = 0u;
+
+            // THE XZ SLICES ARE ALSO THE UNIT OF PARALLELISM, and it is the same boundary because it is the
+            // same independence: a slice reads the species' lump bin and writes `height x width` voxels that
+            // no other slice touches. Slice z owns the bytes [z*height*width*4, (z+1)*height*width*4), which
+            // are contiguous and 64 KiB wide at the shipped grid — disjoint by construction, not by luck, and
+            // too far apart to share a cache line.
+            //
+            // WHY THE BAKE AND NOT ITS CALLER DOES THIS. The per-species setup — the lumps, their wrapped
+            // copies, the bin — is a third of nothing and all of it would be repeated if the caller split the
+            // volume up and baked the pieces. Splitting inside also means the tools, the tests and both
+            // renderers get it without each remembering to.
+            //
+            // PROGRESS AND CANCELLATION MOVE UNDER ONE LOCK. The hook is at most `4 x side` calls over a bake
+            // of seconds, so serialising them is free, and it buys two properties the header promises: the
+            // fraction is still strictly monotone (the counter advances in lock order, whichever slice got
+            // there), and exactly ONE call can be the one told to stop — every later slice tests the flag
+            // under the same lock and never reaches the callback. Without that, a cancelled bake would call
+            // the hook once per participant and "the bake carried on past a callback that said stop" would be
+            // reported against a bake that did no such thing.
+            std::mutex progressMutex;
+            bool       cancelled = false;
+
+            const float voxelYKm = params.LayerThicknessKm / static_cast<float>( height );
+
+            // NO WRAP IS ONE COPY: a clip level is the world field and places each lump once.
+            const int wrapRange = grid.WrapPeriodKm > 0.0f ? kWrapRange : 0;
+
+            // How far a lump reaches before its term in the join is below the quantisation floor. See
+            // kJoinCutoffRadii. A voxel INSIDE the body lies inside one of its lumps' boxes, so nothing is
+            // added for depth.
+            const float influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
+
+            const float invBlend = 1.0f / params.BlendRadiusKm;
+
+            for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
             {
-                sliceDone += depth;
-                continue;
-            }
+                const std::vector<CloudProceduralLump> blobs    = lumpsOf( slot );
+                const float                            softness = CloudProceduralRankSoftness( params );
 
-            // EVERY LUMP AT EVERY WRAP THAT REACHES THE REGION. This is what makes the volume periodic and
-            // therefore what makes REPEAT sampling seamless — see the header note. A lump in the middle of
-            // the region produces exactly one entry; one against a face produces two; one in a corner four.
-            struct Placed
-            {
-                CloudModellingPreparedBlob Blob;
-                glm::vec3                  MinKm;
-                glm::vec3                  MaxKm;
-            };
-
-            std::vector<Placed> placed;
-            placed.reserve( blobs.size() * 2u );
-
-            for ( const CloudModellingBlob& blob : blobs )
-            {
-                const glm::vec3 extent = CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm );
-
-                for ( int wz = -kWrapRange; wz <= kWrapRange; ++wz )
+                if ( blobs.empty() )
                 {
-                    for ( int wx = -kWrapRange; wx <= kWrapRange; ++wx )
+                    sliceDone += depth;
+                    continue;
+                }
+
+                // EVERY LUMP AT EVERY WRAP THAT REACHES THE REGION. This is what makes the volume periodic and
+                // therefore what makes REPEAT sampling seamless — see the header note. A lump in the middle of
+                // the region produces exactly one entry; one against a face produces two; one in a corner four.
+                struct Placed
+                {
+                    CloudModellingPreparedBlob Blob;
+                    glm::vec3                  MinKm;
+                    glm::vec3                  MaxKm;
+                    /// The cluster's reach past the slider (CloudProceduralClusterReach): its own remap threshold.
+                    float Reach = 0.0f;
+                    /// The cluster this copy belongs to — the lumps' cluster site at this wrap. The smooth
+                    /// minimum joins only lumps of one cluster (JOIN-PER-CLUSTER).
+                    uint32_t Cluster = 0u;
+                    /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
+                    float InvDepth = 0.0f;
+                    /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
+                    float ShapeReachKm = 0.0f;
+                };
+
+                // EACH CLUSTER'S BODY DEPTH over all its kept lumps, before a wrap or a bin culls one — the same
+                // set and the same function the preview (EvaluateCloudProceduralProfile) uses.
+                CloudClusterSites depthSites;
+                CloudClusterBodyDepths( params, blobs, depthSites );
+
+                std::vector<Placed> placed;
+                placed.reserve( blobs.size() * 2u );
+
+                // ONE ID PER CLUSTER AT EACH WRAP, in order of first appearance — the lumps are canonically
+                // ordered, so the ids are too. A cluster's site is exact (the lattice site plus its scatter, one
+                // float pair shared by its lumps), so equality of the pair is identity of the cluster.
+                std::unordered_map<uint64_t, uint32_t> clusterKeys;
+                const auto                             clusterOf = [&clusterKeys]( uint32_t site, int wx, int wz )
+                {
+                    constexpr uint64_t kWraps = 2u * kWrapRange + 1u;
+                    const uint64_t     key =
+                         ( static_cast<uint64_t>( site ) * kWraps + static_cast<uint64_t>( wz + kWrapRange ) ) *
+                              kWraps +
+                         static_cast<uint64_t>( wx + kWrapRange );
+                    return clusterKeys.try_emplace( key, static_cast<uint32_t>( clusterKeys.size() ) )
+                         .first->second;
+                };
+
+                for ( const CloudProceduralLump& lump : blobs )
+                {
+                    const CloudModellingBlob& blob = lump.Blob;
+                    const float    reach    = CloudProceduralClusterReach( lump.Rank, params.Coverage, softness );
+                    const uint32_t site     = depthSites.Of( lump.ClusterKm );
+                    const float    invDepth = depthSites.InvDepths[site];
+                    // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
+                    // reaches that much past its own ellipsoid (SHAPE-NOISE).
+                    const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
+                    const glm::vec3 extent =
+                         CloudModellingBlobHalfExtentKm( blob ) + glm::vec3( influenceKm + shapeReachKm );
+
+                    for ( int wz = -wrapRange; wz <= wrapRange; ++wz )
                     {
-                        CloudModellingBlob shifted = blob;
-                        shifted.CentreKm.x += static_cast<float>( wx ) * params.RegionSizeKm;
-                        shifted.CentreKm.z += static_cast<float>( wz ) * params.RegionSizeKm;
+                        for ( int wx = -wrapRange; wx <= wrapRange; ++wx )
+                        {
+                            CloudModellingBlob shifted = blob;
+                            shifted.CentreKm.x += static_cast<float>( wx ) * grid.WrapPeriodKm;
+                            shifted.CentreKm.z += static_cast<float>( wz ) * grid.WrapPeriodKm;
 
-                        const glm::vec3 minKm = shifted.CentreKm - extent;
-                        const glm::vec3 maxKm = shifted.CentreKm + extent;
+                            const glm::vec3 minKm = shifted.CentreKm - extent;
+                            const glm::vec3 maxKm = shifted.CentreKm + extent;
 
-                        // Reject the copies that cannot touch the region at all, which is seven of the nine
-                        // for a lump in the middle of it.
-                        if ( maxKm.x <= regionOriginKm.x || minKm.x >= regionOriginKm.x + params.RegionSizeKm )
-                            continue;
-                        if ( maxKm.z <= regionOriginKm.y || minKm.z >= regionOriginKm.y + params.RegionSizeKm )
-                            continue;
-                        if ( maxKm.y <= params.LayerBottomKm ||
-                             minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
-                            continue;
+                            // Reject the copies that cannot touch the region at all, which is seven of the nine
+                            // for a lump in the middle of it.
+                            if ( maxKm.x <= grid.ClipMinKm.x || minKm.x >= grid.ClipMaxKm.x )
+                                continue;
+                            if ( maxKm.z <= grid.ClipMinKm.y || minKm.z >= grid.ClipMaxKm.y )
+                                continue;
+                            if ( maxKm.y <= params.LayerBottomKm ||
+                                 minKm.y >= params.LayerBottomKm + params.LayerThicknessKm )
+                                continue;
 
-                        placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm } );
+                            placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm, reach,
+                                                      clusterOf( site, wx, wz ), invDepth, shapeReachKm } );
+                        }
                     }
                 }
-            }
 
-            if ( placed.empty() )
-            {
-                sliceDone += depth;
-                continue;
-            }
+                if ( placed.empty() )
+                {
+                    sliceDone += depth;
+                    continue;
+                }
 
-            // A COARSE XZ BIN OVER THE REGION, so a voxel asks about the lumps that can reach it rather
-            // than about all of them. Without it the bake is `voxels x lumps` — two million by a thousand —
-            // and with it the inner list is the handful of lumps whose boxes overlap this bin.
-            //
-            // THE LISTS STAY IN THE LUMPS' CANONICAL ORDER because `placed` is walked in that order and a
-            // lump is appended to each bin it touches. That is what carries phase Э4's order-independence
-            // into this bake: the sum a voxel performs is over an ascending subsequence of one sorted list,
-            // whatever the lattice loop did.
-            const uint32_t bins   = 32u;
-            const float    binKm  = params.RegionSizeKm / static_cast<float>( bins );
-            const float    invBin = 1.0f / binKm;
+                // A COARSE XZ BIN OVER THE REGION, so a voxel asks about the lumps that can reach it rather
+                // than about all of them. Without it the bake is `voxels x lumps` — two million by a thousand —
+                // and with it the inner list is the handful of lumps whose boxes overlap this bin.
+                //
+                // THE LISTS STAY IN THE LUMPS' CANONICAL ORDER because `placed` is walked in that order and a
+                // lump is appended to each bin it touches. That is what carries phase Э4's order-independence
+                // into this bake: the sum a voxel performs is over an ascending subsequence of one sorted list,
+                // whatever the lattice loop did.
+                const float     invBin = 1.0f / grid.BinKm;
+                const glm::vec2 clipKm = grid.ClipMaxKm - grid.ClipMinKm;
+                const uint32_t  binsX =
+                     std::max( 1u, static_cast<uint32_t>( std::ceil( clipKm.x * invBin - 1e-4f ) ) );
+                const uint32_t binsZ =
+                     std::max( 1u, static_cast<uint32_t>( std::ceil( clipKm.y * invBin - 1e-4f ) ) );
 
-            std::vector<std::vector<uint32_t>> binList( static_cast<size_t>( bins ) * bins );
+                std::vector<std::vector<uint32_t>> binList( static_cast<size_t>( binsX ) * binsZ );
 
-            for ( uint32_t index = 0; index < placed.size(); ++index )
-            {
-                const Placed& item = placed[index];
+                for ( uint32_t index = 0; index < placed.size(); ++index )
+                {
+                    const Placed& item = placed[index];
 
-                const int firstX =
-                     std::max( 0, static_cast<int>( std::floor( ( item.MinKm.x - regionOriginKm.x ) * invBin ) ) );
-                const int lastX =
-                     std::min( static_cast<int>( bins ) - 1,
-                               static_cast<int>( std::floor( ( item.MaxKm.x - regionOriginKm.x ) * invBin ) ) );
-                const int firstZ =
-                     std::max( 0, static_cast<int>( std::floor( ( item.MinKm.z - regionOriginKm.y ) * invBin ) ) );
-                const int lastZ =
-                     std::min( static_cast<int>( bins ) - 1,
-                               static_cast<int>( std::floor( ( item.MaxKm.z - regionOriginKm.y ) * invBin ) ) );
+                    const int firstX = std::max(
+                         0, static_cast<int>( std::floor( ( item.MinKm.x - grid.ClipMinKm.x ) * invBin ) ) );
+                    const int lastX = std::min(
+                         static_cast<int>( binsX ) - 1,
+                         static_cast<int>( std::floor( ( item.MaxKm.x - grid.ClipMinKm.x ) * invBin ) ) );
+                    const int firstZ = std::max(
+                         0, static_cast<int>( std::floor( ( item.MinKm.z - grid.ClipMinKm.y ) * invBin ) ) );
+                    const int lastZ = std::min(
+                         static_cast<int>( binsZ ) - 1,
+                         static_cast<int>( std::floor( ( item.MaxKm.z - grid.ClipMinKm.y ) * invBin ) ) );
 
-                for ( int bz = firstZ; bz <= lastZ; ++bz )
-                    for ( int bx = firstX; bx <= lastX; ++bx )
-                        binList[static_cast<size_t>( bz ) * bins + bx].push_back( index );
-            }
+                    for ( int bz = firstZ; bz <= lastZ; ++bz )
+                        for ( int bx = firstX; bx <= lastX; ++bx )
+                            binList[static_cast<size_t>( bz ) * binsX + bx].push_back( index );
+                }
 
-            // ONE SLICE PER CLAIM. Slices differ in cost by an order of magnitude — one crossing a cluster
-            // does the full join at every column, one over clear sky rejects at the bin — so handing out
-            // equal blocks in advance would leave most participants idle behind the unlucky one. A grain
-            // of 1 is worth its claim here: a slice is tens of milliseconds of work against a mutex.
-            Common::JobSystem::Get().ParallelRanges(
-                 depth, 1u,
-                 [&]( size_t zBegin, size_t zEnd )
-                 {
-                     DESERT_PROFILE_SCOPE( "Clouds: modelling bake XZ slice" );
-
-                     // PER RANGE AND NOT PER BAKE: these are the scratch the inner loops refill, and one
-                     // shared pair would be the only write two slices could ever contend on.
-                     std::vector<float>    distances;
-                     std::vector<uint32_t> column;
-
-                     for ( uint32_t z = static_cast<uint32_t>( zBegin ); z < static_cast<uint32_t>( zEnd ); ++z )
+                // ONE SLICE PER CLAIM. Slices differ in cost by an order of magnitude — one crossing a cluster
+                // does the full join at every column, one over clear sky rejects at the bin — so handing out
+                // equal blocks in advance would leave most participants idle behind the unlucky one. A grain
+                // of 1 is worth its claim here: a slice is tens of milliseconds of work against a mutex.
+                Common::JobSystem::Get().ParallelRanges(
+                     depth, 1u,
+                     [&]( size_t zBegin, size_t zEnd )
                      {
-                         // BETWEEN SLICES AND NOT INSIDE THEM, exactly as the sculpted bake does it and for the
-                         // same arithmetic: at most `4 x side` calls over a bake of seconds is a check whose cost
-                         // is unmeasurable, where a call per voxel would be millions of indirect calls through a
-                         // std::function and would dominate the work it is reporting on. At the shipped 256 that
-                         // is one check every ~40 ms of Debug bake, which is the granularity a cancel is honoured
-                         // at.
-                         if ( onProgress )
+                         DESERT_PROFILE_SCOPE( "Clouds: modelling bake XZ slice" );
+
+                         // PER RANGE AND NOT PER BAKE: these are the scratch the inner loops refill, and one
+                         // shared pair would be the only write two slices could ever contend on.
+                         std::vector<CloudClusterCandidate> candidates;
+                         std::vector<uint32_t>              column;
+
+                         for ( uint32_t z = static_cast<uint32_t>( zBegin ); z < static_cast<uint32_t>( zEnd );
+                               ++z )
                          {
-                             std::lock_guard<std::mutex> lk( progressMutex );
-                             if ( cancelled )
-                                 return;
-                             if ( !onProgress( static_cast<float>( sliceDone ) / static_cast<float>( slices ) ) )
+                             // BETWEEN SLICES AND NOT INSIDE THEM, exactly as the sculpted bake does it and for
+                             // the same arithmetic: at most `4 x side` calls over a bake of seconds is a check
+                             // whose cost is unmeasurable, where a call per voxel would be millions of indirect
+                             // calls through a std::function and would dominate the work it is reporting on. At
+                             // the shipped 256 that is one check every ~40 ms of Debug bake, which is the
+                             // granularity a cancel is honoured at.
+                             if ( onProgress )
                              {
-                                 cancelled = true;
-                                 return;
+                                 std::lock_guard<std::mutex> lk( progressMutex );
+                                 if ( cancelled )
+                                     return;
+                                 if ( !onProgress( static_cast<float>( sliceDone ) /
+                                                   static_cast<float>( slices ) ) )
+                                 {
+                                     cancelled = true;
+                                     return;
+                                 }
+                                 ++sliceDone;
                              }
-                             ++sliceDone;
-                         }
 
-                         const float worldZ = regionOriginKm.y + ( static_cast<float>( z ) + 0.5f ) * voxelZKm;
-                         const int   binZ = std::clamp( static_cast<int>( ( worldZ - regionOriginKm.y ) * invBin ),
-                                                        0, static_cast<int>( bins ) - 1 );
+                             const float worldZ = grid.ZKm[z];
+                             const int   binZ =
+                                  std::clamp( static_cast<int>( ( worldZ - grid.ClipMinKm.y ) * invBin ), 0,
+                                              static_cast<int>( binsZ ) - 1 );
 
-                         for ( uint32_t x = 0; x < width; ++x )
-                         {
-                             const float worldX = regionOriginKm.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm;
-                             const int   binX =
-                                  std::clamp( static_cast<int>( ( worldX - regionOriginKm.x ) * invBin ), 0,
-                                              static_cast<int>( bins ) - 1 );
-
-                             const std::vector<uint32_t>& list =
-                                  binList[static_cast<size_t>( binZ ) * bins + binX];
-                             if ( list.empty() )
-                                 continue;
-
-                             // THE COLUMN'S OWN CANDIDATES, decided once for all 32 rows above this ground
-                             // position. The horizontal half of the box test does not depend on the altitude, and
-                             // performing it inside the y loop repeated it thirty-two times for the same answer —
-                             // measured at 642 ms per bake for one species, most of it in rejections. The list
-                             // stays in the lumps' canonical order because `list` is, which is what carries the
-                             // join's order-independence through this optimisation.
-                             column.clear();
-                             for ( uint32_t index : list )
+                             for ( uint32_t x = 0; x < width; ++x )
                              {
-                                 const Placed& item = placed[index];
-                                 if ( worldX < item.MinKm.x || worldX > item.MaxKm.x || worldZ < item.MinKm.z ||
-                                      worldZ > item.MaxKm.z )
+                                 const float worldX = grid.XKm[x];
+                                 const int   binX =
+                                      std::clamp( static_cast<int>( ( worldX - grid.ClipMinKm.x ) * invBin ), 0,
+                                                  static_cast<int>( binsX ) - 1 );
+
+                                 const std::vector<uint32_t>& list =
+                                      binList[static_cast<size_t>( binZ ) * binsX + binX];
+                                 if ( list.empty() )
                                      continue;
-                                 column.push_back( index );
-                             }
 
-                             if ( column.empty() )
-                                 continue;
-
-                             for ( uint32_t y = 0; y < height; ++y )
-                             {
-                                 const float worldY =
-                                      params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm;
-
-                                 const glm::vec3 point( worldX, worldY, worldZ );
-
-                                 // THE SAME TWO LOOPS THE SCULPTED BAKE PERFORMS, in the same order, over the same
-                                 // three shared functions — the nearest distance, then the shifted sum. Only the
-                                 // SET is different, and it is a subset chosen so that everything left out is
-                                 // below the quantisation floor.
-                                 distances.clear();
-
-                                 float nearest = 0.0f;
-                                 bool  any     = false;
-
-                                 for ( uint32_t index : column )
+                                 // THE COLUMN'S OWN CANDIDATES, decided once for all 32 rows above this ground
+                                 // position. The horizontal half of the box test does not depend on the altitude,
+                                 // and performing it inside the y loop repeated it thirty-two times for the same
+                                 // answer — measured at 642 ms per bake for one species, most of it in rejections.
+                                 // The list stays in the lumps' canonical order because `list` is, which is what
+                                 // carries the join's order-independence through this optimisation.
+                                 column.clear();
+                                 for ( uint32_t index : list )
                                  {
                                      const Placed& item = placed[index];
-
-                                     if ( point.y < item.MinKm.y || point.y > item.MaxKm.y )
-                                     {
-                                         distances.push_back( std::numeric_limits<float>::infinity() );
+                                     if ( worldX < item.MinKm.x || worldX > item.MaxKm.x ||
+                                          worldZ < item.MinKm.z || worldZ > item.MaxKm.z )
                                          continue;
+                                     column.push_back( index );
+                                 }
+
+                                 if ( column.empty() )
+                                     continue;
+
+                                 for ( uint32_t y = 0; y < height; ++y )
+                                 {
+                                     const float worldY =
+                                          params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm;
+
+                                     const glm::vec3 point( worldX, worldY, worldZ );
+
+                                     // THE VOXEL IS CloudProceduralCutJoin's (CUT-AT-BAKE-b), the one home the
+                                     // preview (EvaluateCloudProceduralProfile) shares: the lumps of each cluster
+                                     // joined by the smooth minimum, each cluster cut by its reach, clusters met
+                                     // by `max` (JOIN-PER-CLUSTER). The silhouette noise moves every lump's
+                                     // distance BEFORE the join (SHAPE-NOISE), the preview's
+                                     // CloudProceduralShapeNoise at this point.
+                                     const float shape = CloudProceduralShapeNoise( params, slot, point );
+
+                                     candidates.clear();
+                                     for ( uint32_t index : column )
+                                     {
+                                         const Placed& item = placed[index];
+                                         candidates.push_back( CloudClusterCandidate{
+                                              point.y < item.MinKm.y || point.y > item.MaxKm.y
+                                                   ? std::numeric_limits<float>::infinity()
+                                                   : CloudModellingBlobDistanceKm( item.Blob, point ) +
+                                                          item.ShapeReachKm * shape,
+                                              item.Blob.Weight, item.Cluster, item.Reach, item.InvDepth } );
                                      }
 
-                                     const float distance = CloudModellingBlobDistanceKm( item.Blob, point );
-                                     distances.push_back( distance );
+                                     const float cut = CloudProceduralCutJoin(
+                                          candidates,
+                                          CloudProceduralAltitudeDensity( params.Species[slot].Shape, worldY ),
+                                          invBlend, params.BlendRadiusKm,
+                                          params.Species[slot].Shape.BaseAltitudeKm - worldY );
 
-                                     nearest = any ? std::min( nearest, distance ) : distance;
-                                     any     = true;
-                                 }
-
-                                 if ( !any )
-                                     continue;
-
-                                 float sum = 0.0f;
-                                 for ( size_t k = 0; k < distances.size(); ++k )
-                                 {
-                                     if ( !std::isfinite( distances[k] ) )
+                                     if ( cut <= 0.0f )
                                          continue;
-                                     sum += CloudModellingJoinTerm( placed[column[k]].Blob.Weight, distances[k],
-                                                                    nearest, invBlend );
+
+                                     const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
+                                                       kCloudProceduralBytesPerVoxel;
+                                     voxels[at + slot] = Common::Math::QuantiseUnitToByte( cut );
                                  }
-
-                                 const float joined = CloudModellingJoinKm( nearest, sum, params.BlendRadiusKm );
-                                 if ( joined >= 0.0f )
-                                     continue;
-
-                                 // The Dimensional Profile: 0 at the surface and 1 at ProfileDepth inside, which
-                                 // is Guerrilla's own quantity (deck p.85) obtained analytically rather than by a
-                                 // distance transform — and the normalised distance field variant C §3 point 2
-                                 // asks the profile to BE.
-                                 const float profile = std::clamp( -joined * invProfile, 0.0f, 1.0f );
-
-                                 const size_t at = ( ( static_cast<size_t>( z ) * height + y ) * width + x ) *
-                                                   kCloudProceduralBytesPerVoxel;
-
-                                 voxels[at + slot] = Common::Math::QuantiseUnitToByte( profile );
                              }
                          }
-                     }
-                 } );
+                     } );
 
-            // ASKED AFTER THE LOOP AND NOT INSIDE IT. ParallelRanges returns only once every claimed slice
-            // has finished, so this is the first moment at which "somebody said stop" is a settled fact
-            // rather than a value another participant is still deciding.
-            if ( cancelled )
-                return Common::MakeError<std::vector<unsigned char>>(
-                     "the procedural modelling bake was cancelled before it finished" );
+                // ASKED AFTER THE LOOP AND NOT INSIDE IT. ParallelRanges returns only once every claimed slice
+                // has finished, so this is the first moment at which "somebody said stop" is a settled fact
+                // rather than a value another participant is still deciding.
+                if ( cancelled )
+                    return Common::MakeError<std::vector<unsigned char>>(
+                         "the procedural modelling bake was cancelled before it finished" );
+            }
+
+            if ( onProgress )
+                onProgress( 1.0f );
+
+            return Common::MakeSuccess( std::move( voxels ) );
+        }
+    } // namespace
+
+    float CloudProceduralLevelSideKm( const CloudProceduralFieldParams& params, uint32_t level )
+    {
+        // A halving per level below the last, so the last level IS the region and the ratio is 2 throughout.
+        return std::ldexp( params.RegionSizeKm,
+                           static_cast<int>( level ) - static_cast<int>( kCloudProceduralClipLevels - 1u ) );
+    }
+
+    float CloudProceduralLevelVoxelKm( const CloudProceduralFieldParams& params, uint32_t level )
+    {
+        return CloudProceduralLevelSideKm( params, level ) / static_cast<float>( params.VolumeSideVoxels );
+    }
+
+    glm::ivec2 CloudProceduralLevelOriginVoxel( const CloudProceduralFieldParams& params, uint32_t level,
+                                                float cameraXKm, float cameraZKm )
+    {
+        // FLOOR, as CloudProceduralRegionOriginKm does: the corner is a monotone step function of the camera
+        // and one voxel of travel is one column. In double so a camera thousands of kilometres out still
+        // lands on the voxel it is in.
+        const double voxel = static_cast<double>( CloudProceduralLevelVoxelKm( params, level ) );
+        const double half  = 0.5 * static_cast<double>( CloudProceduralLevelSideKm( params, level ) );
+        return glm::ivec2(
+             static_cast<int32_t>( std::floor( ( static_cast<double>( cameraXKm ) - half ) / voxel ) ),
+             static_cast<int32_t>( std::floor( ( static_cast<double>( cameraZKm ) - half ) / voxel ) ) );
+    }
+
+    glm::vec2 CloudProceduralLevelOriginKm( const CloudProceduralFieldParams& params, uint32_t level,
+                                            float cameraXKm, float cameraZKm )
+    {
+        const glm::ivec2 voxel = CloudProceduralLevelOriginVoxel( params, level, cameraXKm, cameraZKm );
+        return glm::vec2( voxel ) * CloudProceduralLevelVoxelKm( params, level );
+    }
+
+    Common::ResultStr<std::vector<unsigned char>> BakeCloudProceduralBox( const CloudProceduralFieldParams& params,
+                                                                          uint32_t                          level,
+                                                                          const glm::ivec2& originVoxel,
+                                                                          const CloudProceduralVoxelBox& box )
+    {
+        return BakeCloudProceduralBox( params, level, originVoxel, box, CloudProceduralBakeProgressFn{} );
+    }
+
+    Common::ResultStr<std::vector<unsigned char>>
+    BakeCloudProceduralBox( const CloudProceduralFieldParams& params, uint32_t level,
+                            const glm::ivec2& originVoxel, const CloudProceduralVoxelBox& box,
+                            const CloudProceduralBakeProgressFn& onProgress )
+    {
+        using Bytes = std::vector<unsigned char>;
+        if ( auto valid = ValidateCloudProceduralParams( params ); !valid )
+            return Common::MakeFormattedError<Bytes>( "parameters are not usable: {}", valid.GetError() );
+        if ( level >= kCloudProceduralClipLevels )
+            return Common::MakeFormattedError<Bytes>( "clip level {} does not exist: there are {}", level,
+                                                      kCloudProceduralClipLevels );
+        const uint32_t side = params.VolumeSideVoxels;
+        if ( box.Width == 0u || box.Depth == 0u || box.X + box.Width > side || box.Z + box.Depth > side )
+            return Common::MakeFormattedError<Bytes>(
+                 "the box [{}, {}) x [{}, {}) is empty or leaves the level's {} texels", box.X, box.X + box.Width,
+                 box.Z, box.Z + box.Depth, side );
+
+        // THE VOXEL CENTRE FROM THE WORLD INDEX ALONE — never origin plus offset — so a texel shared by two
+        // origins is the same float, and therefore the same bytes, under both.
+        const float         voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        CloudProceduralGrid grid;
+        grid.XKm.resize( box.Width );
+        grid.ZKm.resize( box.Depth );
+        for ( uint32_t i = 0; i < box.Width; ++i )
+            grid.XKm[i] =
+                 ( static_cast<float>( CloudProceduralLevelWorldVoxel( box.X + i, originVoxel.x, side ) ) +
+                   0.5f ) *
+                 voxelKm;
+        for ( uint32_t i = 0; i < box.Depth; ++i )
+            grid.ZKm[i] =
+                 ( static_cast<float>( CloudProceduralLevelWorldVoxel( box.Z + i, originVoxel.y, side ) ) +
+                   0.5f ) *
+                 voxelKm;
+        const auto [minX, maxX] = std::minmax_element( grid.XKm.begin(), grid.XKm.end() );
+        const auto [minZ, maxZ] = std::minmax_element( grid.ZKm.begin(), grid.ZKm.end() );
+        grid.ClipMinKm          = glm::vec2( *minX, *minZ ) - glm::vec2( 0.5f * voxelKm );
+        grid.ClipMaxKm          = glm::vec2( *maxX, *maxZ ) + glm::vec2( 0.5f * voxelKm );
+        grid.WrapPeriodKm       = 0.0f;
+        grid.BinKm              = CloudProceduralLevelSideKm( params, level ) / 32.0f;
+
+        // THE LUMPS THAT CAN REACH THE BOX, from the generator's window widened by their reach. The reach is
+        // MEASURED on what was emitted (the lump's box as the bake places it, from the centre of the cell that
+        // owns it) and the window is accepted only when it is twice that, so a cell outside it would have to
+        // throw a lump twice as far as any of the thousands inside did. Lumps past the box are culled by the
+        // bake's own box test, so a wider window changes nothing but the time.
+        const float                                   influenceKm = params.BlendRadiusKm * kJoinCutoffRadii;
+        std::vector<std::vector<CloudProceduralLump>> lumps( params.Species.size() );
+        for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
+        {
+            const glm::vec2 cell    = CloudProceduralCellExtentKm( params, params.Species[slot] );
+            float           margin  = 2.0f * std::max( cell.x, cell.y );
+            bool            settled = false;
+            for ( int attempt = 0; attempt < 8 && !settled; ++attempt )
+            {
+                lumps[slot] = GenerateCloudProceduralLumpsInWindow(
+                     params, slot, grid.ClipMinKm - glm::vec2( margin ),
+                     grid.ClipMaxKm - grid.ClipMinKm + glm::vec2( 2.0f * margin ),
+                     CloudProceduralLumpSet::KeptCells );
+                float reach = 0.0f;
+                for ( const CloudProceduralLump& lump : lumps[slot] )
+                {
+                    const glm::vec3 extent = CloudModellingBlobHalfExtentKm( lump.Blob ) +
+                                             glm::vec3( influenceKm + CloudProceduralShapeReachKm( lump.Blob ) );
+                    reach = std::max( { reach, std::abs( lump.Blob.CentreKm.x - lump.CellKm.x ) + extent.x,
+                                        std::abs( lump.Blob.CentreKm.z - lump.CellKm.y ) + extent.z } );
+                }
+                settled = 2.0f * reach <= margin;
+                margin  = std::max( margin, 2.0f * reach );
+            }
+            if ( !settled )
+                return Common::MakeFormattedError<Bytes>(
+                     "species {} throws lumps further than a {} km window settles on; the clip-level bake cannot "
+                     "bound the cells that reach its box",
+                     slot, margin );
         }
 
-        if ( onProgress )
-            onProgress( 1.0f );
+        return BakeCloudProceduralGrid(
+             params, grid, [&lumps]( uint32_t slot ) { return lumps[slot]; }, onProgress );
+    }
 
-        return Common::MakeSuccess( std::move( voxels ) );
+    uint64_t CloudProceduralLevelCacheKey( const CloudProceduralFieldParams& params, uint32_t level,
+                                           const glm::ivec2& originVoxel, const Common::DDC::Deriver& deriver )
+    {
+        std::string inputs = SerializeCloudProceduralBakeInputs(
+             params, glm::vec2( originVoxel ) * CloudProceduralLevelVoxelKm( params, level ) );
+        KeyU32( inputs, level );
+        KeyU32( inputs, static_cast<uint32_t>( originVoxel.x ) );
+        KeyU32( inputs, static_cast<uint32_t>( originVoxel.y ) );
+        return Common::DDC::MakeKey( deriver, 0u, inputs.data(), inputs.size() );
+    }
+
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralLevelCached( const CloudProceduralFieldParams& params, uint32_t level,
+                                    const glm::ivec2&                    originVoxel,
+                                    const CloudProceduralBakeProgressFn& onProgress )
+    {
+        const CloudProceduralVoxelBox whole{ 0u, 0u, params.VolumeSideVoxels, params.VolumeSideVoxels };
+        CloudProceduralCachedBake     result;
+        result.Key = CloudProceduralLevelCacheKey( params, level, originVoxel );
+        if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
+        {
+            const uint64_t expected = CloudProceduralBoxBytes( whole );
+            if ( hit->size() != expected )
+                return Common::MakeFormattedError<CloudProceduralCachedBake>(
+                     "the cached clip level '{}' holds {} bytes where a {}-voxel level is {} — the entry is "
+                     "damaged; delete it to re-bake",
+                     Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
+                     params.VolumeSideVoxels, expected );
+            result.Voxels.assign( hit->begin(), hit->end() );
+            result.FromCache = true;
+            return Common::MakeSuccess( std::move( result ) );
+        }
+        auto baked = BakeCloudProceduralBox( params, level, originVoxel, whole, onProgress );
+        if ( !baked.IsSuccess() )
+            return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
+        result.Voxels = baked.GetValue();
+        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
+                                      result.Voxels.size() );
+        if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
+            result.CacheWriteError = put.GetError();
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     float CloudProceduralCellCoverage( const CloudProceduralFieldParams& params, uint32_t slot,
                                        const glm::vec2& centreKm )
     {
-        return CloudCellCoverage( params, slot, CloudPatchSeed( CloudSpeciesSeed( params, slot ) ), centreKm );
+        return CloudCellCover( params, slot, centreKm, std::clamp( params.Coverage, 0.0f, 1.0f ) );
+    }
+
+    uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params )
+    {
+        return HashCombine( params.Seed, 0x9a71c4u );
+    }
+
+    namespace
+    {
+        /// One wave of the far weather: whole wave numbers on the far torus and a phase.
+        struct CloudFarWeatherWave
+        {
+            double Kx    = 0.0;
+            double Kz    = 0.0;
+            double Phase = 0.0;
+        };
+
+        /// THE WAVES OF THE WORLD WEATHER — the one definition both the point function and the GPU map
+        /// read, so the two cannot drift.
+        std::vector<CloudFarWeatherWave> CloudFarWeatherWaves( uint32_t seed, float tileKm )
+        {
+            constexpr double kTau = 6.283185307179586;
+            constexpr double kPi  = 3.141592653589793;
+
+            const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
+            const double centre = period / std::max( static_cast<double>( tileKm ), 1e-3 );
+
+            // ONE OCTAVE, FROM THE TILE UP TO TWICE IT, and not two around it. A gap is half a wavelength,
+            // so the octave below the tile (15-30 km at the shipped 30) opened 7.5-15 km gaps, which a
+            // 12 km piece of sky averages away and which the cloud behind closes along a low sight line.
+            // Measured on the 12 km blocks (FARWX-a4): the weather kept 0.55 of its variance there with
+            // the lower octave and 0.74 without it, and only the latter lets the weather outweigh the
+            // cells' own clustering two to one. In wavenumbers on the far torus the shortest wavelength is
+            // the HIGHEST number, hence `centre`.
+            const double lowest  = std::max( 1.0, 0.5 * centre );
+            const double highest = std::max( lowest, centre );
+
+            std::vector<CloudFarWeatherWave> waves;
+            waves.reserve( kCloudFarWeatherWaves );
+            for ( uint32_t wave = 0; wave < kCloudFarWeatherWaves; ++wave )
+            {
+                const uint32_t waveSeed = HashCombine( seed, 0xfa0000u + wave );
+
+                const double wavenumber =
+                     lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
+                const double heading = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+
+                // WHOLE WAVE NUMBERS ON THE FAR TORUS, so the field is exactly periodic with the far
+                // period (the GPU map tiles it seamlessly) and with nothing shorter.
+                const double kx = std::round( wavenumber * std::cos( heading ) );
+                const double kz = std::round( wavenumber * std::sin( heading ) );
+                if ( kx == 0.0 && kz == 0.0 )
+                    continue;
+
+                waves.push_back( { kx, kz, kTau * HashUnit( HashCombine( waveSeed, 3u ) ) } );
+            }
+
+            return waves;
+        }
+
+        /// The field at a torus fraction, normalised to unit variance.
+        float CloudFarWeatherAt( const std::vector<CloudFarWeatherWave>& waves, double fx, double fz )
+        {
+            constexpr double kTau = 6.283185307179586;
+            if ( waves.empty() )
+                return 0.0f;
+            double sum = 0.0;
+            for ( const CloudFarWeatherWave& wave : waves )
+                sum += std::cos( kTau * ( wave.Kx * fx + wave.Kz * fz ) + wave.Phase );
+            return static_cast<float>( sum / std::sqrt( 0.5 * static_cast<double>( waves.size() ) ) );
+        }
+    } // namespace
+
+    float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm )
+    {
+        const double period = static_cast<double>( kCloudFarWeatherPeriodKm );
+
+        // fmod first, so a camera thousands of kilometres out keeps the phase's precision.
+        const double fx = std::fmod( static_cast<double>( worldKm.x ), period ) / period;
+        const double fz = std::fmod( static_cast<double>( worldKm.y ), period ) / period;
+
+        // THE WAVES ARE DRAWN ONCE PER (seed, tile) AND PER THREAD, not per point: every caller asks about
+        // many points of one weather (a bake's columns, a reference march's samples), and redrawing the
+        // waves — a hash, a pow and an allocation per wave — was the whole cost of a point.
+        struct Drawn
+        {
+            uint32_t                         Seed   = 0u;
+            float                            TileKm = -1.0f;
+            std::vector<CloudFarWeatherWave> Waves;
+        };
+        thread_local Drawn drawn;
+        if ( drawn.TileKm != tileKm || drawn.Seed != seed )
+            drawn = Drawn{ seed, tileKm, CloudFarWeatherWaves( seed, tileKm ) };
+
+        return CloudFarWeatherAt( drawn.Waves, fx, fz );
+    }
+
+    std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm )
+    {
+        const std::vector<CloudFarWeatherWave> waves = CloudFarWeatherWaves( seed, tileKm );
+
+        constexpr uint32_t side = kCloudFarWeatherMapSide;
+        std::vector<float> map( static_cast<size_t>( side ) * side );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+                map[static_cast<size_t>( z ) * side + x] =
+                     CloudFarWeatherAt( waves, ( x + 0.5 ) / side, ( z + 0.5 ) / side );
+        return map;
+    }
+
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params )
+    {
+        // THE SAME STAND-DOWN CloudProceduralLocalWeather makes, read as a strength of 0: W is then one
+        // everywhere and the march draws the baked profile as it is.
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        const bool             painted       = patternSource != nullptr && patternSource->HasPattern() &&
+                             params.LayoutPlacement.PatternStrength > 1e-4f;
+        const float strength = std::clamp( params.PatchStrength, 0.0f, 1.0f );
+        const float live     = ( painted || strength <= 1e-4f ) ? 0.0f : strength;
+
+        return glm::vec4( CloudFarFieldScale( params ), live, 0.0f, 1.0f / kCloudFarWeatherPeriodKm );
+    }
+
+    float CloudFarFieldScale( const CloudProceduralFieldParams& params )
+    {
+        double cellKm = 0.0;
+        for ( const CloudProceduralSpecies& species : params.Species )
+            cellKm += static_cast<double>( species.CellKm );
+        if ( params.Species.empty() || cellKm <= 0.0 || params.PatchTileKm <= 0.0f )
+            return 0.0f;
+        cellKm /= static_cast<double>( params.Species.size() );
+        // A map wave of PatchTileKm spans PatchTileKm / Period of the map's uv; read at `worldKm * scale` it
+        // spans (PatchTileKm / Period) / scale km of the world, which is set to one lattice cell.
+        return static_cast<float>( static_cast<double>( params.PatchTileKm ) /
+                                   ( static_cast<double>( kCloudFarWeatherPeriodKm ) * cellKm ) );
+    }
+
+    CloudProceduralFarStatistics CloudProceduralFarStatisticsOf( const std::vector<unsigned char>& levelBytes,
+                                                                 uint32_t                          side )
+    {
+        CloudProceduralFarStatistics out;
+        const size_t rows    = kCloudProceduralVolumeHeight;
+        const size_t columns = static_cast<size_t>( side ) * side;
+        if ( side == 0u || levelBytes.size() != columns * rows * kCloudProceduralBytesPerVoxel )
+            return out;
+
+        std::array<std::array<uint64_t, 4>, kCloudFarBands> count{};
+        std::array<std::array<uint64_t, 4>, kCloudFarBands> sum{};
+        std::array<uint64_t, kCloudFarBands>                voxels{};
+        // ((z * rows + y) * side + x) * 4 + channel: a row of a slice is side contiguous voxels.
+        for ( size_t z = 0; z < side; ++z )
+            for ( size_t y = 0; y < rows; ++y )
+            {
+                const size_t         band = y * kCloudFarBands / rows;
+                const unsigned char* row  = levelBytes.data() + ( z * rows + y ) * side * kCloudProceduralBytesPerVoxel;
+                voxels[band] += side;
+                for ( size_t x = 0; x < side; ++x )
+                    for ( size_t c = 0; c < 4; ++c )
+                    {
+                        const unsigned char v = row[x * kCloudProceduralBytesPerVoxel + c];
+                        if ( v == 0u )
+                            continue;
+                        ++count[band][c];
+                        sum[band][c] += v;
+                    }
+            }
+
+        for ( size_t band = 0; band < kCloudFarBands; ++band )
+            for ( glm::length_t c = 0; c < 4; ++c )
+            {
+                const uint64_t n = count[band][static_cast<size_t>( c )];
+                out.Presence[band][c] =
+                     voxels[band] ? static_cast<float>( static_cast<double>( n ) / static_cast<double>( voxels[band] ) )
+                                  : 0.0f;
+                out.Profile[band][c] =
+                     n ? static_cast<float>( static_cast<double>( sum[band][static_cast<size_t>( c )] ) / ( 255.0 * n ) )
+                       : 0.0f;
+            }
+        return out;
+    }
+
+    glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params )
+    {
+        const float region = std::max( params.RegionSizeKm, 1e-3f );
+        const float k = static_cast<float>( std::max( params.LayoutPlacement.RepeatsPerRegion, 1u ) ) / region;
+        float       c = 1.0f;
+        float       s = 0.0f;
+        switch ( params.LayoutPlacement.QuarterTurns & 3u )
+        {
+            case 1:
+                c = 0.0f;
+                s = 1.0f;
+                break;
+            case 2:
+                c = -1.0f;
+                break;
+            case 3:
+                c = 0.0f;
+                s = -1.0f;
+                break;
+            default:
+                break;
+        }
+        return glm::vec4( params.LayoutPlacement.OffsetKm.x, params.LayoutPlacement.OffsetKm.y, c * k, s * k );
+    }
+
+    glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params )
+    {
+        const CloudLayoutData* patternSource = params.PatternSource.get();
+        const CloudLayoutData* maskSource    = params.MaskSource.get();
+        const float            pattern       = std::clamp( params.LayoutPlacement.PatternStrength, 0.0f, 1.0f );
+        const float            mask          = std::clamp( params.LayoutPlacement.MaskStrength, 0.0f, 1.0f );
+        const bool patternLive = patternSource != nullptr && patternSource->HasPattern() && pattern > 1e-4f;
+        const bool maskLive    = maskSource != nullptr && maskSource->HasMask() && mask > 1e-4f;
+        return glm::vec2( patternLive ? pattern : 0.0f, maskLive ? mask : 0.0f );
+    }
+
+    float CloudWeatherPresence( float strength, float weather )
+    {
+        const float s = std::clamp( strength, 0.0f, 1.0f );
+        if ( s <= 1e-4f )
+            return 1.0f;
+        // Phi(weather) is uniform over the sky because the weather is standard normal; the busy end is low.
+        const float u = static_cast<float>( NormalCdf( static_cast<double>( weather ) ) );
+
+        // OCCUPIED OR CLEAR, WITH A NARROW SHORE (FIELD-GRAIN-b): a fraction f = 1 - s of the sky is weather
+        // at W = 1 — the Coverage slider is then the cover there, not a fraction of it — and s is clear, the
+        // two joined by a smoothstep 2 delta wide in rank. delta = 0.15 min(f, 1 - f) keeps the shore inside
+        // both sides at every s, so E[W] = f exactly and the true zeros are a fraction s - delta. The shader's
+        // CloudLocalWeather is the same expression.
+        const float f     = 1.0f - s;
+        const float delta = kCloudWeatherShore * std::min( f, s );
+        if ( delta <= 1e-6f )
+            return u < f ? 1.0f : 0.0f;
+        const float t = std::clamp( ( u - ( f - delta ) ) / ( 2.0f * delta ), 0.0f, 1.0f );
+        return 1.0f - t * t * ( 3.0f - 2.0f * t );
+    }
+
+    float CloudProceduralLocalWeather( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& worldKm )
+    {
+        // PER COLUMN, AND THE PAINTING IS ONE OF ITS TERMS (WX-PAINT) — Unreal's Layout and Nubis' weather
+        // map both act per PIXEL of the map, never per cloud. The Coverage slider is not in it: the bake
+        // chose the clusters by it (CUT-AT-BAKE), and a second multiplication here would spend it twice.
+        return CloudCellCover( params, slot, worldKm, 1.0f );
+    }
+
+    glm::vec4 CloudProceduralLocalWeathers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm )
+    {
+        glm::vec4 weathers( 0.0f );
+        for ( uint32_t slot = 0; slot < 4u; ++slot )
+            weathers[static_cast<int>( slot )] = CloudCellCover( params, slot, worldKm, 1.0f );
+        return weathers;
     }
 
     Common::ResultStr<CloudLayoutPreview> BuildCloudLayoutPreview( const CloudProceduralFieldParams& params,

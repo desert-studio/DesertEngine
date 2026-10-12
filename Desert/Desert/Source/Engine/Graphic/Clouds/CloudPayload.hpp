@@ -17,6 +17,13 @@
 
 namespace Desert::Graphic
 {
+    /// How many clip levels the block carries (CloudGpuPayload::Level, u_CloudLevel). Pinned equal to
+    /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
+    /// is the GPU layout and does not pull the bake in.
+    inline constexpr uint32_t kCloudClipLevelSlots = 3u;
+    /// The far path's height bands (Assets::kCloudFarBands; the renderer asserts the two agree).
+    inline constexpr uint32_t kCloudFarBandSlots = 8u;
+
     /**
      * The GPU side of VolumetricCloudData, and the ONLY place the component is turned into bytes.
      *
@@ -28,15 +35,16 @@ namespace Desert::Graphic
      * Units: KILOMETRES throughout. This packer is where the component's world-unit distances are
      * converted, exactly once.
      *
-     * EVERY SLOT IS READ, OR IT HAS A ROW IN kUnreadSlots SAYING WHY NOT. The block is 71 floats with no
+     * EVERY SLOT IS READ, OR IT HAS A ROW IN kUnreadSlots SAYING WHY NOT. The block is 83 floats with no
      * reserved field and no padding, and that is a deliberate constraint rather than an accident of
      * packing: a spare slot is where a future parameter gets quietly stashed without a name, a range or a
-     * tooltip. Two of the 71 are not read, both of them the toll std430 charges for storing a
+     * tooltip. Two of the 83 are not read, both of them the toll std430 charges for storing a
      * three-component COLOUR in a grid of vec4s — see kUnreadSlots below, which is the register a test
      * checks the shader text against. It is a register with a reason per row and not a count: a count is
      * the number the next author adjusts instead of explaining.
      *
-     * TWENTY OF THE SEVENTY-ONE ARE THE FOUR SPECIES' — SpeciesEdge's sixteen and SpeciesNoise's four. The
+     * TWENTY-EIGHT OF THE EIGHTY-THREE ARE THE FOUR SPECIES' — SpeciesEdge's sixteen, SpeciesNoise's four and
+     * the wispy base's eight (SpeciesWispBase, SpeciesWispTop). The
      * three slots T3 freed by moving a type's factors out of the layer's own vec4s were spent rather than
      * kept: `Weather.w` held the one species' DetailCharacter, `Detail.y` and `Detail.z` held the products
      * of the layer's strength and density with that species' factors, and `March.w` held the product with
@@ -68,10 +76,13 @@ namespace Desert::Graphic
         // xy the region's minimum corner in world kilometres, SNAPPED to the lump lattice by
         // Assets::CloudProceduralRegionOriginKm; z the RECIPROCAL of its horizontal side, because the march
         // only ever divides by it; w the erosion's period, unchanged.
-        glm::vec4 Region;
+        // CLIP-2: THE CLIPMAP'S THREE LEVELS, finest first (Graphic::CloudProceduralClipmap::LevelUniforms):
+        // xy the level's minimum corner on the device, world km; z 1 / its side; w its voxel, km. The detail
+        // tile that shared the old region vec4 moved to Detail.z, the slot the scalar albedo vacated.
+        glm::vec4 Level[kCloudClipLevelSlots];
         // z HELD THE SCALAR SCATTERING ALBEDO and holds nothing now — the albedo became a colour and moved
         // to its own vec4 below. It is not reused and not renamed to a pad: kUnreadSlots carries its row.
-        glm::vec4 Detail;       // x detail strength, y density scale, z UNREAD, w species count
+        glm::vec4 Detail;       // x detail strength, y density scale, z detail tile (km), w species count
         glm::vec4 Wind;         // xyz accumulated wind offset (km), w phase g
         glm::vec4 Sun;          // xyz TOWARD the sun (normalized), w light march distance (km)
         glm::vec4 SunColour;    // rgb sun irradiance (linear), w light march sample count
@@ -102,7 +113,8 @@ namespace Desert::Graphic
         // renderer binds the images in the same order it numbers them.
         glm::vec4 SpeciesNoise;
 
-        // THE MEDIUM'S SCATTERING ALBEDO, PER COLOUR. rgb; w is not read (kUnreadSlots).
+        // THE MEDIUM'S SCATTERING ALBEDO, PER COLOUR. rgb; w = Sky Light Cloud Bottom Occlusion, which
+        // closes the hole the colour opened — Unreal's own arrangement of a scalar beside its albedo.
         //
         // WHY IT IS ITS OWN vec4 AND NOT THREE SLOTS SOMEWHERE. Three components of one colour have to be
         // contiguous to be fetched as `.rgb`, and no existing member had three free slots. A vec4 is
@@ -120,6 +132,35 @@ namespace Desert::Graphic
         // static_assert.
         glm::vec4 Albedo;
 
+        // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
+        // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
+        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
+        // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the
+        // reason Albedo is.
+        glm::vec4 Weather;
+
+        // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the
+        // march's own `heightFraction`): where the type's band starts and where its altitude density H
+        // first reaches its maximum (CloudProfileWispTopFraction). Between the two the march blends the
+        // winner's DetailCharacter from 0 (wispy) up to the type's own — Nubis' wispy-at-the-base,
+        // billowy-above erosion, driven by the same curve the bake multiplies the profile by, so the base
+        // that H thins is the base the erosion frays. Slots at or past the species count are zero.
+        glm::vec4 SpeciesWispBase;
+        glm::vec4 SpeciesWispTop;
+
+        // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
+        // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
+        // Layout does, reading the u_CloudLayoutPattern / u_CloudLayoutMask block entries through these.
+        glm::vec4 LayoutPlace;
+        glm::vec4 LayoutStrength;
+
+        // THE FAR PATH (CLOUD-SEAM24), Assets::CloudProceduralFarStatistics of the coarsest clip level on the
+        // device: per height band, per species channel, the share of the level's voxels that are cloud and
+        // the mean profile where they are. Past that level's window the march draws a world column field
+        // against these (Common/CloudField.glslh CloudSampleProceduralFar) instead of repeating its torus.
+        glm::vec4 FarPresence[kCloudFarBandSlots];
+        glm::vec4 FarProfile[kCloudFarBandSlots];
+
         // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
         // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
         // amount; the warp was measured and taken out again (Common/CloudField.glslh has the numbers), and
@@ -131,30 +172,37 @@ namespace Desert::Graphic
 
     static_assert( offsetof( CloudGpuPayload, Layer ) == 0 );
     static_assert( offsetof( CloudGpuPayload, March ) == 16 );
-    static_assert( offsetof( CloudGpuPayload, Region ) == 32 );
-    static_assert( offsetof( CloudGpuPayload, Detail ) == 48 );
-    static_assert( offsetof( CloudGpuPayload, Wind ) == 64 );
-    static_assert( offsetof( CloudGpuPayload, Sun ) == 80 );
-    static_assert( offsetof( CloudGpuPayload, SunColour ) == 96 );
-    static_assert( offsetof( CloudGpuPayload, Ambient ) == 112 );
-    static_assert( offsetof( CloudGpuPayload, MultiScatter ) == 128 );
-    static_assert( offsetof( CloudGpuPayload, Phase ) == 144 );
-    static_assert( offsetof( CloudGpuPayload, Fade ) == 160 );
+    static_assert( offsetof( CloudGpuPayload, Level ) == 32 );
+    static_assert( offsetof( CloudGpuPayload, Detail ) == 80 );
+    static_assert( offsetof( CloudGpuPayload, Wind ) == 96 );
+    static_assert( offsetof( CloudGpuPayload, Sun ) == 112 );
+    static_assert( offsetof( CloudGpuPayload, SunColour ) == 128 );
+    static_assert( offsetof( CloudGpuPayload, Ambient ) == 144 );
+    static_assert( offsetof( CloudGpuPayload, MultiScatter ) == 160 );
+    static_assert( offsetof( CloudGpuPayload, Phase ) == 176 );
+    static_assert( offsetof( CloudGpuPayload, Fade ) == 192 );
     // The species array sits BEFORE the trailing vec3 rather than after it, and that is the only reason it
     // is there rather than appended. std430 aligns an array of vec4 to 16; appended after a vec3 that ends
     // at 188 it would start at 192 and leave four bytes nobody wrote — which is a reserved slot with extra
     // steps. Both sides of the layout move together in one commit and the offsets below are what makes a
     // half-move a build error rather than a frame read from the wrong place.
-    static_assert( offsetof( CloudGpuPayload, SpeciesEdge ) == 176 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesEdge ) == 208 );
     // The noise index array sits between the species array and the trailing vec3 for the reason the
     // species array itself sits there: std430 aligns a vec4 to 16, and after a vec3 that ends at 252 it
     // would start at 256 and leave four bytes nobody wrote.
-    static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 240 );
-    static_assert( offsetof( CloudGpuPayload, Albedo ) == 256 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 272 );
-    // 284, NOT 288, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
+    static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 272 );
+    static_assert( offsetof( CloudGpuPayload, Albedo ) == 288 );
+    static_assert( offsetof( CloudGpuPayload, Weather ) == 304 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 320 );
+    static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
+    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 352 );
+    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 368 );
+    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 384 );
+    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 512 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 640 );
+    // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
-    // reads past the last member, so the block ends at 284 and so does this. glm::vec3 aligns to 4 rather
+    // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
     // than to 16, so the C++ struct ends there too and there is no trailing padding to explain. Same
     // arrangement, and the same reasoning, as CloudResolveParams below.
     //
@@ -162,12 +210,20 @@ namespace Desert::Graphic
     // was appended to replace them: the region took the weather settings' slot, and the settings that
     // moved to the bake left the block rather than travelling to a march that would not read them.
     //
-    // AND IT GREW BY SIXTEEN TWICE. Once for SpeciesNoise — the price of a type's noise volume reaching
-    // the march at all; until it was paid, three of a layer's four slots could name a volume the frame
+    // AND IT GREW BY THIRTY-TWO FOR THE WISPY BASE (H-BASE): two vec4s, the band's base and the top of the
+    // altitude density's rise per species, before the trailing vec3 for the reason Albedo is.
+    //
+    // AND IT GREW BY SIXTEEN THREE TIMES. The third is Weather — the cut the march makes against the rank,
+    // which the bake stopped making when the world weather moved to the march (FARWX).
+    //
+    // AND IT GREW BY SIXTEEN TWICE BEFORE THAT. Once for SpeciesNoise — the price of a type's noise volume
+    // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
     // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
     // the smallest shape three contiguous components fit in.
-    static_assert( sizeof( CloudGpuPayload ) == 284,
-                   "Eleven vec4s, a vec4[4], two more vec4s and a vec3 — the shader reads exactly this and "
+    //
+    // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
+    static_assert( sizeof( CloudGpuPayload ) == 652,
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -201,15 +257,12 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
-         { { "u_CloudDetail", 'z',
-             "held the scalar scattering albedo until the albedo became a colour and moved to "
-             "u_CloudAlbedo; not reused, because a slot repurposed without a schema parameter behind it is "
-             "how a value reaches the GPU with no name, no range and no tooltip" },
-           { "u_CloudAlbedo", 'w',
-             "the toll std430 charges for a three-component colour: a grid of vec4s can only grow by four, "
-             "and a colour needs three contiguous components, so the fourth is unreachable arithmetic "
-             "rather than a reserved field" } } };
+    inline constexpr std::array<CloudUnreadSlot, 3> kCloudUnreadSlots = {
+         { { "u_CloudLayoutStrength", 'z',
+             "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
+             "whole, so the two strengths leave two floats nobody has a number for" },
+           { "u_CloudLayoutStrength", 'w', "as z" },
+           { "u_CloudWeather", 'z', "held the cover's softness past a rank; the bake's since CUT-AT-BAKE" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -276,9 +329,11 @@ namespace Desert::Graphic
         // THE MEMBER USED TO BE CALLED SkyOcclusion and used to carry one lane. Renaming it is what keeps
         // the other three from being three unnamed floats hiding under a name that describes the first.
         glm::vec4 Frame;
+        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y, z, w unused.
+        glm::vec4 Visualize;
     };
 
-    static_assert( sizeof( CloudPush ) == 112,
+    static_assert( sizeof( CloudPush ) == 128,
                    "CloudPush must stay inside the 128 bytes Vulkan guarantees for push constants" );
 
     /**
@@ -520,8 +575,23 @@ namespace Desert::Graphic
     /// jumping by a lattice cell for one frame.
     struct CloudRegionBinding
     {
-        glm::vec2 OriginKm{ 0.0f }; ///< the region's minimum corner, world kilometres
-        float     SideKm = 1.0f;    ///< its horizontal side, and the period the volume tiles with
+        /// Per clip level, finest first: xy the minimum corner (km), z 1 / side (1/km), w voxel (km) —
+        /// CloudProceduralClipmap::LevelUniforms of the clipmap the march reads. The default is finite.
+        std::array<glm::vec4, kCloudClipLevelSlots> Levels{ glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ),
+                                                            glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ),
+                                                            glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) };
+        /// The cut the march makes against the bake's rank — Assets::CloudFarWeatherUniform of the SAME
+        /// parameters the bound volume was baked from, so the cover and the softness belong to the bytes
+        /// they are compared with. Zero (the default) keeps nothing: no bake, no cut to make.
+        glm::vec4 Weather{ 0.0f };
+        /// Assets::CloudLayoutPlaceUniform / CloudLayoutStrengthUniform of the same parameters. Zero strength
+        /// (the default) reads no painting.
+        glm::vec4 LayoutPlace{ 0.0f };
+        glm::vec2 LayoutStrength{ 0.0f };
+        /// The far path's statistics of the coarsest level on the device (CloudProceduralClipmap::
+        /// FarStatistics). Zero (the default) draws no cloud past that level's window.
+        std::array<glm::vec4, kCloudFarBandSlots> FarPresence{};
+        std::array<glm::vec4, kCloudFarBandSlots> FarProfile{};
     };
 
     /**
@@ -634,6 +704,20 @@ namespace Desert::Graphic
     {
         return data.PerSampleAtmosphereTransmittance && atmosphere.Valid &&
                atmosphere.TransmittanceLut != nullptr && atmosphere.DistantSkyLight != nullptr;
+    }
+
+    /// THE WISPY BASE OF ONE SPECIES, in the layer's height fraction: x where the type's band starts, y where
+    /// its altitude density H first stands at its maximum (CloudProfileWispTopFraction). The packer sends it
+    /// as CloudGpuPayload::SpeciesWispBase/Top and the C++ mirrors of the march bind it through this same
+    /// function. A curve that peaks at its first sample gives y == x: no wispy base, the type's character
+    /// throughout.
+    inline glm::vec2 CloudSpeciesWispSpan( const CloudTypeShape& shape, float layerBottomKm, float layerThicknessKm )
+    {
+        const float thicknessKm = std::max( layerThicknessKm, 1e-3f );
+        const float bandKm      = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 0.0f );
+        const float wispTopKm   = shape.BaseAltitudeKm + CloudProfileWispTopFraction( shape.Profile ) * bandKm;
+        return glm::vec2( ( shape.BaseAltitudeKm - layerBottomKm ) / thicknessKm,
+                          ( wispTopKm - layerBottomKm ) / thicknessKm );
     }
 
     /**
@@ -775,26 +859,23 @@ namespace Desert::Graphic
         p.March = glm::vec4( static_cast<float>( std::clamp( data.MaxSteps, 8, 512 ) ), stopTransmittance,
                              std::max( data.TracingStartDistance, 0.0f ) / kCloudWorldUnitsPerKm,
                              std::max( material.ExtinctionScale, 0.0f ) );
-        // Floored so the reciprocal is finite for a caller that has not bound a region yet — the frames
-        // before the first bake finishes, where the species count is what stops the volume being read.
-        const float regionSideKm = std::max( region.SideKm, 1e-3f );
-
-        p.Region = glm::vec4( region.OriginKm.x, region.OriginKm.y, 1.0f / regionSideKm,
-                              std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm );
-        // .z IS ZERO AND UNREAD — it held the scalar albedo. Written zero rather than left indeterminate:
-        // the payload is memcpy'd to the GPU, and an uninitialised byte in a buffer that is otherwise
-        // deterministic would make two identical frames differ, which is the noise floor this subsystem's
-        // whole verification method rests on. kCloudUnreadSlots carries its row.
+        // The levels as the clipmap reports them; z floored so the reciprocal side stays finite whatever a
+        // caller hands in.
+        for ( uint32_t level = 0; level < kCloudClipLevelSlots; ++level )
+            p.Level[level] = glm::vec4( region.Levels[level].x, region.Levels[level].y,
+                                        std::max( region.Levels[level].z, 1e-6f ), region.Levels[level].w );
         p.Detail = glm::vec4( std::clamp( material.DetailStrength, 0.0f, 1.0f ),
-                              std::max( material.DensityScale, 0.0f ), 0.0f, static_cast<float>( species ) );
+                              std::max( material.DensityScale, 0.0f ),
+                              std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm,
+                              static_cast<float>( species ) );
 
         // THE MEDIUM'S ALBEDO, PER COLOUR, clamped per channel. Clamped rather than trusted for the reason
         // every other clamp here gives — a scene file is a text file — and per CHANNEL because an albedo
         // above one is a medium that emits, which is what Emissive would be for if it existed: a channel
         // over 1 here would make the multiple-scattering series diverge instead of converging, and the
         // frame would bloom on the third octave with nothing in the log.
-        p.Albedo =
-             glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ), 0.0f );
+        p.Albedo = glm::vec4( glm::clamp( material.ScatteringAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
+                              std::clamp( material.SkyLightCloudBottomOcclusion, 0.0f, 1.0f ) );
 
         // THE TYPES' FACTORS ARE NO LONGER FOLDED INTO THE LAYER'S, and the reason is arithmetic rather
         // than taste. A cumulonimbus is made of more water than a stratus, a cirrus is a quarter as opaque
@@ -807,16 +888,23 @@ namespace Desert::Graphic
         // types as they are"; what changed is where the multiplication happens, not what it means.
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
+            const int at = static_cast<int>( slot );
             if ( slot >= species )
             {
                 // Zero rather than the default type's numbers. An unfilled slot must not be able to put
                 // cloud in the sky if the count is ever wrong, and a zero density factor is the state in
                 // which it cannot.
-                p.SpeciesEdge[slot] = glm::vec4( 0.0f );
+                p.SpeciesEdge[slot]     = glm::vec4( 0.0f );
+                p.SpeciesWispBase[at] = 0.0f;
+                p.SpeciesWispTop[at]  = 0.0f;
                 continue;
             }
 
             const CloudTypeShape& shape = shapes[slot];
+
+            const glm::vec2 wisp  = CloudSpeciesWispSpan( shape, bottomKm, thicknessKm );
+            p.SpeciesWispBase[at] = wisp.x;
+            p.SpeciesWispTop[at]  = wisp.y;
 
             p.SpeciesEdge[slot] =
                  glm::vec4( std::clamp( shape.DetailCharacter, 0.0f, 1.0f ), std::max( shape.DetailFactor, 0.0f ),
@@ -867,6 +955,15 @@ namespace Desert::Graphic
         // from the cloud component because they describe the VOLUME, and the volume belongs to the sky —
         // a second authored copy here is how the fill and the read end up disagreeing about the slice
         // mapping.
+        p.Weather        = region.Weather;
+        p.LayoutPlace    = region.LayoutPlace;
+        p.LayoutStrength = glm::vec4( region.LayoutStrength, 0.0f, 0.0f );
+        for ( uint32_t band = 0; band < kCloudFarBandSlots; ++band )
+        {
+            p.FarPresence[band] = region.FarPresence[band];
+            p.FarProfile[band]  = region.FarProfile[band];
+        }
+
         p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                               atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );
 

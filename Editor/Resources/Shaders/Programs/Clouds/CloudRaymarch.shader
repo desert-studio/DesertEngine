@@ -47,7 +47,7 @@ Shader "CloudRaymarch"
         CloudType CloudType3 ("Cloud Type 3", Category("Cloud Types"), Timing(Rebake), Tooltip("A third kind of cloud. Costs one noise fetch per sample only at altitudes its own base and top actually reach - a cirrus at eight kilometres is free everywhere a cumulus lives."))
         CloudType CloudType4 ("Cloud Type 4", Category("Cloud Types"), Timing(Rebake), Tooltip("The fourth and last kind. Four is the ceiling because a type owns one channel of the vertical profile table, which is how Unreal arranges it too."))
 
-        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Rebake), Tooltip("What fraction of the sky has cloud in it. It decides how many cells of the cloud lattice carry a cloud, so lowering it opens clear gaps rather than thinning everything.")) = 0.45
+        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Rebake), Tooltip("How busy the weather is where there is weather. A cloud exists where its rank is under Coverage, so 0 is a clear sky and 1 bakes every cloud; the weather map then thins the clouds toward its clear gaps, which stay open even at 1. An overcast sky is its own cloud type (a stratus deck), not Coverage 1.")) = 0.45
         Float CoverageContrast ("Coverage Contrast", Range(0.1, 4.0), Category("Weather"), Timing(Rebake), Tooltip("Sharpness of the transition from clear to cloudy, as the WIDTH of the ramp from an empty cell to a full one. Above 1 the ramp narrows and the sky is decisively cloud or decisively clear; below 1 it widens and the cloud sizes spread out, which is what a broken deck looks like.")) = 1.0
         Float WeatherTileSize ("Weather Tile Size (cm)", Range(200000.0, 8000000.0), Category("Weather"), Timing(Rebake), Tooltip("World size the cloud lattice is measured against, in centimetres (1200000 = 12 km). One cell is a QUARTER of it, and a cell carries Cloud Density clouds on average - which is also what decides whether there is any cloud overhead at all: a cell much larger than the layer altitude cannot fit one above the camera, and the zenith comes out empty however high the coverage is set.")) = 1200000.0
         Int Seed ("Seed", Range(0, 65535), Category("Weather"), Timing(Rebake), Tooltip("Which sky. Two layers with different seeds have unrelated clouds; the same seed always gives the same sky, in the same places, for the same settings.")) = 1
@@ -55,8 +55,8 @@ Shader "CloudRaymarch"
         Float PlacementDensity ("Cloud Density", Range(0.25, 8.0), Category("Placement"), Timing(Rebake), Tooltip("How many clouds a lattice cell carries on average - a whole number is drawn per cell with this mean, so 'exactly one per cell' stops being a property of the sky. It does NOT change how much cloud there is: each cloud is narrowed as this rises, so the matter is redistributed rather than added and Coverage keeps meaning what it says. Raise it for many small clouds at the same cover, lower it for few large ones. On its own it makes the lattice MORE visible, not less - Cloud Scatter is what removes that.")) = 1.75
         Float PlacementScatter ("Cloud Scatter", Range(0.0, 4.0), Category("Placement"), Timing(Rebake), Tooltip("How far a cloud may wander from its lattice site, measured in CELLS - at 1 it may sit anywhere in a cell-wide box around its site and so crosses into its neighbours' ground. THIS IS THE KNOB THAT REMOVES THE GRID: at 0 the sky is a lattice with a wobble, and the measured lattice bump falls by six times between 0 and 1. It is not free - independently placed clouds overlap where a lattice keeps them apart, so the sky covers a few points less than Coverage says at 0 and a few points more when this is returned to zero.")) = 1.0
         Float PlacementSizeVariety ("Cloud Size Variety", Range(0.0, 1.0), Category("Placement"), Timing(Rebake), Tooltip("How much cloud sizes differ from each other. At 0 every cloud in the sky is the size its cell's coverage says, which is the second half of what reads as a pattern; at 1 the widest is about four times the narrowest. The draw is uniform in AREA rather than in width, so the mean cloud covers the same ground at every setting and Coverage does not move with it. A smaller cloud is also a flatter one, which is what a field of cumulus looks like.")) = 0.75
-        Float PatchTileSize ("Weather Patch Size (cm)", Range(500000.0, 20000000.0), Category("Placement"), Timing(Rebake), Tooltip("World size over which the sky's BUSY and CLEAR regions alternate, in centimetres - the scale of a weather system rather than of a cloud. Bounded from BELOW at three lattice cells and raised to it silently if set finer, because a modulation whose period is near a cell's decides cells one at a time and reads as a checkerboard rather than as weather. Above Region Size it stops buying anything: the sky already repeats at that distance, so a longer period cannot complete a cycle before the repetition does.")) = 2100000.0
-        Float PatchStrength ("Weather Patch Strength", Range(0.0, 1.0), Category("Placement"), Timing(Rebake), Tooltip("How hard the sky is divided into busy and clear regions. At 0 the coverage is the same everywhere and the sky is uniformly occupied - which is what 'the whole sky is cloud' describes; at 1 a patch can reach nearly solid and its neighbour nearly empty. It is symmetric about Coverage, so it moves cloud around the sky rather than adding or removing it.")) = 0.60
+        Float PatchTileSize ("Weather Patch Size (cm)", Range(500000.0, 20000000.0), Category("Placement"), Timing(Rebake), Tooltip("World size over which the sky's BUSY and CLEAR regions alternate, in centimetres - the scale of a weather system rather than of a cloud. Bounded from BELOW at three lattice cells and raised to it silently if set finer, because a modulation whose period is near a cell's decides cells one at a time and reads as a checkerboard rather than as weather. The weather is marched in WORLD space with a 997 km period, so a period longer than Region Size still completes its cycle across the sky.")) = 3000000.0
+        Float PatchStrength ("Weather Patch Strength", Range(0.0, 1.0), Category("Placement"), Timing(Rebake), Tooltip("The fraction of the sky the weather leaves clear. The rest is weather at full strength, where Coverage is the cloud cover; the two are joined by a narrow shore. At 0 the weather is everywhere and the sky is uniformly occupied; at 1 the sky is clear. The clear gaps are as wide as a weather system and no Coverage fills them. It only removes cloud, never adds it.")) = 0.29
 
         CloudLayout LayoutPattern ("Global Pattern", Category("Layout"), Timing(Rebake), Tooltip("WHERE THE CLOUDS ARE - a painted map of the sky, and Unreal's Layout_CloudGlobalPattern by another name. Drag a .dclayout from the Content Browser, or double-click one there to paint it, import a picture into it or export what is in it. Its four channels say where each of this layer's four cloud type slots lives. EMPTY IS THE NORMAL STATE: with no pattern the sky is placed procedurally exactly as before, and Weather Patch Strength decides which parts of it are busy. Only the PATTERN table of whatever is dropped here is read - the mask has its own slot below, so one painting can place the clouds and a different one clear a region. The painting is read when the clouds are placed, not while they are drawn, so it costs the frame nothing."))
         CloudLayout LayoutMask ("Global Cloud Mask", Category("Layout"), Timing(Rebake), Tooltip("HOW MUCH CLOUD TO ADD OR TAKE AWAY, region by region - Unreal's Layout_GlobalCloudMask, and the second of its two layout textures. Mid-grey changes nothing, brighter adds cloud, darker removes it. It is ADDITIVE and applied after everything else, so unlike the pattern it does move the sky's total cover - which is what it is for. Only the MASK table of whatever is dropped here is read, and a .dclayout with no mask in it will say so in the log rather than quietly doing nothing. Leave it empty and the slot costs exactly zero, which is what Unreal's own default mask of (0,0,0,1) also comes to."))
@@ -69,16 +69,17 @@ Shader "CloudRaymarch"
         Float DetailTileSize ("Detail Tile Size (cm)", Range(20000.0, 3000000.0), Category("Detail"), Timing(Immediate), Tooltip("World size over which the erosion field repeats, in centimetres - the scale of the billows and wisps cut into the cloud's edge. It is bounded from BOTH sides and the bounds are measured: above by the size of a cloud, because an erosion wave longer than a body scales that body instead of texturing it; below by the march's own search step, because structure the march cannot find is dither.")) = 100000.0
         Float DetailStrength ("Detail Strength", Range(0.0, 1.0), Category("Detail"), Timing(Immediate), Tooltip("How deeply the erosion cuts, for the LAYER. At 0 the cloud keeps the smooth silhouette of its coverage field; at 1 the edge is eaten away into wisps. The cloud type multiplies this by its own factor, so a lenticular stays smooth and a cirrus stays wispy at whatever the layer is set to.")) = 0.65
         Float DensityScale ("Density Scale", Range(0.0, 2.0), Category("Detail"), Timing(Immediate), Tooltip("Multiplies the eroded density, for the LAYER. Below 1 the whole layer thins toward haze; above 1 the thin edges fill in. The cloud type multiplies this by how much water that kind of cloud is made of, so 1 keeps meaning 'this type as it is' whichever type is in the slot.")) = 1.0
-        Float ExtinctionScale ("Extinction Scale (/km)", Range(0.5, 60.0), Category("Detail"), Timing(Immediate), Tooltip("How strongly the medium absorbs and scatters, per kilometre at full density. This is what makes a cloud opaque rather than merely visible. The cloud type multiplies it: ice at a quarter of a cumulus, a storm at a third above it. Eight is the approximation's own calibration, not physics - a real cumulus extinguishes at roughly 45/km, and Р18 measured that raising it moves five of six protocol points by less than 0.01 while re-authoring every scene (D-32).")) = 8.0
+        Float ExtinctionScale ("Extinction Scale (/km)", Range(0.5, 300.0), Category("Detail"), Timing(Immediate), Tooltip("How strongly the medium absorbs and scatters, per kilometre at full density. This is what makes a cloud opaque rather than merely visible. The cloud type multiplies it: ice at a quarter of a cumulus, a storm at a third above it. The default is PHYSICAL: a cumulus of 0.5 g/m3 liquid water in 10-micron droplets extinguishes at about 75/km (real cumulus 50-150/km). At that number a cloud's edge is a surface - light crosses a few tens of metres of it, not hundreds - which is what separates a cumulus from a cotton ball. Lower it for haze, not for a cumulus.")) = 75.0
 
         Color3 ScatteringAlbedo ("Scattering Albedo", Category("Lighting"), Timing(Immediate), Tooltip("Fraction of extinguished light that is scattered rather than absorbed, PER COLOUR. Water droplets barely absorb at all and absorb every wavelength alike, which is why a cloud is white and why the default is a neutral 0.98 - keep it grey for water. Tinting it is how the medium itself becomes something other than water: a warm cast for dust or smoke, a cold one for ice haze. It is the MEDIUM's colour and not a filter over the frame, so the tint compounds through multiple scattering exactly as it would in the real thing, and the deep interior of a body ends up further from white than its edge. Values much below 1 in every channel read as smoke.")) = (0.98, 0.98, 0.98)
         Float PhaseG ("Phase G", Range(-0.9, 0.9), Category("Lighting"), Timing(Immediate), Tooltip("Asymmetry of the Henyey-Greenstein phase function. Positive scatters forward, which is what puts the bright rim on a cloud you are looking at through the sun.")) = 0.8
         Float PhaseGBackward ("Phase G Backward", Range(-0.9, 0.9), Category("Lighting"), Timing(Immediate), Tooltip("Asymmetry of the SECOND phase lobe. Near zero it is almost isotropic, which is what carries the body of the cloud while the first lobe carries the bright rim against the sun. One lobe cannot do both: strong enough for the rim leaves the body black, weak enough for the body loses the rim.")) = 0.1667
         Float PhaseBlend ("Phase Blend", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much of the second lobe is mixed in. UE's shipped instance weights it toward the BODY at 0.575, so more than half the answer is the near-isotropic lobe and the sharp one is a highlight on top.")) = 0.575
         Float AmbientOcclusionStrength ("Ambient Occlusion Strength", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How strongly the sky light reaching a sample is occluded. Which occluder is measured is Sky Occlusion Volume's choice (on the component); this is how much of it is applied, either way. At 0 the core of a three-kilometre cumulus is lit as brightly as a wisp on its edge, which reads as a flat white cut-out.")) = 1.0
+        Float SkyLightCloudBottomOcclusion ("Sky Light Cloud Bottom Occlusion", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much of the sky light is taken away toward the BOTTOM of the layer - Unreal's Sky Light Cloud Bottom Occlusion, and the reason a cumulus base reads grey-blue under a white top. The sky light a sample receives is scaled from 1 - this value at the layer's base up to the full amount at its top, so the base sees the dark ground below it rather than the open sky. At 0 every height is lit by the same sky and a thick body is as bright underneath as on top; at 1 the base gets no sky light at all and goes black on the shaded side.")) = 0.5
         Int MultiScatterOctaves ("Multiple Scattering Octaves", Range(1, 3), Category("Lighting"), Timing(Immediate), Tooltip("How many scattering orders are approximated. ONE IS SINGLE SCATTERING, and a cloud lit by single scattering alone is physically grey: the light that makes a real cloud white has bounced many times inside it. Two or three is where it starts to look like weather. The ceiling of 3 is ECS::kCloudMultiScatterMaxOctaves; the CloudMaterialSchema census pins the two numbers together.")) = 3
         Float MultiScatterContribution ("Multiple Scattering Contribution", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much each successive scattering order contributes. The factor is SQUARED at every octave, so the series falls away quickly and the third order is already a small correction.")) = 0.667
-        Float MultiScatterOcclusion ("Multiple Scattering Occlusion", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much less each successive order is absorbed. This is what lets light that has already scattered reach the core of a cloud that the direct beam never gets into - the reason a thick cumulus glows rather than going black. 0.4847 (the cube root of the similarity factor) puts the third octave exactly on the medium's diffusion length; 0.25 is the shipped calibration at 8/km (D-32).")) = 0.25
+        Float MultiScatterOcclusion ("Multiple Scattering Occlusion", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much less each successive order is absorbed. This is what lets light that has already scattered reach the core of a cloud that the direct beam never gets into - the reason a thick cumulus glows rather than going black. 0.4847 (the cube root of the similarity factor) puts the third octave exactly on the medium's diffusion length; 0.25 is the shipped calibration (D-32); it was set at 8/km and holds at the physical 75/km (CLOUD-SHAPE-e frames).")) = 0.25
         Float MultiScatterEccentricity ("Multiple Scattering Eccentricity", Range(0.0, 1.0), Category("Lighting"), Timing(Immediate), Tooltip("How much directionality each successive order keeps. Light that has bounced many times has forgotten where it came from, so the higher orders blend toward an isotropic phase.")) = 0.18
         ShaderProgram Medium ("Cloud Medium", Category("Medium"), Timing(Immediate), Tooltip("WHAT A CLOUD IS at a point in space - the density, the extinction, the albedo, the emission and the sky occlusion of the medium itself, authored as a node graph. Create one with New Shader Graph > Cloud Medium in the Content Browser, then drop it here. EMPTY IS THE NORMAL STATE and means the engine's own medium, which is what every scene drew before this slot existed and costs exactly the same. A graph with nothing wired into its Volume Output is that same medium again, so authoring starts from the sky you already have rather than from nothing. Note what the graph CANNOT reach: about half of the values in this window are inputs to a CPU bake that has already run by the time the march samples anything, and they are marked as such - a graph reads only the ones that are still in scope, and the palette offers no way to name the others - Cloud Material Param lists exactly those and nothing else."))
 
@@ -228,6 +229,12 @@ Shader "CloudRaymarch"
         // rather than tolerated: the bake splats every lump at its wrapped positions, so the volume is
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
         Uniform(7) sampler3D u_CloudModelling;
+        // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
+        // of the baked profile by u_CloudWeather.
+        // Always bound, on the terms every sampler here is.
+        Uniform(15) sampler2D u_CloudFarWeather;
+        Uniform(16) sampler2D u_CloudLayoutPattern;
+        Uniform(17) sampler2D u_CloudLayoutMask;
 
         // THE SCULPTED HERO-CLOUD BODY — slot A of the seam. 128 x 64 x 128 RGBA8 of dimensional
         // profile, detail type, density scale and cutout envelope, loaded from a `.dcmv` and uploaded by
@@ -274,6 +281,9 @@ Shader "CloudRaymarch"
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         // textureLod for the reason the authored atlas gives below, and for the same reason.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
@@ -301,13 +311,15 @@ Shader "CloudRaymarch"
             //
             // x = 1 when the sky-light occlusion volume was written for THIS frame and must be read. Its
             //     region and side are NOT here: the volume shares the modelling volume's frame exactly, so
-            //     u_CloudRegion already carries both and a second copy would be one fact on the wire twice.
+            //     u_CloudLevel[2] already carries both and a second copy would be one fact on the wire twice.
             // y = 1 when u_CloudSunTransmittanceLut holds this frame's atmosphere AND the layer asked for
             //     per-sample sun transmittance. It also says WHAT u_CloudSunColour.rgb IS: the sun's
             //     outer-space illuminance when 1, the ground-level product when 0.
             // z, w = the atmosphere shell's bottom and top radii, kilometres from the planet centre.
             //     Written whatever y says, read only when y is 1.
             vec4 u_CloudFrame;
+            // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
+            vec4 u_CloudVisualize;
         };
 
         LocalSize(8, 8, 1);
@@ -496,6 +508,85 @@ Shader "CloudRaymarch"
 
             CloudFieldParams params = CloudUnpackFieldParams();
 
+            // THE DIAGNOSTIC VIEW (--cloud-visualize). Draws what the cut decided instead of the cloud, at
+            // full opacity, so a frame says WHICH term made the sky look the way it does.
+            //   1: at the ray's entry into the layer — R the local weather W, G the deepest profile over eight
+            //      heights of the column, B 1 where the weather's remap keeps it.
+            //   2: along the ray, 32 samples — R the share the remap keeps, G the largest weather step between
+            //      neighbours x 8 (a seam reads bright), B the share inside a baked body (species profile
+            //      > 0); R is at most B, since air is never cloud (CUT-CORE).
+            //   3: at the ray's entry into the layer — which clip level of the modelling volume answers there
+            //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
+            //      coarser level's colour mixed in by the blend weight, so the bands read as gradients; past
+            //      level 2's window the far path (CloudSampleProceduralFar) grey, level 2's band blue into it.
+            int visualize = int(u_CloudVisualize.x + 0.5f);
+            if (visualize != 0)
+            {
+                vec3 shown = vec3(0.0f);
+                if (visualize == 3)
+                {
+                    vec3  entryKm   = originKm + rayDir * segment.x;
+                    vec2  column    = (entryKm - params.WindOffsetKm).xz;
+                    int   level     = CloudProceduralLevelOf(params, column);
+                    vec3  colours[3] = vec3[3](vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, 1.0f, 0.0f), vec3(0.0f, 0.0f, 1.0f));
+                    shown           = colours[level];
+                    vec3  coarser   = level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1 ? colours[level + 1] : vec3(0.5f);
+                    shown           = mix(coarser, colours[level], CloudProceduralLevelWeight(params, level, column));
+                }
+                else if (visualize == 1)
+                {
+                    vec3  entryKm = originKm + rayDir * segment.x;
+                    vec3  windPos = entryKm - params.WindOffsetKm;
+                    // The weather is per species (WX-PAINT): each height asks its own winner's W, and
+                    // R is the W at the height whose profile is the deepest; G that profile; B whether the
+                    // remap keeps it.
+                    float shownWeather = 0.0f;
+                    float deepest      = 0.0f;
+                    for (int k = 0; k < 8; ++k)
+                    {
+                        vec4  volume = CloudSampleProceduralVolume(params, (float(k) + 0.5f) / 8.0f, windPos);
+                        int   winner = 0;
+                        for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
+                            winner = volume[slot] > volume[winner] ? slot : winner;
+                        if (k == 0 || volume[winner] > deepest)
+                        {
+                            deepest      = volume[winner];
+                            shownWeather = CloudLocalWeather(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                             winner, windPos.xz);
+                        }
+                    }
+                    shown = vec3(shownWeather, deepest, CloudCoverRemap(deepest, shownWeather) > 0.0f ? 1.0f : 0.0f);
+                }
+                else
+                {
+                    float kept = 0.0f, body = 0.0f, seam = 0.0f, previous = -1.0f;
+                    for (int k = 0; k < 32; ++k)
+                    {
+                        float tk      = mix(segment.x, segment.y, (float(k) + 0.5f) / 32.0f);
+                        vec3  p       = originKm + rayDir * tk;
+                        float hf      = CloudHeightFraction(layer, p);
+                        vec3  windPos = vec3(p.x, length(p) - layer.BottomRadiusKm, p.z) - params.WindOffsetKm;
+                        vec4  volume  = CloudSampleProceduralVolume(params, hf, windPos);
+                        int   winner  = 0;
+                        for (int slot = 1; slot < min(params.SpeciesCount, CLOUD_SPECIES_SLOTS); ++slot)
+                            winner = volume[slot] > volume[winner] ? slot : winner;
+                        float profile = volume[winner];
+                        float w       = CloudLocalWeather(params.Weather, params.LayoutPlace, params.LayoutStrength,
+                                                          winner, windPos.xz);
+                        kept += CloudCoverRemap(profile, w) > 0.0f ? 1.0f : 0.0f;
+                        body += profile > 0.0f ? 1.0f : 0.0f;
+                        if (previous >= 0.0f)
+                            seam = max(seam, abs(w - previous));
+                        previous = w;
+                    }
+                    shown = vec3(kept / 32.0f, min(seam * 8.0f, 1.0f), body / 32.0f);
+                }
+                float sunLuminance = dot(u_CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+                imageStore(u_CloudScatter, coord, vec4(shown * sunLuminance * 0.03f, 0.0f));
+                imageStore(u_CloudGuide, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
+                return;
+            }
+
             vec3  toSun        = normalize(u_CloudSun.xyz);
             float phase        = CloudPhaseDualLobe(dot(rayDir, toSun), u_CloudWind.w,
                                                     u_CloudPhase.x, u_CloudPhase.y);
@@ -674,7 +765,8 @@ Shader "CloudRaymarch"
                                                    fieldPos.y - params.WindOffsetKm.y,
                                                    fieldPos.z - params.WindOffsetKm.z);
 
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.RegionOriginKm, params.InvRegionSizeKm,
+                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
                                                                heightFraction, skyWindPos);
 
                             // textureLod AND NOT texture, for the reason every other volume fetch in this
@@ -703,6 +795,14 @@ Shader "CloudRaymarch"
                         // layer. Each default hands its argument straight back, so the two calls fold
                         // away and the loop is the loop it was.
                         ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
+
+                        // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
+                        // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
+                        // looks down at dark earth where one at the top looks up at open sky. Unreal's
+                        // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
+                        // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
+                        // darkened, as the authored layer setting promises.
+                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, u_CloudAlbedo.w);
                         vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
 
                         luminance += transmittance *

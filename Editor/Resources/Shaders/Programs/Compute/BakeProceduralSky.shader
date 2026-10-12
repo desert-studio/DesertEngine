@@ -111,6 +111,12 @@ Shader "BakeProceduralSky"
         // sculpted hero-cloud ATLAS beside it. Both borrowed from the VolumetricCloudRenderer of the same
         // SceneRenderer, so the panorama is baked from the field the frame is about to march.
         Uniform(9)  sampler3D u_CloudModelling;
+        // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
+        // of the baked profile by u_CloudWeather.
+        // Always bound, on the terms every sampler here is.
+        Uniform(14) sampler2D u_CloudFarWeather;
+        Uniform(15) sampler2D u_CloudLayoutPattern;
+        Uniform(16) sampler2D u_CloudLayoutMask;
         Uniform(10) sampler3D u_CloudAuthoredAtlas;
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky. It is the
@@ -143,6 +149,9 @@ Shader "BakeProceduralSky"
         // is undefined. Both volumes have one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         // Slot A's instance list, included BEFORE the seam because the seam's authored producer reads the
@@ -280,8 +289,8 @@ Shader "BakeProceduralSky"
             // does not rebake when the camera moves (the irradiance cube is a 65 536-sample cosine
             // convolution per texel: it integrates the arrangement of the field away and responds only to
             // the dome's mean).
-            float regionSizeKm = 1.0f / max(u_CloudRegion.z, 1e-6f);
-            vec2  anchorXz     = u_CloudRegion.xy + vec2(regionSizeKm * 0.5f) +
+            float regionSizeKm = 1.0f / max(u_CloudLevel[2].z, 1e-6f);
+            vec2  anchorXz     = u_CloudLevel[2].xy + vec2(regionSizeKm * 0.5f) +
                              vec2(u_CloudWind.x, u_CloudWind.z);
 
             // The same planet-centred frame the screen march builds, at the same fixed altitude the sky
@@ -421,7 +430,8 @@ Shader "BakeProceduralSky"
                                                    fieldPos.y - params.WindOffsetKm.y,
                                                    fieldPos.z - params.WindOffsetKm.z);
 
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.RegionOriginKm, params.InvRegionSizeKm,
+                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
                                                                heightFraction, skyWindPos);
 
                             ambientOcclusion =

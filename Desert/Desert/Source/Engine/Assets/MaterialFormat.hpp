@@ -121,7 +121,8 @@ namespace Desert::Assets
                  "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
                  " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
                  " only (v0 = no header, v1 = a MaterialId beside the GUID, v2 = texture and cloud slots by "
-                 "path-derived number, v3 = the shader by name: run Tools/SceneMigrator over it once)" );
+                 "path-derived number, v3 = the shader by name, v4 = PatchStrength as a ramp's slope: run "
+                 "Tools/SceneMigrator over it once)" );
         };
         // No header at all is schema v0: refused here, by name, before anything reads the header.
         if ( !probe.GetValue().Header.has_value() )

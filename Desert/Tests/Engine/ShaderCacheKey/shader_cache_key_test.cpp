@@ -330,7 +330,9 @@ namespace
     // the sky-light occlusion volume and the march alike — one vocabulary for one field.
     constexpr const char* kCloudFieldSamplerNames[] = { "u_CloudNoise",     "u_CloudNoise1",
                                                         "u_CloudNoise2",    "u_CloudNoise3",
-                                                        "u_CloudModelling", "u_CloudAuthoredAtlas" };
+                                                        "u_CloudModelling", "u_CloudFarWeather",
+                                                        "u_CloudLayoutPattern", "u_CloudLayoutMask",
+                                                        "u_CloudAuthoredAtlas" };
 
     // A temporary .glslh next to the real ones, so an include can be edited without touching the tree.
     struct ScopedHeader
@@ -992,7 +994,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDistantSkyLightDeclaresFourDescriptorsInSet
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresTwelveDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -1013,9 +1015,20 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZ
     // debt and a dead setting in three slots of four. THE SHADOW PASS TAKES ALL FOUR TOO, and that is the
     // relation worth pinning here rather than the count: a cirrus eroded by the fine volume for the eye
     // and by the default one for the shadow map would be two different clouds in one frame.
+    //
+    // The modelling volume's R8 RANK (FARWX-b2) left again with CUT-AT-BAKE; the WORLD WEATHER map
+    // (kCloudShadowFarWeatherBinding) is binding 15 since.
+    // The shadow map must cut the field by the same rank against the same local cover the view march does,
+    // or the ground is shaded by a sky that is not the one drawn. Both are sampled images, so the stage now
+    // holds eleven sampled images at most — inside Vulkan's guaranteed maxPerStageDescriptorSampledImages
+    // and maxPerStageDescriptorSamplers (16 on every conformant device), so no device budget is spent.
+    //
+    // THIRTEEN SINCE WX-PAINT. The two that arrived are the LAYOUT PATTERN (17) and MASK (18), the march's
+    // own slots: the painted W multiplies the local cover per species, so the shadow cut must read the same
+    // painting the view cut does. Thirteen sampled images, still inside the guaranteed 16.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 9u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 12u );
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
@@ -1035,7 +1048,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZ
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresEighteenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -1058,9 +1071,20 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresFifteenDescriptorsInSetZe
     // SKY's texture, read by the cloud march so that the sun's colour can be re-evaluated at each sample's
     // own altitude instead of once at sea level. Bound on the same terms again, and in the shipped scene
     // it is the FALLBACK that is bound, because the field it serves is off by default.
+    //
+    // SEVENTEEN SINCE FARWX-b2. The two that arrived are the R8 RANK of the modelling volume at binding 15
+    // and the WORLD WEATHER map at binding 16: the bake keeps every cell and the march makes the cut, the
+    // rank against the cover the weather leaves the column (CloudField.glslh CloudRankProfile /
+    // CloudLocalCover). Bound ALWAYS, on the terms above. Within the device's budget: the set is one
+    // storage buffer and images, and the sampled ones stay at or under the 16 that Vulkan guarantees per
+    // stage (maxPerStageDescriptorSamplers / SampledImages); every device this engine targets reports
+    // far more, so the count is pinned as the binding contract, not as a limit being approached.
+    //
+    // NINETEEN SINCE WX-PAINT: the LAYOUT PATTERN (17) and MASK (18), the painted W per species and the
+    // signed mask, read by CloudLocalCover in every cloud pass.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 15u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 18u );
 
     // Every image is a binding-block entry BY SHADER NAME, so the names are what is pinned; the field's
     // samplers are the same names the shadow map and the occlusion producer declare.

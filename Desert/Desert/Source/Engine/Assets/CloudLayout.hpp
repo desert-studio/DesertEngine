@@ -186,7 +186,9 @@ namespace Desert::Assets
         /// the periodicity: sliding a periodic function along its own axis leaves it periodic.
         glm::vec2 OffsetKm{ 0.0f, 0.0f };
 
-        /// How hard the painted pattern rules the coverage, 0..1.
+        /// How hard the painted pattern rules the coverage, 0..1: the painted W is
+        /// 1 - PatternStrength * (1 - painted), a multiplier on Coverage exactly as the world weather's W is,
+        /// so at full strength black paint is clear sky (WX-NUBIS-b).
         ///
         /// AT ZERO THE PROCEDURAL PATCH FIELD TAKES OVER, and that is not a fallback bolted on — it is the
         /// single-source rule. A cell's coverage has ONE modulator: the painting when there is one and it
@@ -244,6 +246,14 @@ namespace Desert::Assets
      * inverted is a bug in one line rather than in every caller.
      */
     float SampleCloudLayoutMask( const CloudLayoutData& data, const glm::vec2& uv );
+
+    /// What the march's layout textures answer at @p uv, read on the CPU: the four pattern channels 0..1, WHITE
+    /// (the neutral) when @p data carries no pattern — the renderer's 1x1 stand-in (WX-PAINT).
+    glm::vec4 SampleCloudLayoutPatternTexel( const CloudLayoutData* data, const glm::vec2& uv );
+
+    /// The mask as the GPU's unorm fetch returns it (raw / 255, filtered before the signed map), neutral
+    /// (128 / 255) when @p data carries no mask. The signed map is CloudField.glslh's, as on the device.
+    float SampleCloudLayoutMaskUnorm( const CloudLayoutData* data, const glm::vec2& uv );
 
     /// The layout's own version, stated in the envelope header under kCloudLayoutSubsystemTag. Bumped when
     /// a FIELD of the payload moves, independently of anything about the meaning of the pixels. Version 1
@@ -407,7 +417,7 @@ namespace Desert::Assets
     };
 
     /**
-     * @brief A blank canvas: no cloud painted anywhere, and NO MASK.
+     * @brief A blank canvas: WHITE — the slider's sky everywhere, nothing carved — and NO MASK.
      *
      * WHY NO MASK RATHER THAN A NEUTRAL ONE. A mask of uniform neutral changes nothing, so carrying one
      * would be a table written to every file for no effect — and the layer would pay a wrap-sampled fetch
@@ -522,10 +532,11 @@ namespace Desert::Assets
         float Hardness = 1.0f;
 
         /// 0..1, the value the stroke moves the channel TOWARD. On a pattern channel 1 is "as much of this
-        /// species as the slider allows" and 0 is "none"; on the mask 1 adds cloud, 0 removes it and 0.5 is
-        /// the neutral an eraser returns to. One number for painting and for erasing, because an eraser
+        /// species as the slider allows" (the white a canvas starts at) and 0 is "none" — the default, so a
+        /// brush carves clear sky; on the mask 1 adds cloud, 0 removes it and 0.5 is the neutral an eraser
+        /// returns to. One number for painting and for erasing, because an eraser
         /// that is not just "ink at the rest value" is a second code path doing one thing.
-        float Ink = 1.0f;
+        float Ink = 0.0f;
     };
 
     /**

@@ -47,6 +47,12 @@ Shader "CloudSkyOcclusionVolume"
         Uniform(11) sampler3D u_CloudNoise2;
         Uniform(12) sampler3D u_CloudNoise3;
         Uniform(7) sampler3D u_CloudModelling;
+        // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
+        // of the baked profile by u_CloudWeather.
+        // Always bound, on the terms every sampler here is.
+        Uniform(15) sampler2D u_CloudFarWeather;
+        Uniform(16) sampler2D u_CloudLayoutPattern;
+        Uniform(17) sampler2D u_CloudLayoutMask;
         Uniform(9) sampler3D u_CloudAuthoredAtlas;
 
         // The same four-way select the other two passes declare, repeated for the same reason:
@@ -64,6 +70,9 @@ Shader "CloudSkyOcclusionVolume"
 
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
 
         #define CLOUD_AUTHORED_BUFFER_BINDING 8
@@ -103,7 +112,7 @@ Shader "CloudSkyOcclusionVolume"
             params.ShadowRay = CLOUD_RAY_SHADOW;
 
             float thicknessKm = max(u_CloudLayer.z, 1e-4f);
-            float regionSideKm = 1.0f / max(u_CloudRegion.z, 1e-9f);
+            float regionSideKm = 1.0f / max(u_CloudLevel[2].z, 1e-9f);
 
             // THE COLUMN'S PLACE IN THE WORLD, through the texel CENTRE. The consumer fetches this volume
             // trilinearly, so a column traced at a texel corner and read at its centre would be a
@@ -115,8 +124,8 @@ Shader "CloudSkyOcclusionVolume"
             // Constructing it this way rather than shifting the fetch is what puts the traced column and
             // the consumer's own CloudSkyOcclusionUvw on exactly the same texel however far the wind has
             // run — they are one mapping used in two directions rather than two mappings.
-            float worldX = u_CloudRegion.x + uv.x * regionSideKm + u_CloudWind.x;
-            float worldZ = u_CloudRegion.y + uv.y * regionSideKm + u_CloudWind.z;
+            float worldX = u_CloudLevel[2].x + uv.x * regionSideKm + u_CloudWind.x;
+            float worldZ = u_CloudLevel[2].y + uv.y * regionSideKm + u_CloudWind.z;
 
             float extinction = max(u_CloudMarch.w, 0.0f);
 

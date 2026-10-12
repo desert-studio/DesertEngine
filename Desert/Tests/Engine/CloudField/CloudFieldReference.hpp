@@ -66,8 +66,10 @@ namespace Desert::Tests::CloudFieldRef
         using glm::abs;
         using glm::clamp;
         using glm::dot;
+        using glm::exp;
         using glm::floor;
         using glm::length;
+        using glm::log;
         using glm::max;
         using glm::min;
         using glm::mix;
@@ -221,6 +223,15 @@ namespace Desert::Tests::CloudFieldRef
             ModellingVoxels                            Voxels;
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
+
+            /// THE THREE CLIP LEVELS THE MARCH ACTUALLY READS (CLIP-3): level k's toroidal bake around the
+            /// camera at the origin (Assets::BakeCloudProceduralBox over the whole level), and the minimum
+            /// corner of its window. CLOUD_SAMPLE_MODELLING reads these, stacked as the renderer's image is;
+            /// Voxels above is the single-level bake, read only by tests of that bake itself.
+            std::array<ModellingVoxels, Desert::Assets::kCloudProceduralClipLevels> Levels;
+            std::array<glm::vec2, Desert::Assets::kCloudProceduralClipLevels>       LevelOriginKm{};
+            /// The far path's statistics of the coarsest level (CloudProceduralClipmap::FarStatistics).
+            Desert::Assets::CloudProceduralFarStatistics Far{};
         };
 
         ModellingVolumeState& ModellingVolume()
@@ -260,13 +271,17 @@ namespace Desert::Tests::CloudFieldRef
         // THE CACHE IS BOUNDED, and the bound is enforced rather than asserted in a comment: past
         // kMaxBakedVolumes the oldest entry is dropped, which costs a later miss and never a wrong
         // answer. Eight megabytes a volume (256 x 32 x 256 x 4 bytes), so the ceiling is 256 MiB.
-        constexpr size_t kMaxBakedVolumes = 32;
+        //
+        // FORTY-EIGHT AND NOT THIRTY-TWO since the clip levels (CLIP-3): a sky is now four bakes (three
+        // levels and the single-level volume), and the coverage sweeps' eleven skies must still fit.
+        constexpr size_t kMaxBakedVolumes = 48;
 
         struct BakedVolume
         {
             Desert::Assets::CloudProceduralFieldParams Params;
             glm::vec2                                  OriginKm{ 0.0f };
             ModellingVoxels                            Voxels;
+            int                                        Level = -1; // -1: the single-level bake
         };
 
         std::vector<BakedVolume>& BakedVolumeCache()
@@ -303,7 +318,7 @@ namespace Desert::Tests::CloudFieldRef
 
             for ( const BakedVolume& entry : cache )
             {
-                if ( entry.OriginKm == originKm &&
+                if ( entry.Level < 0 && entry.OriginKm == originKm &&
                      Desert::Assets::CloudProceduralParamsEqual( entry.Params, params ) )
                 {
                     ++BakeCounts().Served;
@@ -313,7 +328,7 @@ namespace Desert::Tests::CloudFieldRef
 
             ++BakeCounts().Run;
 
-            const auto baked = Desert::Assets::BakeCloudProceduralVolume( params, originKm );
+            const auto baked = Desert::Assets::BakeCloudProceduralVolume( params, originKm, {} );
 
             // A FAILED BAKE IS CACHED TOO, and on purpose: it is a pure function of the same inputs, so
             // re-running it would spend the same minutes to arrive at the same empty answer, and the
@@ -324,8 +339,61 @@ namespace Desert::Tests::CloudFieldRef
             if ( cache.size() >= kMaxBakedVolumes )
                 cache.erase( cache.begin() );
 
-            cache.push_back( BakedVolume{ params, originKm, voxels } );
+            cache.push_back( BakedVolume{ params, originKm, voxels, -1 } );
             return voxels;
+        }
+
+        /// Clip level @p level of @p params around the camera at the origin, whole, through the bake the
+        /// renderer's slabs come from (Assets::BakeCloudProceduralBox) — or the bytes an identical request
+        /// already made. Cached by the same rule as CloudModellingBake.
+        ModellingVoxels CloudModellingLevelBake( const Desert::Assets::CloudProceduralFieldParams& params,
+                                                 std::uint32_t level, const glm::ivec2& originVoxel )
+        {
+            std::vector<BakedVolume>& cache    = BakedVolumeCache();
+            const glm::vec2           originKm = glm::vec2( originVoxel );
+
+            for ( const BakedVolume& entry : cache )
+            {
+                if ( entry.Level == static_cast<int>( level ) && entry.OriginKm == originKm &&
+                     Desert::Assets::CloudProceduralParamsEqual( entry.Params, params ) )
+                {
+                    ++BakeCounts().Served;
+                    return entry.Voxels;
+                }
+            }
+
+            ++BakeCounts().Run;
+
+            Desert::Assets::CloudProceduralVoxelBox box;
+            box.Width = Desert::Assets::kCloudProceduralVolumeSide;
+            box.Depth = Desert::Assets::kCloudProceduralVolumeSide;
+
+            const auto      baked  = Desert::Assets::BakeCloudProceduralBox( params, level, originVoxel, box );
+            ModellingVoxels voxels = std::make_shared<const std::vector<unsigned char>>(
+                 baked ? baked.GetValue() : std::vector<unsigned char>{} );
+
+            if ( cache.size() >= kMaxBakedVolumes )
+                cache.erase( cache.begin() );
+
+            cache.push_back( BakedVolume{ params, originKm, voxels, static_cast<int>( level ) } );
+            return voxels;
+        }
+
+        /// Bakes every clip level of the bound sky around the camera at the origin.
+        void CloudModellingBakeLevels( ModellingVolumeState& state )
+        {
+            for ( std::uint32_t level = 0; level < Desert::Assets::kCloudProceduralClipLevels; ++level )
+            {
+                const glm::ivec2 originVoxel =
+                     Desert::Assets::CloudProceduralLevelOriginVoxel( state.Params, level, 0.0f, 0.0f );
+                state.Levels[level] = CloudModellingLevelBake( state.Params, level, originVoxel );
+                state.LevelOriginKm[level] =
+                     Desert::Assets::CloudProceduralLevelOriginKm( state.Params, level, 0.0f, 0.0f );
+            }
+            const ModellingVoxels& last = state.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u];
+            state.Far = last ? Desert::Assets::CloudProceduralFarStatisticsOf( *last,
+                                                                               Desert::Assets::kCloudProceduralVolumeSide )
+                             : Desert::Assets::CloudProceduralFarStatistics{};
         }
 
         /// The parameters this suite bakes with: one region, centred on the origin, at the component's
@@ -347,7 +415,6 @@ namespace Desert::Tests::CloudFieldRef
             const float latticeKm = 3.0f;
 
             params.BlendRadiusKm     = 0.02f * latticeKm;
-            params.ProfileDepthKm    = 0.12f * latticeKm;
             params.Coverage          = coverage;
             params.CoverageContrast  = contrast;
             params.Seed              = 1u;
@@ -374,6 +441,7 @@ namespace Desert::Tests::CloudFieldRef
             state.Params   = CloudModellingParams( shapes, count, coverage, contrast, windDirection );
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
             state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
+            CloudModellingBakeLevels( state );
         }
 
         /// The same bake over a layer WIDER than the species' own band, which is what makes the vertical
@@ -396,21 +464,29 @@ namespace Desert::Tests::CloudFieldRef
 
             state.OriginKm = Desert::Assets::CloudProceduralRegionOriginKm( state.Params, 0.0f, 0.0f );
             state.Voxels   = CloudModellingBake( state.Params, state.OriginKm );
+            CloudModellingBakeLevels( state );
         }
 
         // A TRILINEAR, REPEAT-wrapped fetch — the filter and the address mode VulkanImage3D creates for
         // every sampled volume, written out here because the difference between this and a nearest fetch
         // is exactly the half-texel error the relation test exists to catch.
+        //
+        // OF THE STACKED IMAGE THE RENDERER BINDS (CLIP-3): 256 x (32 x levels) x 256, level k in rows
+        // [32k, 32k + 32), each level's bytes its own toroidal bake. Vertical neighbours are taken in the
+        // stack, so a fetch that strayed across a level's top row would read the next level's floor here
+        // exactly as it would on the GPU.
         vec4 CloudSampleModellingTexture( vec3 uvw )
         {
-            const ModellingVoxels& bytes = ModellingVolume().Voxels;
-            if ( !bytes || bytes->empty() )
-                return vec4( 0.0f );
+            const ModellingVolumeState& state = ModellingVolume();
+            for ( const ModellingVoxels& level : state.Levels )
+            {
+                if ( !level || level->empty() )
+                    return vec4( 0.0f );
+            }
 
-            const std::vector<unsigned char>& voxels = *bytes;
-
-            constexpr int width  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
-            constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+            constexpr int width       = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+            constexpr int levelHeight = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+            constexpr int height = levelHeight * static_cast<int>( Desert::Assets::kCloudProceduralClipLevels );
             constexpr int depth  = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
 
             const float x = uvw.x * static_cast<float>( width ) - 0.5f;
@@ -436,7 +512,9 @@ namespace Desert::Tests::CloudFieldRef
 
             const auto texel = [&]( int ix, int iy, int iz )
             {
-                const size_t base = ( ( static_cast<size_t>( iz ) * height + iy ) * width + ix ) *
+                const std::vector<unsigned char>& voxels = *state.Levels[static_cast<size_t>( iy / levelHeight )];
+                const int                         row    = iy % levelHeight;
+                const size_t base = ( ( static_cast<size_t>( iz ) * levelHeight + row ) * width + ix ) *
                                     Desert::Assets::kCloudProceduralBytesPerVoxel;
                 return vec4( voxels[base] / 255.0f, voxels[base + 1] / 255.0f, voxels[base + 2] / 255.0f,
                              voxels[base + 3] / 255.0f );
@@ -453,6 +531,18 @@ namespace Desert::Tests::CloudFieldRef
         }
 
 #define CLOUD_SAMPLE_MODELLING( p ) CloudSampleModellingTexture( p )
+        // The march's weather remap inputs, from the very functions the renderer uploads: the world weather
+        // at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
+        // CloudFarWeatherUniform of the bound bake's parameters, which CloudBindSpecies writes into
+        // CloudFieldParams::Weather as CloudUnpackFieldParams does from u_CloudWeather.
+#define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
+    Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
+                                     ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
+                                     ModellingVolume().Params.PatchTileKm )
+#define CLOUD_SAMPLE_LAYOUT_PATTERN( uv )                                                                         \
+    Desert::Assets::SampleCloudLayoutPatternTexel( ModellingVolume().Params.PatternSource.get(), ( uv ) )
+#define CLOUD_SAMPLE_LAYOUT_MASK( uv )                                                                            \
+    Desert::Assets::SampleCloudLayoutMaskUnorm( ModellingVolume().Params.MaskSource.get(), ( uv ) )
 
         // ------------------------------------------------------------------------------------------
         // SLOT A, DECLARED EMPTY — this suite drives producer P
@@ -497,6 +587,26 @@ namespace Desert::Tests::CloudFieldRef
 #include <Common/CloudField.glslh>
         DESERT_GLSL_AS_CPP_END
 
+        /// The clip-level windows of the bound sky, as Common/CloudParams.glslh unpacks u_CloudLevel[k]:
+        /// xy the window's minimum corner, z one over its side.
+        void CloudBindProceduralLevels( CloudFieldParams& params )
+        {
+            const ModellingVolumeState& state = ModellingVolume();
+            for ( std::uint32_t level = 0; level < Desert::Assets::kCloudProceduralClipLevels; ++level )
+            {
+                params.ProceduralLevel[level] =
+                     vec4( state.LevelOriginKm[level].x, state.LevelOriginKm[level].y,
+                           1.0f / Desert::Assets::CloudProceduralLevelSideKm( state.Params, level ), 0.0f );
+            }
+            // The far path, as CloudUnpackFieldParams unpacks u_CloudWeather.x and u_CloudFar*.
+            params.FarScale = Desert::Assets::CloudFarWeatherUniform( state.Params ).x;
+            for ( std::uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+            {
+                params.FarPresence[band] = state.Far.Presence[band];
+                params.FarProfile[band]  = state.Far.Profile[band];
+            }
+        }
+
         // ------------------------------------------------------------------------------------------
         // The species arrays, filled the way Graphic::PackCloudParams fills them
         // ------------------------------------------------------------------------------------------
@@ -522,7 +632,9 @@ namespace Desert::Tests::CloudFieldRef
 
                 if ( slot >= count )
                 {
-                    params.SpeciesEdge[slot] = vec4( 0.0f );
+                    params.SpeciesEdge[slot]     = vec4( 0.0f );
+                    params.SpeciesWispBase[slot] = 0.0f;
+                    params.SpeciesWispTop[slot]  = 0.0f;
                     continue;
                 }
 
@@ -537,8 +649,20 @@ namespace Desert::Tests::CloudFieldRef
             // that frame at BAKE time now, so what the march is handed is where the volume is instead.
             CloudModellingVolumeSelectSet( shapes, count, coverage, contrast, windDirection );
 
-            params.RegionOriginKm  = ModellingVolume().OriginKm;
-            params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
+            // THE WISPY BASE through the packer's own function, against the layer the bake was made for.
+            for ( std::uint32_t slot = 0; slot < count && slot < CLOUD_SPECIES_SLOTS; ++slot )
+            {
+                const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
+                     shapes[slot], ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
+                params.SpeciesWispBase[slot] = wisp.x;
+                params.SpeciesWispTop[slot]  = wisp.y;
+            }
+
+            CloudBindProceduralLevels( params );
+            const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
+            params.LayoutPlace     = Desert::Assets::CloudLayoutPlaceUniform( ModellingVolume().Params );
+            params.LayoutStrength  = Desert::Assets::CloudLayoutStrengthUniform( ModellingVolume().Params );
         }
 
         /**

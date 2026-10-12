@@ -38,6 +38,7 @@ project "LatticePeak"
         "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders", -- CloudProceduralVolume.cpp compiles Common/CloudNoise.glslh
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",

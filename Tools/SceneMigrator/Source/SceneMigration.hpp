@@ -665,6 +665,25 @@ namespace Desert::Migration
     // the header's GUID kept. A file that does not state FOLT 7 is an error naming what it states. PURE - no
     // filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV7ToV8( const std::string& text );
+    // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
+    // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
+    // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is
+    // an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text );
+
+    // The v7 text of a v6 `.decloudtype`: every v6 value kept, `Shape.BodyDiameterKm` written as the default
+    // type's (FIELD-GRAIN: the exponential body-size law's D0), the header's GUID kept. A file that does not
+    // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
+
+    // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
+    // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
+    float MigratePatchStrengthV4ToV5( float strength );
+
+    // The v5 text of a v4 `.demat`: every `PatchStrength` parameter (the cloud material's and its instances')
+    // raised by MigratePatchStrengthV4ToV5, everything else and the header's GUID kept. A file that does not
+    // state MATL 4 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.

@@ -55,6 +55,12 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSkyBakeCloudAuthoredBinding                   = 11;
     inline constexpr uint32_t kSkyBakeDistantSkyLightBinding                 = 12;
     inline constexpr uint32_t kSkyBakeCloudSkyOcclusionBinding               = 13;
+    // The world weather map — the march's remap of the baked profile (CloudGpuPayload::Weather), applied
+    // to the panorama exactly as to the screen.
+    inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding = 14;
+    // The painted layout's two textures (u_CloudLayoutPattern / u_CloudLayoutMask, VolumetricCloudRenderer::SampledVolumes).
+    inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 15;
+    inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 16;
 
     // ---------------------------------------------------------------------------------------------------
     // What the cloud renderer hands over
@@ -103,6 +109,9 @@ namespace Desert::Graphic
 
         Image3D* Noise[kCloudSpeciesSlots] = {};
         Image3D* Modelling                 = nullptr;
+        Image2D* FarWeather                = nullptr; // the world weather map the remap reads
+        Image2D* LayoutPattern             = nullptr; // the painted layout the cut reads (WX-PAINT)
+        Image2D* LayoutMask                = nullptr;
         Image3D* AuthoredAtlas             = nullptr; // null in every scene with no hero cloud
         Image3D* SkyOcclusionVolume        = nullptr;
 
@@ -163,6 +172,9 @@ namespace Desert::Graphic
 
         Image3D* Noise[kCloudSpeciesSlots] = {};
         Image3D* Modelling                 = nullptr;
+        Image2D* FarWeather                = nullptr;
+        Image2D* LayoutPattern             = nullptr;
+        Image2D* LayoutMask                = nullptr;
         Image3D* AuthoredAtlas             = nullptr;
         Image3D* SkyOcclusionVolume        = nullptr;
         Image2D* DistantSkyLight           = nullptr;
@@ -258,8 +270,11 @@ namespace Desert::Graphic
         key.Wind.x   = 0.0f;
         key.Wind.y   = 0.0f;
         key.Wind.z   = 0.0f;
-        key.Region.x = 0.0f;
-        key.Region.y = 0.0f;
+        for ( glm::vec4& level : key.Level )
+        {
+            level.x = 0.0f;
+            level.y = 0.0f;
+        }
 
         // FNV-1a over the block's bytes. The block is packed to exactly 268 bytes with no padding (the
         // static_asserts in CloudPayload.hpp pin every offset), so there are no uninitialised holes for

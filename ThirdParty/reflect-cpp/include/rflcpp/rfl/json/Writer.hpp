@@ -7,6 +7,9 @@
 #include "../thirdparty/yyjson.h"
 #endif
 
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <map>
 #include <sstream>
@@ -105,12 +108,35 @@ class Writer {
   void end_object(OutputObjectType*) const noexcept;
 
  private:
+  static double shortest_float_as_double(const float _var) noexcept {
+    const double widened = static_cast<double>(_var);
+    if (!std::isfinite(_var)) {
+      return widened;
+    }
+    char text[32];
+    for (int digits = 1; digits <= 9; ++digits) {
+      std::snprintf(text, sizeof(text), "%.*g", digits, widened);
+      const double candidate = std::strtod(text, nullptr);
+      if (static_cast<float>(candidate) == _var) {
+        return candidate;
+      }
+    }
+    return widened;
+  }
+
   template <class T>
   OutputVarType from_basic_type(const T& _var) const noexcept {
     if constexpr (std::is_same<std::remove_cvref_t<T>, std::string>()) {
       return OutputVarType(yyjson_mut_strcpy(doc_, _var.c_str()));
     } else if constexpr (std::is_same<std::remove_cvref_t<T>, bool>()) {
       return OutputVarType(yyjson_mut_bool(doc_, _var));
+    } else if constexpr (std::is_same<std::remove_cvref_t<T>, float>()) {
+      // DESERT: a float is written as the SHORTEST decimal that reads back as the same float ("0.9", not
+      // the double 0.8999999761581421 the widened value would spell). yyjson 0.10 has no float writer, so
+      // the shortest float decimal is found here and handed over as the double nearest to it, whose own
+      // shortest spelling is that decimal. Guarded: if the double does not narrow back to the same float,
+      // the exact widened value is written instead — the value is never changed, only its spelling.
+      return OutputVarType(yyjson_mut_real(doc_, shortest_float_as_double(_var)));
     } else if constexpr (std::is_floating_point<std::remove_cvref_t<T>>()) {
       return OutputVarType(yyjson_mut_real(doc_, static_cast<double>(_var)));
     } else if constexpr (std::is_unsigned<std::remove_cvref_t<T>>()) {

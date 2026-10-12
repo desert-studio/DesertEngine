@@ -153,7 +153,7 @@ namespace
         // CloudMaterialSchema suite pins the mirror), read rather than copied for the same reason.
         const Desert::Graphic::CloudMaterialValues shipped;
 
-        CloudFieldParams params;
+        CloudFieldParams params{};
         params.DetailTileKm   = shipped.DetailTileSize / 100000.0f; // centimetres to kilometres
         params.DetailStrength = shipped.DetailStrength;
         // THE LAYER'S OWN SCALES, WITHOUT THE SPECIES' FACTORS IN THEM, which is where T3 moved the
@@ -312,6 +312,142 @@ TEST( CloudFieldVolume, TheShaderAndTheGeneratorAgreeAboutHowTallTheVolumeIs )
             "rows the volume has, so the march's half-texel clamp is half of the wrong texel";
 }
 
+// THE CLIP LEVELS' TWO STATEMENTS (CLIP-3): Common/CloudField.glslh names how many levels the stacked image
+// has and how many texels a level's side carries; Engine/Assets/CloudProceduralVolume.hpp bakes them. The
+// level count sets the stack's row count, the side sets the guard that keeps a trilinear fetch inside a
+// level's window — both are half-texel-shaped defects nothing in a frame would show.
+TEST( CloudFieldVolume, TheShaderAndTheBakeAgreeOnTheClipLevels )
+{
+    EXPECT_EQ( CLOUD_PROCEDURAL_CLIP_LEVELS, static_cast<int>( Desert::Assets::kCloudProceduralClipLevels ) );
+    EXPECT_FLOAT_EQ( CLOUD_PROCEDURAL_VOLUME_SIDE,
+                     static_cast<float>( Desert::Assets::kCloudProceduralVolumeSide ) );
+}
+
+namespace
+{
+    // One level's own fetch, with no choice and no blend: what the stacked image holds for @p level at
+    // @p windPos. The relation tests below compare the shader's CloudSampleProceduralVolume against it.
+    vec4 CloudLevelFetch( const CloudFieldParams& params, int level, float fraction, vec3 windPos )
+    {
+        return CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level, fraction, windPos ) );
+    }
+
+    float CloudLargestChannelStep( vec4 a, vec4 b )
+    {
+        const vec4 d = glm::abs( a - b );
+        return std::max( std::max( d.x, d.y ), std::max( d.z, d.w ) );
+    }
+
+    // A cumulus sky dense enough that the two levels disagree somewhere along every boundary walked.
+    CloudFieldParams CloudClipFixture()
+    {
+        static const CloudTypeShape shape = Desert::Assets::CloudTypeDefaultShape();
+        CloudFieldParams            params{};
+        params.DetailTileKm   = 4.0f;
+        params.DetailStrength = 0.0f;
+        params.DensityScale   = 1.0f;
+        params.WindOffsetKm   = vec3( 0.0f );
+        params.ShadowRay      = CLOUD_RAY_VIEW;
+        CloudBindSpecies( params, &shape, 1u, vec3( 1.0f, 0.0f, 0.0f ), /*coverage=*/0.6f );
+        return params;
+    }
+} // namespace
+
+// THE BLEND BETWEEN TWO LEVELS HAS NO STEP (CLIP-3). Where a level hands the column to the next coarser one
+// the sample must be continuous: one centimetre either side of the boundary — at the guard, where the
+// finer level's weight reaches zero, and at the inner edge of the band, where it reaches one — the shader's
+// sample moves by no more than one byte of the volume (1/255). A hard switch would move it by the whole
+// difference between the two resolutions of the same field, which is what a flying camera sees as a ring
+// popping in. The walk covers both x edges of levels 0 and 1, sixty-four columns along each, at four heights,
+// and it also measures that hard-switch difference so the test cannot pass on an empty sky.
+// MUTATION: return `fine` instead of `mix( coarse, fine, weight )` in CloudSampleProceduralVolume -> red.
+TEST( CloudFieldVolume, TheLevelBlendHasNoStep )
+{
+    const CloudFieldParams params = CloudClipFixture();
+
+    constexpr float kOneByte   = 1.0f / 255.0f;
+    constexpr float kEpsilonKm = 1e-5f; // one centimetre
+    const float     guard      = 0.5f / CLOUD_PROCEDURAL_VOLUME_SIDE;
+
+    float largestStep   = 0.0f;
+    float largestSwitch = 0.0f;
+
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS - 1; ++level )
+    {
+        const vec4  window = params.ProceduralLevel[level];
+        const float sideKm = 1.0f / window.z;
+
+        // The four x positions where the weight leaves 0 or reaches 1, on both sides of the window.
+        const float boundaries[4] = { window.x + guard * sideKm, window.x + CLOUD_PROCEDURAL_CLIP_BLEND * sideKm,
+                                      window.x + ( 1.0f - CLOUD_PROCEDURAL_CLIP_BLEND ) * sideKm,
+                                      window.x + ( 1.0f - guard ) * sideKm };
+
+        for ( const float boundaryX : boundaries )
+        {
+            for ( int iz = 0; iz < 64; ++iz )
+            {
+                const float z = window.y + sideKm * ( 0.2f + 0.6f * ( iz + 0.5f ) / 64.0f );
+
+                for ( const float fraction : { 0.1f, 0.3f, 0.5f, 0.7f } )
+                {
+                    const vec3 below( boundaryX - kEpsilonKm, 0.0f, z );
+                    const vec3 above( boundaryX + kEpsilonKm, 0.0f, z );
+
+                    largestStep = std::max(
+                         largestStep,
+                         CloudLargestChannelStep( CloudSampleProceduralVolume( params, fraction, below ),
+                                                  CloudSampleProceduralVolume( params, fraction, above ) ) );
+
+                    const vec3 on( boundaryX, 0.0f, z );
+                    largestSwitch =
+                         std::max( largestSwitch,
+                                   CloudLargestChannelStep( CloudLevelFetch( params, level, fraction, on ),
+                                                            CloudLevelFetch( params, level + 1, fraction, on ) ) );
+                }
+            }
+        }
+    }
+
+    std::printf( "[CloudFieldVolume] level blend: largest step across a boundary %.6f, largest hard-switch "
+                 "difference between the two levels there %.6f\n",
+                 largestStep, largestSwitch );
+
+    ASSERT_GT( largestSwitch, kOneByte )
+         << "the two levels agree everywhere along the boundaries walked, so a hard switch would pass too";
+    EXPECT_LE( largestStep, kOneByte ) << "the sample steps where one clip level hands over to the next";
+}
+
+// THE FINEST LEVEL THAT HOLDS A COLUMN ANSWERS FOR IT (CLIP-3): deep inside level 0 the sample IS level 0's
+// fetch, between level 0's window and level 1's band it IS level 1's, past level 1 it is level 2's —
+// exactly, not within a tolerance, because no blend is in play there.
+// MUTATION: walk CloudProceduralLevelOf from the coarsest level down -> red.
+TEST( CloudFieldVolume, ASampleReadsTheFinestLevelThatHoldsIt )
+{
+    const CloudFieldParams params = CloudClipFixture();
+
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        const vec4  window = params.ProceduralLevel[level];
+        const float sideKm = 1.0f / window.z;
+
+        // A column inside this level's full-weight core but outside every finer level's window: for level
+        // 0 the window's centre, for the others a quarter of the way in from the min-x edge.
+        const float x = level == 0 ? window.x + 0.5f * sideKm : window.x + 0.2f * sideKm;
+        for ( int iz = 0; iz < 16; ++iz )
+        {
+            const vec3 at( x, 0.0f, window.y + sideKm * ( 0.3f + 0.4f * ( iz + 0.5f ) / 16.0f ) );
+
+            EXPECT_EQ( CloudProceduralLevelOf( params, vec2( at.x, at.z ) ), level );
+            for ( const float fraction : { 0.2f, 0.6f } )
+            {
+                const vec4 sample = CloudSampleProceduralVolume( params, fraction, at );
+                const vec4 own    = CloudLevelFetch( params, level, fraction, at );
+                EXPECT_EQ( sample, own ) << "level " << level << " does not answer for a column it holds alone";
+            }
+        }
+    }
+}
+
 TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
 {
     // THE PROPERTY THE PROFILE TABLE'S OWN TEST USED TO KEEP, and it was deleted with the table instead of
@@ -329,7 +465,7 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
     CloudModellingVolumeSelectOverLayer( &shape, 1u, /*coverage=*/0.85f, /*bottomKm=*/0.80f,
                                          /*thicknessKm=*/8.00f );
 
-    CloudFieldParams params;
+    CloudFieldParams params{};
     params.DetailTileKm   = 4.0f;
     params.DetailStrength = 0.0f;
     params.DensityScale   = 1.0f;
@@ -343,23 +479,39 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
     params.ShadowRay = CLOUD_RAY_VIEW;
 
     for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
-        params.SpeciesEdge[slot] = vec4( 0.0f );
+    {
+        params.SpeciesEdge[slot]     = vec4( 0.0f );
+        params.SpeciesWispBase[slot] = 0.0f;
+        params.SpeciesWispTop[slot]  = 0.0f;
+    }
     params.SpeciesEdge[0] =
          vec4( shape.DetailCharacter, shape.DetailFactor, shape.DensityFactor, shape.ExtinctionFactor );
+    {
+        const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan( shape, ModellingVolume().Params.LayerBottomKm,
+                                                                      ModellingVolume().Params.LayerThicknessKm );
+        params.SpeciesWispBase[0] = wisp.x;
+        params.SpeciesWispTop[0]  = wisp.y;
+    }
 
-    params.RegionOriginKm  = ModellingVolume().OriginKm;
-    params.InvRegionSizeKm = 1.0f / ModellingVolume().Params.RegionSizeKm;
+    CloudBindProceduralLevels( params );
+    const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+    params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
 
-    // FIRST: the coordinate itself never reaches either face.
-    const vec3 atTop    = CloudProceduralVolumeUvw( params, 1.0f, vec3( 0.0f ) );
-    const vec3 atBottom = CloudProceduralVolumeUvw( params, 0.0f, vec3( 0.0f ) );
+    // FIRST: the coordinate itself never reaches either face of ANY level's rows in the stack.
+    const float stackRows = CLOUD_PROCEDURAL_VOLUME_HEIGHT * static_cast<float>( CLOUD_PROCEDURAL_CLIP_LEVELS );
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        const vec3  atTop    = CloudProceduralLevelUvw( params, level, 1.0f, vec3( 0.0f ) );
+        const vec3  atBottom = CloudProceduralLevelUvw( params, level, 0.0f, vec3( 0.0f ) );
+        const float floorRow = static_cast<float>( level ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT;
 
-    const float halfTexel = 0.5f / CLOUD_PROCEDURAL_VOLUME_HEIGHT;
-
-    EXPECT_FLOAT_EQ( atTop.y, 1.0f - halfTexel )
-         << "a height fraction of 1 addresses the volume's very edge, where a REPEAT sampler wraps";
-    EXPECT_FLOAT_EQ( atBottom.y, halfTexel )
-         << "a height fraction of 0 addresses the volume's very edge, where a REPEAT sampler wraps";
+        EXPECT_FLOAT_EQ( atTop.y, ( floorRow + CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f ) / stackRows )
+             << "level " << level
+             << ": a height fraction of 1 addresses the level's very edge, where the "
+                "fetch blends with the next level's floor (or wraps)";
+        EXPECT_FLOAT_EQ( atBottom.y, ( floorRow + 0.5f ) / stackRows )
+             << "level " << level << ": a height fraction of 0 addresses the level's very edge";
+    }
 
     // SECOND, AND THIS IS THE ONE THAT MATTERS: the consequence. At the top of this layer there is no
     // cloud, and there must be none however the coordinate is addressed. Without the clamp the fetch
@@ -1117,7 +1269,7 @@ namespace
     {
         const CloudTypeShape pair[2] = { kDeck, kTower };
 
-        CloudFieldParams params;
+        CloudFieldParams params{};
         params.DetailTileKm   = 4.0f;
         params.DetailStrength = 0.1f;
         params.DensityScale   = 1.0f;
@@ -1193,7 +1345,7 @@ namespace
     // the sampler mirror in CloudFieldReference.hpp exists to keep.
     float SpeciesProfileAt( const CloudFieldParams& params, int slot, float fraction, vec3 positionKm )
     {
-        const vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, fraction, positionKm ) );
+        const vec4 volume = CloudSampleProceduralVolume( params, fraction, positionKm );
         return clamp( volume[slot], 0.0f, 1.0f );
     }
 } // namespace
@@ -1214,8 +1366,14 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
     const float fraction   = FractionOfSetEnvelope( altitudeKm );
 
     int bothPresent = 0;
+    int bothKept    = 0;
     int unionWrong  = 0;
     int winnerWrong = 0;
+
+    // THE UNION, THEN THE WEATHER (CUT-AT-BAKE). The bake chose the clusters by the Coverage slider and cut
+    // each before the join; the march takes the DEEPER species' baked profile and remaps it once by the
+    // weather the column holds for the winner — read through the same weather macros the GPU defines.
+    const vec2 weather = params.Weather;
 
     constexpr int kColumns = 96;
 
@@ -1234,13 +1392,25 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
             const CloudFieldSample united = SampleCloudField( params, fraction, position );
 
-            if ( std::abs( united.Profile - std::max( deck, tower ) ) > 1e-5f )
+            const float cut =
+                 CloudCoverRemap( std::max( deck, tower ),
+                                  CloudLocalWeather( weather, params.LayoutPlace, params.LayoutStrength,
+                                                     tower > deck ? 1 : 0, vec2( position.x, position.z ) ) );
+            if ( std::abs( united.Profile - cut ) > 1e-5f )
                 ++unionWrong;
 
             if ( deck <= 0.0f || tower <= 0.0f )
                 continue;
 
             ++bothPresent;
+
+            // ONLY WHERE THE CUT KEEPS CLOUD does the sample name a winner at all: a point the cover has
+            // not reached is empty sky, and the producer returns the empty sample there (DetailType 0)
+            // however deep either channel is — 2326 of the 3386 shared columns at this cover.
+            if ( united.Profile <= 0.0f )
+                continue;
+
+            ++bothKept;
 
             // AND THE WINNER TAKES ITS OWN CHARACTER, unaveraged. This is the other half of D-14: a
             // stratocumulus edge on the tower, or an average of the two, is the smear the winner-take-all
@@ -1250,7 +1420,16 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
             // walks the slots in order taking a species only when it STRICTLY exceeds the best so far, so
             // a tie is won by the EARLIER slot. A mirror written with `>` disagrees with the shader on
             // exactly those ties, which is a defect in the mirror and not in the union.
-            const float expected = deck >= tower ? kDeck.DetailCharacter : kTower.DetailCharacter;
+            // AND THE CHARACTER IS THE WINNER'S WISPY BASE TIMES ITS OWN (H-BASE): from 0 where its band
+            // starts to DetailCharacter where its altitude density first stands at its maximum, the span
+            // taken from the packer's own Graphic::CloudSpeciesWispSpan rather than read back out of params.
+            const bool            deckWins = deck >= tower;
+            const CloudTypeShape& winner   = deckWins ? kDeck : kTower;
+            const glm::vec2       wisp     = Desert::Graphic::CloudSpeciesWispSpan(
+                 winner, ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
+            const float wispCharacter =
+                 glm::clamp( ( fraction - wisp.x ) / std::max( wisp.y - wisp.x, 1e-4f ), 0.0f, 1.0f );
+            const float expected = glm::clamp( winner.DetailCharacter, 0.0f, 1.0f ) * wispCharacter;
             if ( std::abs( united.DetailType - expected ) > 1e-5f )
                 ++winnerWrong;
         }
@@ -1261,7 +1440,8 @@ TEST( CloudFieldSpecies, TwoSpeciesCanOccupyTheSamePointAndTheUnionTakesTheDeepe
 
     EXPECT_GT( bothPresent, 0 ) << "no point of the sky held two kinds of cloud at once — which is what a "
                                    "partition of one field would produce, and what D-14 rejected";
-    EXPECT_EQ( unionWrong, 0 ) << "the union is not the max of the two profiles";
+    EXPECT_GT( bothKept, 0 ) << "no point both species share survived the cut, so the winner is untested";
+    EXPECT_EQ( unionWrong, 0 ) << "the union is not the one rank cut the march makes";
     EXPECT_EQ( winnerWrong, 0 ) << "the winning species did not keep its own edge character";
 }
 
@@ -1271,7 +1451,7 @@ TEST( CloudFieldSpecies, AnEmptySetStillHasASkyAndAnUnfilledSlotCostsNothing )
     // which is a set of one and therefore already covered above. What is tested HERE is the other half of
     // that promise: that slots past the count cannot put cloud in the sky even if their arrays were
     // filled, because the profile table's channel for them is zero everywhere.
-    CloudFieldParams params;
+    CloudFieldParams params{};
     params.DetailTileKm   = 4.0f;
     params.DetailStrength = 0.1f;
     params.DensityScale   = 1.0f;
@@ -1323,7 +1503,7 @@ TEST( CloudFieldSpecies, AnEmptySetStillHasASkyAndAnUnfilledSlotCostsNothing )
             const vec3 position( OriginKm().x + PeriodKm() * ( j + 0.5f ) / 8.0f, fraction * envelopeUnusedKm,
                                  OriginKm().y + PeriodKm() * ( j * 3 + 1.5f ) / 8.0f );
 
-            const vec4 volume = CLOUD_SAMPLE_MODELLING( CloudProceduralVolumeUvw( params, fraction, position ) );
+            const vec4 volume = CloudSampleProceduralVolume( params, fraction, position );
 
             EXPECT_FLOAT_EQ( volume.y, 0.0f ) << "an unwritten channel is not zero";
             EXPECT_FLOAT_EQ( volume.z, 0.0f ) << "an unwritten channel is not zero";
@@ -1376,19 +1556,27 @@ namespace
         // THE SAMPLE'S OWN SLOT, so the mirror reads whichever of the layer's volumes the winning species
         // named — the same argument the seam passes. A mirror hardwired to slot 0 would agree with a
         // shader that ignored the slot entirely, which is precisely the defect phase NV removed.
-        const vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos );
+        const vec4 noise = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_DETAIL_LF_RATIO );
+        const vec4 fineNoise =
+             CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * ( CLOUD_DETAIL_LF_RATIO * CLOUD_DETAIL_HF_RATIO ) );
 
-        const float wispy   = glm::mix( noise.x, noise.y, field.Profile );
-        const float billowy = glm::mix( noise.z, noise.w, std::pow( field.Profile, 0.25f ) );
-
-        return glm::clamp( glm::mix( wispy, billowy, glm::clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f, 1.0f );
+        // BOTH OCTAVES through the one composite, then the shader's own blend of the two.
+        const auto composite = [&]( const vec4& n )
+        {
+            const float wispy   = glm::mix( n.x, n.y, field.Profile );
+            const float billowy = 1.0f - glm::mix( n.z, n.w, std::pow( field.Profile, 0.25f ) );
+            return glm::clamp( glm::mix( wispy, billowy, glm::clamp( field.DetailType, 0.0f, 1.0f ) ), 0.0f,
+                               1.0f );
+        };
+        return glm::mix( composite( noise ), composite( fineNoise ), CLOUD_DETAIL_HF_WEIGHT );
     }
 
     /// The eroded density from the pair, at an EFFECTIVE depth t = clamp(strength * the type's factor).
     float ErodedDensity( float profile, float erosionNoise, float t )
     {
-        const float erosion = erosionNoise * t * ( 1.0f - profile );
-        return glm::clamp( ( profile - erosion ) / std::max( 1.0f - erosion, 1e-6f ), 0.0f, 1.0f );
+        const float erosion = erosionNoise * t;
+        return std::pow( glm::clamp( ( profile - erosion ) / std::max( 1.0f - erosion, 1e-6f ), 0.0f, 1.0f ),
+                         CLOUD_EDGE_SHARPEN );
     }
 
     /// The finest chord the march is relied on to FIND, metres. Every bound in this section is stated
@@ -1698,8 +1886,13 @@ TEST( CloudFieldSpecies, TheWinningSpeciesEdgeIsCutFromItsOwnNoiseVolume )
                  ErodedDensity( sample.Profile, ErosionNoiseAt( params, believed, position ),
                                 std::clamp( params.DetailStrength * sample.DetailFactor, 0.0f, 1.0f ) );
 
-            const double gap  = std::abs( static_cast<double>( fromSeam ) -
-                                          static_cast<double>( fromMirror ) * sample.DensityScale );
+            // THE SEAM CLAMPS AFTER THE SCALE (CloudDefaultDensity: clamp(density * DensityScale, 0, 1)),
+            // so the mirror does too. The tower's DensityFactor is 1.15, and since the rank cut a kept body
+            // reaches a profile of one a ProfileDepth inside — the 620 samples at a gap of exactly 0.15 were
+            // this clamp, not the slot.
+            const double gap =
+                 std::abs( static_cast<double>( fromSeam ) -
+                           static_cast<double>( std::clamp( fromMirror * sample.DensityScale, 0.0f, 1.0f ) ) );
             worstDisagreement = std::max( worstDisagreement, gap );
             if ( gap > 1e-6 )
                 ++densityWrong;
@@ -1999,7 +2192,8 @@ TEST( CloudFieldErosion, TheShippedStrengthMovesTheSurfaceTheEyeSeesWithoutEatin
 //
 // WHY THE THRESHOLD IS 1.05x AND NOT THE 1.11x THE PAIR SHIPS AT. §DS's convention is to ship the first
 // ladder step with REAL headroom over the bound, which it put at 1.11x and which this pair also lands on
-// (0.65 gives 139 m against 125). Asserting at the shipped value would make the test a copy of the default
+// (0.65 gave 139 m against 125 before the coverage remap; FARWX-b13, after it, measured 0.35 -> 138.5 m,
+// 0.40 -> 152.8 m, 0.45 -> 162.0 m, 0.65 -> 217.2 m, and ships 0.40 at 1.22x, mid-window). Asserting at the shipped value would make the test a copy of the default
 // rather than a guard on it, and asserting at the bare floor would let a future pair sit balanced on a
 // bound §DS refused to balance on by name. 1.05x is halfway between the bound being protected and the
 // value protecting it: a generator change that moves a body by a voxel does not trip it, and a calibration
@@ -2095,8 +2289,11 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
     // octave has stopped catching the drift it was written for. Its bite was an accident of the aspect it
     // was measured at, and this is the half of the window that restores it.
     //
-    // 1.35x IS WHERE IT IS BECAUSE BOTH ENDS ARE MEASURED. The shipped pair sits at 1.11x, the top of the
-    // slider at 1.44x: a ceiling anywhere between those two catches a slider dragged to maximum without
+    // 1.35x IS WHERE IT IS BECAUSE BOTH ENDS ARE MEASURED. It was set when the shipped pair sat at 1.11x
+    // and the top of the slider at 1.44x. Since the coverage remap (FARWX-b12, CloudRankProfile) the
+    // profile's gradient is 1/run rather than 1/rise and the same cut travels further: the shipped 0.40
+    // sits at 1.22x and the slider's top at 2.25x (281 m), so the ceiling still catches the slider dragged
+    // to maximum. At the 1.11x/1.44x calibration: a ceiling anywhere between those two catches a slider dragged to maximum without
     // being balanced on the shipped value, and 1.35 leaves the shipped pair a fifth of headroom below it
     // while leaving the slider's top a fifteenth above.
     constexpr double kRequiredHeadroom = 1.05;
@@ -2108,7 +2305,7 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
          << "x the " << floorM << " m the march resolves, and past the " << kHeadroomCeiling
          << "x that the pair is calibrated to hold.\n"
             "Every step above the floor costs cloud for a gain nothing has measured a need for. Either the "
-            "strength was raised on its own — at the shipped aspect the top of the slider reaches 1.44x — "
+            "strength was raised on its own — at the shipped aspect the top of the slider reaches 2.25x — "
             "or the lump was made FLATTER without the strength coming down with it, which is the same "
             "calibration coming apart in the other direction.";
 
@@ -2468,6 +2665,344 @@ TEST( CloudField, TheShippedErosionAndAGraphReadTheVolumeAtTheSameCOORDINATE )
     EXPECT_TRUE( std::isfinite( clampedTile.x ) && std::isfinite( clampedTile.y ) &&
                  std::isfinite( clampedTile.z ) )
          << "a Detail Tile Size of zero produced a non-finite noise coordinate";
+}
+
+// THE SHADER'S WEATHER REMAP IS Assets::CloudProceduralCoverRemap BY Assets::CloudProceduralLocalWeather
+// (CUT-AT-BAKE): GPU = CPU on the baked profile at every sampled voxel, and the weather's zeros stay clear.
+// MUTATION: drop `2.0f * weather.x *` in CloudLocalWeather (Common/CloudField.glslh) and this goes red.
+TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
+{
+    using namespace Desert::Tests::CloudFieldRef;
+
+    const Desert::Graphic::CloudTypeShape shape = Desert::Assets::CloudTypeDefaultShape();
+    CloudModellingVolumeSelectSet( &shape, 1u, 0.45f, 1.0f, vec3( 1.0f, 0.0f, 0.0f ) );
+
+    ModellingVolumeState& state = ModellingVolume();
+    state.Params.PatchStrength  = 0.6f;
+    state.Params.PatchTileKm    = 20.0f;
+    ASSERT_TRUE( state.Voxels && !state.Voxels->empty() ) << "the bake returned no profile block";
+
+    const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
+    ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the weather map is not under test";
+    EXPECT_EQ( weather.x, 0.0f ) << "Coverage reached the march; the bake owns it (CUT-AT-BAKE)";
+    EXPECT_EQ( weather.z, 0.0f ) << "the softness reached the march; the bake owns it (CUT-AT-BAKE)";
+
+    constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
+    constexpr int height = static_cast<int>( Desert::Assets::kCloudProceduralVolumeHeight );
+
+    int compared = 0, kept = 0, body = 0;
+    for ( int iz = 0; iz < side; iz += 5 )
+        for ( int ix = 0; ix < side; ix += 5 )
+        {
+            const vec2 worldKm =
+                 state.OriginKm + vec2( ( ix + 0.5f ) / side, ( iz + 0.5f ) / side ) * state.Params.RegionSizeKm;
+            const float gpuWeather = CloudLocalWeather(
+                 vec2( weather.y, weather.w ), Desert::Assets::CloudLayoutPlaceUniform( state.Params ),
+                 Desert::Assets::CloudLayoutStrengthUniform( state.Params ), 0, worldKm );
+            const float cpuWeather = Desert::Assets::CloudProceduralLocalWeather( state.Params, 0u, worldKm );
+            EXPECT_NEAR( gpuWeather, cpuWeather, 2e-3f ) << "column " << ix << "," << iz;
+
+            for ( int iy = 0; iy < height; iy += 3 )
+            {
+                const size_t voxel = ( static_cast<size_t>( iz ) * height + iy ) * side + ix;
+                const float  profile =
+                     ( *state.Voxels )[voxel * Desert::Assets::kCloudProceduralBytesPerVoxel] / 255.0f;
+                const float gpu = CloudCoverRemap( profile, gpuWeather );
+                const float cpu = Desert::Assets::CloudProceduralCoverRemap( profile, cpuWeather );
+
+                ++compared;
+                body += profile > 0.0f ? 1 : 0;
+                kept += cpu > 0.0f ? 1 : 0;
+                EXPECT_NEAR( gpu, cpu, 1e-2f ) << "voxel " << ix << "," << iy << "," << iz;
+                if ( cpuWeather <= 0.0f )
+                    EXPECT_EQ( cpu, 0.0f ) << "a weather zero drew cloud";
+            }
+        }
+
+    EXPECT_GT( kept, 0 ) << "nothing was kept, so the comparison is vacuous";
+    EXPECT_LT( kept, body ) << "the weather removed nothing, so the comparison is vacuous";
+}
+
+// THE TWO INVARIANTS OF THE CUT, made in the bake per cluster and in the march per column (CUT-AT-BAKE):
+// zero at Coverage 0 (no cluster is baked) and GPU = CPU for the one remap both halves make.
+// MUTATION: replace `( profile - ( 1.0f - g ) ) / g` by `profile` in CloudCoverRemap (Common/CloudField.glslh)
+// and the GPU = CPU rows go red; drop `if ( run <= 0.0f ) return 0.0f;` in CloudProceduralClusterReach and the
+// Coverage-0 rows go red.
+TEST( CloudFieldCut, NothingIsBakedAtCoverageZeroAndTheRemapIsOneOnBothSides )
+{
+    using namespace Desert::Tests::CloudFieldRef;
+
+    for ( float rank : { 0.0f, 0.3f, 0.99f } )
+        EXPECT_EQ( Desert::Assets::CloudProceduralClusterReach( rank, 0.0f, 0.25f ), 0.0f )
+             << "rank " << rank << " was baked at Coverage 0";
+    EXPECT_EQ( Desert::Assets::CloudProceduralClusterReach( 0.0f, 1.0f, 0.25f ), 1.0f );
+
+    for ( float reach : { 0.0f, 0.1f, 0.5f, 1.0f, 1.5f } )
+        for ( float profile : { 0.0f, 0.2f, 0.6f, 0.95f, 1.0f } )
+            EXPECT_NEAR( CloudCoverRemap( profile, reach ),
+                         Desert::Assets::CloudProceduralCoverRemap( profile, reach ), 1e-6f )
+                 << "profile " << profile << " reach " << reach;
+
+    EXPECT_EQ( CloudCoverRemap( 0.0f, 1.0f ), 0.0f ) << "air became cloud";
+    EXPECT_EQ( CloudCoverRemap( 1.0f, 0.0f ), 0.0f ) << "a zero weather drew cloud";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE FAR PATH (CLOUD-SEAM24) — what answers past the coarsest clip level's window
+// ---------------------------------------------------------------------------------------------------
+//
+// Past level 2's window nothing is baked. The far path used to be level 2's torus read with REPEAT, so
+// the region came back at the horizon once per level side; now it is a world column field drawn from the
+// world weather map, carrying level 2's per-height-band presence and mean profile
+// (Assets::CloudProceduralFarStatisticsOf). The tests below pin the three invariants of that design:
+// no period of the level's side, the level's own coverage in every band, and nothing at all from nothing.
+namespace
+{
+    // A column x @p offsetKm past level 2's max-x edge: where the far path answers.
+    float CloudFarStartKm( const CloudFieldParams& params, float offsetKm )
+    {
+        const vec4 window = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1];
+        return window.x + 1.0f / window.z + offsetKm;
+    }
+
+    // Level 2's own side, km — the period the old torus read repeated with.
+    float CloudCoarsestSideKm( const CloudFieldParams& params )
+    {
+        return 1.0f / params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z;
+    }
+} // namespace
+
+// THE FAR SKY DOES NOT REPEAT WITH THE COARSEST LEVEL'S SIDE. Every column of a 64 x 64 grid well past
+// level 2's window is compared, through the one read every consumer uses (CloudSampleProceduralVolume),
+// with the column one level side further along x and along z. The torus read made those equal at every
+// column; the world field makes them differ at most of the columns where either holds cloud. The test also
+// asserts the far sky is not empty there, so an empty far path cannot pass it.
+// MUTATION: in CloudSampleProceduralFar, wrap the column onto level 2's torus
+//   (`windPosXz = mod( windPosXz, 1.0f / params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z );`)
+//   -> red (the repeat returns); so does routing the coarsest level's zero-weight columns to its own fetch.
+TEST( CloudFieldFar, TheFarSkyDoesNotRepeatWithTheCoarsestLevelsSide )
+{
+    const CloudFieldParams params = CloudClipFixture();
+    ASSERT_GT( params.FarScale, 0.0f ) << "the far path was not bound";
+
+    const float sideKm = CloudCoarsestSideKm( params );
+    const float x0     = CloudFarStartKm( params, 10.0f );
+    const vec4  window = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1];
+
+    constexpr int   kGrid      = 64;
+    constexpr float kOneByte   = 1.0f / 255.0f;
+    const float     spacingKm  = 2.0f * sideKm / kGrid;
+    int             clouded    = 0;
+    int             repeated   = 0;
+    int             pairs      = 0;
+    float           largestGap = 0.0f;
+
+    for ( int iz = 0; iz < kGrid; ++iz )
+        for ( int ix = 0; ix < kGrid; ++ix )
+        {
+            const vec2 at( x0 + spacingKm * ( ix + 0.5f ), window.y + spacingKm * ( iz + 0.5f ) );
+            ASSERT_LE( CloudProceduralLevelWeight( params, CLOUD_PROCEDURAL_CLIP_LEVELS - 1, at ), 0.0f )
+                 << "the walk reached into level 2's window, where the level answers and not the far path";
+
+            for ( const vec2 shift : { vec2( sideKm, 0.0f ), vec2( 0.0f, sideKm ) } )
+                for ( const float fraction : { 0.3f, 0.6f } )
+                {
+                    ++pairs;
+                    const vec4 here  = CloudSampleProceduralVolume( params, fraction, vec3( at.x, 0.0f, at.y ) );
+                    const vec4 there = CloudSampleProceduralVolume( params, fraction,
+                                                                    vec3( at.x + shift.x, 0.0f, at.y + shift.y ) );
+                    if ( here == vec4( 0.0f ) && there == vec4( 0.0f ) )
+                        continue;
+                    ++clouded;
+                    const float gap = CloudLargestChannelStep( here, there );
+                    largestGap      = std::max( largestGap, gap );
+                    if ( gap <= kOneByte )
+                        ++repeated;
+                }
+        }
+
+    const float repeatShare = clouded ? static_cast<float>( repeated ) / static_cast<float>( clouded ) : 1.0f;
+    std::printf( "[CloudFieldFar] repeat: %d of %d clouded pairs (of %d) one level side (%.1f km) apart agree "
+                 "within a byte (%.3f), largest difference %.4f\n",
+                 repeated, clouded, pairs, sideKm, repeatShare, largestGap );
+
+    ASSERT_GT( clouded, pairs / 8 ) << "the far sky is (nearly) empty, so a repeat could not be seen";
+    EXPECT_LT( repeatShare, 0.5f ) << "the far sky repeats with level 2's side — the torus is back at the horizon";
+}
+
+// THE FAR SKY HAS THE COARSEST LEVEL'S COVERAGE IN EVERY HEIGHT BAND. At each band centre the share of far
+// columns (a 128 x 128 grid over four hundred kilometres past level 2) holding a species' cloud is that
+// band's Presence of level 2's bake — CloudProceduralFarStatisticsOf, recomputed here from the bound level's
+// bytes rather than trusted from the binding — within 0.03, for one species and for a pair (the second
+// species blends the two weather reads at another angle). A band the level leaves empty is empty far out
+// too, exactly. This is what lets the two meet in level 2's blend band with the same statistics.
+// MUTATION: drop CloudNormalCdf in CloudSampleProceduralFar (u = the raw blend) -> red (the share is off).
+// MUTATION: CloudFarBand returns table[0] for every height -> red (the bands lose their own coverage).
+TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
+{
+    constexpr int   kGrid      = 128;
+    constexpr float kSpanKm    = 400.0f;
+    constexpr float kTolerance = 0.03f;
+
+    struct Fixture
+    {
+        const char* Name;
+        float       Coverage;
+        int         Species;
+    };
+    const Fixture fixtures[] = { { "one cumulus", 0.6f, 1 }, { "deck + tower", 0.55f, 2 } };
+
+    for ( const Fixture& fixture : fixtures )
+    {
+        // Bound one after the other: each binding bakes its own level 2, which the test then reads.
+        const CloudFieldParams params =
+             fixture.Species == 1 ? CloudClipFixture() : TwoSpeciesParams( fixture.Coverage );
+
+        // The bound sky's level 2, through the same function the clipmap stores (one source of truth: the
+        // test recomputes it from the bytes and does not trust the binding to have copied it).
+        const auto& levelBytes = ModellingVolume().Levels[Desert::Assets::kCloudProceduralClipLevels - 1u];
+        ASSERT_TRUE( levelBytes ) << fixture.Name;
+        const Desert::Assets::CloudProceduralFarStatistics level2 = Desert::Assets::CloudProceduralFarStatisticsOf(
+             *levelBytes, Desert::Assets::kCloudProceduralVolumeSide );
+
+        const float x0      = CloudFarStartKm( params, 10.0f );
+        const float z0      = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].y;
+        int         checked = 0;
+
+        for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+        {
+            const float fraction                        = ( band + 0.5f ) / CLOUD_FAR_BANDS;
+            int         filled[CLOUD_SPECIES_SLOTS]     = {};
+            double      profileSum[CLOUD_SPECIES_SLOTS] = {};
+
+            for ( int iz = 0; iz < kGrid; ++iz )
+                for ( int ix = 0; ix < kGrid; ++ix )
+                {
+                    const vec3 at( x0 + kSpanKm * ( ix + 0.5f ) / kGrid, 0.0f,
+                                   z0 + kSpanKm * ( iz + 0.5f ) / kGrid );
+                    const vec4 sample = CloudSampleProceduralVolume( params, fraction, at );
+                    for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
+                        if ( sample[slot] > 0.0f )
+                        {
+                            ++filled[slot];
+                            profileSum[slot] += sample[slot];
+                        }
+                }
+
+            for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
+            {
+                const float share = level2.Presence[static_cast<size_t>( band )][slot];
+                EXPECT_FLOAT_EQ( params.FarPresence[band][slot], share )
+                     << fixture.Name << ": the binding does not carry level 2's statistics, band " << band;
+
+                const float far = static_cast<float>( filled[slot] ) / static_cast<float>( kGrid * kGrid );
+                std::printf(
+                     "[CloudFieldFar] %s band %d slot %d: level 2 presence %.4f profile %.4f, far coverage "
+                     "%.4f mean %.4f\n",
+                     fixture.Name, band, slot, share, level2.Profile[static_cast<size_t>( band )][slot], far,
+                     filled[slot] ? profileSum[slot] / filled[slot] : 0.0 );
+
+                if ( slot >= fixture.Species || share <= 0.0f )
+                {
+                    EXPECT_EQ( filled[slot], 0 ) << fixture.Name << ": band " << band << " slot " << slot
+                                                 << " is empty in level 2 and still has far cloud";
+                    continue;
+                }
+                EXPECT_NEAR( far, share, kTolerance ) << fixture.Name << ": band " << band << " slot " << slot
+                                                      << " — the far sky's coverage is not level 2's";
+                if ( share > 0.05f )
+                    ++checked;
+            }
+        }
+        EXPECT_GE( checked, 2 * fixture.Species )
+             << fixture.Name << ": too few bands hold cloud for the comparison to mean anything";
+    }
+}
+
+// THE STATISTICS ARE COUNTED PER BAND AND PER CHANNEL, FROM THE BYTES. A hand-made level: channel 0 at
+// 0.2 in (b + 1) of every eight columns of band b, channel 1 empty, channel 2 at 1.0 only in the top
+// band, channel 3 at 1.0 everywhere. Bytes of the wrong size give zero — no far cloud rather than a guess.
+// MUTATION: count the band as `y * kCloudFarBands / side` -> red.
+TEST( CloudFieldFar, TheStatisticsAreCountedPerBandAndPerChannelFromTheBytes )
+{
+    constexpr uint32_t kSide = 8u;
+    const uint32_t     rows  = Desert::Assets::kCloudProceduralVolumeHeight;
+    const uint32_t     bpv   = Desert::Assets::kCloudProceduralBytesPerVoxel;
+    const uint32_t     top   = Desert::Assets::kCloudFarBands - 1u;
+    ASSERT_EQ( bpv, 4u );
+
+    std::vector<unsigned char> bytes( static_cast<size_t>( kSide ) * kSide * rows * bpv, 0u );
+    for ( uint32_t z = 0; z < kSide; ++z )
+        for ( uint32_t y = 0; y < rows; ++y )
+        {
+            const uint32_t band = y * Desert::Assets::kCloudFarBands / rows;
+            for ( uint32_t x = 0; x < kSide; ++x )
+            {
+                unsigned char* voxel =
+                     bytes.data() + ( ( static_cast<size_t>( z ) * rows + y ) * kSide + x ) * bpv;
+                voxel[0] = x <= band ? 51u : 0u;
+                voxel[2] = band == top ? 255u : 0u;
+                voxel[3] = 255u;
+            }
+        }
+
+    const Desert::Assets::CloudProceduralFarStatistics stats =
+         Desert::Assets::CloudProceduralFarStatisticsOf( bytes, kSide );
+    for ( uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+    {
+        const glm::vec4 presence = stats.Presence[band];
+        const glm::vec4 profile  = stats.Profile[band];
+        EXPECT_FLOAT_EQ( presence.x, static_cast<float>( band + 1u ) / kSide ) << "band " << band;
+        EXPECT_FLOAT_EQ( profile.x, 51.0f / 255.0f ) << "band " << band;
+        EXPECT_EQ( presence.y, 0.0f ) << "band " << band;
+        EXPECT_EQ( profile.y, 0.0f ) << "band " << band << ": an empty channel has a profile";
+        EXPECT_FLOAT_EQ( presence.z, band == top ? 1.0f : 0.0f ) << "band " << band;
+        EXPECT_FLOAT_EQ( presence.w, 1.0f ) << "band " << band;
+        EXPECT_FLOAT_EQ( profile.w, 1.0f ) << "band " << band;
+    }
+
+    bytes.pop_back();
+    const Desert::Assets::CloudProceduralFarStatistics wrong =
+         Desert::Assets::CloudProceduralFarStatisticsOf( bytes, kSide );
+    for ( uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
+    {
+        EXPECT_EQ( wrong.Presence[band], glm::vec4( 0.0f ) ) << "bytes of the wrong size drew far cloud";
+        EXPECT_EQ( wrong.Profile[band], glm::vec4( 0.0f ) );
+    }
+    EXPECT_EQ( Desert::Assets::CloudProceduralFarStatisticsOf( {}, 0u ).Presence[0], glm::vec4( 0.0f ) );
+}
+
+// NOTHING FROM NOTHING. At Coverage 0 level 2 holds no cloud, so its statistics are zero and every far
+// column is clear at every height; and a far path with no read scale (no live species: FarScale 0) draws
+// nothing even with full band tables.
+// MUTATION: drop the `share <= 0.0f` skip and the `depth > 0` test in CloudSampleProceduralFar -> red.
+// MUTATION: drop the `FarScale <= 0` early-out -> red.
+TEST( CloudFieldFar, TheFarSkyIsClearAtZeroCoverageAndWithoutAReadScale )
+{
+    CloudFieldParams params = ParamsAtCoverage( 0.0f );
+    for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+        EXPECT_EQ( params.FarPresence[band], vec4( 0.0f ) ) << "Coverage 0 left far presence in band " << band;
+
+    const float x0 = CloudFarStartKm( params, 10.0f );
+    for ( int iz = 0; iz < 32; ++iz )
+        for ( int ix = 0; ix < 32; ++ix )
+            for ( const float fraction : { 0.05f, 0.3f, 0.6f, 0.95f } )
+            {
+                const vec3 at( x0 + 6.0f * ix, 0.0f, 6.0f * iz );
+                EXPECT_EQ( CloudSampleProceduralVolume( params, fraction, at ), vec4( 0.0f ) )
+                     << "Coverage 0 drew far cloud at (" << at.x << ", " << at.z << ")";
+            }
+
+    // Full tables, no read scale.
+    params.FarScale = 0.0f;
+    for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+    {
+        params.FarPresence[band] = vec4( 1.0f );
+        params.FarProfile[band]  = vec4( 0.5f );
+    }
+    for ( const float x : { 0.0f, 250.0f, 1.0e4f } )
+        EXPECT_EQ( CloudSampleProceduralFar( params, 0.5f, vec2( x, -x ) ), vec4( 0.0f ) )
+             << "a far path without a read scale drew cloud";
 }
 
 namespace

@@ -22,10 +22,11 @@
 #include <functional>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <cstdio>
-#include <numeric>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 using Desert::Assets::BakeCloudProceduralVolume;
@@ -34,12 +35,18 @@ using Desert::Assets::CloudModellingBlobDistanceKm;
 using Desert::Assets::CloudModellingJoinKm;
 using Desert::Assets::CloudModellingJoinTerm;
 using Desert::Assets::CloudModellingPreparedBlob;
+using Desert::Assets::CloudProceduralColumnKept;
 using Desert::Assets::CloudProceduralFieldParams;
+using Desert::Assets::CloudProceduralLocalWeathers;
+using Desert::Assets::CloudProceduralLump;
+using Desert::Assets::CloudProceduralLumpSet;
 using Desert::Assets::CloudProceduralRegionOriginKm;
 using Desert::Assets::CloudProceduralSnapKm;
 using Desert::Assets::CloudProceduralSpecies;
 using Desert::Assets::CloudProceduralVoxelBytes;
+using Desert::Assets::EvaluateCloudProceduralProfile;
 using Desert::Assets::GenerateCloudProceduralBlobs;
+using Desert::Assets::GenerateCloudProceduralLumps;
 using Desert::Assets::kCloudProceduralVolumeHeight;
 using Desert::Assets::kCloudProceduralVolumeSide;
 using Desert::Assets::kCloudProceduralVolumeSideMin;
@@ -66,7 +73,6 @@ namespace
         params.LayerBottomKm     = 1.5f;
         params.LayerThicknessKm  = 3.5f;
         params.BlendRadiusKm     = 0.06f;
-        params.ProfileDepthKm    = 0.35f;
         params.Coverage          = 0.35f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 7u;
@@ -100,10 +106,15 @@ namespace
     ///
     /// It is deliberately the slow, obvious implementation: a reference that shares the bake's own culling
     /// would agree with it about a mistake.
+    ///
+    /// `shape` is the silhouette noise at the point (CloudProceduralShapeNoise, SHAPE-NOISE): every lump's
+    /// distance moves by its own reach times it BEFORE the join, as in the bake and the preview — the body a
+    /// voxel must lie in is the displaced one.
     float ReferenceProfile( const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm,
-                            float blendRadiusKm, float profileDepthKm, float regionSizeKm )
+                            float blendRadiusKm, float profileDepthKm, float regionSizeKm, float shape )
     {
         std::vector<CloudModellingPreparedBlob> prepared;
+        std::vector<float>                      reaches;
         std::vector<float>                      distances;
 
         // THE WRAPS ARE PART OF THE FIELD, not part of the bake's optimisation: the volume is periodic by
@@ -119,6 +130,7 @@ namespace
                     shifted.CentreKm.x += static_cast<float>( wx ) * regionSizeKm;
                     shifted.CentreKm.z += static_cast<float>( wz ) * regionSizeKm;
                     prepared.push_back( PrepareCloudModellingBlob( shifted ) );
+                    reaches.push_back( CloudProceduralShapeReachKm( blob ) );
                 }
             }
         }
@@ -126,7 +138,7 @@ namespace
         float nearest = 0.0f;
         for ( size_t k = 0; k < prepared.size(); ++k )
         {
-            const float distance = CloudModellingBlobDistanceKm( prepared[k], pointKm );
+            const float distance = CloudModellingBlobDistanceKm( prepared[k], pointKm ) + reaches[k] * shape;
             distances.push_back( distance );
             nearest = ( k == 0 ) ? distance : std::min( nearest, distance );
         }
@@ -200,16 +212,165 @@ TEST( CloudProceduralField, TheGeneratorIsAPureFunctionOfItsInputs )
 // in whatever order the lattice emitted them, and it must give the answer a gather over the whole list in
 // canonical order gives. If the bake's culling were too tight, or the bin lists lost the canonical order,
 // or the join were order-sensitive, this is where it shows.
+namespace
+{
+    /// The lumps grouped by cluster (exact site), each group in the canonical order, keeping only the clusters
+    /// whose rank is under @p cover (2 keeps them all).
+    std::vector<std::vector<CloudModellingBlob>> ClustersOf( const std::vector<CloudProceduralLump>& lumps,
+                                                             float                                   cover )
+    {
+        std::vector<glm::vec2>                       sites;
+        std::vector<std::vector<CloudModellingBlob>> groups;
+        for ( const CloudProceduralLump& lump : lumps )
+        {
+            // A CLUSTER IS BAKED WHEN THE SLIDER IS OVER ITS RANK (CloudProceduralClusterReach > 0).
+            if ( cover <= 1.0f && !( lump.Rank < cover ) )
+                continue;
+            const auto found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
+            if ( found == sites.end() )
+            {
+                sites.push_back( lump.ClusterKm );
+                groups.emplace_back();
+                groups.back().push_back( lump.Blob );
+            }
+            else
+                groups[static_cast<size_t>( found - sites.begin() )].push_back( lump.Blob );
+        }
+        for ( std::vector<CloudModellingBlob>& group : groups )
+            SortCloudModellingBlobs( group );
+        return groups;
+    }
+
+    float ClusteredProfile( const std::vector<std::vector<CloudModellingBlob>>& clusters, const glm::vec3& pointKm,
+                            const CloudProceduralFieldParams& params )
+    {
+        const float shape = CloudProceduralShapeNoise( params, 0u, pointKm );
+        float       best  = 0.0f;
+        for ( const std::vector<CloudModellingBlob>& cluster : clusters )
+        {
+            // PROFILE-BODY: normalised by the cluster's own body depth, the deepest lump floored at two voxels.
+            float deepestKm = 0.0f;
+            for ( const CloudModellingBlob& blob : cluster )
+                deepestKm = std::max( deepestKm, CloudProceduralLumpDepthKm( blob ) );
+            best = std::max( best, ReferenceProfile( cluster, pointKm, params.BlendRadiusKm,
+                                                     CloudProceduralBodyDepthKm( params, deepestKm ),
+                                                     params.RegionSizeKm, shape ) );
+        }
+        return best;
+    }
+} // namespace
+
+// A DEAD NEIGHBOUR LEAVES NO VOXELS AT A LIVING CLUSTER (JOIN-PER-CLUSTER, CLOUD-AUDIT S6). The smooth minimum
+// over every lump of a species bridged neighbouring clusters, and when one of them was cut by the cover the
+// march kept the living one's half of the bridge — cut flat on the bisector. With the join per cluster, every
+// voxel the cut keeps lies inside a body of a living cluster on its own.
+//
+// MUTATION: make the bake's per-cluster test `placed[column[j]].Cluster == cluster` always true
+// (CloudProceduralVolume.cpp, the sum loop) and the bridge voxels go red here.
+TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto                       baked  = BakeCloudProceduralVolume( params, origin, {} );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+
+    const float     cover = params.Coverage;
+    const auto      lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+    const std::vector<std::vector<CloudModellingBlob>> living = ClustersOf( lumps, cover );
+    ASSERT_FALSE( living.empty() );
+
+    const float voxelXKm = params.RegionSizeKm / static_cast<float>( kCloudProceduralVolumeSide );
+    const float voxelYKm = params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight );
+
+    // THE SAME CHECK ON A QUARTER OF THE REGION, AND EACH VOXEL ASKED ONLY OF THE CLUSTERS THAT CAN REACH IT
+    // (FIELD-GRAIN-c). Over the whole region against every living cluster it ran 847 s once the bodies
+    // became many to a cell. The bound is conservative: a cluster contributes nothing at a point further
+    // (periodically) from its lumps than their widest radius plus the silhouette noise's reach plus the
+    // join's cutoff, so the verdict is the one the full gather would give.
+    struct Reach
+    {
+        glm::vec2 CentreKm{ 0.0f };
+        float     RadiusKm = 0.0f;
+    };
+    std::vector<Reach> reaches;
+    for ( const std::vector<CloudModellingBlob>& cluster : living )
+    {
+        Reach reach;
+        for ( const CloudModellingBlob& blob : cluster )
+            reach.CentreKm += glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) / static_cast<float>( cluster.size() );
+        for ( const CloudModellingBlob& blob : cluster )
+            reach.RadiusKm =
+                 std::max( reach.RadiusKm,
+                           glm::length( glm::vec2( blob.CentreKm.x, blob.CentreKm.z ) - reach.CentreKm ) +
+                                std::max( blob.RadiiKm.x, blob.RadiiKm.z ) + CloudProceduralShapeReachKm( blob ) );
+        reach.RadiusKm += 16.0f * params.BlendRadiusKm + 2.0f * voxelXKm;
+        reaches.push_back( reach );
+    }
+    const auto wrapped = [&params]( float d )
+    { return d - params.RegionSizeKm * std::round( d / params.RegionSizeKm ); };
+
+    const uint32_t window = kCloudProceduralVolumeSide / 2u;
+    size_t         kept = 0, orphaned = 0;
+    for ( uint32_t z = 0; z < window; z += 3u )
+        for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+            for ( uint32_t x = 0; x < window; x += 3u )
+            {
+                const size_t        at      = VoxelIndex( x, y, z );
+                const unsigned char profile = baked.GetValue()[at];
+                if ( profile <= 1u )
+                    continue;
+                ++kept;
+                const glm::vec3 point( origin.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm,
+                                       params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm,
+                                       origin.y + ( static_cast<float>( z ) + 0.5f ) * voxelXKm );
+                std::vector<std::vector<CloudModellingBlob>> near;
+                for ( size_t c = 0; c < living.size(); ++c )
+                    if ( glm::length( glm::vec2( wrapped( point.x - reaches[c].CentreKm.x ),
+                                                 wrapped( point.z - reaches[c].CentreKm.y ) ) ) <=
+                         reaches[c].RadiusKm )
+                        near.push_back( living[c] );
+                if ( ClusteredProfile( near, point, params ) <= 0.0f )
+                    ++orphaned;
+            }
+
+    EXPECT_GT( kept, 0u ) << "the cover kept nothing, so the test is vacuous";
+    EXPECT_EQ( orphaned, 0u ) << orphaned << " of " << kept
+                              << " kept voxels lie in no living cluster's body — a dead neighbour's bridge";
+}
+
 TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrder )
 {
     const CloudProceduralFieldParams params = MakeParams();
     const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
 
-    const auto baked = BakeCloudProceduralVolume( params, origin );
+    const auto baked = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
     ASSERT_EQ( baked.GetValue().size(), CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) );
 
-    std::vector<CloudModellingBlob> blobs = GenerateCloudProceduralBlobs( params, 0u, origin );
+    // THE KEPT CELLS' LUMPS, what the bake draws since CUT-AT-BAKE: the Coverage cut is the bake's, each
+    // cluster cut by its reach. The gather is the PREVIEW (EvaluateCloudProceduralProfile), which shares the
+    // bake's voxel — the join per cluster, the altitude density, the cut — and differs only in the SET: every
+    // lump at every wrap, where the bake asks the bin. The wraps are part of the field (the volume is
+    // periodic), so each copy carries its cluster site with it and stays its own cluster.
+    std::vector<CloudModellingBlob>        blobs;
+    std::vector<CloudProceduralLump>       wrapped;
+    const std::vector<CloudProceduralLump> lumps =
+         GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::KeptCells );
+    for ( const CloudProceduralLump& lump : lumps )
+    {
+        blobs.push_back( lump.Blob );
+        for ( int wz = -1; wz <= 1; ++wz )
+            for ( int wx = -1; wx <= 1; ++wx )
+            {
+                const glm::vec2     shift( static_cast<float>( wx ) * params.RegionSizeKm,
+                                           static_cast<float>( wz ) * params.RegionSizeKm );
+                CloudProceduralLump copy = lump;
+                copy.Blob.CentreKm.x += shift.x;
+                copy.Blob.CentreKm.z += shift.y;
+                copy.ClusterKm += shift;
+                wrapped.push_back( copy );
+            }
+    }
     ASSERT_FALSE( blobs.empty() );
 
     // SHUFFLED, then sorted back by the SAME canonical sort the bake uses. The join is commutative in real
@@ -272,8 +433,7 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
                                    params.LayerBottomKm + ( static_cast<float>( at.y ) + 0.5f ) * voxelYKm,
                                    origin.y + ( static_cast<float>( at.z ) + 0.5f ) * voxelZKm );
 
-            const float expected = ReferenceProfile( shuffled, point, params.BlendRadiusKm, params.ProfileDepthKm,
-                                                     params.RegionSizeKm );
+            const float expected = EvaluateCloudProceduralProfile( params, 0u, wrapped, point );
 
             const unsigned char actual = baked.GetValue()[VoxelIndex( at.x, at.y, at.z )];
             const double        steps  = std::abs( static_cast<double>( actual ) / 255.0 - expected ) * 255.0;
@@ -299,6 +459,52 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     EXPECT_GT( filled, ( CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) / 4u ) / 400u )
          << "under a quarter of a per cent of the volume has cloud in it, so the sky this agreed about is "
             "not one anybody would look at";
+}
+
+// H-BASE: THE CROSS-SECTION SHRINKS TOWARDS THE BASE. The altitude density multiplies the profile before the
+// coverage remap, so at the base row of a type's band the area that clears the remap's threshold is smaller
+// than a fifth of the band up, where the curve is full — the base is rounded, not the floor of a box.
+// Mutation: drop the `* CloudProceduralAltitudeDensity(...)` factor in the bake (CloudProceduralVolume.cpp,
+// the profile line) and the two areas come out equal or inverted.
+TEST( CloudProceduralField, TheCrossSectionShrinksTowardsTheBase )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const glm::vec2                  origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+
+    const auto baked = BakeCloudProceduralVolume( params, origin );
+    ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
+    const std::vector<unsigned char>& voxels = baked.GetValue();
+
+    const Desert::Graphic::CloudTypeShape& shape    = params.Species[0].Shape;
+    const float                            voxelYKm = params.LayerThicknessKm / kCloudProceduralVolumeHeight;
+    const auto rowAt = [&]( float altitudeKm )
+    { return static_cast<uint32_t>( std::clamp( ( altitudeKm - params.LayerBottomKm ) / voxelYKm, 0.0f,
+                                                static_cast<float>( kCloudProceduralVolumeHeight - 1 ) ) ); };
+    const float bandKm = shape.TopAltitudeKm - shape.BaseAltitudeKm;
+
+    // The remap at a mid cover: g = 0.5 keeps what is deeper than half the profile.
+    const auto areaOfRow = [&]( uint32_t y )
+    {
+        size_t area = 0;
+        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
+            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
+                area += voxels[VoxelIndex( x, y, z )] > 127u ? 1u : 0u;
+        return area;
+    };
+
+    const uint32_t baseRow = rowAt( shape.BaseAltitudeKm + 0.5f * voxelYKm );
+    const uint32_t bodyRow = rowAt( shape.BaseAltitudeKm + 0.25f * bandKm );
+    ASSERT_LT( baseRow, bodyRow );
+
+    const size_t baseArea = areaOfRow( baseRow );
+    const size_t bodyArea = areaOfRow( bodyRow );
+    std::printf( "[CloudProceduralField] cross-section past the remap: base row %u = %zu voxels, a quarter up "
+                 "row %u = %zu\n",
+                 baseRow, baseArea, bodyRow, bodyArea );
+
+    ASSERT_GT( bodyArea, 0u ) << "nothing clears the threshold a quarter up the band, so there is no body";
+    EXPECT_LT( static_cast<double>( baseArea ), 0.5 * static_cast<double>( bodyArea ) )
+         << "the base is as wide as the body: the altitude density is not reaching the profile";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -406,12 +612,22 @@ TEST( CloudProceduralField, NoGeneratedLumpIsThinnerThanTheMarchCanFindAtAnyTier
 // voxels is "the narrowest cluster the volume can carry with an inside and two edges". A cluster is six
 // lobes, so that bound says nothing about a lobe — at that exact cell a third of the lobes were under two
 // voxels. The floor below is what makes the cell floor's own sentence true.
-TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheVolumeCanCarry )
+//
+// THE VOXEL IS THE FINEST CLIP LEVEL'S (CLIP-1): one lump set serves every level, so the floor is what the
+// level that draws the nearest sky can carry, and a floor still at the region's voxel is the "stacked balls"
+// r05-r08 were refused for.
+// MUTATION: CloudProceduralLumpFloorKm back to RegionSizeKm / VolumeSideVoxels -> the last EXPECT is red.
+TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheFinestLevelCanCarry )
 {
     const CloudProceduralFieldParams shipped = MakeParams();
 
-    const float voxelKm = shipped.RegionSizeKm / static_cast<float>( kCloudProceduralVolumeSide );
+    const float voxelKm = Desert::Assets::CloudProceduralLevelVoxelKm( shipped, 0u );
     const float floorKm = Desert::Assets::CloudProceduralLumpFloorKm( shipped );
+
+    EXPECT_LT( floorKm, Desert::Assets::CloudProceduralLevelVoxelKm(
+                             shipped, Desert::Assets::kCloudProceduralClipLevels - 1u ) )
+         << "the lump floor is still the coarsest level's voxel, so the finest level is handed bodies swollen "
+            "to a size only the far sky needed";
 
     std::printf( "[CloudProceduralField] voxel %.1f m; the volume expresses %.0f m, the march finds %.0f m; "
                  "the lump floor is %.0f m across\n",
@@ -477,6 +693,175 @@ TEST( CloudProceduralField, NoGeneratedLumpIsNarrowerThanTheVolumeCanCarry )
              << " lumps are narrower than the two voxels the volume can express — the narrowest is "
              << 2000.0f * narrowestKm << " m against " << 2000.0f * voxelKm << " m";
     }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 3b. CLIP LEVELS (CLIP-1): a level scrolls by re-baking the columns that enter it, and every level is the
+//     same sky
+// ---------------------------------------------------------------------------------------------------
+namespace
+{
+    using Desert::Assets::BakeCloudProceduralBox;
+    using Desert::Assets::CloudProceduralLevelOriginVoxel;
+    using Desert::Assets::CloudProceduralLevelTexel;
+    using Desert::Assets::CloudProceduralLevelVoxelKm;
+    using Desert::Assets::CloudProceduralVoxelBox;
+    using Desert::Assets::kCloudProceduralClipLevels;
+
+    /// The texel runs a run of world voxels [first, first + count) occupies on the torus — one run, or two
+    /// when it crosses the image's edge.
+    std::vector<std::pair<uint32_t, uint32_t>> TexelRuns( int32_t first, uint32_t count, uint32_t side )
+    {
+        std::vector<std::pair<uint32_t, uint32_t>> runs;
+        const uint32_t                             start = CloudProceduralLevelTexel( first, side );
+        const uint32_t                             head  = std::min( count, side - start );
+        runs.emplace_back( start, head );
+        if ( head < count )
+            runs.emplace_back( 0u, count - head );
+        return runs;
+    }
+
+    /// Writes a box's bytes into a whole level's image at the box's texels.
+    void Blit( std::vector<unsigned char>& image, uint32_t side, const CloudProceduralVoxelBox& box,
+               const std::vector<unsigned char>& bytes )
+    {
+        for ( uint32_t z = 0; z < box.Depth; ++z )
+            for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+            {
+                const size_t from =
+                     ( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * box.Width ) * 4u;
+                const size_t to =
+                     ( ( static_cast<size_t>( box.Z + z ) * kCloudProceduralVolumeHeight + y ) * side + box.X ) *
+                     4u;
+                std::copy( bytes.begin() + static_cast<std::ptrdiff_t>( from ),
+                           bytes.begin() + static_cast<std::ptrdiff_t>( from + box.Width * 4u ),
+                           image.begin() + static_cast<std::ptrdiff_t>( to ) );
+            }
+    }
+
+    /// The fraction of a box's columns with any cloud of species 0 — the top-down cover.
+    double ColumnCover( const std::vector<unsigned char>& bytes, uint32_t width, uint32_t depth )
+    {
+        size_t covered = 0;
+        for ( uint32_t z = 0; z < depth; ++z )
+            for ( uint32_t x = 0; x < width; ++x )
+                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
+                    if ( bytes[( ( static_cast<size_t>( z ) * kCloudProceduralVolumeHeight + y ) * width + x ) *
+                               4u] != 0u )
+                    {
+                        ++covered;
+                        break;
+                    }
+        return static_cast<double>( covered ) / static_cast<double>( static_cast<size_t>( width ) * depth );
+    }
+} // namespace
+
+// THE SCROLL IS EXACT. A level at origin O, moved to O' by re-baking only the columns and rows that entered,
+// is byte for byte the level baked whole at O' — at every level, with the entering runs crossing the torus'
+// edge, at the coarsest grid the component offers so the six whole-level bakes stay cheap.
+// MUTATION: CloudProceduralLevelWorldVoxel returns one voxel further (originVoxel + 1 + ...) -> red;
+//           the box bake's lump window without the measured reach (margin 0) -> red at the box's edges.
+TEST( CloudProceduralField, SlabBakeEqualsTheFullBakeOfTheShiftedLevel )
+{
+    CloudProceduralFieldParams params  = MakeParams();
+    params.VolumeSideVoxels            = kCloudProceduralVolumeSideMin;
+    const uint32_t                side = params.VolumeSideVoxels;
+    const CloudProceduralVoxelBox whole{ 0u, 0u, side, side };
+
+    for ( uint32_t level = 0; level < kCloudProceduralClipLevels; ++level )
+    {
+        // THE ORIGIN FOLLOWS THE CAMERA ONE VOXEL PER VOXEL: a camera moved by whole voxels moves the corner by
+        // exactly as many, which is what makes the entering slab the columns counted here.
+        const float      voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        const glm::ivec2 atZero = CloudProceduralLevelOriginVoxel( params, level, 0.3f * voxelKm, 0.3f * voxelKm );
+        const glm::ivec2 moved = CloudProceduralLevelOriginVoxel( params, level, 9.3f * voxelKm, -6.7f * voxelKm );
+        EXPECT_EQ( moved - atZero, glm::ivec2( 9, -7 ) )
+             << "level " << level << " origin does not track the camera";
+
+        // An origin whose entering runs cross the image's edge on both axes.
+        const glm::ivec2 before( static_cast<int32_t>( side ) * 3 - 4, -static_cast<int32_t>( side ) - 2 );
+        const glm::ivec2 shift( 9, -7 );
+        const glm::ivec2 after = before + shift;
+
+        auto old = BakeCloudProceduralBox( params, level, before, whole );
+        ASSERT_TRUE( old ) << old.GetError();
+        auto fresh = BakeCloudProceduralBox( params, level, after, whole );
+        ASSERT_TRUE( fresh ) << fresh.GetError();
+
+        std::vector<unsigned char> image         = old.GetValue();
+        size_t                     enteringBytes = 0;
+
+        // Columns entering on +x: world [before.x + side, after.x + side), every row of z.
+        for ( const auto& [texel, count] : TexelRuns( before.x + static_cast<int32_t>( side ), 9u, side ) )
+        {
+            const CloudProceduralVoxelBox box{ texel, 0u, count, side };
+            auto                          slab = BakeCloudProceduralBox( params, level, after, box );
+            ASSERT_TRUE( slab ) << slab.GetError();
+            ASSERT_EQ( slab.GetValue().size(), Desert::Assets::CloudProceduralBoxBytes( box ) );
+            enteringBytes += static_cast<size_t>( std::count_if( slab.GetValue().begin(), slab.GetValue().end(),
+                                                                 []( unsigned char b ) { return b != 0u; } ) );
+            Blit( image, side, box, slab.GetValue() );
+        }
+        // Rows entering on -z: world [after.y, before.y), every column of x.
+        for ( const auto& [texel, count] : TexelRuns( after.y, 7u, side ) )
+        {
+            const CloudProceduralVoxelBox box{ 0u, texel, side, count };
+            auto                          slab = BakeCloudProceduralBox( params, level, after, box );
+            ASSERT_TRUE( slab ) << slab.GetError();
+            enteringBytes += static_cast<size_t>( std::count_if( slab.GetValue().begin(), slab.GetValue().end(),
+                                                                 []( unsigned char b ) { return b != 0u; } ) );
+            Blit( image, side, box, slab.GetValue() );
+        }
+
+        size_t differing = 0;
+        for ( size_t i = 0; i < image.size(); ++i )
+            differing += image[i] != fresh.GetValue()[i] ? 1u : 0u;
+        size_t changed = 0;
+        for ( size_t i = 0; i < image.size(); ++i )
+            changed += old.GetValue()[i] != fresh.GetValue()[i] ? 1u : 0u;
+
+        std::printf( "[CloudProceduralField] level %u: %zu bytes changed by the shift, %zu non-zero entering, %zu "
+                     "differ from the whole bake\n",
+                     level, changed, enteringBytes, differing );
+
+        EXPECT_GT( changed, 0u ) << "level " << level << ": the shift changed nothing, so the test proves nothing";
+        EXPECT_EQ( differing, 0u ) << "level " << level
+                                   << ": re-baking the entering slabs is not the whole bake of the moved level";
+    }
+}
+
+// EVERY LEVEL IS THE SAME SKY. Over the finest level's window, the fraction of columns with cloud is the same
+// at every level's voxel to within the estimator's own noise (0.3177 against 0.3163 for 256 against 128 over
+// one region, ACoarserGridIsTheSameSkySampledMoreCoarsely) — one field, one lump set, sampled more coarsely.
+// MUTATION: a level-dependent lump floor (CloudProceduralLumpFloorKm from the region's voxel when baking the
+//           coarser levels) swells the coarse levels' bodies -> red.
+TEST( CloudProceduralField, EveryLevelCoversTheSameSkyTopDown )
+{
+    CloudProceduralFieldParams params = MakeParams();
+    params.Coverage                   = 0.6f;
+    const uint32_t side               = params.VolumeSideVoxels;
+
+    // THE FINEST WINDOW: [-L0/2, +L0/2) on both axes, which is whole voxels of every level (side divides by
+    // 2^levels), baked at each level as the box whose first texel is the window's first voxel.
+    const float         windowKm = Desert::Assets::CloudProceduralLevelSideKm( params, 0u );
+    std::vector<double> cover;
+    for ( uint32_t level = 0; level < kCloudProceduralClipLevels; ++level )
+    {
+        const float    voxelKm = CloudProceduralLevelVoxelKm( params, level );
+        const int32_t  first   = static_cast<int32_t>( std::lround( -0.5f * windowKm / voxelKm ) );
+        const uint32_t span    = side >> level;
+        auto           baked   = BakeCloudProceduralBox( params, level, glm::ivec2( first ),
+                                                         CloudProceduralVoxelBox{ 0u, 0u, span, span } );
+        ASSERT_TRUE( baked ) << baked.GetError();
+        cover.push_back( ColumnCover( baked.GetValue(), span, span ) );
+        std::printf( "[CloudProceduralField] level %u (%.1f m voxel): %.4f of the finest window covered\n", level,
+                     1000.0f * voxelKm, cover.back() );
+    }
+
+    ASSERT_GT( cover[0], 0.05 ) << "the finest window holds almost no cloud, so the comparison proves nothing";
+    for ( uint32_t level = 1; level < kCloudProceduralClipLevels; ++level )
+        EXPECT_NEAR( cover[level], cover[0], 0.03 )
+             << "level " << level << " covers a different fraction of the same sky than the finest level does";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -601,14 +986,74 @@ TEST( CloudProceduralField, TheVolumeIsPeriodicSoRepeatSamplingShowsNoSeam )
     EXPECT_GT( interior, 0.0 ) << "the volume is flat, so neither number above measured anything";
 }
 
+namespace
+{
+    using namespace Desert::Assets;
+
+    // THE SKY THE MARCH KEEPS (FARWX-a): the bake holds every cell with its rank, and a column has cloud
+    // when any of its voxels is kept at the local cover of the column's WORLD site — rank under the cover and
+    // within the air's reach of its body (CloudProceduralColumnKept, FARWX-b15). Measured at many whole-region
+    // shifts, because the weather is a world field and one region holds only a couple of its systems.
+    glm::vec2 RegionShiftKm( const CloudProceduralFieldParams& params, int shift )
+    {
+        // Whole regions, so the bake's column index is unchanged; scattered so the weather is not.
+        return glm::vec2( static_cast<float>( ( shift * 7 ) % 41 ), static_cast<float>( ( shift * 13 ) % 37 ) ) *
+               params.RegionSizeKm * static_cast<float>( 1 + shift / 41 );
+    }
+
+    std::vector<float> KeptColumns( const CloudProceduralFieldParams& params,
+                                    const std::vector<unsigned char>& bake, const glm::vec2& origin, int shift )
+    {
+        const uint32_t     side  = params.VolumeSideVoxels;
+        const float        voxel = params.RegionSizeKm / static_cast<float>( side );
+        const glm::vec2    base  = origin + RegionShiftKm( params, shift );
+        std::vector<float> map( static_cast<size_t>( side ) * side, 0.0f );
+        for ( uint32_t z = 0; z < side; ++z )
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                          ( static_cast<float>( z ) + 0.5f ) * voxel );
+                const size_t    at    = static_cast<size_t>( z ) * side + x;
+                map[at] =
+                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ) )
+                          ? 1.0f
+                          : 0.0f;
+            }
+        return map;
+    }
+
+    double KeptCover( const CloudProceduralFieldParams& shipped, int shifts )
+    {
+        // AT THE COARSEST GRID THE COMPONENT OFFERS: the cover is the same sky sampled more coarsely
+        // (ACoarserGridIsTheSameSkySampledMoreCoarsely holds it within a hundredth), and the bake and the
+        // world weather per column are the whole cost of this measurement — a quarter of it at 128.
+        CloudProceduralFieldParams params = shipped;
+        params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+
+        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+        const auto      baked  = BakeCloudProceduralVolume( params, origin, {} );
+        if ( !baked )
+            return -1.0;
+        const size_t columns = static_cast<size_t>( params.VolumeSideVoxels ) * params.VolumeSideVoxels;
+        double       sum     = 0.0;
+        for ( int shift = 0; shift < shifts; ++shift )
+        {
+            const std::vector<float> map = KeptColumns( params, baked.GetValue(), origin, shift );
+            for ( float v : map )
+                sum += v;
+        }
+        return sum / ( static_cast<double>( shifts ) * static_cast<double>( columns ) );
+    }
+} // namespace
+
 // ---------------------------------------------------------------------------------------------------
-// 6. COVERAGE ADDRESSES A FRACTION OF SKY, EXACTLY, AT BOTH ENDS
+// 6. COVERAGE IS NUBIS' "HOW BUSY THE WEATHER IS" (WX-NUBIS): EMPTY AT ZERO, MONOTONE, THE ZEROS STAY CLEAR
 // ---------------------------------------------------------------------------------------------------
 //
-// The threshold this replaces could not do it: at Coverage 0 forty per cent of columns were still touched,
-// because the smoothstep's band still overlapped the field. Here a cell is alive when its own hash falls
-// below the slider, so both ends are exact by construction — and this is where that stops being a claim.
-TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
+// Owner, 10-08: Coverage is no longer the fraction of sky. localCover = Coverage * W, W >= 0 the weather map
+// with true zeros, so 0 is empty, more Coverage is never less cloud, and a column whose W is zero is clear at
+// every Coverage — an overcast sky is a cloud type, not Coverage 1.
+TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtOne )
 {
     CloudProceduralFieldParams params = MakeParams();
 
@@ -618,14 +1063,46 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
     EXPECT_TRUE( GenerateCloudProceduralBlobs( params, 0u, origin ).empty() )
          << "a coverage of zero put cloud in a sky the artist asked to be empty";
 
-    const auto empty = BakeCloudProceduralVolume( params, origin );
-    ASSERT_TRUE( empty ) << ( empty ? std::string{} : empty.GetError() );
-    EXPECT_EQ( std::accumulate( empty.GetValue().begin(), empty.GetValue().end(), 0ull,
-                                []( unsigned long long total, unsigned char value ) { return total + value; } ),
-               0ull )
-         << "a coverage of zero baked a volume with something in it";
+    const double emptyCover = KeptCover( params, 4 );
+    ASSERT_GE( emptyCover, 0.0 ) << "the bake failed";
+    EXPECT_EQ( emptyCover, 0.0 ) << "a coverage of zero kept cloud over " << emptyCover << " of the sky";
 
-    params.Coverage                            = 1.0f;
+    // AT COVERAGE ONE THE WEATHER'S ZEROS ARE STILL CLEAR. Census of the cut itself: every column the
+    // weather map empties keeps nothing, and the sky is short of full by at least half the empty fraction.
+    params.Coverage = 1.0f;
+    {
+        CloudProceduralFieldParams coarse = params;
+        coarse.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+        const glm::vec2 at                = CloudProceduralRegionOriginKm( coarse, 0.0f, 0.0f );
+        const auto      baked             = BakeCloudProceduralVolume( coarse, at, {} );
+        ASSERT_TRUE( baked ) << "the bake failed";
+        const uint32_t side  = coarse.VolumeSideVoxels;
+        const float    voxel = coarse.RegionSizeKm / static_cast<float>( side );
+        size_t         zeros = 0, keptInZeros = 0;
+        for ( int shift = 0; shift < 8; ++shift )
+        {
+            const glm::vec2 base = at + RegionShiftKm( coarse, shift );
+            for ( uint32_t z = 0; z < side; ++z )
+                for ( uint32_t x = 0; x < side; ++x )
+                {
+                    const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                              ( static_cast<float>( z ) + 0.5f ) * voxel );
+                    const glm::vec4 covers = CloudProceduralLocalWeathers( coarse, world );
+                    if ( std::max( std::max( covers.x, covers.y ), std::max( covers.z, covers.w ) ) > 0.0f )
+                        continue;
+                    ++zeros;
+                    keptInZeros += CloudProceduralColumnKept( baked.GetValue(), side, x, z, covers ) ? 1u : 0u;
+                }
+        }
+        EXPECT_GT( zeros, size_t{ 0 } ) << "the shipped weather strength has no true zeros";
+        EXPECT_EQ( keptInZeros, size_t{ 0 } ) << keptInZeros << " columns the weather empties still hold cloud";
+    }
+
+    const double fullCover = KeptCover( params, 16 );
+    const double ps        = static_cast<double>( params.PatchStrength );
+    const double zeroShare = ps - 0.15 * std::min( ps, 1.0 - ps ); // CloudWeatherPresence's true zeros
+    EXPECT_LT( fullCover, 1.0 - 0.5 * zeroShare )
+         << "a coverage of one kept cloud over " << fullCover << " of the sky: the weather's gaps were filled";
     const std::vector<CloudModellingBlob> full = GenerateCloudProceduralBlobs( params, 0u, origin );
 
     params.Coverage                            = 0.5f;
@@ -639,6 +1116,7 @@ TEST( CloudProceduralField, CoverageIsExactlyEmptyAtZeroAndExactlyFullAtOne )
     EXPECT_GT( full.size(), half.size() )
          << "raising the coverage from a half to one did not add cloud to the sky";
 
+    std::printf( "[CloudProceduralField] coverage 0 / 1 keeps %.4f / %.4f of the sky\n", emptyCover, fullCover );
     std::printf( "[CloudProceduralField] coverage 0 / 0.5 / 1 gives %zu / %zu / %zu lumps\n", size_t{ 0 },
                  half.size(), full.size() );
 }
@@ -726,61 +1204,56 @@ TEST( CloudProceduralField, TheCostOfRebakingTheRegionIsMeasured )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 6b. COVERAGE MEANS THE FRACTION OF SKY WITH CLOUD IN IT, SEEN FROM BELOW
+// 6b. THE SKY'S COVER RISES WITH COVERAGE, AND ITS GAPS ARE WEATHER-SIZED (WX-NUBIS)
 // ---------------------------------------------------------------------------------------------------
 //
-// THE ENDS BEING EXACT IS NOT ENOUGH, and finding that out cost a frame. The test above proves 0 is empty
-// and 1 is full and that the middle is monotone — and the first sky built on it, at the shipped scene's
-// coverage of 0.24, rendered a horizon with clouds on it and a ZENITH WITH NOTHING. A slider whose two
-// ends are right and whose middle is off by a factor is still a slider that does not mean what it says.
-//
-// What it has to mean is the thing a person looking up would measure: the fraction of the sky that has
-// cloud somewhere in the column. That is the TOP-DOWN PROJECTION of the volume, and it is what this
-// measures — against the slider, at five settings, with the deviation printed so a recalibration is a
-// number rather than an opinion.
-TEST( CloudProceduralField, CoverageIsTheFractionOfSkyThatHasCloudInTheColumn )
+// What a person looking up sees is the top-down projection of what the cut keeps. Coverage no longer has to
+// equal it (owner, 10-08); it has to move it one way only. And the clear sky between weather systems has to be
+// GAPS a sight line can see through — runs of empty columns at least a quarter of the weather's shortest
+// wavelength (PatchTileKm) — not a uniform thinning, at every Coverage up to one.
+TEST( CloudProceduralField, TheSkysCoverRisesWithCoverageAndItsGapsAreWeatherSized )
 {
-    double worst = 0.0;
-
-    for ( const float wanted : { 0.15f, 0.24f, 0.35f, 0.50f, 0.75f } )
+    double previous = -1.0;
+    for ( const float coverage : { 0.15f, 0.35f, 0.50f, 0.75f, 1.0f } )
     {
         CloudProceduralFieldParams params = MakeParams();
-        params.Coverage                   = wanted;
+        params.Coverage                   = coverage;
 
-        const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
-        const auto      baked  = BakeCloudProceduralVolume( params, origin );
-        ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
-
-        size_t columns = 0;
-        for ( uint32_t z = 0; z < kCloudProceduralVolumeSide; ++z )
-            for ( uint32_t x = 0; x < kCloudProceduralVolumeSide; ++x )
-            {
-                for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
-                {
-                    if ( baked.GetValue()[VoxelIndex( x, y, z )] != 0u )
-                    {
-                        ++columns;
-                        break;
-                    }
-                }
-            }
-
-        const double measured = static_cast<double>( columns ) /
-                                static_cast<double>( kCloudProceduralVolumeSide * kCloudProceduralVolumeSide );
-
-        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column "
-                     "(%+.3f)\n",
-                     wanted, measured, measured - wanted );
-
-        worst = std::max( worst, std::abs( measured - wanted ) );
+        const double measured = KeptCover( params, 16 );
+        ASSERT_GE( measured, 0.0 ) << "the bake failed";
+        std::printf( "[CloudProceduralField] coverage %.2f -> %.3f of the sky has cloud in the column\n", coverage,
+                     measured );
+        EXPECT_GT( measured, previous ) << "raising Coverage to " << coverage << " did not add cloud to the sky";
+        previous = measured;
     }
 
-    // A TENTH OF THE SLIDER'S TRAVEL. Tighter than that is asking a lattice of jittered clusters to hit a
-    // continuous fraction exactly, which it cannot; looser than that is the gap between "a quarter of the
-    // sky" and "an empty zenith" that this test was written after.
-    EXPECT_LT( worst, 0.10 ) << "the coverage slider is out by " << worst
-                             << " of the sky at its worst setting, so what it says and what a person "
-                                "looking up would measure are different numbers";
+    // THE GAPS, by census on the kept map at Coverage one: the longest clear run along a row, over shifts.
+    CloudProceduralFieldParams params = MakeParams();
+    params.Coverage                   = 1.0f;
+    params.VolumeSideVoxels           = kCloudProceduralVolumeSideMin;
+    const glm::vec2 origin            = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
+    const auto      baked             = BakeCloudProceduralVolume( params, origin, {} );
+    ASSERT_TRUE( baked ) << "the bake failed";
+
+    const uint32_t side    = params.VolumeSideVoxels;
+    const float    voxelKm = params.RegionSizeKm / static_cast<float>( side );
+    float          longest = 0.0f;
+    for ( int shift = 0; shift < 16; ++shift )
+    {
+        const std::vector<float> map = KeptColumns( params, baked.GetValue(), origin, shift );
+        for ( uint32_t z = 0; z < side; ++z )
+        {
+            uint32_t run = 0;
+            for ( uint32_t x = 0; x < side; ++x )
+            {
+                run     = map[static_cast<size_t>( z ) * side + x] > 0.0f ? 0u : run + 1u;
+                longest = std::max( longest, static_cast<float>( run ) * voxelKm );
+            }
+        }
+    }
+    std::printf( "[CloudProceduralField] at coverage 1 the longest clear run is %.1f km\n", longest );
+    EXPECT_GE( longest, 0.25f * params.PatchTileKm )
+         << "at Coverage 1 the longest clear run was " << longest << " km: the weather's zeros were filled in";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -954,6 +1427,68 @@ TEST( CloudProceduralBudget, ACancelledBakeStopsEarlyAndSaysSoRatherThanReturnin
     EXPECT_FALSE( cancelled ) << "a cancelled bake returned a volume";
     EXPECT_EQ( calls, 1 ) << "the bake carried on past a callback that said stop";
 }
+
+// THE PROFILE RISES THROUGH THE WHOLE BODY, AND THE CUT KEEPS ITS GRADIENT (PROFILE-BODY). A body depth is
+// never under two voxels of the grid in its coarser direction, and the coverage remap's slope in the profile
+// is at most 1 at every reach — together: the baked ramp spans at least two voxels however near its
+// threshold a cluster stands, so the trilinear fetch never draws it as a facet.
+// MUTATION: divide by `g` again in CloudProceduralCoverRemap and the slope row goes red; drop the floor in
+// CloudProceduralBodyDepthKm and the depth row goes red.
+TEST( CloudProceduralField, TheProfileRampSpansAtLeastTwoVoxelsAtEveryReach )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    const float voxelKm = std::max( params.RegionSizeKm / static_cast<float>( params.VolumeSideVoxels ),
+                                    params.LayerThicknessKm / static_cast<float>( kCloudProceduralVolumeHeight ) );
+
+    for ( const float lumpKm : { 0.0f, 0.05f, 0.2f, 1.0f, 3.0f } )
+        EXPECT_GE( CloudProceduralBodyDepthKm( params, lumpKm ), std::max( 2.0f * voxelKm, lumpKm ) - 1e-6f )
+             << "a body " << lumpKm << " km deep is normalised over less than two voxels";
+
+    const float step = 1.0f / 256.0f;
+    for ( const float reach : { 0.02f, 0.1f, 0.3f, 0.7f, 1.0f } )
+        for ( float profile = 0.0f; profile + step <= 1.0f; profile += step )
+            EXPECT_LE( CloudProceduralCoverRemap( profile + step, reach ) -
+                            CloudProceduralCoverRemap( profile, reach ),
+                       step + 1e-6f )
+                 << "the remap steepens the profile at reach " << reach << ", profile " << profile;
+
+    EXPECT_EQ( CloudProceduralCoverRemap( 0.0f, 1.0f ), 0.0f ) << "air became cloud";
+    EXPECT_EQ( CloudProceduralCoverRemap( 1.0f, 0.0f ), 0.0f ) << "a reach of zero drew cloud";
+    EXPECT_FLOAT_EQ( CloudProceduralCoverRemap( 0.6f, 1.0f ), 0.6f ) << "a full reach changed the profile";
+}
+
+// THE SILHOUETTE NOISE TILES WITH THE VOLUME AND STAYS IN ITS RANGE (SHAPE-NOISE). It moves every lump's
+// distance before the join, so a noise that did not repeat at RegionSizeKm would put a seam where the baked
+// volume wraps, and the preview at a point would stop being the bake at its wrap. It also has to MOVE: a
+// constant would leave every silhouette the ellipsoid join it was.
+// MUTATION: drop the std::round in CloudProceduralShapeNoise's cell count and the period rows go red; make it
+// return 0 and the variation row goes red.
+TEST( CloudProceduralField, TheSilhouetteNoiseTilesWithTheVolumeAndVaries )
+{
+    const CloudProceduralFieldParams params = MakeParams();
+    ASSERT_FALSE( params.Species.empty() );
+
+    float lowest  = 1.0f;
+    float highest = -1.0f;
+    for ( uint32_t i = 0; i < 64u; ++i )
+    {
+        const glm::vec3 point( 0.37f + 0.731f * static_cast<float>( i ),
+                               params.LayerBottomKm + 0.05f * static_cast<float>( i % 40u ),
+                               1.13f + 0.419f * static_cast<float>( i ) );
+        const float     here = CloudProceduralShapeNoise( params, 0u, point );
+        EXPECT_GE( here, -1.0f );
+        EXPECT_LE( here, 1.0f );
+        EXPECT_NEAR( here, CloudProceduralShapeNoise( params, 0u, point + glm::vec3( params.RegionSizeKm, 0, 0 ) ),
+                     1e-3f )
+             << "the noise does not repeat along x at the region";
+        EXPECT_NEAR( here, CloudProceduralShapeNoise( params, 0u, point - glm::vec3( 0, 0, params.RegionSizeKm ) ),
+                     1e-3f )
+             << "the noise does not repeat along z at the region";
+        lowest  = std::min( lowest, here );
+        highest = std::max( highest, here );
+    }
+    EXPECT_GT( highest - lowest, 0.5f ) << "the silhouette noise barely moves, so the bodies stay ellipsoids";
+}
 // -------------------------------------------------------------------------------------------------------
 // THE DDC KEY OF THE MODELLING VOLUME — every input the bake reads, and nothing it does not
 // -------------------------------------------------------------------------------------------------------
@@ -1004,7 +1539,6 @@ TEST( CloudProceduralCacheKey, EveryFieldTheComparisonSeesChangesTheKey )
          { "LayerBottomKm", []( Params& p ) { p.LayerBottomKm += 0.1f; } },
          { "LayerThicknessKm", []( Params& p ) { p.LayerThicknessKm += 0.1f; } },
          { "BlendRadiusKm", []( Params& p ) { p.BlendRadiusKm += 0.01f; } },
-         { "ProfileDepthKm", []( Params& p ) { p.ProfileDepthKm += 0.01f; } },
          { "Coverage", []( Params& p ) { p.Coverage += 0.01f; } },
          { "CoverageContrast", []( Params& p ) { p.CoverageContrast += 0.1f; } },
          { "Seed", []( Params& p ) { p.Seed += 1u; } },

@@ -223,6 +223,32 @@ namespace Desert::Graphic
         // beside its width and height, rather than asked of the image a second way. Г12.
         virtual Core::Formats::Image3DSpecification& GetImageSpecification() = 0;
 
+        /// One box of texels of a volume and the bytes that fill it: Width x Height x Depth texels in the
+        /// image's own format, tightly packed, x fastest, then y, then z.
+        struct RegionWrite
+        {
+            uint32_t             X = 0, Y = 0, Z = 0;
+            uint32_t             Width = 0, Height = 0, Depth = 0;
+            const unsigned char* Bytes = nullptr;
+            uint64_t             Size  = 0;
+        };
+
+        /**
+         * @brief Overwrites boxes of the EXISTING image in place — the image, its view and every descriptor
+         * naming it stay valid, so a volume that scrolls (Graphic::CloudProceduralClipmap) re-uploads only
+         * the columns that entered it instead of being recreated.
+         *
+         * ORDERED AGAINST THE FRAMES ON THE QUEUE, not against the device: the write is one submission on
+         * the graphics queue whose barrier waits for every command submitted before it, so a frame still
+         * sampling the old texels finishes first and a frame recorded afterwards reads the new ones. No
+         * device-wide idle. Every box is checked against the extent; a box outside it or with the wrong byte
+         * count refuses the whole call and writes nothing.
+         */
+        NO_DISCARD virtual Common::BoolResultStr WriteRegions( const std::vector<RegionWrite>& /*regions*/ )
+        {
+            return Common::MakeError<bool>( "Image3D::WriteRegions not supported by this backend" );
+        }
+
         static std::shared_ptr<Image3D> Create( const Core::Formats::Image3DSpecification& spec );
     };
 

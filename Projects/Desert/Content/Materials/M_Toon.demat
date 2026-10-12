@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "2a85050aa9775bf898223a08ea36f117",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["55b6cdeb3bd78e5c7e30a159ee904baf"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [0.2000000029802322, 0.6000000238418579, 0.8999999761581421, 1.0]
+            "Value": [0.2, 0.6, 0.9, 1.0]
         },
         {
             "Name": "Bands",

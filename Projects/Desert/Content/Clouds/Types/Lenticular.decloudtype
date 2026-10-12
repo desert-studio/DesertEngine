@@ -3,7 +3,7 @@
         "Kind": "CloudType",
         "Guid": "e6f14c7dc0603759cc564e8e5d57ec27",
         "Versions": {
-            "CLTY": 5
+            "CLTY": 7
         },
         "Dependencies": []
     },
@@ -18,6 +18,10 @@
             "HalfWidth": [
                 0.62, 0.6001933, 0.58070666, 0.56154, 0.5426933, 0.52416664, 0.50596, 0.48807332,
                 0.47050667, 0.45326, 0.43633333, 0.41972667, 0.40344, 0.38747334, 0.37182668, 0.3565
+            ],
+            "Density": [
+                0.0, 0.25925928, 0.7407408, 1.0, 1.0, 1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
             ]
         },
         "AnvilAltitudeKm": 0.0,
@@ -28,6 +32,7 @@
         "DensityFactor": 1.1,
         "ExtinctionFactor": 1.1,
         "PlacementScale": 0.8,
-        "PlacementAnisotropy": 0.2
+        "PlacementAnisotropy": 0.2,
+        "BodyDiameterKm": 6.0
     }
 }

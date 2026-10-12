@@ -551,8 +551,8 @@ TEST( CloudSkyOcclusion, AHemisphericalTransmittanceIsComposedIntoTheSphereTheAm
 
     // THE FLOOR IS THE UNOCCLUDED HEMISPHERE AND NOT ZERO. This is the bound the previous form violated:
     // however much cloud is stacked overhead, a sample still sees half the sphere. Stated for the worst
-    // case the shipped scene can reach — Clouds_Protocol's ExtinctionScale of 8/km over a 3.6 km deck
-    // drives the stored transmittance to about 1e-7, i.e. numerically zero.
+    // case the shipped scene can reach — Clouds_Protocol's ExtinctionScale of 75/km over a 3.6 km deck
+    // drives the stored transmittance to numerically zero (8/km already reached about 1e-7).
     for ( const float strength : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f } )
     {
         EXPECT_GE( CloudSkyOcclusion( 0.0f, strength ), CLOUD_SKY_LOWER_HEMISPHERE ) << "s " << strength;
@@ -620,7 +620,7 @@ TEST( CloudSkyOcclusion, TheAddressingIsTheModellingVolumesOwnFrameAndItsTopSlic
     // THE ADDRESSING IS ONE MAPPING USED IN TWO DIRECTIONS — the producer places its columns on this grid
     // and the march reads them back through this function — so what has to be true is that a point at the
     // region's minimum corner lands at uv 0 and one a full side away lands at uv 1, in the SAME frame the
-    // profile fetch beside it uses (Common/CloudField.glslh, CloudProceduralVolumeUvw).
+    // profile fetch beside it uses (Common/CloudField.glslh, CloudProceduralLevelUvw).
     const vec2  originKm{ -24.0f, 7.0f };
     const float sideKm    = 48.0f;
     const float invSideKm = 1.0f / sideKm;
