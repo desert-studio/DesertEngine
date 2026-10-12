@@ -18,7 +18,6 @@
 #include <format>
 #include <iterator>
 #include <optional>
-#include <sstream>
 #include <string_view>
 
 namespace Desert::Editor
@@ -38,18 +37,6 @@ namespace Desert::Editor
     static std::string PrefsFile()
     {
         return EditorPreferences::ConfigDirectory() + "/editor.json";
-    }
-
-    // THE RETIRED PINNED-FOLDERS FILE (К5). It is named in exactly one place — here — and only so that the
-    // migration below can read it once and delete it. Nothing reads the pinned folders from it.
-    //
-    // The directory it sits in is asked of ConfigDirectory() rather than resolved again. `$HOME` was
-    // spelled out by hand in the content browser, which made a THIRD statement of where this user's
-    // configuration lives, differing from ProjectContext's in the one respect that mattered: it did not
-    // create the directory. Two of the three copies were already one function.
-    static std::filesystem::path LegacyFavouritesFile()
-    {
-        return std::filesystem::path( EditorPreferences::ConfigDirectory() ) / "asset_favorites.txt";
     }
 
     // WHICH PROJECT'S PINS ARE BEING ASKED ABOUT, and "" when the answer is none. The key is the `Name`
@@ -202,47 +189,6 @@ namespace Desert::Editor
         return list;
     }
 
-    // KEYS THIS PROJECT DELETED ON PURPOSE, WHICH IS A DIFFERENT THING FROM A KEY IT DOES NOT KNOW.
-    //
-    // Before К9 a removed field needed no entry here: the struct stopped naming it, so the next save
-    // rewrote the file without it and the key was gone. UnknownKeys ended that — every key survives now,
-    // including the ones somebody meant to destroy — so the deletion has to be stated somewhere, and this
-    // is that somewhere. The invariant it protects is contract §4's: a retirement finishes.
-    //
-    // The first two are К1's. `PhotogrammetryCaptureCommand` documented a `{photos}` substitution that
-    // was never implemented and `PhotogrammetryMode` an Object/Face preset switch that does not exist;
-    // they were serialized into every editor.json and read by nothing.
-    //
-    // `MSAASamples` is К3's, and it is the first row here that names a LIVE setting rather than a dead
-    // one. The value did not stop existing — it moved to Common::Settings::MachineSettings, because this
-    // file is an Editor-target concept the packaged Runtime never opens and a per-machine quality knob
-    // stored here is a knob the player does not get. What is retired is the KEY: this build no longer
-    // declares it, so without this row UnknownKeys would preserve it in every existing editor.json for
-    // ever, and a reader opening that file a year from now would find a quality setting that has had no
-    // consumer since 2026-09-08. The new store is NOT seeded from it — two files written by different
-    // processes at different moments, one silently deciding the other, is the hazard this whole task is
-    // about; the machine store's default is 1, which is what every editor.json in existence states.
-    //
-    // EXPIRY: a row leaves this list when no config in circulation can still carry the key. It costs one
-    // string compare per unknown key per read, and a read has neither in the ordinary case.
-    //
-    // A row is (block, key): the block is "" for the file's top level, or the name of the nested struct
-    // the key lived in (`DebugView`, `PreviewScene`) — every level carries unknown keys, so every level
-    // can retire one.
-    struct RetiredKey
-    {
-        std::string_view Block;
-        std::string_view Key;
-    };
-
-    static bool IsRetiredKey( std::string_view block, const std::string& key )
-    {
-        static constexpr RetiredKey retired[] = {
-             { "", "PhotogrammetryCaptureCommand" }, { "", "PhotogrammetryMode" }, { "", "MSAASamples" } };
-        return std::any_of( std::begin( retired ), std::end( retired ),
-                            [&]( const RetiredKey& row ) { return row.Block == block && row.Key == key; } );
-    }
-
     // EVERY LEVEL OF editor.json THAT CARRIES ANOTHER BUILD'S KEYS. Json::Read refuses an undeclared key
     // at any depth, so a nested struct without a carrier would make one new field of a newer build turn
     // the whole file into "corrupt -> defaults -> overwritten on the next save" for every older build.
@@ -264,39 +210,6 @@ namespace Desert::Editor
     static std::string QualifiedKey( std::string_view block, const std::string& key )
     {
         return block.empty() ? key : std::format( "{}.{}", block, key );
-    }
-
-    // Drops the retired keys from every carrier of `p`, naming each in `raised` when one is given.
-    //
-    // BOTH PATHS THAT TAKE UNKNOWN KEYS OFF DISK CALL THIS, and they have to: MigrateLoaded() for the read
-    // at startup, AdoptUnknownKeysFromDisk() for the re-read at the moment of writing. One rule, one
-    // implementation — a second copy of "which keys are dead" is the two-stores shape К6 removed, and it
-    // would show up as a key that comes back whenever the OTHER path is the one that ran.
-    //
-    // Rebuilt rather than erased in place because rfl::Object is an ordered vector of pairs with no
-    // erase(). Rebuilding also preserves the order of what is kept, which matters because PersistCurrent
-    // compares the serialized TEXT.
-    static void DropRetiredKeys( EditorPreferences& p, std::vector<std::string>* raised )
-    {
-        for ( const KeyCarrier& carrier : CarriersOf( p ) )
-        {
-            if ( carrier.Keys->empty() )
-                continue;
-
-            Common::Json::CarriedKeys kept;
-            for ( const auto& [key, value] : *carrier.Keys )
-            {
-                if ( !IsRetiredKey( carrier.Block, key ) )
-                {
-                    kept.insert( key, value );
-                    continue;
-                }
-                if ( raised != nullptr )
-                    raised->push_back( std::format( "retired key '{}' dropped (this build does not declare it)",
-                                                    QualifiedKey( carrier.Block, key ) ) );
-            }
-            *carrier.Keys = std::move( kept );
-        }
     }
 
     // WHAT editor.json HOLDS AT THIS INSTANT, and the unknown keys taken from it — refreshed into
@@ -342,12 +255,8 @@ namespace Desert::Editor
 
         EditorPreferences fromDisk = parsed.GetValue();
 
-        // The file's canonical text is taken BEFORE the retirement, on purpose: it is the memo the write
-        // is decided against, and a retired key still sitting on disk has to read as a difference or the
-        // save that removes it would be skipped as redundant.
         const std::string canonical = Common::Json::Write( fromDisk );
 
-        DropRetiredKeys( fromDisk, nullptr );
         // Every level, not only the top: a key a newer build added inside DebugView after this process
         // started is as much another build's as a top-level one.
         const std::array<KeyCarrier, 3> current = CarriersOf( EditorPreferences::Get() );
@@ -418,153 +327,6 @@ namespace Desert::Editor
         return true;
     }
 
-    std::vector<std::string> EditorPreferences::MigrateLoaded( EditorPreferences& p )
-    {
-        std::vector<std::string> raised;
-
-        DropRetiredKeys( p, &raised );
-
-        // METRE-ERA TranslateSnap -> centimetres.
-        //
-        // The field's default was 0.5 with the comment "world units" from when a unit was a metre. A
-        // world unit is a CENTIMETRE now, so every stored value is a hundredth of what its author meant,
-        // and the Preferences slider that wrote it was labelled "Move (m)" while feeding a centimetre
-        // system. Sub-centimetre snapping is meaningless at this scale — the smallest step the editor
-        // offers is 1 cm — so a stored value below 1 can only be a metre-era number.
-        //
-        // EXPIRY: this raises pre-2026-09 preference files and nothing else. Delete it once no one is
-        // carrying a config written before У5; it cannot fire on a value this build can produce.
-        if ( p.TranslateSnap > 0.0f && p.TranslateSnap < 1.0f )
-        {
-            const float old = p.TranslateSnap;
-            p.TranslateSnap *= 100.0f;
-            raised.push_back( "TranslateSnap " + std::to_string( old ) + " -> " +
-                              std::to_string( p.TranslateSnap ) + " cm (1 world unit = 1 cm)" );
-        }
-
-        return raised;
-    }
-
-    std::vector<std::string> EditorPreferences::MigrateFavouritesFile( EditorPreferences&              p,
-                                                                       const std::string&              project,
-                                                                       const std::filesystem::path&    assetsRoot,
-                                                                       const std::vector<std::string>& lines )
-    {
-        std::vector<std::string> raised;
-        if ( project.empty() )
-            return raised;
-
-        std::vector<std::string>& pins = p.FavouriteFolders[project];
-        const std::size_t         had  = pins.size();
-
-        std::size_t foreign = 0;
-        for ( const std::string& line : lines )
-        {
-            if ( line.empty() )
-                continue;
-
-            const std::string rel = RelativeToAssets( assetsRoot, line );
-            if ( rel.empty() )
-            {
-                ++foreign;
-                raised.push_back( "pinned folder '" + line +
-                                  "' dropped: it is outside this project's assets root, and the retired "
-                                  "file recorded no project to attribute it to" );
-                continue;
-            }
-            if ( std::find( pins.begin(), pins.end(), rel ) == pins.end() )
-                pins.push_back( rel );
-        }
-
-        if ( pins.size() > had )
-            raised.push_back( std::to_string( pins.size() - had ) + " pinned folder(s) moved into '" + project +
-                              "' from the retired asset_favorites.txt" );
-        else if ( foreign == 0 && !lines.empty() )
-            raised.push_back( "the retired asset_favorites.txt held nothing this project did not already have" );
-
-        // A key with nothing behind it is what the operator[] above would otherwise leave for a file that
-        // was empty, or held only another project's folders. See ToggleFavouriteFolder.
-        if ( pins.empty() )
-            p.FavouriteFolders.erase( project );
-
-        return raised;
-    }
-
-    // READ THE RETIRED FILE ONCE, MOVE WHAT IT HOLDS, DELETE IT — in that order, and the order is the
-    // whole safety of it (К5). The write is confirmed before the deletion, so a run that cannot save
-    // preferences leaves the old file exactly where it was and tries again next launch; the alternative is
-    // a migration that destroys the only copy of the data it failed to move. That is the И2 shape — a
-    // writer reporting success over a file it has just emptied — and this function is a deletion, which is
-    // the same shape one step further along.
-    static void AdoptLegacyFavourites()
-    {
-        const std::filesystem::path legacy = LegacyFavouritesFile();
-        std::error_code             ec;
-        if ( !std::filesystem::exists( legacy, ec ) )
-            return;
-
-        const std::string project = CurrentProjectKey();
-        if ( project.empty() )
-        {
-            // NOT AN ERROR AND NOT A DELETION. Every line in the file needs a project to be attributed to,
-            // so a session without one cannot migrate — and must not destroy the file trying.
-            LOG_INFO( "[Prefs] {} is waiting for a project: its pinned folders are moved into editor.json "
-                      "the first time this editor opens one.",
-                      legacy.string() );
-            return;
-        }
-
-        std::vector<std::string> lines;
-        {
-            const auto raw = Common::Utils::FileSystem::ReadFileContent( legacy.string() );
-            if ( !raw )
-            {
-                LOG_ERROR( "[Prefs] {} exists but could not be read: {} — the pinned folders it holds are "
-                           "not migrated and the file is left in place.",
-                           legacy.string(), raw.GetError() );
-                return;
-            }
-
-            std::istringstream in( raw.GetValue() );
-            std::string        line;
-            while ( std::getline( in, line ) )
-            {
-                if ( !line.empty() && line.back() == '\r' )
-                    line.pop_back();
-                lines.push_back( line );
-            }
-        }
-
-        const auto raised = EditorPreferences::MigrateFavouritesFile(
-             EditorPreferences::Get(), project, Common::Constants::Path::ASSETS_PATH, lines );
-
-        // Contract §4.7: which file, from what to what, and how many entries moved.
-        for ( const std::string& line : raised )
-            LOG_INFO( "[Prefs] {} migrated: {}", legacy.string(), line );
-
-        if ( !PersistCurrent( "pinned folders moved out of asset_favorites.txt (" +
-                              std::to_string( raised.size() ) + " note(s))" ) )
-        {
-            LOG_ERROR( "[Prefs] {} is NOT deleted: the pinned folders could not be written to {}, so the "
-                       "old file is the only copy and stays until a save succeeds.",
-                       legacy.string(), PrefsFile() );
-            return;
-        }
-
-        std::filesystem::remove( legacy, ec );
-        if ( ec )
-        {
-            // The pins are already in editor.json, so nothing is lost — but a file that survives its own
-            // migration is read again next launch, and saying so is what stops that being a mystery.
-            LOG_ERROR( "[Prefs] {} was migrated but could NOT be deleted: {} — it will be read (and its "
-                       "entries re-merged, harmlessly) on every launch until it is removed by hand.",
-                       legacy.string(), ec.message() );
-            return;
-        }
-        LOG_INFO( "[Prefs] {} is retired and deleted; pinned folders live in {} now.", legacy.string(),
-                  PrefsFile() );
-    }
-
     void EditorPreferences::Load()
     {
         // Anything short of a file we read AND understood leaves the memo empty, which means "we cannot
@@ -575,14 +337,6 @@ namespace Desert::Editor
 
         // First run: no prefs file yet — keep defaults, and skip the read's "could not read file"
         // error line, which would be noise for a state that is expected.
-        //
-        // A BARE `return` STOOD HERE AND BECAME A DEFECT THE MOMENT A SECOND MIGRATION JOINED THIS
-        // FUNCTION — caught end to end, running the editor against a planted legacy file rather than by
-        // reading the diff. `AdoptLegacyFavourites()` below is about a DIFFERENT file, and under the early
-        // return it ran only for a user who also had an editor.json: a fresh install carrying pinned
-        // folders and nothing else migrated silently never, and the file it should have retired stayed on
-        // disk being ignored. The recurring middle-link shape — both ends right, the step between them not
-        // reached — so the condition is a block now and the load has one exit.
         if ( std::filesystem::exists( PrefsFile() ) )
         {
             if ( const auto raw = Common::Utils::FileSystem::ReadFileContent( PrefsFile() ); !raw )
@@ -614,18 +368,6 @@ namespace Desert::Editor
                 LOG_WARN( "[Prefs] editor.json is corrupt, using defaults: {}", parsed.GetError() );
             }
 
-            if ( const auto raised = MigrateLoaded( Get() ); !raised.empty() )
-            {
-                // Contract §4.7: a migration says which file, from what to what, and how many fields moved.
-                for ( const std::string& line : raised )
-                    LOG_INFO( "[Prefs] {} migrated: {}", PrefsFile(), line );
-
-                // Written back in the new form so the migration runs once, not every launch — and through
-                // SaveMigrated rather than Save, so the log names the migration instead of reporting a
-                // settings change the user did not make.
-                SaveMigrated( "migration write-back (" + std::to_string( raised.size() ) + " field(s) raised)" );
-            }
-
             // CARRYING A KEY WE DO NOT UNDERSTAND IS AN EVENT, NOT A DETAIL. It means another build — an
             // agent's worktree, an older install, a branch that has since landed — owns settings this binary
             // cannot show or edit, and the only symptom otherwise available is the one К9 came from: nobody
@@ -642,16 +384,11 @@ namespace Desert::Editor
             }
             if ( count != 0 )
             {
-                LOG_INFO( "[Prefs] {} holds {} key(s) this build does not know ({}); they belong to another "
+                LOG_WARN( "[Prefs] {} holds {} key(s) this build does not know ({}); they belong to another "
                           "build and are preserved on save, not dropped.",
                           PrefsFile(), count, names );
             }
         }
-
-        // LAST, because it writes through this struct: the pinned folders it moves have to land on top of
-        // what was just read, not be overwritten by it. Ordinarily a no-op — the file it reads exists only
-        // on an installation that predates К5, and it deletes the file it migrates.
-        AdoptLegacyFavourites();
     }
 
     bool EditorPreferences::IsFavouriteField( const std::string& key )

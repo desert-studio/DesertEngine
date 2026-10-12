@@ -229,9 +229,8 @@ namespace Desert::Editor
 
                 // SaveMigrated, NOT Save: nothing the user did triggered this write. It fires on the
                 // first frame after an update, because a stored layout version is being raised to the
-                // one this build lays out — the same shape as the metre-era grid snap Load() raises, and
-                // the same reason it must be written back (a version that did not persist would rebuild
-                // the layout on every launch). Save() means "the user changed a setting" and would have
+                // one this build lays out, and it must be written back (a version that did not persist would
+                // rebuild the layout on every launch). Save() means "the user changed a setting" and would have
                 // logged this one as if they had.
                 const std::string migration =
                      std::format( "docking layout version {} -> {}", EditorPreferences::Get().DockLayoutVersion,

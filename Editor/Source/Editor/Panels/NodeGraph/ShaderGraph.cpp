@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -64,8 +65,8 @@ namespace Desert::Editor::ShaderGraph
             // they were added: Albedo/Emission/Alpha first, then the three the shared lit texts need
             // (Mesh/AmbientIBL.glslh and Mesh/DirectLighting.glslh both take metalness and roughness,
             // and the ambient takes an occlusion factor). APPENDED and never reordered — a saved
-            // .dgraph stores pins positionally, and MigrateToCatalogue below can only grow a node
-            // whose stored pins are still a prefix of this list.
+            // .dgraph is reconstructed against this list on load (ReconstructNodes), and keeping
+            // the order keeps the files' pin order equal to the catalogue's.
             { "SurfaceOutput", "Surface Output", RGBA( 150, 90, 60, 255 ),
               { { "Albedo", ValueType::Color },
                 { "Emission", ValueType::Color },
@@ -977,6 +978,29 @@ namespace Desert::Editor::ShaderGraph
                     }
                 }
 
+                // AN ORPHANED PIN (ReconstructNodes): a stored pin its kind no longer declares, kept only
+                // because a link still uses it. Named before the count check below, which it would
+                // otherwise trip with a message that does not say which pin is the problem.
+                const auto orphan = [&]( const std::vector<Pin>&               pins,
+                                         const std::vector<NodeSpec::PinSpec>& declared,
+                                         const char*                           side ) -> std::optional<std::string>
+                {
+                    for ( const auto& pin : pins )
+                        if ( std::none_of( declared.begin(), declared.end(),
+                                           [&]( const NodeSpec::PinSpec& d ) {
+                                               return d.Name == pin.Name && static_cast<int>( d.Type ) == pin.Type;
+                                           } ) )
+                            return std::format(
+                                 "node {}: {} '{}' is not declared by kind '{}' (renamed or retyped "
+                                 "in the catalogue) and a link still uses it; reconnect the link",
+                                 NodeLabel( node ), side, pin.Name, node.Kind );
+                    return std::nullopt;
+                };
+                if ( auto error = orphan( node.Inputs, spec->Inputs, "input" ) )
+                    return *error;
+                if ( auto error = orphan( node.Outputs, spec->Outputs, "output" ) )
+                    return *error;
+
                 // A node whose pin list disagrees with its kind is the crash case, not just a bad
                 // message: the emitter indexes node.Inputs[i] positionally for every kind it knows,
                 // so a hand-trimmed "Inputs": [] on a Multiply used to read off the end of the vector.
@@ -1000,12 +1024,11 @@ namespace Desert::Editor::ShaderGraph
                 // the new name happened to be another member of the struct, it compiled into a
                 // silently different value with the scope check never firing.
                 //
-                // REFUSED RATHER THAN REPAIRED, which is the answer MigrateToCatalogue already gives:
-                // a stored pin list that is not a PREFIX of the catalogue is left exactly as it is
-                // there rather than guessed at. A renamed pin is either a corrupt document or one
-                // written against a different catalogue, and substituting the catalogue's name for it
-                // would change what the graph MEANS with nothing to show for it. A catalogue rename
-                // travels as an explicit migration over the files, like every other format change here.
+                // REFUSED RATHER THAN REPAIRED, the answer ReconstructNodes gives too: a stored pin that
+                // matches no catalogue pin by name and type is never rebound to another pin. A renamed
+                // pin is either a corrupt document or one written against a different catalogue, and
+                // substituting the catalogue's name for it would change what the graph MEANS with
+                // nothing to show for it.
                 for ( size_t i = 0; i < node.Inputs.size(); ++i )
                 {
                     if ( node.Inputs[i].Name != spec->Inputs[i].Name )
@@ -1486,27 +1509,43 @@ namespace Desert::Editor::ShaderGraph
         return Common::MakeSuccess( out.str() );
     }
 
-    // ---------------------------------------------------------------- migration ---------------
-    int MigrateToCatalogue( Document& doc )
+    // ---------------------------------------------------------------- reconstruction ----------
+    // Port of UK2Node::ReconstructNode + RewireOldPinsToNewPins (K2Node.cpp:703-758) onto the document
+    // model: the pins are reallocated from the catalogue and the stored ones rewired onto them.
+    void ReconstructNodes( Document& doc )
     {
-        int added = 0;
-
-        // Appends the pins of @p catalogue that @p stored does not have yet, but ONLY while what is
-        // stored is a prefix of the catalogue: same names, same types, in the same order. Anything
-        // else is a document this function must not touch (see the header).
-        const auto grow = [&]( std::vector<Pin>& stored, const std::vector<NodeSpec::PinSpec>& catalogue )
+        std::unordered_set<uint64_t> linked;
+        for ( const auto& link : doc.Links )
         {
-            if ( stored.size() >= catalogue.size() )
-                return;
-            for ( size_t i = 0; i < stored.size(); ++i )
-                if ( stored[i].Name != catalogue[i].Name ||
-                     stored[i].Type != static_cast<int>( catalogue[i].Type ) )
-                    return;
-            for ( size_t i = stored.size(); i < catalogue.size(); ++i )
+            linked.insert( link.From );
+            linked.insert( link.To );
+        }
+
+        const auto reconstruct = [&]( std::vector<Pin>& stored, const std::vector<NodeSpec::PinSpec>& catalogue )
+        {
+            std::vector<Pin>  pins;
+            std::vector<bool> taken( stored.size(), false );
+            pins.reserve( catalogue.size() );
+            for ( const auto& spec : catalogue )
             {
-                stored.push_back( { doc.NextId++, catalogue[i].Name, static_cast<int>( catalogue[i].Type ) } );
-                ++added;
+                const int  type  = static_cast<int>( spec.Type );
+                const auto match = std::find_if( stored.begin(), stored.end(),
+                                                 [&]( const Pin& pin ) {
+                                                     return !taken[static_cast<size_t>( &pin - stored.data() )] &&
+                                                            pin.Name == spec.Name && pin.Type == type;
+                                                 } );
+                if ( match != stored.end() )
+                {
+                    taken[static_cast<size_t>( match - stored.begin() )] = true;
+                    pins.push_back( *match );
+                }
+                else
+                    pins.push_back( { doc.NextId++, spec.Name, type } );
             }
+            for ( size_t i = 0; i < stored.size(); ++i )
+                if ( !taken[i] && linked.contains( stored[i].Id ) )
+                    pins.push_back( stored[i] ); // orphan: its link stays, ValidateGraph refuses it
+            stored = std::move( pins );
         };
 
         for ( auto& node : doc.Nodes )
@@ -1514,23 +1553,22 @@ namespace Desert::Editor::ShaderGraph
             const NodeSpec* spec = FindSpec( node.Kind );
             if ( !spec )
                 continue; // unknown kind: ValidateGraph names it; inventing pins for it would not help
-            grow( node.Inputs, spec->Inputs );
-            grow( node.Outputs, spec->Outputs );
+            reconstruct( node.Inputs, spec->Inputs );
+            reconstruct( node.Outputs, spec->Outputs );
         }
-        return added;
     }
 
     // ---------------------------------------------------------------- serialization -----------
-    Common::ResultStr<Loaded> Deserialize( const std::string& json )
+    Common::ResultStr<Document> Deserialize( const std::string& json )
     {
         // The BYTES are the engine's business and the CATALOGUE is this file's; the two steps are named
         // separately because only the second one can change what the artist authored.
         auto parsed = ::Desert::Assets::Serialization::ShaderGraph::ParseShaderGraph( json );
         if ( !parsed )
-            return Common::MakeError<Loaded>( parsed.GetError() );
+            return Common::MakeError<Document>( parsed.GetError() );
 
-        Loaded loaded{ parsed.ExtractValue(), 0 };
-        loaded.MigratedPins = MigrateToCatalogue( loaded.Doc );
-        return Common::MakeSuccess( std::move( loaded ) );
+        Document doc = parsed.ExtractValue();
+        ReconstructNodes( doc );
+        return Common::MakeSuccess( std::move( doc ) );
     }
 } // namespace Desert::Editor::ShaderGraph
