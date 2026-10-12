@@ -122,6 +122,29 @@ namespace Desert::Editor
     // the Details "Add Component" popup AND the scene-outliner context menu, so the buckets live in one place.
     void DrawAddComponentMenu( ECS::Entity& entity, ImGuiTextFilter& filter );
 
+    // EVERY REGISTERING FILE IS LINKED, NOT ONLY COMPILED (BLD-EDITORCORE). The editor sources are the
+    // static library EditorCore, and a linker takes an object out of a static library only when something
+    // references a symbol in it. A file whose only job is the self-registration below is referenced by
+    // nothing -- its static initialiser is the one thing that would use it -- so the Editor executable
+    // silently lost these eight files' component editors (measured: nm showed eight __GLOBAL__sub_I_ of
+    // libEditorCore.a absent from the Editor binary, among them every DESERT_REGISTER_REFLECTED_COMPONENT).
+    // Each registering file defines its anchor, and ComponentWidgetRegistry::Get() -- which every reader of
+    // the registry calls -- names them all, so any binary that reads the registry links every registration:
+    // the shape of Engine's ForceLinkGeneratedReflection, and of Unreal's EmptyLinkFunctionForGeneratedCode
+    // in a monolithic build. A NEW file that registers component editors adds its anchor here and calls it
+    // in Get(); without it, the Details panel lacks its components in the editor and no build error says so.
+    namespace ComponentEditorLink
+    {
+        void Registrations();       // SceneProperties/ComponentEditorRegistrations.cpp
+        void AnimationWidget();     // SceneProperties/ComponentWidgets/AnimationComponentWidget.cpp
+        void PrefabWidget();        // SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp
+        void SkinnedMeshWidget();   // SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp
+        void SkyAtmosphereWidget(); // SceneProperties/ComponentWidgets/SkyAtmosphereComponent.cpp
+        void SkyboxWidget();        // SceneProperties/ComponentWidgets/SkyboxComponent.cpp
+        void StaticMeshWidget();    // SceneProperties/ComponentWidgets/StaticMeshComponent.cpp
+        void TransformWidget();     // SceneProperties/ComponentWidgets/TransformComponentWidget.cpp
+    } // namespace ComponentEditorLink
+
     // Reflected component: ZERO UI code — the panel is auto-built from the data block's REFLECT() metadata.
     // When several entities are selected, edits broadcast to all of them (multi-select Details).
     template <class ComponentT, class DataT>
