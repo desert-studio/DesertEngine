@@ -200,7 +200,7 @@ namespace
     // one is a conversation, because "not saved" is the defect this whole task is about.
     const std::map<std::string, std::string> kNotWritten = {
          { "Revision",
-           "MorphComponent's count of this session's edits of Weights, which the renderer compares to re-blend "
+           "MorphComponent's count of this session's changes of Weights, which the renderer compares to re-blend "
            "only on a change. Writing it would make a saved scene differ from itself depending on how often "
            "it was edited." },
          { "Heights",
@@ -264,20 +264,22 @@ namespace
 TEST( AuthoredComponentRoundTrip, EveryMorphWeightComesBackIndexAligned )
 {
     ECS::MorphComponent written;
-    written.Weights        = { 0.0f, 0.25f, 1.0f, 0.75f };
-    written.TargetNames    = { "Smile", "BrowRaise", "JawOpen", "EyeBlink_L" };
-    written.Revision       = 9;
+    // Edited three times in the writer's session: its revision is 3, the reader's starts afresh.
+    written.SetWeights( { 0.5f, 0.25f, 1.0f, 0.75f } );
+    written.SetWeight( 0, 1.0f );
+    written.SetWeight( 0, 0.0f );
+    written.TargetNames = { "Smile", "BrowRaise", "JawOpen", "EyeBlink_L" };
 
     const ECS::MorphComponent read = RoundTrip( written );
 
-    ASSERT_EQ( read.Weights.size(), written.Weights.size() );
-    for ( std::size_t i = 0; i < written.Weights.size(); ++i )
-        EXPECT_FLOAT_EQ( read.Weights[i], written.Weights[i] ) << "weight " << i;
+    ASSERT_EQ( read.GetWeights().size(), written.GetWeights().size() );
+    for ( std::size_t i = 0; i < written.GetWeights().size(); ++i )
+        EXPECT_FLOAT_EQ( read.GetWeights()[i], written.GetWeights()[i] ) << "weight " << i;
     EXPECT_EQ( read.TargetNames, written.TargetNames );
 
     // The revision is not part of the file: the read component counts from its own fresh start (one bump
     // for the read itself) rather than carrying the writer's session count.
-    EXPECT_NE( read.Revision, written.Revision )
+    EXPECT_NE( read.GetRevision(), written.GetRevision() )
          << "Revision was written to the scene; it counts one session's edits and a saved scene would "
             "differ from itself depending on how often it was edited";
 }
@@ -296,8 +298,8 @@ TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotT
     ECS::MorphComponent read;
     ReadAt( ThroughJsonText( block ), read );
 
-    EXPECT_EQ( read.Weights.size(), 2u );
-    EXPECT_EQ( read.TargetNames.size(), read.Weights.size() )
+    EXPECT_EQ( read.GetWeights().size(), 2u );
+    EXPECT_EQ( read.TargetNames.size(), read.GetWeights().size() )
          << "the two lists came back out of step, and every widget that reads them assumes they are not";
 }
 
@@ -407,11 +409,11 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
     EXPECT_EQ( socket.SocketName, "mixamorig:Head" );
 
     ECS::MorphComponent morph;
-    morph.Weights     = { 0.5f };
+    morph.SetWeights( { 0.5f } );
     morph.TargetNames = { "Smile" };
     ReadAt( Common::Json::Object{}, morph );
-    ASSERT_EQ( morph.Weights.size(), 1u );
-    EXPECT_FLOAT_EQ( morph.Weights[0], 0.5f );
+    ASSERT_EQ( morph.GetWeights().size(), 1u );
+    EXPECT_FLOAT_EQ( morph.GetWeights()[0], 0.5f );
     EXPECT_EQ( morph.TargetNames.size(), 1u );
 }
 

@@ -589,8 +589,8 @@ namespace Desert::ECS
                          if ( skinnedMesh->GetMorphTargetCount() > 0 && registry.has<MorphComponent>( entity ) )
                          {
                              const auto& morph = registry.get<MorphComponent>( entity );
-                             morphWeights      = morph.Weights;
-                             morphRevision     = morph.Revision;
+                             morphWeights      = morph.GetWeights();
+                             morphRevision     = morph.GetRevision();
                          }
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(

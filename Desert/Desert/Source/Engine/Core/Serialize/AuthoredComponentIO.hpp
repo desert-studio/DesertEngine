@@ -89,7 +89,7 @@ namespace Desert::Core::Serialize
     } // namespace AuthoredIO
 
     // ── MORPH TARGETS ──────────────────────────────────────────────────────────────────────────────
-    // `Revision` is NOT written and must not be: it counts the edits of Weights in THIS session so the
+    // `Revision` is NOT written and must not be: it counts the changes of Weights in THIS session so the
     // renderer re-blends only on a change. Writing it would put a session's edit count into every `.desce`
     // and make a saved scene differ from itself depending on how often it was edited.
     //
@@ -99,7 +99,7 @@ namespace Desert::Core::Serialize
     inline Common::Json::Object WriteComponent( const ECS::MorphComponent& c )
     {
         return Common::Json::ObjectBuilder()
-             .Set( "Weights", c.Weights )
+             .Set( "Weights", c.GetWeights() )
              .Set( "TargetNames", c.TargetNames )
              .Build();
     }
@@ -107,16 +107,19 @@ namespace Desert::Core::Serialize
     inline void ReadComponent( const Common::Json::Node& from, ECS::MorphComponent& c,
                                Common::Json::Issues& issues )
     {
-        AuthoredIO::ReadList( from, "Weights", c.Weights, issues );
+        // Through the setter: it moves the Revision when the read changed a weight, so a component the
+        // renderer already blended is re-blended.
+        std::vector<float> weights = c.GetWeights();
+        AuthoredIO::ReadList( from, "Weights", weights, issues );
+        c.SetWeights( std::move( weights ) );
         AuthoredIO::ReadList( from, "TargetNames", c.TargetNames, issues );
-        ++c.Revision; // the weights may have changed under a component the renderer already blended
 
-        if ( c.TargetNames.size() != c.Weights.size() )
+        if ( c.TargetNames.size() != c.GetWeights().size() )
         {
             LOG_WARN( "[Scene] {0} carries {1} weights against {2} target names; the names were aligned to the "
                       "weights.",
-                      from.Where().ToString(), c.Weights.size(), c.TargetNames.size() );
-            c.TargetNames.resize( c.Weights.size() );
+                      from.Where().ToString(), c.GetWeights().size(), c.TargetNames.size() );
+            c.TargetNames.resize( c.GetWeights().size() );
         }
     }
 
