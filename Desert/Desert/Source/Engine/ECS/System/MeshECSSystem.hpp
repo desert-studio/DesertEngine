@@ -57,8 +57,11 @@ namespace Desert::ECS
             FracturePieceDraw::Services pieceServices;
             pieceServices.SourceSlots = []( const Assets::AssetHandle& meshHandle )
             {
-                std::vector<Assets::AssetHandle> slots;
-                AdoptMeshMaterialSlots( slots, meshHandle );
+                // The mesh asset's section materials, by the same per-section rule a component's Null slots
+                // take them by; the pieces cache no instances of their own here.
+                std::vector<Assets::AssetHandle>          slots;
+                std::vector<Graphic::MaterialInstancePtr> noInstances;
+                AdoptMeshMaterialSlots( slots, noInstances, meshHandle );
                 return slots;
             };
             pieceServices.Instance = []( const Assets::AssetHandle& material )

@@ -10,6 +10,7 @@
 #include <Engine/VFX/VFXDataChannel.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../PhysicsFixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -63,7 +64,7 @@ namespace
 
         Fixture()
         {
-            physics.Init( 0.0f );
+            physics.Init( 0.0f, TestSupport::PhysicsTestProfiles() );
             destruction = std::make_unique<DestructionWorld>( physics );
             // The project's own channel assets: the writer and the shipped layouts must agree.
             for ( const std::string_view name : { ECS::kDestructionBreakChannel, ECS::kDestructionCollisionChannel,
