@@ -288,9 +288,21 @@ namespace Desert::ECS
                  &MeshSkeletonOf );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
-            // This frame's root motion has been stepped; the next frame's animation states it again (or not).
+            // This frame's root motion has been stepped (the velocity); its turn goes onto the character here, the
+            // one place a character's transform is written from movement. The next frame's animation states both
+            // again (or not).
             for ( auto entity : characters )
-                characters.get<CharacterControllerComponent>( entity ).HasRootMotion = false;
+            {
+                auto& cc = characters.get<CharacterControllerComponent>( entity );
+                if ( cc.HasRootMotion )
+                {
+                    auto& transform    = characters.get<TransformComponent>( entity );
+                    transform.Rotation = glm::eulerAngles(
+                         glm::normalize( cc.RootMotionRotation * glm::quat( transform.Rotation ) ) );
+                }
+                cc.HasRootMotion      = false;
+                cc.RootMotionRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            }
             m_Ragdolls->WriteBackAfterStep( registry );
             PublishEvents( registry );
             // The steps' breaks are destruction's own news, published by its owner into its own queue.

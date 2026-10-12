@@ -349,11 +349,13 @@ namespace Desert::ECS
          *        mesh's root motion through USkeletalMeshComponent::ConvertLocalRootMotionToWorld).
          *
          * The delta is in the skinned entity's component space (RootMotion.hpp). With a
-         * CharacterControllerComponent on the parent — the shape LocomotionSystem drives — the movement goes
-         * to the controller as this frame's root-motion velocity (world, cm/s; CharacterMovement::Step moves the
-         * capsule by it, so walls and floors still hold) and the turn's yaw goes onto the character's
-         * transform: the capsule stays upright, as UE's does. With no controller the component itself moves:
-         * `local' = local * delta`, which is `world' = world * delta` with nothing to collide against.
+         * CharacterControllerComponent on the parent — the shape LocomotionSystem drives — this system writes NO
+         * transform: the movement is handed to the controller as this frame's root-motion velocity (world,
+         * cm/s; CharacterMovement::Step moves the capsule by it, so walls and floors still hold) and turn (its
+         * yaw only, so the capsule stays upright, as UE's does), and PhysicsECSSystem applies both — UE's
+         * RootMotionParams consumed by the CharacterMovementComponent alone. With no controller there is no
+         * other mover, and the component itself moves: `local' = local * delta`, which is
+         * `world' = world * delta` with nothing to collide against.
          */
         static void ApplyRootMotion( entt::registry& registry, const entt::entity entity,
                                      ECS::AnimationComponent& anim, const float seconds )
@@ -383,11 +385,10 @@ namespace Desert::ECS
                 controller->RootMotionVelocity = worldMove / seconds;
 
                 // The turn's twist about world up (+Y) only: a hip's pitch and roll are the pose's, not the
-                // capsule's.
+                // capsule's. Handed over, not applied: the controller's owner turns the character with its step.
                 const glm::quat yaw( worldTurn.w, 0.0F, worldTurn.y, 0.0F );
-                if ( auto* body = registry.try_get<ECS::TransformComponent>( parent );
-                     body != nullptr && glm::dot( yaw, yaw ) > 1e-12F )
-                    body->Rotation = glm::eulerAngles( glm::normalize( yaw ) * glm::quat( body->Rotation ) );
+                if ( glm::dot( yaw, yaw ) > 1e-12F )
+                    controller->RootMotionRotation = glm::normalize( yaw ) * controller->RootMotionRotation;
                 return;
             }
 

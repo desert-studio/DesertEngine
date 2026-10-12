@@ -1625,9 +1625,11 @@ namespace Desert::ECS
         // CalcAnimRootMotionVelocity) — and consumed by every fixed step of this frame's physics, where it
         // REPLACES the planar velocity the input would have produced (gravity and jumps still act). Cleared by
         // PhysicsECSSystem after the frame's step, so a character whose animation stopped is the input's again.
-        // The root motion's yaw is applied to this entity's TransformComponent by AnimationECSSystem directly.
+        // RootMotionRotation is the frame's turn about world up; PhysicsECSSystem — the one writer of a
+        // character's transform — applies it with the step's position (UE: the CMC rotates the actor).
         bool      HasRootMotion      = false;
-        glm::vec3 RootMotionVelocity = { 0.0f, 0.0f, 0.0f }; // cm/s, world
+        glm::vec3 RootMotionVelocity = { 0.0f, 0.0f, 0.0f };       // cm/s, world
+        glm::quat RootMotionRotation = { 1.0f, 0.0f, 0.0f, 0.0f }; // world yaw delta
     };
 
     // UE USpringArmComponent: on a child entity of the pawn, whose rotation is the arm's (scripts pitch it, the
