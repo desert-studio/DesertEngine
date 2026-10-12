@@ -512,7 +512,7 @@ namespace Desert::UI
                 // number used here is the same one for any ScrollY the renderer could have left behind.
                 // The rows come from the same resolution the renderer asks (UIListSelection.hpp): a tile
                 // view's columns, a tree view's linearised expanded records, the view's own expansion.
-                const auto& lv = *tree.Get<UIListViewData>( e );
+                const auto&            lv        = *tree.Get<UIListViewData>( e );
                 const UIListViewState* listState = nullptr;
                 if ( ctx != nullptr )
                     if ( const auto it = ctx->Lists.find( e ); it != ctx->Lists.end() )
@@ -571,9 +571,9 @@ namespace Desert::UI
                             rowRect =
                                  TreeContentRect( rowRect, listShape.Rows()[static_cast<std::size_t>( i )].Depth,
                                                   listShape.Tree->Indent * scale );
-                        EnumScope row      = child;
-                        row.Row            = listShape.RowRecord( i );
-                        row.RowIndex       = i;
+                        EnumScope row = child;
+                        row.Row       = listShape.RowRecord( i );
+                        row.RowIndex  = i;
                         EnumRecurse( tree, entry, row, scale, viewportPx, ctx, out, order, &rowRect );
                     }
                 }

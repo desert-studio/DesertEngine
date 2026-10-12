@@ -22,24 +22,24 @@ namespace Desert::Graphic
         constexpr uint32_t kDofGroupSize = 8; // LocalSize(8, 8, 1) in all six DepthOfField*.shader
 
         constexpr const char* kDofKernelShaders[] = { "DepthOfFieldSetup",
-                                                   "DepthOfFieldTileFlatten",
-                                                   "DepthOfFieldTileDilate",
-                                                   "DepthOfFieldGatherForeground",
-                                                   "DepthOfFieldGatherBackground",
-                                                   "DepthOfFieldRecombine" };
+                                                      "DepthOfFieldTileFlatten",
+                                                      "DepthOfFieldTileDilate",
+                                                      "DepthOfFieldGatherForeground",
+                                                      "DepthOfFieldGatherBackground",
+                                                      "DepthOfFieldRecombine" };
         constexpr const char* kDofKernelPasses[]  = { "DepthOfField: Setup",
-                                                   "DepthOfField: TileFlatten",
-                                                   "DepthOfField: TileDilate",
-                                                   "DepthOfField: GatherForeground",
-                                                   "DepthOfField: GatherBackground",
-                                                   "DepthOfField: Recombine" };
+                                                      "DepthOfField: TileFlatten",
+                                                      "DepthOfField: TileDilate",
+                                                      "DepthOfField: GatherForeground",
+                                                      "DepthOfField: GatherBackground",
+                                                      "DepthOfField: Recombine" };
 
         // Half-res colour (rgb) with its signed CoC radius in half-res pixels (a); the gathered layers (rgb, and
         // a = foreground opacity / background presence); the tiles (x foreground radius, y background radius).
-        constexpr auto kHalfFormat  = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kDofTileFormat  = Core::Formats::ImageFormat::RG16F;
-        constexpr auto kLayerFormat = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kDofOutFormat   = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kHalfFormat    = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kDofTileFormat = Core::Formats::ImageFormat::RG16F;
+        constexpr auto kLayerFormat   = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kDofOutFormat  = Core::Formats::ImageFormat::RGBA16F;
 
         constexpr float kMmPerCm = 10.0f;
 
@@ -49,7 +49,7 @@ namespace Desert::Graphic
         }
 
         std::shared_ptr<const RDG::ShaderBindingLayout> MakeDofLayout( const char*                  shader,
-                                                                    std::vector<RDG::ShaderSlot> slots )
+                                                                       std::vector<RDG::ShaderSlot> slots )
         {
             slots.push_back( { "DepthOfFieldBuffer", RDG::ShaderResourceKind::StorageBuffer } );
             return std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
@@ -182,8 +182,8 @@ namespace Desert::Graphic
     {
         using Kind               = RDG::ShaderResourceKind;
         static const auto layout = MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::SampledTexture },
-                                                                    { "u_SceneDepth", Kind::SampledTexture },
-                                                                    { "u_Half", Kind::StorageTexture } } );
+                                                                          { "u_SceneDepth", Kind::SampledTexture },
+                                                                          { "u_Half", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -197,9 +197,10 @@ namespace Desert::Graphic
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofTileDilateLayout()
     {
-        using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout(
-             kDofKernelShaders[2], { { "u_Tiles", Kind::SampledTexture }, { "u_Dilated", Kind::StorageTexture } } );
+        using Kind = RDG::ShaderResourceKind;
+        static const auto layout =
+             MakeDofLayout( kDofKernelShaders[2],
+                            { { "u_Tiles", Kind::SampledTexture }, { "u_Dilated", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -209,8 +210,8 @@ namespace Desert::Graphic
         {
             using Kind = RDG::ShaderResourceKind;
             return MakeDofLayout( shader, { { "u_Half", Kind::SampledTexture },
-                                         { "u_Dilated", Kind::SampledTexture },
-                                         { "u_Layer", Kind::StorageTexture } } );
+                                            { "u_Dilated", Kind::SampledTexture },
+                                            { "u_Layer", Kind::StorageTexture } } );
         }
     } // namespace
 
@@ -230,10 +231,10 @@ namespace Desert::Graphic
     {
         using Kind               = RDG::ShaderResourceKind;
         static const auto layout = MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::SampledTexture },
-                                                                    { "u_SceneDepth", Kind::SampledTexture },
-                                                                    { "u_Foreground", Kind::SampledTexture },
-                                                                    { "u_Background", Kind::SampledTexture },
-                                                                    { "u_Output", Kind::StorageTexture } } );
+                                                                          { "u_SceneDepth", Kind::SampledTexture },
+                                                                          { "u_Foreground", Kind::SampledTexture },
+                                                                          { "u_Background", Kind::SampledTexture },
+                                                                          { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
 

@@ -96,7 +96,8 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
     // The whole chain runs to the current generation (FOLT 8: the wind left the type).
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), static_cast<uint32_t>( Assets::Serialization::kFoliageTypeVersion ) );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ),
+               static_cast<uint32_t>( Assets::Serialization::kFoliageTypeVersion ) );
     // FOLT 7 (S1): the procedural block takes UE UFoliageType's defaults.
     EXPECT_EQ( data.Procedural, Assets::Serialization::FoliageProcedural{} );
     // FOLT 6 (FO-8): every raised type draws a mesh, as every v5 type did.

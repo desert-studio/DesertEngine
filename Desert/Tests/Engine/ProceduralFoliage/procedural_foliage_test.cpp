@@ -194,9 +194,9 @@ namespace
 TEST( ProceduralFoliage, NoTwoSurvivorsStandCloserThanTheirGrownCollisionRadii )
 {
     // Two types growing through a scale range, so the radii differ per instance (UE: CollisionRadius * Scale).
-    auto large                       = Type( 60.0f, 60.0f, 1.0f, 2.0f );
-    large.Procedural.ProceduralScale = { 1.0f, 2.0f };
-    large.Procedural.MaxAge          = 3.0f;
+    auto large                           = Type( 60.0f, 60.0f, 1.0f, 2.0f );
+    large.Procedural.ProceduralScale     = { 1.0f, 2.0f };
+    large.Procedural.MaxAge              = 3.0f;
     auto smallType                       = Type( 15.0f, 15.0f, 0.0f, 5.0f );
     smallType.Procedural.ProceduralScale = { 0.5f, 1.5f };
     smallType.Procedural.MaxAge          = 2.0f;

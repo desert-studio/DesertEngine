@@ -354,7 +354,8 @@ namespace
          { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialValues.hpp", "CloudRaymarch",
            "compile key of the cloud renderer's own program, whose Properties block is the cloud material "
            "schema" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "ParticleSpriteDefault",
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+           "ParticleSpriteDefault",
            "the renderer's own fallback sprite program for an emitter with no drawable material (VFX-08), "
            "not a material's choice of template" },
          { "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp", "TextSDF",

@@ -138,13 +138,13 @@ namespace Desert::UI::Walk
     Rect ScreenBoundsOf( Graphic::Render2D::DrawList2D& dl, const Rect& r );
 
     // Helpers of the walk (UIWalkCtx.cpp; each one's contract is stated at its definition).
-    bool          HandleSet( const Common::AssetHandle& h );
-    void          ResolveRetainerMasks( WalkCtx& ctx, IUITree& tree );
-    ElementStyle  StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e );
-    UITextData    Themed( const ElementStyle& st, UITextData t );
-    float         HoverEase( WalkCtx& ctx, NodeId e, bool hovered );
-    void RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back );
-    float         Ease( UIEasing e, float t );
+    bool         HandleSet( const Common::AssetHandle& h );
+    void         ResolveRetainerMasks( WalkCtx& ctx, IUITree& tree );
+    ElementStyle StyleFor( WalkCtx& ctx, const IUITree& tree, NodeId e );
+    UITextData   Themed( const ElementStyle& st, UITextData t );
+    float        HoverEase( WalkCtx& ctx, NodeId e, bool hovered );
+    void  RequestScreen( WalkCtx& ctx, const IUITree& tree, NodeId from, const std::string& name, bool back );
+    float Ease( UIEasing e, float t );
     TweenSample   SampleTween( WalkCtx& ctx, IUITree& tree, NodeId e );
     void          ApplyAnimClip( WalkCtx& ctx, NodeId e, TweenSample& out );
     BindingSample SampleBinding( IUITree& tree, NodeId e, TweenSample& tw, const UICanvasContext& cell );

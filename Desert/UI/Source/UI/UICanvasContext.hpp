@@ -361,9 +361,9 @@ namespace Desert::UI
         // every canvas of the frame and is handed over once, in EndUIFrame — doing it per walk gave the
         // LAST canvas drawn the whole answer, so an overlay canvas erased the HUD's hot element merely by
         // existing.
-        NodeId      Hot     = NodeId::Null; // resolved last frame: what the controls react to now
-        NodeId      HotNext = NodeId::Null; // being elected during this frame's walks
-        Rect        HotNextRect{};
+        NodeId Hot     = NodeId::Null; // resolved last frame: what the controls react to now
+        NodeId HotNext = NodeId::Null; // being elected during this frame's walks
+        Rect   HotNextRect{};
         // WHERE THE HOT ELEMENT'S INPUT BUBBLES TO (Slate routes a mouse event from the widget under the
         // cursor up its path until one handles it). A button's label and icon sit on top of the button, so
         // the election lands on THEM — and a control that compared against the leaf never saw its own hover
@@ -372,7 +372,7 @@ namespace Desert::UI
         // scrolling container at or above it (a wheel over a list's row scrolls the list).
         NodeId      PointerTarget = NodeId::Null;
         NodeId      WheelTarget   = NodeId::Null;
-        bool        PrevDown = false; // for the press edge (UIInput only carries held + release)
+        bool        PrevDown      = false; // for the press edge (UIInput only carries held + release)
         UIDragState Drag;
 
         // Every focusable control the frame drew, in draw order across every canvas — Tab advances through
@@ -549,13 +549,13 @@ namespace Desert::UI
         {
             Scene = nullptr;
             m_Canvases.clear();
-            Hot         = NodeId::Null;
-            HotNext     = NodeId::Null;
-            HotNextRect = Rect{};
+            Hot           = NodeId::Null;
+            HotNext       = NodeId::Null;
+            HotNextRect   = Rect{};
             PointerTarget = NodeId::Null;
             WheelTarget   = NodeId::Null;
-            PrevDown    = false;
-            Drag        = UIDragState{};
+            PrevDown      = false;
+            Drag          = UIDragState{};
             Focusables.clear();
             WalkMessages.clear();
             NavigationBoxes.clear();

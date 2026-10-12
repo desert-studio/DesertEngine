@@ -347,11 +347,12 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     EXPECT_GE( found.size(), 9u );
 }
 
-// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters, ParticleWorldGpu::PrepareTick), so
-// everything that erase destroys must go through the allocator's deletion ring and never be freed while the
-// last submitted frame may still read it. The chain: the entry's StorageBuffers own MappedBufferCopy copies,
-// and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in VulkanViewDescriptorPools.
-// Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object immediately.
+// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters,
+// ParticleWorldGpu::PrepareTick), so everything that erase destroys must go through the allocator's deletion ring
+// and never be freed while the last submitted frame may still read it. The chain: the entry's StorageBuffers own
+// MappedBufferCopy copies, and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in
+// VulkanViewDescriptorPools. Red if PrepareFrame stops retiring, or if any link of the chain frees a Vulkan object
+// immediately.
 TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionRing )
 {
     const fs::path root = RepoRoot();

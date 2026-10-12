@@ -483,7 +483,8 @@ namespace
 
          // Play instantiates it at the chosen PlayerStart (SPAWN1, UE's GameMode DefaultPawnClass).
          { "DefaultPawn", kPlayerStart },
-         // Play spawns it once, before the pawn (Core::SpawnPlayerController, UE's GameMode PlayerControllerClass).
+         // Play spawns it once, before the pawn (Core::SpawnPlayerController, UE's GameMode
+         // PlayerControllerClass).
          { "PlayerController", kPlayerStart },
          // The GameMode's respawn wait (GP2, UE's RespawnDelay).
          { "RespawnDelay", "Desert/Desert/Source/Engine/Core/GameMode.cpp" },
@@ -643,8 +644,8 @@ namespace
          { "EndColor", kParticles },
          { "StartAlpha", kParticles },
          { "EndAlpha", kParticles },
-         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the emitter
-         // names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
+         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the
+         // emitter names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
          { "Material", kParticles },
     };
 
@@ -1878,12 +1879,12 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
     const std::string meshSystem = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
     EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
     // Code only: FoliageType.hpp's version history names the field that left.
-    const std::string foliageType =
-         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" ) );
+    const std::string foliageType = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" ) );
     EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
          << "FoliageWind declares its own wind direction";
-    const std::string instanceWind =
-         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" ) );
+    const std::string instanceWind = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" ) );
     EXPECT_EQ( instanceWind.find( "directionDegrees" ), std::string::npos )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 

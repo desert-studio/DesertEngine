@@ -17,7 +17,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t    kTaaGroupSize       = 8; // TemporalAA.shader LocalSize(8, 8, 1)
+        constexpr uint32_t    kTaaGroupSize    = 8; // TemporalAA.shader LocalSize(8, 8, 1)
         constexpr const char* kShaderName      = "TemporalAA";
         constexpr const char* kHistoryName     = "TAA.History";
         constexpr const char* kPreviousName    = "TAA.History.Previous";
@@ -174,8 +174,8 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeError( error );
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TaaGroupCount( extent.Width ),
-                                                                 TaaGroupCount( extent.Height ), 1 );
+                 return Renderer::GetInstance().DispatchCompute(
+                      bindings, *pipeline, TaaGroupCount( extent.Width ), TaaGroupCount( extent.Height ), 1 );
              } );
 
         return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = output } );

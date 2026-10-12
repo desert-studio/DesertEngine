@@ -40,9 +40,9 @@ namespace Desert::Physics
     /// units in a world whose floor is 1000 units wide. The factor is stated so the conversion is one named step.
     inline constexpr float kJoltUnitsPerCentimetre = 1.0f;
 
-    /// Position-solver iterations of every ragdoll part and joint (UE: FBodyInstance::PositionSolverIterationCount = 8).
-    /// Jolt's swing-twist limit engages only past the limit and each position iteration removes mBaumgarte (0.2)
-    /// of the error, so the world's default 2 left 64% of a one-step overshoot standing.
+    /// Position-solver iterations of every ragdoll part and joint (UE: FBodyInstance::PositionSolverIterationCount
+    /// = 8). Jolt's swing-twist limit engages only past the limit and each position iteration removes mBaumgarte
+    /// (0.2) of the error, so the world's default 2 left 64% of a one-step overshoot standing.
     inline constexpr uint32_t kRagdollPositionSolverSteps = 8;
 
     /// JPH::SwingTwistConstraintSettings with mSpace = EConstraintSpace::WorldSpace, in the bind pose: both

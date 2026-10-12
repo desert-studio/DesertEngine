@@ -18,12 +18,12 @@ namespace Desert::Graphic
         constexpr uint32_t kBlurGroupSize = 8; // LocalSize(8, 8, 1) in all four MotionBlur*.shader
 
         constexpr const char* kBlurKernelShaders[] = { "MotionBlurFlatten", "MotionBlurTileMax",
-                                                   "MotionBlurNeighborMax", "MotionBlurGather" };
+                                                       "MotionBlurNeighborMax", "MotionBlurGather" };
         constexpr const char* kBlurKernelPasses[]  = { "MotionBlur: Flatten", "MotionBlur: TileMax",
-                                                   "MotionBlur: NeighborMax", "MotionBlur: Gather" };
+                                                       "MotionBlur: NeighborMax", "MotionBlur: Gather" };
 
         // Flattened velocity: output-pixel velocity (xy) and the scene's device depth (z).
-        constexpr auto kFlatFormat = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kFlatFormat     = Core::Formats::ImageFormat::RGBA16F;
         constexpr auto kBlurTileFormat = Core::Formats::ImageFormat::RG16F;
         constexpr auto kBlurOutFormat  = Core::Formats::ImageFormat::RGBA16F;
 
@@ -33,7 +33,7 @@ namespace Desert::Graphic
         }
 
         std::shared_ptr<const RDG::ShaderBindingLayout> MakeBlurLayout( const char*                  shader,
-                                                                    std::vector<RDG::ShaderSlot> slots )
+                                                                        std::vector<RDG::ShaderSlot> slots )
         {
             slots.push_back( { "MotionBlurBuffer", RDG::ShaderResourceKind::StorageBuffer } );
             return std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
@@ -136,36 +136,40 @@ namespace Desert::Graphic
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurFlattenLayout()
     {
-        using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
-                                                                    { "u_SceneDepth", Kind::SampledTexture },
-                                                                    { "u_Flat", Kind::StorageTexture } } );
+        using Kind = RDG::ShaderResourceKind;
+        static const auto layout =
+             MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
+                                                      { "u_SceneDepth", Kind::SampledTexture },
+                                                      { "u_Flat", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurTileMaxLayout()
     {
-        using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeBlurLayout(
-             kBlurKernelShaders[1], { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
+        using Kind = RDG::ShaderResourceKind;
+        static const auto layout =
+             MakeBlurLayout( kBlurKernelShaders[1],
+                             { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurNeighborMaxLayout()
     {
-        using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
-                                                                    { "u_NeighborMax", Kind::StorageTexture } } );
+        using Kind = RDG::ShaderResourceKind;
+        static const auto layout =
+             MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
+                                                      { "u_NeighborMax", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurGatherLayout()
     {
-        using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
-                                                                    { "u_Flat", Kind::SampledTexture },
-                                                                    { "u_NeighborMax", Kind::SampledTexture },
-                                                                    { "u_Output", Kind::StorageTexture } } );
+        using Kind = RDG::ShaderResourceKind;
+        static const auto layout =
+             MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
+                                                      { "u_Flat", Kind::SampledTexture },
+                                                      { "u_NeighborMax", Kind::SampledTexture },
+                                                      { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -225,8 +229,8 @@ namespace Desert::Graphic
                 if ( !pipeline )
                     return Common::MakeError( error );
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, BlurGroupCount( extent.Width ),
-                                                                BlurGroupCount( extent.Height ), 1 );
+                return Renderer::GetInstance().DispatchCompute(
+                     bindings, *pipeline, BlurGroupCount( extent.Width ), BlurGroupCount( extent.Height ), 1 );
             };
         };
         const auto point = RDG::SamplerDesc::PointClamp();

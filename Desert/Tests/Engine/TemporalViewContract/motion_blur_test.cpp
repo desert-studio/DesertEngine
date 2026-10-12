@@ -198,9 +198,9 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
                     mask |= barrier.After.Memory;
         return mask;
     };
-    // The access a texture is held in WHILE a pass runs: its last barrier at or before that pass. The graph emits no
-    // barrier for a read after a read of the same state (RDG folds them, INT-B11D), so a second sampler of a texture
-    // is proven by the state it finds, not by a barrier of its own.
+    // The access a texture is held in WHILE a pass runs: its last barrier at or before that pass. The graph emits
+    // no barrier for a read after a read of the same state (RDG folds them, INT-B11D), so a second sampler of a
+    // texture is proven by the state it finds, not by a barrier of its own.
     const auto heldDuring = [&]( const char* passName, TextureRef resource )
     {
         uint32_t mask = MemoryAccess_None;

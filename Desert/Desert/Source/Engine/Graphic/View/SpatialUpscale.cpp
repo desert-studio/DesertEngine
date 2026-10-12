@@ -15,7 +15,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t    kUpscaleGroupSize                = 8; // both shaders: LocalSize(8, 8, 1)
+        constexpr uint32_t    kUpscaleGroupSize         = 8; // both shaders: LocalSize(8, 8, 1)
         constexpr const char* kSpatialUpscaleShaderName = "SpatialUpscale";
         constexpr const char* kSharpenShaderName        = "Sharpen";
 

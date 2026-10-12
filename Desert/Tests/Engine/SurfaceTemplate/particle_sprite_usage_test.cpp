@@ -74,7 +74,7 @@ namespace
 TEST( SurfaceTemplate, ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell )
 {
     const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
-    const auto without = P::DShaderParser::Parse( Template( "" ) );
+    const auto                                without = P::DShaderParser::Parse( Template( "" ) );
     ASSERT_TRUE( without.IsSuccess() ) << without.GetError();
     EXPECT_FALSE( without.GetValue().Surface.UsedWithParticleSprites );
     EXPECT_EQ( without.GetValue().Surface.Cells, MeshCells() ) << "no usage, no sprite cell";
@@ -111,7 +111,7 @@ TEST( SurfaceTemplate, ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell )
 TEST( SurfaceTemplate, TranslucentSpriteCellIsToldItBlends )
 {
     const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
-    const auto parsed =
+    const auto                                parsed =
          P::DShaderParser::Parse( Template( "    BlendMode Translucent\n    Usage ParticleSprites\n" ) );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     const P::DShaderPass* cell = parsed.GetValue().FindPass( SpriteCell() );
@@ -140,8 +140,8 @@ TEST( SurfaceTemplate, UnknownUsageAndUsageWithoutASurfaceAreRefused )
 TEST( SurfaceTemplate, ShaderMapKeyHashesTheSpriteHeaders )
 {
     const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
-    const std::vector<std::string> includes = P::SurfaceTemplateIncludes();
-    const auto                     has      = [&]( const std::string& header )
+    const std::vector<std::string>            includes = P::SurfaceTemplateIncludes();
+    const auto                                has      = [&]( const std::string& header )
     { return std::find( includes.begin(), includes.end(), header ) != includes.end(); };
     EXPECT_TRUE( has( P::SurfaceVertexInclude( P::kSurfaceParticleSpritePath ) ) );
     EXPECT_TRUE( has( std::string( P::kSurfaceParticleSpritePassInclude ) ) );

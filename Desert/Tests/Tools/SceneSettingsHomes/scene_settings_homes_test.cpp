@@ -220,7 +220,7 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     stated.LensFlareChromaShift = 0.9f;
 
     auto scene        = Parse( kSceneV32 );
-    const auto all    = Reflection::SerializeReflected( *type, &stated );
+    const auto all          = Reflection::SerializeReflected( *type, &stated );
     // The grade fields born after SCNE 36 (Depth of Field, Motion Blur): no Settings block ever stated them, so
     // the step has no key for them. A field added to the grade must be added to the step or named here.
     constexpr std::array<std::string_view, 7> kBornAfterTheStep = {
