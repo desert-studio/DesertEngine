@@ -108,7 +108,7 @@ namespace Desert::Editor::Render
     {
         if ( const auto scene = m_Scene.lock() )
         {
-            scene->UnregisterExternalPass( kPassName );
+            scene->UnregisterExtensionPass( kPassName );
             ToolPreview::Hide( *scene );
         }
     }
@@ -150,21 +150,21 @@ namespace Desert::Editor::Render
 
         const auto facePipeline = Graphic::GraphicsPipeline::Create( faces );
         if ( !facePipeline )
-            return Common::MakeError( "EditorToolPreviewPass: " + facePipeline.GetError() );
+            return Common::MakeError( std::format( "EditorToolPreviewPass: {}", facePipeline.GetError() ) );
         const auto edgePipeline = Graphic::GraphicsPipeline::Create( edges );
         if ( !edgePipeline )
-            return Common::MakeError( "EditorToolPreviewPass: " + edgePipeline.GetError() );
+            return Common::MakeError( std::format( "EditorToolPreviewPass: {}", edgePipeline.GetError() ) );
         m_FacePipeline = facePipeline.GetValue();
         m_EdgePipeline = edgePipeline.GetValue();
         m_FaceMaterial = std::make_unique<Graphic::MaterialDebugLine>();
         m_EdgeMaterial = std::make_unique<Graphic::MaterialDebugLine>();
 
-        Graphic::ExternalPassSpecification pass;
-        pass.Name                  = kPassName;
-        pass.Phase                 = Graphic::RenderPhase::Debug;
-        pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
-        pass.PipelineSpecification = m_FacePipeline->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
+        // After the temporal resolve, as the editor's collider lines: an authoring aid drawn unjittered over the
+        // resolved scene, depth-tested against it.
+        Graphic::ExtensionPass pass;
+        pass.Name    = kPassName;
+        pass.Point   = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Execute = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
             const auto scene = m_Scene.lock();
@@ -195,7 +195,7 @@ namespace Desert::Editor::Render
             return BOOLSUCCESS;
         };
 
-        scene->RegisterExternalPass( std::move( pass ) );
+        scene->RegisterExtensionPass( std::move( pass ) );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Render
