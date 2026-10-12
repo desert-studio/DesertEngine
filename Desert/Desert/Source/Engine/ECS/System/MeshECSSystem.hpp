@@ -253,7 +253,7 @@ namespace Desert::ECS
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts );
+                                      overrideCasts, mesh.MaxDrawDistance );
                                  return; // skip the lit path for this entity
                              }
                          }
@@ -325,7 +325,7 @@ namespace Desert::ECS
 
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat, visible,
-                                  outlined, casts );
+                                  outlined, casts, mesh.MaxDrawDistance );
                          }
 
                          // Lit path draws the remaining submeshes (skip entirely when every
@@ -335,7 +335,7 @@ namespace Desert::ECS
                                   static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
                                   outlined, surfaceHidden, mesh.ForcedLOD, mesh.LODBias,
                                   shadowRoute == Rules::MeshShadowCaster::SurfaceDraw, mesh.ReceiveShadows,
-                                  mesh.TranslucencySortPriority );
+                                  mesh.TranslucencySortPriority, mesh.MaxDrawDistance );
                      } );
             }
 
@@ -454,7 +454,7 @@ namespace Desert::ECS
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
                               targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
-                              cullDistance, wind );
+                              Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }
 

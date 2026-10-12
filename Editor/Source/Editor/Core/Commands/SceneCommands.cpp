@@ -1545,6 +1545,8 @@ namespace Desert::Editor::Commands
                 candidate.Blockers.emplace_back( "a translucency sort priority" );
             if ( mesh.HiddenSubmeshes != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
+            if ( mesh.MaxDrawDistance > 0.0f )
+                candidate.Blockers.emplace_back( "a max draw distance" );
             if ( mesh.EditableMesh )
                 candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
                                                  "a primitive)" );

@@ -1356,6 +1356,8 @@ namespace Desert::Core::Serialize
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
                 if ( smc.TranslucencySortPriority != 0 )
                     meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
+                if ( smc.MaxDrawDistance > 0.0f )
+                    meshSer.MaxDrawDistance = smc.MaxDrawDistance;
                 if ( smc.HiddenSubmeshes != 0 )
                     meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
 
@@ -1403,6 +1405,7 @@ namespace Desert::Core::Serialize
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
                 smc.TranslucencySortPriority =
                      meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
+                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
                 smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
@@ -1469,6 +1472,8 @@ namespace Desert::Core::Serialize
                 ser.Primitive = ism.Primitive;
                 if ( !ism.CastShadows )
                     ser.CastShadows = ism.CastShadows;
+                if ( ism.MaxDrawDistance > 0.0f )
+                    ser.MaxDrawDistance = ism.MaxDrawDistance;
                 if ( !ism.InstanceTransforms.empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
@@ -1522,7 +1527,8 @@ namespace Desert::Core::Serialize
                     }
                 }
                 ism.Primitive   = data.Primitive;
-                ism.CastShadows = data.CastShadows.value_or( ism.CastShadows );
+                ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
+                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {
                     ism.InstanceTransforms.clear();

@@ -154,11 +154,11 @@ TEST( InstanceWind, AnInstanceWhoseTipSwingsIntoViewIsNotCulled )
 
     std::vector<glm::mat4> kept;
     std::vector<uint32_t>  levels;
-    CollectIsmInstances( transforms, local, MainView(), {}, {}, glm::vec3( 0.0f ), Desert::Geometry::LODView{}, {},
-                         kept, levels );
+    CollectIsmInstances( transforms, local, MainView(), {}, {}, Desert::Geometry::LODView{},
+                         Desert::Geometry::LODView{}, {}, kept, levels );
     EXPECT_TRUE( kept.empty() ) << "the authored box alone is outside: the premise of the test";
 
-    CollectIsmInstances( transforms, local, MainView(), {}, Grass( 0.0 ), glm::vec3( 0.0f ),
+    CollectIsmInstances( transforms, local, MainView(), {}, Grass( 0.0 ), Desert::Geometry::LODView{},
                          Desert::Geometry::LODView{}, {}, kept, levels );
     EXPECT_EQ( kept.size(), 1u ) << "the wind-widened box reaches into the view";
 }

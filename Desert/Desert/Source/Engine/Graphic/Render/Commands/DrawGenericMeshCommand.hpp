@@ -36,18 +36,24 @@ namespace Desert::Graphic::Render
         // shadow pass has no alpha test. Mesh producers opt in.
         bool CastShadows = false;
 
+        // The owning component's MaxDrawDistance (cm, 0 = no limit), asked of the executing view's lens.
+        float MaxDrawDistance = 0.0f;
+
         DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                 std::string shaderName, Graphic::MaterialOverrides overrides, bool outlined,
                                 Graphic::Image2D* directTexture = nullptr, std::string directTextureSampler = {},
-                                bool castShadows = false )
+                                bool castShadows = false, float maxDrawDistance = 0.0f )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),
                Overrides( std::move( overrides ) ), Outlined( outlined ), DirectTexture( directTexture ),
-               DirectTextureSampler( std::move( directTextureSampler ) ), CastShadows( castShadows )
+               DirectTextureSampler( std::move( directTextureSampler ) ), CastShadows( castShadows ),
+               MaxDrawDistance( maxDrawDistance )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
+            if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
+                return;
             renderer.SubmitGenericMesh( Entity, Mesh, Transform, ShaderName, Overrides, Outlined, DirectTexture,
                                         DirectTextureSampler, CastShadows );
         }

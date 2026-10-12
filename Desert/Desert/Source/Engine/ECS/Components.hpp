@@ -166,6 +166,10 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // UE's LDMaxDrawDistance: cm from the camera beyond which the mesh is not drawn, measured to its bounds'
+        // centre and scaled by the view's lens (Graphic::DrawDistanceScale: a narrower FOV draws farther).
+        // 0 = drawn at any distance. A culled mesh casts no shadow either.
+        float MaxDrawDistance = 0.0f;
         // Translucency pass order override (UE's TranslucencySortPriority): a LOWER value draws first, i.e.
         // behind a higher one whatever their distances; within one value the pass sorts back to front
         // (Graphic::System::TranslucentSortOrder). Only meaningful for a Translucent-blend material.
@@ -231,6 +235,12 @@ namespace Desert::ECS
         // appended every ISM unconditionally. A UE-style foliage field of grass is the first thing a
         // scene wants to take out of the cascades, and it was the only thing that could not be.
         bool CastShadows = true;
+
+        // UE's LDMaxDrawDistance, per INSTANCE here: cm from the camera beyond which an instance is not drawn,
+        // scaled by the view's lens like the static twin's. Per instance and not by the component's bounds
+        // because one ISM spans a whole field: its centre says nothing about where its far instances are.
+        // A foliage type's CullDistance fade is clipped to it (Graphic::ClipToMaxDrawDistance). 0 = no limit.
+        float MaxDrawDistance = 0.0f;
 
         // Transient runtime state (not serialized): generated mesh for primitives, the material instance,
         // and a dirty flag so the renderer re-uploads the instance SSBO only when the transforms change.

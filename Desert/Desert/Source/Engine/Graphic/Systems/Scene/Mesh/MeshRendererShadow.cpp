@@ -720,7 +720,7 @@ namespace Desert::Graphic::System
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
                 CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodView.Origin, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                                     lodView, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 if ( visible.empty() )
                     continue;
 

@@ -33,16 +33,22 @@ namespace Desert::Graphic::Render
         // the shadow pass draws the mesh whole, so a second caster would be the same silhouette twice.
         bool CastShadows = false;
 
+        // The owning StaticMeshComponent's MaxDrawDistance (cm, 0 = no limit), asked of the executing view.
+        float MaxDrawDistance = 0.0f;
+
         DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                      Graphic::Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                     bool castShadows = false )
+                                     bool castShadows = false, float maxDrawDistance = 0.0f )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), SlotMaterial( material ),
-               VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ), CastShadows( castShadows )
+               VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ), CastShadows( castShadows ),
+               MaxDrawDistance( maxDrawDistance )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
+            if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
+                return;
             renderer.SubmitSlotMaterialMesh( Entity, Mesh, Transform, SlotMaterial, VisibleSubmeshMask, Outlined,
                                              CastShadows );
         }

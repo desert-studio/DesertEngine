@@ -11,6 +11,7 @@
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -1524,6 +1525,16 @@ namespace Desert::Graphic
             return mesh.GetVertexBuffer() != nullptr;
         }
     } // namespace
+
+    bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
+                                                 float maxDrawDistance ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
+            return true;
+        return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                     transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+    }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
                                     const glm::mat4& transform, const RenderSubmissionExtra& extra )

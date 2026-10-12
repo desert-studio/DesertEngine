@@ -220,6 +220,13 @@ namespace Desert::Graphic
             return m_ViewExtent;
         }
 
+        // WHETHER A MESH IS WITHIN ITS MAX DRAW DISTANCE FROM THIS VIEW (UE's LDMaxDrawDistance): asked by the
+        // mesh draw commands before they submit, so a mesh beyond it enters no queue and no pass — lit, shadow,
+        // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
+        // (Graphic::IsWithinDrawDistance). maxDrawDistance <= 0, or no camera yet: drawn.
+        [[nodiscard]] bool IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
+                                                    float maxDrawDistance ) const;
+
         // The slot binding is taken BY SHARED HANDLE, not by reference to the caller's storage: the
         // caller is a draw command whose recorder (an ECS component) may already be gone. See
         // Graphic::MaterialSlotBinding (A8-3).
