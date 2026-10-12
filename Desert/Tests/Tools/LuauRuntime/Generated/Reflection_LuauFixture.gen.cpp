@@ -27,15 +27,16 @@ void RegisterReflection_LuauFixture()
     {
         using T = ::LuauRuntimeFixture::Beacon;
         TypeBuilder( "Beacon", sizeof( T ) )
+            .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ } } )
                     .Field( FieldInfo{ .Name = "Position", .Type = FieldType::Vec3, .Offset = offsetof( T, Position ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Position )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ } } )
                     .Field( FieldInfo{ .Name = "Tint", .Type = FieldType::Vec4, .Offset = offsetof( T, Tint ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Tint )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ } } )
                     .Field( FieldInfo{ .Name = "Label", .Type = FieldType::String, .Offset = offsetof( T, Label ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Label )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ } } )
                     .Field( FieldInfo{ .Name = "Serial", .Type = FieldType::Int, .Offset = offsetof( T, Serial ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Serial )>(), .TypeName = "int", .Meta = PropertyMetadata{ .ReadOnly = true, } } )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::Move>( "Move", "Beacon", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "by", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "" } ) )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::Scaled>( "Scaled", "Beacon", "float", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "factor", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "" } ) )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::Twice>( "Twice", "Beacon", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "value", "int" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "" } ) )
-                    .Function( ::Desert::Reflection::MakeFunction<&T::EngineOnly>( "EngineOnly", "Beacon", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = false, .Category = "", .Tooltip = "" } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Move>( "Move", "Beacon", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "by", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Scaled>( "Scaled", "Beacon", "float", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "factor", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Twice>( "Twice", "Beacon", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "value", "int" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::EngineOnly>( "EngineOnly", "Beacon", "void", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = false, .Category = "", .Tooltip = "", .ScriptName = "", .ScriptMethod = false } ) )
             .WithDefault<T>()
             .Register();
     }

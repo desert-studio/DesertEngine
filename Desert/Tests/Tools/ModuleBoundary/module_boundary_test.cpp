@@ -141,7 +141,7 @@ namespace
 TEST( ModuleBoundary, TableLoadsAndIsLayered )
 {
     const ModuleTable& table = Table();
-    ASSERT_EQ( table.Modules().size(), 26u ) << "the plan's v3 map has 26 modules (Common included)";
+    ASSERT_EQ( table.Modules().size(), 27u ) << "the plan's v3 map has 26 modules (Common included) + ScriptLuau (SCR-PORT)";
     // Named rows of the graph, not a count of edges.
     EXPECT_TRUE( table.Closure( "Engine" ).contains( "RenderCore" ) );
     EXPECT_TRUE( table.Closure( "Engine" ).contains( "Common" ) );

@@ -190,7 +190,7 @@ namespace Desert::ECS
         uint32_t SeenMaterialsVersion = 0;
         // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
         // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
-        // clearMaterialParams (Scripting/MaterialBindings.cpp). Held HERE, on the mesh that owns the slot, so a
+        // clearMaterialParams (Libraries/EntityLibrary.cpp, MaterialLibrary). Held HERE, on the mesh that owns the slot, so a
         // write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it) is not lost,
         // and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem applies the list
         // to every slot-0 instance it builds. The authored slots stay the source of truth for everything else.

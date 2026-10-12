@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/WorldContext.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <entt/entt.hpp>
@@ -8,7 +9,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,19 +29,21 @@ namespace Desert::Input
 
 namespace Desert::Scripting
 {
-    // The game's script host on the Luau runtime (Luau/LuauRuntime: sandboxed slots, the watchdog, compiled-once
-    // bytecode). The engine exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable
-    // scripts instead of compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
+    // The game's script host — LANGUAGE-FREE: no language type appears here (PIMPL); the one implementation is
+    // the Luau plugin (Luau/LuauScriptEngine.cpp: sandboxed slots, the watchdog, compiled-once bytecode). What
+    // the engine offers a script is its public reflected layer (FUNCTION/EVENT), bound by the language. The engine
+    // exposes capabilities + lifecycle to scripts, so game behavior lives in hot-reloadable scripts instead of
+    // compiled C++. Engine = mechanism/hot-path; script = behavior/decisions.
     //
     // `self` is the entity object: its data by record key (self:component("PointLight"), has/add/remove), its
     // verbs as native methods (destroy, call, move, ...). No Luau type appears here (PIMPL).
-    class ScriptEngine
+    class ScriptEngine final : public Core::ScriptHost
     {
     public:
         // The scene is needed so the bound entity API (move/jump/transform/...) can touch components; the asset
         // manager lets World.spawn(prefab) instantiate prefabs from script. assetManager may be null (spawn no-op).
         explicit ScriptEngine( Core::Scene* scene, Assets::AssetManager* assetManager = nullptr );
-        ~ScriptEngine();
+        ~ScriptEngine() override;
 
         ScriptEngine( const ScriptEngine& )            = delete;
         ScriptEngine& operator=( const ScriptEngine& ) = delete;
@@ -94,6 +96,11 @@ namespace Desert::Scripting
         void ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
                                  std::vector<ScriptProperty>& props );
 
+        // After a SaveGame load wrote the SaveGame properties into the ScriptComponents: every running slot gets
+        // its loaded values NOW, so the script that loaded reads them on its next line and the read-back after
+        // this OnUpdate does not copy the pre-load values over them (SaveGame.load).
+        void ApplySaveGameProperties() override;
+
         // Calls OnUIMessage(msg) on EVERY loaded script that defines it. A UI message has no owner — a
         // button belongs to the canvas, not to a script — so it broadcasts, and each script decides what
         // (if anything) it answers. Drained from UI::UIMessageQueue once per frame by ScriptSystem.
@@ -110,17 +117,10 @@ namespace Desert::Scripting
         // playing, after the scripts ran.
         void TickTimers( float dt );
 
-        // Per-frame mouse delta the engine computed (cursor-capture aware), exposed to scripts as
-        // Input.mouseDelta(). Set once per frame before running scripts.
-        void SetFrameMouseDelta( float dx, float dy );
-
-        // Advances the edge-detection state for Input.wasPressed() (down THIS frame, up LAST frame). Call once
-        // per frame BEFORE running scripts so each key fires wasPressed() exactly on the press transition.
-        void NewInputFrame();
-
         // THE LOCAL PLAYER'S ENHANCED INPUT (GP1b). TickPlayerInput runs once per played frame, after
-        // SetFrameMouseDelta and before the scripts: the first call of a Play session is UE's BeginPlay (the
-        // EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends the session.
+        // Libraries::InputLibrary::NewFrame (its mouse delta) and before the scripts: the first call of a Play
+        // session is UE's BeginPlay (the EnhancedInputPlayerComponents' contexts are added); EndPlayerInput ends
+        // the session. The Input library reaches it through Core::WorldContext::PlayerInput.
         void TickPlayerInput( entt::registry& registry, float deltaSeconds );
         void EndPlayerInput();
         // The scene's GameMode events since last frame (Core/GameMode.hpp), in order: a PawnDied unpossesses the
@@ -129,13 +129,8 @@ namespace Desert::Scripting
         void                     DeliverGameModeEvents( entt::registry& registry );
         Input::LocalPlayerInput& PlayerInput();
 
-        // A script may request cursor lock/unlock via Input.lockCursor()/showCursor(). ScriptSystem consumes the
-        // pending request after running scripts and applies it (so it cooperates with the Escape toggle). Returns
-        // nullopt if no script touched the cursor this frame; otherwise true=lock(capture), false=show(free).
-        std::optional<bool> ConsumeCursorLockRequest();
-
     public:
-        // Public FORWARD declaration only: the definition lives in Internal/ScriptRuntime.hpp,
+        // Public FORWARD declaration only: the definition lives in Luau/LuauHost.hpp,
         // shared by the modular binding translation units (Register*Bindings). The rest of the
         // engine still can't touch it (incomplete type).
         struct Impl;

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +36,12 @@ namespace Desert::Reflection
         Enum,
         Struct,
         AssetHandle,
+        Entity, // an entity of a world: its id and the world it lives in (Value::EntityRef)
+        Any,    // a parameter/result of a reflected function that takes whatever kind it is given (Godot's
+                // Variant): the callee reads the Value's own Type(). Never a field's kind, never a Value's.
+        Array,    // an ordered list of Values (UE's TArray, a Lua sequence): Value::Array
+        Map,      // string keys to Values (UE's TMap<FString, ...>, a Lua record): Value::Map
+        Callable, // something to call later that a language handed over (UE's delegate): Value::Callable
     };
 
     // Editor/codegen metadata extracted from PROPERTY(...) attributes.
@@ -175,6 +182,11 @@ namespace Desert::Reflection
         std::string Name;
         FieldType   Type = FieldType::Unknown;
         std::string TypeName;
+        FieldType   ElementType = FieldType::Unknown; // Array / Map: the kind of every element (Any = mixed)
+        std::string StructName; // Struct (or an Array / Map of them): the registry name of the reflected type
+        /// The value C++ passes when the caller leaves the argument out (UE's CPP_Default_), compiled from the
+        /// header's default expression (Function.tpl); null = the argument is required.
+        std::shared_ptr<const Value> Default;
     };
 
     /// FUNCTION(...) attributes, parsed by DesertHeaderTool exactly as PROPERTY(...) ones are.
@@ -183,6 +195,10 @@ namespace Desert::Reflection
         bool        ScriptCallable = false; // FUNCTION(ScriptCallable) — a script language may bind and call it
         std::string Category;               // FUNCTION(Category("...")) — grouping in a browser or a palette
         std::string Tooltip;                // FUNCTION(Tooltip("..."))  — hover help
+        std::string ScriptName;             // FUNCTION(ScriptName("...")) — the name a language binds (UE's
+                                            // meta=(ScriptName)); empty = the C++ name
+        bool ScriptMethod = false;          // FUNCTION(ScriptMethod) — a static whose first parameter is an
+                                            // entity, bound as a method of the entity (UE's meta=(ScriptMethod))
     };
 
     /// THE CALL ITSELF, generated per function (FunctionThunk.hpp): unpacks the Values into the C++
@@ -210,6 +226,12 @@ namespace Desert::Reflection
         /// is never converted here: converting is the CALLER'S language rule (Lua's number -> Float), not
         /// this layer's.
         Common::BoolResultStr Invoke( void* self, const Value* args, std::size_t argc, Value* rets ) const;
+
+        /// The name a language binds the function under (Meta.ScriptName, else Name).
+        [[nodiscard]] const std::string& BoundName() const
+        {
+            return Meta.ScriptName.empty() ? Name : Meta.ScriptName;
+        }
     };
 
     /// EVENT(...) attributes, parsed by DesertHeaderTool exactly as FUNCTION(...) ones are.
@@ -234,6 +256,8 @@ namespace Desert::Reflection
     struct TypeInfo
     {
         std::string               Name;
+        std::string               ScriptName; // REFLECT(ScriptName("...")): the global a language binds the
+                                              // type's static functions under; empty = Name
         std::size_t               Size = 0;
         std::vector<FieldInfo>    Fields;
         std::vector<FunctionInfo> Functions; // FUNCTION(...) members, in declaration order
@@ -241,10 +265,25 @@ namespace Desert::Reflection
 
         /// The function named `name`, or nullptr. Names are unique within a type (the header tool refuses an
         /// overload: a language calls by name, and two C++ signatures under one name would be a guess).
+        /// The name a language binds the type under (ScriptName, else Name).
+        [[nodiscard]] const std::string& BoundName() const
+        {
+            return ScriptName.empty() ? Name : ScriptName;
+        }
+
         [[nodiscard]] const FunctionInfo* FindFunction( std::string_view name ) const
         {
             for ( const FunctionInfo& function : Functions )
                 if ( function.Name == name )
+                    return &function;
+            return nullptr;
+        }
+
+        /// The function a language binds as `name` (its BoundName), or nullptr.
+        [[nodiscard]] const FunctionInfo* FindBoundFunction( std::string_view name ) const
+        {
+            for ( const FunctionInfo& function : Functions )
+                if ( function.BoundName() == name )
                     return &function;
             return nullptr;
         }

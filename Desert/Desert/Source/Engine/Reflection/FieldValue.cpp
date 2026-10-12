@@ -191,6 +191,11 @@ namespace Desert::Reflection
             }
             case FieldType::Unknown:
             case FieldType::Struct:
+            case FieldType::Entity:
+            case FieldType::Any:
+            case FieldType::Array:
+            case FieldType::Map:
+            case FieldType::Callable:
                 break;
         }
         return Common::MakeError<Value>(
@@ -244,6 +249,11 @@ namespace Desert::Reflection
                 return StoreUnsigned( field, at, *value.Get<std::uint64_t>() );
             case FieldType::Unknown:
             case FieldType::Struct:
+            case FieldType::Entity:
+            case FieldType::Any:
+            case FieldType::Array:
+            case FieldType::Map:
+            case FieldType::Callable:
                 break;
         }
         return Common::MakeError<bool>(
