@@ -329,6 +329,16 @@ namespace
                      Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
             }
+            case ContentKind::Sound:
+            {
+                // No sound ships with the corpus yet; the least `.desound` SoundAsset::Parse accepts (a
+                // versionless header, SoundFormat.cpp, and the Source it was imported from).
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"Sound","Guid":"{}","Versions":{{}},"Dependencies":[]}},"Source":"AF10a_Probe.wav"}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
             case ContentKind::LevelSequence:
             {
                 // No sequence ships with the corpus yet; the least `.dseq` header (a TMLN block whose header

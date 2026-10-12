@@ -33,7 +33,9 @@
 #include <format>
 
 #include <fstream>
+#include <cstdint>
 #include <iterator>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -316,6 +318,23 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
         SceneSerialized scene = parsed.GetValue();
         scene.SceneName       = "normalised";
         scene.Header          = std::nullopt; // each file is its own asset: the GUID differs by design
+
+        // An entity a migration step ADDS (the Wind Source of the wind step) takes an id derived from the
+        // scene's own path, so the migration stays pure and two runs are byte-identical - which means three
+        // legs carry three ids for the same record, for the reason they carry three header GUIDs. An id is
+        // an identity, never a pixel: each one is replaced by its record's place in the file (and every
+        // parent link with it), so the hierarchy is still compared while the per-file identities are not.
+        std::map<uint64_t, uint64_t> ordinal;
+        for ( std::size_t e = 0; e < scene.Entities.size(); ++e )
+            if ( scene.Entities[e].id )
+                ordinal.emplace( static_cast<uint64_t>( *scene.Entities[e].id ), e + 1 );
+        for ( auto& entity : scene.Entities )
+        {
+            if ( entity.id )
+                entity.id = Common::UUID( ordinal.at( static_cast<uint64_t>( *entity.id ) ) );
+            if ( entity.parent && ordinal.contains( static_cast<uint64_t>( *entity.parent ) ) )
+                entity.parent = Common::UUID( ordinal.at( static_cast<uint64_t>( *entity.parent ) ) );
+        }
 
         int live = 0;
         for ( auto& entity : scene.Entities )
