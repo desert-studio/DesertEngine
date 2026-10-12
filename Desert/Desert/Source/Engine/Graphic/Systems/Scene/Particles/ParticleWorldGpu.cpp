@@ -67,9 +67,9 @@ namespace Desert::Graphic::System
                                                                    /*persistent=*/true );
         m_Pool.Slots     = ShaderResources::StorageBuffer::Create(
              "ParticleSlots", capacity * static_cast<uint32_t>( sizeof( VFXSlotStateGpu ) ), 1, true );
-        m_Pool.Floats    = ShaderResources::StorageBuffer::Create( "ParticleFloats", floatCapacity * 4u, 1, true );
-        m_Pool.Ints      = ShaderResources::StorageBuffer::Create( "ParticleInts", intCapacity * 4u, 1, true );
-        m_Pool.FreeList  = ShaderResources::StorageBuffer::Create( "ParticleFreeList", capacity * 4u, 2, true );
+        m_Pool.Floats   = ShaderResources::StorageBuffer::Create( "ParticleFloats", floatCapacity * 4u, 1, true );
+        m_Pool.Ints     = ShaderResources::StorageBuffer::Create( "ParticleInts", intCapacity * 4u, 1, true );
+        m_Pool.FreeList = ShaderResources::StorageBuffer::Create( "ParticleFreeList", capacity * 4u, 2, true );
         // Two alive lists per range (ping-pong halves): a compact reads the half the previous compact wrote.
         m_Pool.AliveList = ShaderResources::StorageBuffer::Create( "ParticleAliveList", capacity * 8u, 2, true );
         if ( !m_Pool.Particles || !m_Pool.Slots || !m_Pool.Floats || !m_Pool.Ints || !m_Pool.FreeList ||

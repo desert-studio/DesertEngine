@@ -214,7 +214,7 @@ namespace Desert::ECS
             const auto& destructible = registry.get<DestructibleComponent>( entity );
             if ( destructible.Data.Fracture.IsNull() )
                 continue;
-            record( entity, services.Fracture( destructible.Data.Fracture ), destructible.RuntimeNodeWorld, {} );
+            record( entity, services.Fracture( destructible.Data.Fracture ), destructible.SimulatedNodeWorld, {} );
         }
 
         // Forget entities and fractures nothing draws any more. Lifetime: a dropped fracture's meshes were not

@@ -1661,14 +1661,14 @@ namespace Desert::Migration
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << materialsRaised << ( check ? " would be raised, " : " raised, " )
-            << materialsRenamed
-            << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " ) << prefabs.size()
-            << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
-            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
-            << foliageRaised << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " )
-            << cloudTypesRaised << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " )
-            << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
-            << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << materialsRenamed << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " )
+            << prefabs.size() << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " )
+            << texts.size() << " other text asset(s), " << relaid
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
+            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
             << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
@@ -1678,10 +1678,9 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check &&
-                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                   cloudTypesRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 || recordsStated > 0 ||
-                   materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
+                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
+                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

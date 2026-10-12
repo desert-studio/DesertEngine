@@ -92,8 +92,8 @@ namespace Desert::Editor
             return static_cast<int32_t>( std::llround( std::round( ticks / perFrame ) * perFrame ) );
         }
 
-        constexpr std::array<const char*, 3>  kKeyInterpNames = { "Constant", "Linear", "Cubic" };
-        constexpr std::array<const char*, 3>  kTangentNames   = { "Auto", "User", "Break" };
+        constexpr std::array<const char*, 3> kKeyInterpNames = { "Constant", "Linear", "Cubic" };
+        constexpr std::array<const char*, 3> kTangentNames   = { "Auto", "User", "Break" };
 
         /// A key-shape combo over @p names previewing @p current (nullopt: "Multiple Values"); the index picked
         /// this frame, if any.

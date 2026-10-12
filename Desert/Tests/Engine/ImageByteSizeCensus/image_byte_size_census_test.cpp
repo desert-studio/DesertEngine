@@ -455,6 +455,10 @@ namespace
           "VulkanImage3D's staging buffer; a volume is one image and has no layers "
           "(Image3DSpecification deliberately has no Mips field either), and no block format is legal "
           "on one" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
+          "CalculateImageSize( r.Width, r.Height, r.Depth, m_Specification.Format )", Sizes::OneImage, Blocks::Correct,
+          "the byte count one box of a VulkanImage3D region write must carry (Image3D::WriteRegions): the box is "
+          "a sub-volume of the one image, with no layers and no block format legal on a volume" },
         { "Desert/Desert/Source/Engine/Graphic/Environment/EnvironmentBake.cpp",
           "TightlyPackedChainBytes( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, " "Assets::kEnvironmentComputeFormat )", Sizes::EveryLayer, Blocks::Correct,
           "the bake asserting that what came back off the device is the shape it is about to place: a "

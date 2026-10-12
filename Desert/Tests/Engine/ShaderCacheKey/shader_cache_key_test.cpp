@@ -328,11 +328,10 @@ namespace
 
     // The cloud FIELD's samplers: the names VolumetricCloudRenderer::SampledVolumes binds on the shadow map,
     // the sky-light occlusion volume and the march alike — one vocabulary for one field.
-    constexpr const char* kCloudFieldSamplerNames[] = { "u_CloudNoise",     "u_CloudNoise1",
-                                                        "u_CloudNoise2",    "u_CloudNoise3",
-                                                        "u_CloudModelling", "u_CloudFarWeather",
-                                                        "u_CloudLayoutPattern", "u_CloudLayoutMask",
-                                                        "u_CloudAuthoredAtlas" };
+    constexpr const char* kCloudFieldSamplerNames[] = {
+         "u_CloudNoise",         "u_CloudNoise1",     "u_CloudNoise2",
+         "u_CloudNoise3",        "u_CloudModelling",  "u_CloudFarWeather",
+         "u_CloudLayoutPattern", "u_CloudLayoutMask", "u_CloudAuthoredAtlas" };
 
     // A temporary .glslh next to the real ones, so an include can be edited without touching the tree.
     struct ScopedHeader

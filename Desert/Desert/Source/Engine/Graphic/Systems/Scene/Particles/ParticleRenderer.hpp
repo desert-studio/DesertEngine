@@ -186,8 +186,8 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         ChannelImport; // Spawn from Channel particles, read by Spawn+Update
             RDG::BufferRef              ChannelRef;
             RDG::BufferRef              StepsRef;
-            RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
-            RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
+            RDG::BufferRef              CountersRef;       // read by ParticlePass as IndirectArgs
+            RDG::BufferRef              ArgsRef;           // written by Dispatch Args, read as IndirectArgs
             const StackProgram*         Program = nullptr; // a compiled stack's program (null = ParticleSimulate)
             RDG::ExternalBuffer         ParamsImport;      // a compiled stack's parameter rows and curve atlas
             RDG::ExternalBuffer         CurvesImport;
@@ -206,7 +206,7 @@ namespace Desert::Graphic::System
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
-        SpriteDraw* SpriteDrawFor( const std::string& cellShader );
+        SpriteDraw*            SpriteDrawFor( const std::string& cellShader );
         const StackProgram*    StackProgramFor( const VFX::VFXCompiledEmitter& stack );
         ParticlePoolRefs       PoolRefs() const;
         ParticleSimEmitterRefs SimulateRefs( const ViewEmitter& ve ) const;
@@ -236,9 +236,9 @@ namespace Desert::Graphic::System
         // VFXComponent emitters (a compiled stack) this view does not run yet, each said once by key.
         // By stack key; null = its program did not compose or build (said once, its emitters sit out).
         std::unordered_map<uint64_t, std::unique_ptr<StackProgram>> m_StackPrograms;
-        const ParticleWorldGpu*                       m_World     = nullptr;
-        bool                                          m_Simulates = false;
-        std::vector<ViewEmitter>                      m_ViewEmitters;
-        ViewPool                                      m_Pool;
+        const ParticleWorldGpu*                                     m_World     = nullptr;
+        bool                                                        m_Simulates = false;
+        std::vector<ViewEmitter>                                    m_ViewEmitters;
+        ViewPool                                                    m_Pool;
     };
 } // namespace Desert::Graphic::System

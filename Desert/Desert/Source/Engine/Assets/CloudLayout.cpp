@@ -237,7 +237,8 @@ namespace Desert::Assets
         const unsigned char* const pixels     = data->Mask.data();
         return BilinearWrapped( uv, resolution,
                                 [pixels, resolution]( uint32_t x, uint32_t y ) {
-                                    return static_cast<float>( pixels[static_cast<size_t>( y ) * resolution + x] ) *
+                                    return static_cast<float>(
+                                                pixels[static_cast<size_t>( y ) * resolution + x] ) *
                                            ( 1.0f / 255.0f );
                                 } );
     }

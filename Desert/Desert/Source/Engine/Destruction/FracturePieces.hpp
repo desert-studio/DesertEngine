@@ -6,7 +6,7 @@
 // records, so pieces batch through the existing instanced path (one draw per material per piece-mesh batch).
 // What lives here is the decision that draw needs, kept free of the GPU so a suite checks it:
 //   * WHICH nodes draw: the leaves that carry geometry (an inner node is the union of its leaves);
-//   * WHERE: from the piece's body while the fracture is simulated (DestructibleComponent::RuntimeNodeWorld,
+//   * WHERE: from the piece's body while the fracture is simulated (DestructibleComponent::SimulatedNodeWorld,
 //     written after each physics step), otherwise the rest pose — the entity's world transform, because the
 //     bake is in the fracture's own space — moved by the Fracture Mode's Explode offset in the PREVIEW only;
 //   * WITH WHAT: the bake gives the cell walls their own material ID (FractureData::InteriorMaterialId); a

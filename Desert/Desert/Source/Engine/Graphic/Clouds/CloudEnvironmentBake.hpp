@@ -58,7 +58,8 @@ namespace Desert::Graphic
     // The world weather map — the march's remap of the baked profile (CloudGpuPayload::Weather), applied
     // to the panorama exactly as to the screen.
     inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding = 14;
-    // The painted layout's two textures (u_CloudLayoutPattern / u_CloudLayoutMask, VolumetricCloudRenderer::SampledVolumes).
+    // The painted layout's two textures (u_CloudLayoutPattern / u_CloudLayoutMask,
+    // VolumetricCloudRenderer::SampledVolumes).
     inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 15;
     inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 16;
 

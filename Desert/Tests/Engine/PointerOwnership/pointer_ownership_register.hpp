@@ -1977,9 +1977,33 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/ECS/System/LocomotionSystem.hpp",
           "LocomotionSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this" },
-        { "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp",
-          "SlotDraw", "Mat", Guard::FrameScoped,
-          "a per-frame slot record; the Material is owned by MaterialService for longer than the frame" },
+        { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
+          "BlendSpaceRun", "Clips", Guard::HostOutlivesUs,
+          "per Blend Space sample, an AnimationClip inside an AnimationLibrary entry; the library outlives the "
+          "animator that plays it, exactly as ClipPlayback::Clip" },
+        { "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.hpp",
+          "EntityPieces", "Fracture", Guard::IdentityOnly,
+          "DST-06: only compared against the fracture drawn this frame to decide a rebind; never dereferenced, the "
+          "data is reached through the FractureService's shared_ptr" },
+        { "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.hpp",
+          "FracturePieceDraw", "m_Meshes", Guard::IdentityOnly,
+          "DST-06: keyed by fracture address; a hit is used only when the entry's weak_ptr Data still locks to the "
+          "same fracture, so a recycled address rebuilds instead of drawing stale pieces" },
+        { "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.hpp",
+          "FracturePieceDraw", "m_Reported", Guard::IdentityOnly,
+          "DST-06: log-once set of fracture addresses; never dereferenced" },
+        { "Desert/Desert/Source/Engine/Graphic/Image.hpp",
+          "RegionWrite", "Bytes", Guard::CallScoped,
+          "an argument pack of Image3D region writes: built at the call site over the caller's bytes and consumed "
+          "inside that call" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewEmitter", "Program", Guard::FrameScoped,
+          "m_ViewEmitters is cleared and rebuilt every frame; the StackProgram lives in the renderer's own "
+          "m_StackPrograms (unique_ptr per stack key), which outlives the frame" },
+        { "Desert/Desert/Source/Engine/VFX/VFXWorld.hpp",
+          "CompiledStack", "Source", Guard::IdentityOnly,
+          "only compared against the system data the lookup hands this tick to decide a recompile; never "
+          "dereferenced after the compile that read it" },
         { "Desert/Desert/Source/Engine/ECS/System/PhysicsECSSystem.hpp",
           "PhysicsECSSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this" },

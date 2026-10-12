@@ -280,9 +280,9 @@ namespace
         const float floorKm = Desert::Assets::CloudProceduralLumpFloorKm( params );
         const float coneKm  = params.LayerBottomKm * std::tan( 30.0f * 3.14159265f / 180.0f );
 
-        constexpr int    kBins                = 7;
-        const float      edges[kBins - 1]     = { 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f };
-        std::vector<int> bins( kBins, 0 );
+        constexpr int      kBins            = 7;
+        const float        edges[kBins - 1] = { 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f };
+        std::vector<int>   bins( kBins, 0 );
         std::vector<float> diameters;
         size_t             lumpCount = 0, atFloor = 0;
         double             overhead = 0.0, overheadWeathered = 0.0, zenithWeather = 0.0;
@@ -328,22 +328,26 @@ namespace
         }
 
         std::sort( diameters.begin(), diameters.end() );
-        const auto pct = [&diameters]( float q ) {
-            return diameters.empty() ? 0.0f
-                                     : diameters[std::min( diameters.size() - 1u,
-                                                           static_cast<size_t>( q * static_cast<float>(
-                                                                                         diameters.size() ) ) )];
+        const auto pct = [&diameters]( float q )
+        {
+            return diameters.empty()
+                        ? 0.0f
+                        : diameters[std::min( diameters.size() - 1u,
+                                              static_cast<size_t>( q * static_cast<float>( diameters.size() ) ) )];
         };
         const double n    = static_cast<double>( repeats );
         const double area = static_cast<double>( regionKm ) * static_cast<double>( regionKm );
         std::printf( "bodies  floor %.3f km  zenith cone r %.2f km  clouds/realisation %.0f  (%.2f per 10 km^2)\n",
                      floorKm, coneKm, static_cast<double>( diameters.size() ) / n,
                      10.0 * static_cast<double>( diameters.size() ) / n / area );
-        std::printf( "bodies  diameter p10 %.3f  p50 %.3f  p90 %.3f  max %.3f km  lumps/cloud %.1f  lumps at floor %.1f%%\n",
-                     pct( 0.1f ), pct( 0.5f ), pct( 0.9f ), diameters.empty() ? 0.0f : diameters.back(),
-                     static_cast<double>( lumpCount ) / std::max<double>( 1.0, static_cast<double>( diameters.size() ) ),
-                     100.0 * static_cast<double>( atFloor ) / std::max<double>( 1.0, static_cast<double>( lumpCount ) ) );
-        std::printf( "bodies  histogram km  <0.5 %d | 0.5-1 %d | 1-2 %d | 2-3 %d | 3-4 %d | 4-6 %d | >=6 %d  (all realisations)\n",
+        std::printf(
+             "bodies  diameter p10 %.3f  p50 %.3f  p90 %.3f  max %.3f km  lumps/cloud %.1f  lumps at floor "
+             "%.1f%%\n",
+             pct( 0.1f ), pct( 0.5f ), pct( 0.9f ), diameters.empty() ? 0.0f : diameters.back(),
+             static_cast<double>( lumpCount ) / std::max<double>( 1.0, static_cast<double>( diameters.size() ) ),
+             100.0 * static_cast<double>( atFloor ) / std::max<double>( 1.0, static_cast<double>( lumpCount ) ) );
+        std::printf( "bodies  histogram km  <0.5 %d | 0.5-1 %d | 1-2 %d | 2-3 %d | 3-4 %d | 4-6 %d | >=6 %d  (all "
+                     "realisations)\n",
                      bins[0], bins[1], bins[2], bins[3], bins[4], bins[5], bins[6] );
         std::printf( "bodies  over the camera %.1f clouds (%.1f with weather > 0)  weather at zenith %.3f\n",
                      overhead / n, overheadWeathered / n, zenithWeather / n );

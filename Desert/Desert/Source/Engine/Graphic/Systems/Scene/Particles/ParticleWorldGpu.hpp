@@ -125,10 +125,10 @@ namespace Desert::Graphic::System
         uint32_t                                        CurvesCapacity = 0; // floats Curves holds
         ParticlePoolRange                               FloatRange;
         ParticlePoolRange                               IntRange;
-        uint32_t          StepCapacity    = 0;
-        uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
-        uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
-        bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+        uint32_t                                        StepCapacity    = 0;
+        uint32_t                                        ChannelCapacity = 0; // particles ChannelSpawns holds
+        uint64_t Generation = 0;    // the VFXWorld instance generation this state belongs to
+        bool     NeedsReset = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
     };
 
     // One emitter active in this scene update.

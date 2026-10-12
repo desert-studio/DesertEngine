@@ -85,8 +85,9 @@ namespace Desert::ECS
             if ( component.RuntimeObject == Destruction::kInvalidDestructible )
                 continue;
             DestructionEventSource source;
-            source.Entity                    = static_cast<int32_t>( entt::to_integral( entity ) &
-                                                                     entt::entt_traits<std::underlying_type_t<entt::entity>>::entity_mask );
+            source.Entity =
+                 static_cast<int32_t>( entt::to_integral( entity ) &
+                                       entt::entt_traits<std::underlying_type_t<entt::entity>>::entity_mask );
             source.NotifyBreaks              = component.Data.NotifyBreaks;
             source.NotifyCollisions          = component.Data.NotifyCollisions;
             source.NotifyRemovals            = component.Data.NotifyRemovals;

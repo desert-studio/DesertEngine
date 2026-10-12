@@ -2999,7 +2999,7 @@ TEST( CloudPlacementSpectrum, ErasingReturnsThePatternToNothingAndTheMaskToNeutr
     // AND NO GAPS: the neighbour texel along the stroke is painted too, which is what a wrong stride
     // would break and what a single-texel probe would miss.
     ASSERT_EQ( surface.Mask[middle + 1u], 0u ) << "the stroke on the mask skipped a texel, so the plane "
-                                                    "was walked with the wrong stride";
+                                                  "was walked with the wrong stride";
 
     CloudLayoutBrush erasePattern = lay;
     erasePattern.Ink              = 1.0f;
@@ -3129,7 +3129,7 @@ namespace
             if ( map[seed] <= 0.0f || label[seed] >= 0 )
                 continue;
 
-            const int id = static_cast<int>( diameters.size() );
+            const int id     = static_cast<int>( diameters.size() );
             size_t    pixels = 0;
 
             label[seed] = id;
@@ -3291,8 +3291,8 @@ TEST( CloudPlacementSpectrum, TheCloudSizesFallAsAPowerLawManySmallAndFewLarge )
     ASSERT_GT( control.Bodies, 100u ) << "too few bodies in the control to say anything about their sizes";
 
     // n(D) ~ D^-2 over an eightfold range puts about a fifth of the bodies at twice the median or more.
-    EXPECT_GE( law.TailFraction, 0.08 ) << "the shipped sky has no tail of large clouds: only "
-                                        << law.TailFraction << " of the bodies reach twice the median";
+    EXPECT_GE( law.TailFraction, 0.08 ) << "the shipped sky has no tail of large clouds: only " << law.TailFraction
+                                        << " of the bodies reach twice the median";
     EXPECT_GE( law.TailFraction, 2.0 * control.TailFraction )
          << "the size spread adds no more large clouds than the fill ramp and the merging already make";
     EXPECT_GE( law.P90Km / law.MedianKm, 1.4 * ( control.P90Km / control.MedianKm ) )

@@ -274,8 +274,8 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
     const auto                       baked  = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
 
-    const float     cover = params.Coverage;
-    const auto      lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+    const float cover = params.Coverage;
+    const auto  lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
     const std::vector<std::vector<CloudModellingBlob>> living = ClustersOf( lumps, cover );
     ASSERT_FALSE( living.empty() );
 
@@ -323,13 +323,13 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
                 const glm::vec3 point( origin.x + ( static_cast<float>( x ) + 0.5f ) * voxelXKm,
                                        params.LayerBottomKm + ( static_cast<float>( y ) + 0.5f ) * voxelYKm,
                                        origin.y + ( static_cast<float>( z ) + 0.5f ) * voxelXKm );
-                std::vector<std::vector<CloudModellingBlob>> near;
+                std::vector<std::vector<CloudModellingBlob>> nearby;
                 for ( size_t c = 0; c < living.size(); ++c )
                     if ( glm::length( glm::vec2( wrapped( point.x - reaches[c].CentreKm.x ),
                                                  wrapped( point.z - reaches[c].CentreKm.y ) ) ) <=
                          reaches[c].RadiusKm )
-                        near.push_back( living[c] );
-                if ( ClusteredProfile( near, point, params ) <= 0.0f )
+                        nearby.push_back( living[c] );
+                if ( ClusteredProfile( nearby, point, params ) <= 0.0f )
                     ++orphaned;
             }
 
@@ -477,9 +477,11 @@ TEST( CloudProceduralField, TheCrossSectionShrinksTowardsTheBase )
 
     const Desert::Graphic::CloudTypeShape& shape    = params.Species[0].Shape;
     const float                            voxelYKm = params.LayerThicknessKm / kCloudProceduralVolumeHeight;
-    const auto rowAt = [&]( float altitudeKm )
-    { return static_cast<uint32_t>( std::clamp( ( altitudeKm - params.LayerBottomKm ) / voxelYKm, 0.0f,
-                                                static_cast<float>( kCloudProceduralVolumeHeight - 1 ) ) ); };
+    const auto                             rowAt    = [&]( float altitudeKm )
+    {
+        return static_cast<uint32_t>( std::clamp( ( altitudeKm - params.LayerBottomKm ) / voxelYKm, 0.0f,
+                                                  static_cast<float>( kCloudProceduralVolumeHeight - 1 ) ) );
+    };
     const float bandKm = shape.TopAltitudeKm - shape.BaseAltitudeKm;
 
     // The remap at a mid cover: g = 0.5 keeps what is deeper than half the profile.
@@ -1085,8 +1087,8 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
             for ( uint32_t z = 0; z < side; ++z )
                 for ( uint32_t x = 0; x < side; ++x )
                 {
-                    const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
-                                                              ( static_cast<float>( z ) + 0.5f ) * voxel );
+                    const glm::vec2 world  = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
+                                                               ( static_cast<float>( z ) + 0.5f ) * voxel );
                     const glm::vec4 covers = CloudProceduralLocalWeathers( coarse, world );
                     if ( std::max( std::max( covers.x, covers.y ), std::max( covers.z, covers.w ) ) > 0.0f )
                         continue;

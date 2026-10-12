@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "373cf56957364eba81871db9dec799ef",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["9a7faa02cb9a4624ba264b8527e6dde8"]
     },
@@ -18,7 +18,7 @@
         },
         {
             "Name": "Inner",
-            "Value": [0.45, 0.0, 0.0, 0.0]
+            "Value": [0.44999998807907104, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Exponent",

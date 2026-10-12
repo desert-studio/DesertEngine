@@ -433,7 +433,7 @@ namespace Desert::Graphic::System
 
         if ( updated.GetValue() )
         {
-            const CloudProceduralClipmap::ShapeLanded& landed = *updated.GetValue();
+            const CloudProceduralClipmap::ShapeLanded& landed    = *updated.GetValue();
             const uint32_t                             bakedSide = m_PendingParams.VolumeSideVoxels;
 
             // WHAT THE SKY'S ENVIRONMENT BAKE ASKS ABOUT, and it is deliberately NOT "the clipmap scrolled".
@@ -460,21 +460,20 @@ namespace Desert::Graphic::System
                 LOG_WARN( "[Clouds] The modelling clipmap was baked but not all levels were cached: {}",
                           landed.CacheWriteError );
             const glm::vec2 regionOrigin = m_Clipmap.RegionOriginKm();
-            LOG_INFO( "[Clouds] Modelling clipmap for {} cloud type(s) in {:.0f} ms ({} of {} levels from the "
-                      "DDC) — region {:.0f} km at ({:.1f}, {:.1f}), envelope {:.2f} to {:.2f} km (scene lift "
-                      "{:.2f} km), {}x{}x{} RGBA8 ({:.2f} MiB), {} lumps in the region, {:.0f} m per voxel on "
-                      "the finest level, {} stale bake(s) cancelled.",
-                      m_ProfileSpeciesCount, landed.Ms, landed.LevelsFromCache, CloudProceduralClipmap::kLevels,
-                      m_ModellingParams.RegionSizeKm, regionOrigin.x, regionOrigin.y,
-                      m_ModellingParams.LayerBottomKm,
-                      m_ModellingParams.LayerBottomKm + m_ModellingParams.LayerThicknessKm,
-                      CloudLayerLiftKm( m_Data ), bakedSide,
-                      Assets::kCloudProceduralVolumeHeight * CloudProceduralClipmap::kLevels, bakedSide,
-                      BytesToMiB( static_cast<size_t>( Assets::CloudProceduralVoxelBytes( bakedSide ) ) *
-                                  CloudProceduralClipmap::kLevels ),
-                      Assets::CountCloudProceduralBlobs( m_ModellingParams, regionOrigin ),
-                      Assets::CloudProceduralLevelVoxelKm( m_ModellingParams, 0u ) * 1000.0f,
-                      m_Clipmap.CancelledBakes() );
+            LOG_INFO(
+                 "[Clouds] Modelling clipmap for {} cloud type(s) in {:.0f} ms ({} of {} levels from the "
+                 "DDC) — region {:.0f} km at ({:.1f}, {:.1f}), envelope {:.2f} to {:.2f} km (scene lift "
+                 "{:.2f} km), {}x{}x{} RGBA8 ({:.2f} MiB), {} lumps in the region, {:.0f} m per voxel on "
+                 "the finest level, {} stale bake(s) cancelled.",
+                 m_ProfileSpeciesCount, landed.Ms, landed.LevelsFromCache, CloudProceduralClipmap::kLevels,
+                 m_ModellingParams.RegionSizeKm, regionOrigin.x, regionOrigin.y, m_ModellingParams.LayerBottomKm,
+                 m_ModellingParams.LayerBottomKm + m_ModellingParams.LayerThicknessKm, CloudLayerLiftKm( m_Data ),
+                 bakedSide, Assets::kCloudProceduralVolumeHeight * CloudProceduralClipmap::kLevels, bakedSide,
+                 BytesToMiB( static_cast<size_t>( Assets::CloudProceduralVoxelBytes( bakedSide ) ) *
+                             CloudProceduralClipmap::kLevels ),
+                 Assets::CountCloudProceduralBlobs( m_ModellingParams, regionOrigin ),
+                 Assets::CloudProceduralLevelVoxelKm( m_ModellingParams, 0u ) * 1000.0f,
+                 m_Clipmap.CancelledBakes() );
 
             // THE GRID WAS RAISED, AND THE READER IS TOLD SO AT THE PLACE THE SIDE IS ALREADY PRINTED.
             // Graphic::CloudBakeSideForSpecies only ever raises, and only when the asked-for grid could not
@@ -840,14 +839,13 @@ namespace Desert::Graphic::System
         // §2.3.1 of the contract is about.
         const CloudQualityScale quality = CloudQualityFor( m_Quality );
 
-        payload = PackCloudParams( m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
-                                   CloudRegionBinding{ m_Clipmap.LevelUniforms(),
-                                                       Assets::CloudFarWeatherUniform( m_ModellingParams ),
-                                                       Assets::CloudLayoutPlaceUniform( m_ModellingParams ),
-                                                       Assets::CloudLayoutStrengthUniform( m_ModellingParams ),
-                                                       m_Clipmap.FarStatistics().Presence,
-                                                       m_Clipmap.FarStatistics().Profile },
-                                   quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
+        payload = PackCloudParams(
+             m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
+             CloudRegionBinding{ m_Clipmap.LevelUniforms(), Assets::CloudFarWeatherUniform( m_ModellingParams ),
+                                 Assets::CloudLayoutPlaceUniform( m_ModellingParams ),
+                                 Assets::CloudLayoutStrengthUniform( m_ModellingParams ),
+                                 m_Clipmap.FarStatistics().Presence, m_Clipmap.FarStatistics().Profile },
+             quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
         return true;
     }
 
@@ -906,12 +904,12 @@ namespace Desert::Graphic::System
     {
         // KEYED ON THE PAINTING'S CONTENT HASH, the number Assets::CloudProceduralParamsEqual compares it by;
         // strength and placement reach the march through CloudGpuPayload, so moving them uploads nothing.
-        const Assets::CloudLayoutData* pattern = m_ModellingParams.PatternSource.get();
-        const Assets::CloudLayoutData* mask    = m_ModellingParams.MaskSource.get();
-        const bool     hasPattern  = pattern != nullptr && pattern->HasPattern();
-        const bool     hasMask     = mask != nullptr && mask->HasMask();
-        const uint32_t patternHash = hasPattern ? pattern->ContentHash : 0u;
-        const uint32_t maskHash    = hasMask ? mask->ContentHash : 0u;
+        const Assets::CloudLayoutData* pattern     = m_ModellingParams.PatternSource.get();
+        const Assets::CloudLayoutData* mask        = m_ModellingParams.MaskSource.get();
+        const bool                     hasPattern  = pattern != nullptr && pattern->HasPattern();
+        const bool                     hasMask     = mask != nullptr && mask->HasMask();
+        const uint32_t                 patternHash = hasPattern ? pattern->ContentHash : 0u;
+        const uint32_t                 maskHash    = hasMask ? mask->ContentHash : 0u;
 
         if ( m_LayoutPatternTexture && m_LayoutMaskTexture && m_LayoutPatternHash == patternHash &&
              m_LayoutMaskHash == maskHash )
@@ -934,8 +932,8 @@ namespace Desert::Graphic::System
         };
 
         // THE STAND-INS ARE THE NEUTRALS: white (the slider's own sky) and a mask at 128 (adds nothing).
-        std::vector<unsigned char> patternTexels = hasPattern ? pattern->Pattern
-                                                              : std::vector<unsigned char>{ 255u, 255u, 255u, 255u };
+        std::vector<unsigned char> patternTexels =
+             hasPattern ? pattern->Pattern : std::vector<unsigned char>{ 255u, 255u, 255u, 255u };
         std::vector<unsigned char> maskTexels;
         if ( hasMask )
         {
@@ -951,7 +949,8 @@ namespace Desert::Graphic::System
 
         m_LayoutPatternTexture =
              upload( "CloudLayoutPattern", hasPattern ? pattern->Resolution : 1u, std::move( patternTexels ) );
-        m_LayoutMaskTexture = upload( "CloudLayoutMask", hasMask ? mask->Resolution : 1u, std::move( maskTexels ) );
+        m_LayoutMaskTexture =
+             upload( "CloudLayoutMask", hasMask ? mask->Resolution : 1u, std::move( maskTexels ) );
         if ( !m_LayoutPatternTexture || !m_LayoutMaskTexture )
         {
             LOG_ERROR( "[Clouds] The painted layout's textures could not be created on the device; the clouds "

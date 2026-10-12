@@ -2628,12 +2628,14 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "CLTY 5 body does not read: {}", v5.GetError() );
         const CloudTypeDataV5& old = v5.GetValue();
         if ( !old.Header )
-            return Common::MakeFormattedError<std::string>( "the file states no header, and this step raises CLTY 5 only" );
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises CLTY 5 only" );
         const auto stated = old.Header->Versions.find( "CLTY" );
         if ( stated == old.Header->Versions.end() || stated->second != 5u )
             return Common::MakeFormattedError<std::string>(
                  "the header states CLTY {}, and this step raises CLTY 5 only",
-                 stated == old.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
 
         Assets::CloudTypeData data;
         data.Header      = old.Header;
@@ -2641,23 +2643,23 @@ namespace Desert::Migration
         data.Notes       = old.Notes;
         data.NoiseVolume = old.NoiseVolume;
 
-        const CloudTypeShapeV5& from = old.Shape;
-        Graphic::CloudTypeShape& to  = data.Shape;
-        to.BaseAltitudeKm            = from.BaseAltitudeKm;
-        to.TopAltitudeKm             = from.TopAltitudeKm;
-        to.EdgeTopFraction           = from.EdgeTopFraction;
-        to.BaseRampFraction          = from.BaseRampFraction;
-        to.Profile.HalfWidth         = from.Profile.HalfWidth;
-        to.Profile.Density           = Graphic::CloudProfileDensityBaseRamp();
-        to.AnvilAltitudeKm           = from.AnvilAltitudeKm;
-        to.AnvilThicknessKm          = from.AnvilThicknessKm;
-        to.AnvilStrength             = from.AnvilStrength;
-        to.DetailCharacter           = from.DetailCharacter;
-        to.DetailFactor              = from.DetailFactor;
-        to.DensityFactor             = from.DensityFactor;
-        to.ExtinctionFactor          = from.ExtinctionFactor;
-        to.PlacementScale            = from.PlacementScale;
-        to.PlacementAnisotropy       = from.PlacementAnisotropy;
+        const CloudTypeShapeV5&  from = old.Shape;
+        Graphic::CloudTypeShape& to   = data.Shape;
+        to.BaseAltitudeKm             = from.BaseAltitudeKm;
+        to.TopAltitudeKm              = from.TopAltitudeKm;
+        to.EdgeTopFraction            = from.EdgeTopFraction;
+        to.BaseRampFraction           = from.BaseRampFraction;
+        to.Profile.HalfWidth          = from.Profile.HalfWidth;
+        to.Profile.Density            = Graphic::CloudProfileDensityBaseRamp();
+        to.AnvilAltitudeKm            = from.AnvilAltitudeKm;
+        to.AnvilThicknessKm           = from.AnvilThicknessKm;
+        to.AnvilStrength              = from.AnvilStrength;
+        to.DetailCharacter            = from.DetailCharacter;
+        to.DetailFactor               = from.DetailFactor;
+        to.DensityFactor              = from.DensityFactor;
+        to.ExtinctionFactor           = from.ExtinctionFactor;
+        to.PlacementScale             = from.PlacementScale;
+        to.PlacementAnisotropy        = from.PlacementAnisotropy;
 
         // WriteCloudType stamps the header at the engine's CLTY and keeps the loaded GUID.
         std::string written = Assets::WriteCloudType( data );

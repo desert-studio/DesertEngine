@@ -7,6 +7,7 @@
 #include <Engine/Assets/FractureAsset.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <format>
 #include <fstream>
@@ -88,9 +89,11 @@ namespace Desert::Editor
 
     void FractureTool::Load()
     {
-        const auto file = File();
-        m_ReadRevision  = CommandHistory::Get().Revision();
-        m_ReadStamp     = StampOf( file );
+        const auto file      = File();
+        const auto readBegan = std::filesystem::file_time_type::clock::now(); // before the stat (IsRacyWriteTime)
+        m_ReadRevision       = CommandHistory::Get().Revision();
+        m_ReadStamp          = StampOf( file );
+        m_ReadRacy = m_ReadStamp.Exists && Common::Utils::IsRacyWriteTime( m_ReadStamp.Written, readBegan );
         Adopt( file, ReadBytes( file ) );
     }
 
@@ -107,13 +110,16 @@ namespace Desert::Editor
     {
         if ( m_ReadFile.empty() )
             return false;
-        // Cheap triggers first (the undo stack moved, or the file's size / write time did); the bytes decide.
-        const uint64_t  revision = CommandHistory::Get().Revision();
-        const FileStamp stamp    = StampOf( m_ReadFile );
-        if ( revision == m_ReadRevision && stamp == m_ReadStamp )
+        // Cheap triggers first (the undo stack moved, or the file's size / write time did); the bytes decide. A
+        // racy stamp (written within the clock's window of the read) cannot prove the bytes unchanged: re-read.
+        const auto      readBegan = std::filesystem::file_time_type::clock::now();
+        const uint64_t  revision  = CommandHistory::Get().Revision();
+        const FileStamp stamp     = StampOf( m_ReadFile );
+        if ( revision == m_ReadRevision && stamp == m_ReadStamp && !m_ReadRacy )
             return false;
-        m_ReadRevision                   = revision;
-        m_ReadStamp                      = stamp;
+        m_ReadRevision = revision;
+        m_ReadStamp    = stamp;
+        m_ReadRacy     = stamp.Exists && Common::Utils::IsRacyWriteTime( stamp.Written, readBegan );
         std::vector<unsigned char> bytes = ReadBytes( m_ReadFile );
         if ( bytes == m_ReadBytes )
             return false;

@@ -221,8 +221,8 @@ namespace Desert::VFX
         };
         std::unordered_map<EmitterKey, CompiledStack, EmitterKeyHash> m_Stacks;
         std::uint64_t                                      m_LastGeneration = 0;
-        std::uint64_t                                      m_TickSerial     = 0;
-        VFXDataChannels                                    m_Channels;
-        mutable std::unique_ptr<WorldGpuState>             m_GpuState;
+        std::uint64_t                                                 m_TickSerial     = 0;
+        VFXDataChannels                                               m_Channels;
+        mutable std::unique_ptr<WorldGpuState>                        m_GpuState;
     };
 } // namespace Desert::VFX

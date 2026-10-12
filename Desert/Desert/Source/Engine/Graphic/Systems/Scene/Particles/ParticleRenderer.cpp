@@ -410,7 +410,7 @@ namespace Desert::Graphic::System
                            "the frame graph: {}",
                            !floats ? floats.GetError() : ints.GetError() );
         }
-        m_Pool.Declared     = true;
+        m_Pool.Declared = true;
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {

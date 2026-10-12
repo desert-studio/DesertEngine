@@ -105,6 +105,10 @@
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
+            "Name": "SkyLightCloudBottomOcclusion",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "MultiScatterOctaves",
             "Value": [3.0, 0.0, 0.0, 0.0]
         },

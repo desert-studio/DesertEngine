@@ -22,8 +22,7 @@ namespace Desert::Reflection
         bool IsStoredByGuid( const std::string& assetType )
         {
             return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
-                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset" ||
-                   assetType == "VFXSystemAsset";
+                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset" || assetType == "VFXSystemAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )

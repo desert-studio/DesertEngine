@@ -391,9 +391,9 @@ namespace Desert::Tests::CloudFieldRef
                      Desert::Assets::CloudProceduralLevelOriginKm( state.Params, level, 0.0f, 0.0f );
             }
             const ModellingVoxels& last = state.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u];
-            state.Far = last ? Desert::Assets::CloudProceduralFarStatisticsOf( *last,
-                                                                               Desert::Assets::kCloudProceduralVolumeSide )
-                             : Desert::Assets::CloudProceduralFarStatistics{};
+            state.Far                   = last ? Desert::Assets::CloudProceduralFarStatisticsOf(
+                                    *last, Desert::Assets::kCloudProceduralVolumeSide )
+                                               : Desert::Assets::CloudProceduralFarStatistics{};
         }
 
         /// The parameters this suite bakes with: one region, centred on the origin, at the component's
@@ -652,17 +652,18 @@ namespace Desert::Tests::CloudFieldRef
             // THE WISPY BASE through the packer's own function, against the layer the bake was made for.
             for ( std::uint32_t slot = 0; slot < count && slot < CLOUD_SPECIES_SLOTS; ++slot )
             {
-                const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
-                     shapes[slot], ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
+                const glm::vec2 wisp =
+                     Desert::Graphic::CloudSpeciesWispSpan( shapes[slot], ModellingVolume().Params.LayerBottomKm,
+                                                            ModellingVolume().Params.LayerThicknessKm );
                 params.SpeciesWispBase[slot] = wisp.x;
                 params.SpeciesWispTop[slot]  = wisp.y;
             }
 
             CloudBindProceduralLevels( params );
-            const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
-            params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
-            params.LayoutPlace     = Desert::Assets::CloudLayoutPlaceUniform( ModellingVolume().Params );
-            params.LayoutStrength  = Desert::Assets::CloudLayoutStrengthUniform( ModellingVolume().Params );
+            const vec4 farWeather = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+            params.Weather        = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
+            params.LayoutPlace    = Desert::Assets::CloudLayoutPlaceUniform( ModellingVolume().Params );
+            params.LayoutStrength = Desert::Assets::CloudLayoutStrengthUniform( ModellingVolume().Params );
         }
 
         /**

@@ -134,9 +134,9 @@ namespace Desert::Graphic
 
         // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
         // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
-        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots). The march remaps the baked profile by the W this decides —
-        // Assets::CloudProceduralCoverRemap is the CPU half of the same remap. Before the trailing vec3 for the
-        // reason Albedo is.
+        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots).
+        // The march remaps the baked profile by the W this decides — Assets::CloudProceduralCoverRemap is the CPU
+        // half of the same remap. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
 
         // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the
@@ -223,7 +223,8 @@ namespace Desert::Graphic
     //
     // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
     static_assert( sizeof( CloudGpuPayload ) == 652,
-                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the shader reads exactly this and "
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the "
+                   "shader reads exactly this and "
                    "nothing more." );
 
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
@@ -711,7 +712,8 @@ namespace Desert::Graphic
     /// as CloudGpuPayload::SpeciesWispBase/Top and the C++ mirrors of the march bind it through this same
     /// function. A curve that peaks at its first sample gives y == x: no wispy base, the type's character
     /// throughout.
-    inline glm::vec2 CloudSpeciesWispSpan( const CloudTypeShape& shape, float layerBottomKm, float layerThicknessKm )
+    inline glm::vec2 CloudSpeciesWispSpan( const CloudTypeShape& shape, float layerBottomKm,
+                                           float layerThicknessKm )
     {
         const float thicknessKm = std::max( layerThicknessKm, 1e-3f );
         const float bandKm      = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 0.0f );
@@ -864,10 +866,9 @@ namespace Desert::Graphic
         for ( uint32_t level = 0; level < kCloudClipLevelSlots; ++level )
             p.Level[level] = glm::vec4( region.Levels[level].x, region.Levels[level].y,
                                         std::max( region.Levels[level].z, 1e-6f ), region.Levels[level].w );
-        p.Detail = glm::vec4( std::clamp( material.DetailStrength, 0.0f, 1.0f ),
-                              std::max( material.DensityScale, 0.0f ),
-                              std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm,
-                              static_cast<float>( species ) );
+        p.Detail = glm::vec4(
+             std::clamp( material.DetailStrength, 0.0f, 1.0f ), std::max( material.DensityScale, 0.0f ),
+             std::max( material.DetailTileSize, 1.0f ) / kCloudWorldUnitsPerKm, static_cast<float>( species ) );
 
         // THE MEDIUM'S ALBEDO, PER COLOUR, clamped per channel. Clamped rather than trusted for the reason
         // every other clamp here gives — a scene file is a text file — and per CHANNEL because an albedo
@@ -894,7 +895,7 @@ namespace Desert::Graphic
                 // Zero rather than the default type's numbers. An unfilled slot must not be able to put
                 // cloud in the sky if the count is ever wrong, and a zero density factor is the state in
                 // which it cannot.
-                p.SpeciesEdge[slot]     = glm::vec4( 0.0f );
+                p.SpeciesEdge[slot]   = glm::vec4( 0.0f );
                 p.SpeciesWispBase[at] = 0.0f;
                 p.SpeciesWispTop[at]  = 0.0f;
                 continue;

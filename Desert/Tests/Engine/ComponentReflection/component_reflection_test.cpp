@@ -1256,8 +1256,9 @@ TEST( VolumetricCloudPayload, TheNoiseVolumesAreDeduplicatedAndEverySlotStaysBin
         // shipped base ramp gives every filled slot a rise (top above base) for the erosion to fray.
         for ( uint32_t k = 0; k < kCloudSpeciesSlots; ++k )
         {
-            const int       at   = static_cast<int>( k );
-            const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan( shapes[k], payload.Layer.y, payload.Layer.z );
+            const int       at = static_cast<int>( k );
+            const glm::vec2 wisp =
+                 Desert::Graphic::CloudSpeciesWispSpan( shapes[k], payload.Layer.y, payload.Layer.z );
             EXPECT_FLOAT_EQ( payload.SpeciesWispBase[at], wisp.x ) << "species " << k;
             EXPECT_FLOAT_EQ( payload.SpeciesWispTop[at], wisp.y ) << "species " << k;
             EXPECT_GT( payload.SpeciesWispTop[at], payload.SpeciesWispBase[at] )

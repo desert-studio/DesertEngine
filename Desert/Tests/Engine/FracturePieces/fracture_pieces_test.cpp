@@ -215,7 +215,7 @@ TEST( FracturePieces, ThePieceDrawIsRaceFreeAndEachPieceHasItsOwnMotionKey )
     const std::string draw = ReadText( systemDir + "FracturePieceDraw.cpp" );
     EXPECT_NE( draw.find( "Destruction::PieceDraws<Graphic::Material*>(" ), std::string::npos )
          << "the piece draws are no longer planned by PieceDraws (own motion part, static split)";
-    EXPECT_NE( draw.find( "/*sortPriority*/ 0, draw.MotionPart );" ), std::string::npos )
+    EXPECT_NE( draw.find( "/*sortPriority*/ 0, /*maxDrawDistance*/ 0.0f, draw.MotionPart );" ), std::string::npos )
          << "every piece's lit draw carries its own MotionHistory key";
 
     const std::string vertex = ReadText( "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp" );
@@ -301,7 +301,7 @@ TEST( FracturePieces, TheSlotPathIsTheStaticSplitAndKeepsTheMotionPart )
 {
     const std::string draw = ReadText( "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.cpp" );
     EXPECT_NE( draw.find( "Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(" ), std::string::npos );
-    EXPECT_NE( draw.find( "draw.CastShadows, draw.MotionPart );" ), std::string::npos );
+    EXPECT_NE( draw.find( "draw.CastShadows, /*maxDrawDistance*/ 0.0f, draw.MotionPart );" ), std::string::npos );
     EXPECT_NE( draw.find( "services.SlotMaterial(" ), std::string::npos );
 
     const std::string pieces = ReadText( "Desert/Desert/Source/Engine/Destruction/FracturePieces.hpp" );

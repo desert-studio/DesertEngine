@@ -209,7 +209,8 @@ namespace Desert::Tests::CloudAuthoredRef
                     built.Levels[level] = baked.GetValue();
             }
             built.Far = Desert::Assets::CloudProceduralFarStatisticsOf(
-                 built.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u], Desert::Assets::kCloudProceduralVolumeSide );
+                 built.Levels[Desert::Assets::kCloudProceduralClipLevels - 1u],
+                 Desert::Assets::kCloudProceduralVolumeSide );
 
             return cache.emplace( key, std::move( built ) ).first->second;
         }
@@ -285,7 +286,8 @@ namespace Desert::Tests::CloudAuthoredRef
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
                                      Procedural( BoundCoverage() ).Params.PatchTileKm )
 #define CLOUD_SAMPLE_LAYOUT_PATTERN( uv )                                                                         \
-    Desert::Assets::SampleCloudLayoutPatternTexel( Procedural( BoundCoverage() ).Params.PatternSource.get(), ( uv ) )
+    Desert::Assets::SampleCloudLayoutPatternTexel( Procedural( BoundCoverage() ).Params.PatternSource.get(),      \
+                                                   ( uv ) )
 #define CLOUD_SAMPLE_LAYOUT_MASK( uv )                                                                            \
     Desert::Assets::SampleCloudLayoutMaskUnorm( Procedural( BoundCoverage() ).Params.MaskSource.get(), ( uv ) )
 
@@ -549,8 +551,9 @@ namespace Desert::Tests::CloudAuthoredRef
                 params.FarPresence[band] = Procedural( BoundCoverage() ).Far.Presence[band];
                 params.FarProfile[band]  = Procedural( BoundCoverage() ).Far.Profile[band];
             }
-            params.LayoutPlace    = Desert::Assets::CloudLayoutPlaceUniform( Procedural( BoundCoverage() ).Params );
-            params.LayoutStrength = Desert::Assets::CloudLayoutStrengthUniform( Procedural( BoundCoverage() ).Params );
+            params.LayoutPlace = Desert::Assets::CloudLayoutPlaceUniform( Procedural( BoundCoverage() ).Params );
+            params.LayoutStrength =
+                 Desert::Assets::CloudLayoutStrengthUniform( Procedural( BoundCoverage() ).Params );
 
             return params;
         }

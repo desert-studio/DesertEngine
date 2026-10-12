@@ -87,6 +87,7 @@ namespace
             ball.Radius   = 20.0f;
             ball.Mass     = 100.0f;
             ball.Position = { -150.0f, 50.0f, 50.0f };
+            ball.Profile  = TestSupport::ProfileId( physics, Physics::EngineProfiles::kPhysicsActor );
             auto created  = physics.CreateBody( ball );
             ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
             physics.SetLinearVelocity( created.GetValue(), { speed, 0.0f, 0.0f } );
@@ -157,7 +158,10 @@ TEST( DestructionToVFX, NBreaksBecomeNEntriesWithTheirFields )
         if ( e.Kind != DestructionEventKind::Break )
             continue;
         const auto ch = ECS::kDestructionBreakChannel;
-        EXPECT_NEAR( e.Position.x, -50.0f + 100.0f * ( e.Node - 1 ), 2.0f ) << "the group's centre of mass";
+        // Where the group's centre of mass is when it breaks: after the step that broke it, i.e. carried one
+        // step along the thrown velocity from its rest place.
+        EXPECT_NEAR( e.Position.x, -50.0f + 100.0f * ( e.Node - 1 ) + velocity.x * kStep, 2.0f )
+             << "the group's centre of mass";
         for ( int c = 0; c < 3; ++c )
         {
             EXPECT_FLOAT_EQ( f.Field( ch, entry, "Position", c ), e.Position[c] );

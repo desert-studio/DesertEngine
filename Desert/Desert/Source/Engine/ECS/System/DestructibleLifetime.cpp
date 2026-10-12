@@ -63,7 +63,7 @@ namespace Desert::ECS
             return;
         m_World->Remove( destructible.RuntimeObject );
         destructible.RuntimeObject = Destruction::kInvalidDestructible;
-        destructible.RuntimeNodeWorld.clear();
+        destructible.SimulatedNodeWorld.clear();
     }
 
     void DestructibleLifetime::WritePoses( entt::registry& registry ) const
@@ -73,13 +73,13 @@ namespace Desert::ECS
             auto& destructible = registry.get<DestructibleComponent>( entity );
             if ( destructible.RuntimeObject == Destruction::kInvalidDestructible )
             {
-                destructible.RuntimeNodeWorld.clear();
+                destructible.SimulatedNodeWorld.clear();
                 continue;
             }
             const size_t nodes = m_World->GetNodeCount( destructible.RuntimeObject );
-            destructible.RuntimeNodeWorld.resize( nodes );
+            destructible.SimulatedNodeWorld.resize( nodes );
             for ( size_t node = 0; node < nodes; ++node )
-                destructible.RuntimeNodeWorld[node] =
+                destructible.SimulatedNodeWorld[node] =
                      m_World->GetNodeWorld( destructible.RuntimeObject, static_cast<int32_t>( node ) );
         }
     }

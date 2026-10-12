@@ -1620,9 +1620,9 @@ namespace Desert::Graphic::API::Vulkan
                                 uint64_t( r.Z ) + r.Depth <= m_Specification.Depth;
             if ( !inside )
                 return Common::MakeFormattedError<bool>(
-                     "Image3D '{}': box {}x{}x{} at ({}, {}, {}) is outside the {}x{}x{} image", m_Specification.Tag,
-                     r.Width, r.Height, r.Depth, r.X, r.Y, r.Z, m_Specification.Width, m_Specification.Height,
-                     m_Specification.Depth );
+                     "Image3D '{}': box {}x{}x{} at ({}, {}, {}) is outside the {}x{}x{} image",
+                     m_Specification.Tag, r.Width, r.Height, r.Depth, r.X, r.Y, r.Z, m_Specification.Width,
+                     m_Specification.Height, m_Specification.Depth );
             const uint64_t expected =
                  Core::Formats::CalculateImageSize( r.Width, r.Height, r.Depth, m_Specification.Format );
             if ( r.Bytes == nullptr || r.Size != expected )
@@ -1640,8 +1640,8 @@ namespace Desert::Graphic::API::Vulkan
         VkBufferCreateInfo bInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                                      .size  = total,
                                      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
-        auto stagingResult = allocator->RT_AllocateBuffer( "VolumeRegionStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU,
-                                                           staging );
+        auto               stagingResult =
+             allocator->RT_AllocateBuffer( "VolumeRegionStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
         if ( !stagingResult.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Image3D '{}': {} byte staging buffer failed: {}",
                                                      m_Specification.Tag, total, stagingResult.GetError() );
@@ -1656,12 +1656,12 @@ namespace Desert::Graphic::API::Vulkan
             packed.reserve( static_cast<size_t>( total ) );
             for ( const RegionWrite& r : regions )
             {
-                copies.push_back( VkBufferImageCopy{
-                     .bufferOffset     = static_cast<VkDeviceSize>( packed.size() ),
-                     .imageSubresource = { .aspectMask = aspect, .layerCount = 1 },
-                     .imageOffset      = { static_cast<int32_t>( r.X ), static_cast<int32_t>( r.Y ),
-                                           static_cast<int32_t>( r.Z ) },
-                     .imageExtent      = { r.Width, r.Height, r.Depth } } );
+                copies.push_back(
+                     VkBufferImageCopy{ .bufferOffset     = static_cast<VkDeviceSize>( packed.size() ),
+                                        .imageSubresource = { .aspectMask = aspect, .layerCount = 1 },
+                                        .imageOffset = { static_cast<int32_t>( r.X ), static_cast<int32_t>( r.Y ),
+                                                         static_cast<int32_t>( r.Z ) },
+                                        .imageExtent = { r.Width, r.Height, r.Depth } } );
                 packed.insert( packed.end(), r.Bytes, r.Bytes + r.Size );
             }
             MappedMemory staged = allocator->MapMemory( stagingAlloc );

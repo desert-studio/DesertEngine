@@ -487,15 +487,15 @@ TEST( CloudFieldVolume, TheLayersCeilingDoesNotWrapOntoItsFloor )
     params.SpeciesEdge[0] =
          vec4( shape.DetailCharacter, shape.DetailFactor, shape.DensityFactor, shape.ExtinctionFactor );
     {
-        const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan( shape, ModellingVolume().Params.LayerBottomKm,
-                                                                      ModellingVolume().Params.LayerThicknessKm );
+        const glm::vec2 wisp = Desert::Graphic::CloudSpeciesWispSpan(
+             shape, ModellingVolume().Params.LayerBottomKm, ModellingVolume().Params.LayerThicknessKm );
         params.SpeciesWispBase[0] = wisp.x;
         params.SpeciesWispTop[0]  = wisp.y;
     }
 
     CloudBindProceduralLevels( params );
-    const vec4 farWeather  = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
-    params.Weather         = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
+    const vec4 farWeather = Desert::Assets::CloudFarWeatherUniform( ModellingVolume().Params );
+    params.Weather        = vec2( farWeather.y, farWeather.w ); // CloudUnpackFieldParams' `.yw`
 
     // FIRST: the coordinate itself never reaches either face of ANY level's rows in the stack.
     const float stackRows = CLOUD_PROCEDURAL_VOLUME_HEIGHT * static_cast<float>( CLOUD_PROCEDURAL_CLIP_LEVELS );
@@ -2193,11 +2193,11 @@ TEST( CloudFieldErosion, TheShippedStrengthMovesTheSurfaceTheEyeSeesWithoutEatin
 // WHY THE THRESHOLD IS 1.05x AND NOT THE 1.11x THE PAIR SHIPS AT. §DS's convention is to ship the first
 // ladder step with REAL headroom over the bound, which it put at 1.11x and which this pair also lands on
 // (0.65 gave 139 m against 125 before the coverage remap; FARWX-b13, after it, measured 0.35 -> 138.5 m,
-// 0.40 -> 152.8 m, 0.45 -> 162.0 m, 0.65 -> 217.2 m, and ships 0.40 at 1.22x, mid-window). Asserting at the shipped value would make the test a copy of the default
-// rather than a guard on it, and asserting at the bare floor would let a future pair sit balanced on a
-// bound §DS refused to balance on by name. 1.05x is halfway between the bound being protected and the
-// value protecting it: a generator change that moves a body by a voxel does not trip it, and a calibration
-// that quietly gives up its headroom does.
+// 0.40 -> 152.8 m, 0.45 -> 162.0 m, 0.65 -> 217.2 m, and ships 0.40 at 1.22x, mid-window). Asserting at the
+// shipped value would make the test a copy of the default rather than a guard on it, and asserting at the bare
+// floor would let a future pair sit balanced on a bound §DS refused to balance on by name. 1.05x is halfway
+// between the bound being protected and the value protecting it: a generator change that moves a body by a voxel
+// does not trip it, and a calibration that quietly gives up its headroom does.
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 // >>> WHAT THIS WINDOW ACTUALLY PINS — restated by Р13, 2026-09-01, after Р9 named it mis-stated
@@ -2293,9 +2293,9 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
     // and the top of the slider at 1.44x. Since the coverage remap (FARWX-b12, CloudRankProfile) the
     // profile's gradient is 1/run rather than 1/rise and the same cut travels further: the shipped 0.40
     // sits at 1.22x and the slider's top at 2.25x (281 m), so the ceiling still catches the slider dragged
-    // to maximum. At the 1.11x/1.44x calibration: a ceiling anywhere between those two catches a slider dragged to maximum without
-    // being balanced on the shipped value, and 1.35 leaves the shipped pair a fifth of headroom below it
-    // while leaving the slider's top a fifteenth above.
+    // to maximum. At the 1.11x/1.44x calibration: a ceiling anywhere between those two catches a slider dragged to
+    // maximum without being balanced on the shipped value, and 1.35 leaves the shipped pair a fifth of headroom
+    // below it while leaving the slider's top a fifteenth above.
     constexpr double kRequiredHeadroom = 1.05;
     constexpr double kHeadroomCeiling  = 1.35;
 
@@ -2895,12 +2895,12 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
                 EXPECT_FLOAT_EQ( params.FarPresence[band][slot], share )
                      << fixture.Name << ": the binding does not carry level 2's statistics, band " << band;
 
-                const float far = static_cast<float>( filled[slot] ) / static_cast<float>( kGrid * kGrid );
+                const float farCoverage = static_cast<float>( filled[slot] ) / static_cast<float>( kGrid * kGrid );
                 std::printf(
                      "[CloudFieldFar] %s band %d slot %d: level 2 presence %.4f profile %.4f, far coverage "
                      "%.4f mean %.4f\n",
-                     fixture.Name, band, slot, share, level2.Profile[static_cast<size_t>( band )][slot], far,
-                     filled[slot] ? profileSum[slot] / filled[slot] : 0.0 );
+                     fixture.Name, band, slot, share, level2.Profile[static_cast<size_t>( band )][slot],
+                     farCoverage, filled[slot] ? profileSum[slot] / filled[slot] : 0.0 );
 
                 if ( slot >= fixture.Species || share <= 0.0f )
                 {
@@ -2908,8 +2908,9 @@ TEST( CloudFieldFar, TheFarSkyHasTheCoarsestLevelsCoverageInEveryHeightBand )
                                                  << " is empty in level 2 and still has far cloud";
                     continue;
                 }
-                EXPECT_NEAR( far, share, kTolerance ) << fixture.Name << ": band " << band << " slot " << slot
-                                                      << " — the far sky's coverage is not level 2's";
+                EXPECT_NEAR( farCoverage, share, kTolerance )
+                     << fixture.Name << ": band " << band << " slot " << slot
+                     << " — the far sky's coverage is not level 2's";
                 if ( share > 0.05f )
                     ++checked;
             }

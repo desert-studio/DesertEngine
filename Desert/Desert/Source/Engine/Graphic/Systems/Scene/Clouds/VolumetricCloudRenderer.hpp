@@ -387,8 +387,8 @@ namespace Desert::Graphic::System
         /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
         /// the device refused the image.
         bool EnsureFarWeatherMap();
-        /// The painted layout as the march's two textures (u_CloudLayoutPattern / u_CloudLayoutMask), re-uploaded only when
-        /// the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
+        /// The painted layout as the march's two textures (u_CloudLayoutPattern / u_CloudLayoutMask), re-uploaded
+        /// only when the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
         bool EnsureLayoutTextures();
 
         /// The parameters this view's volume was baked from, as a pure function of the layer and the
@@ -712,7 +712,6 @@ namespace Desert::Graphic::System
         Assets::AssetHandle m_PendingTypes[kCloudSpeciesSlots]{};
         uint32_t            m_PendingSpeciesCount = 0;
         uint32_t            m_PendingGeneration   = 0;
-
 
         // Latched so a bake that cannot be started, or an image that cannot be created, is said once per
         // scene rather than sixty times a second.

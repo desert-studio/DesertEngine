@@ -1251,8 +1251,8 @@ namespace Desert::Assets
         // it is two of the volume's lump floors: a body narrower than that is lumps the floor has already
         // widened. Floored before the shrink, a dense patch of a small type still came out below it.
         const float densityShrinkSq = std::max( params.PlacementDensity, 1e-3f );
-        const float bodyMeanKm =
-             std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ), 2.0f * CloudProceduralLumpFloorKm( params ) );
+        const float bodyMeanKm      = std::max( shape.BodyDiameterKm / std::sqrt( densityShrinkSq ),
+                                                2.0f * CloudProceduralLumpFloorKm( params ) );
 
         const float scatter = std::max( params.PlacementScatter, 0.0f );
         const float variety = std::clamp( params.PlacementSizeVariety, 0.0f, 1.0f );
@@ -1848,8 +1848,8 @@ namespace Desert::Assets
         // THE CROWN ONLY GROWS (CLOUD-SHAPE-b): the carving half (positive — it adds to the distance) fades
         // out going up, so the top is billows pushed OUT of the body and never clefts cut into it, while
         // the growing half keeps the full profile. Over the flat floor both halves stay at half strength.
-        const float grow  = std::min( signedNoise, 0.0f );
-        const float carve = std::max( signedNoise, 0.0f );
+        const float grow   = std::min( signedNoise, 0.0f );
+        const float carve  = std::max( signedNoise, 0.0f );
         const float coarse = grow * ( kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height ) +
                              carve * kCloudShapeNoiseAtBase * ( 1.0f - height );
 
@@ -1915,7 +1915,7 @@ namespace Desert::Assets
             std::vector<float> deepest;
             for ( const CloudProceduralLump& lump : lumps )
             {
-                const float depth = CloudProceduralLumpDepthKm( lump.Blob );
+                const float depth      = CloudProceduralLumpDepthKm( lump.Blob );
                 const auto [it, fresh] = sites.Index.try_emplace( CloudClusterSiteWord( lump.ClusterKm ),
                                                                   static_cast<uint32_t>( deepest.size() ) );
                 if ( fresh )
@@ -1986,8 +1986,8 @@ namespace Desert::Assets
         // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
         // cluster is its exact site (the lattice site plus its scatter, shared by its lumps), as the bake's
         // clusterOf decides; a caller that hands wrapped copies shifts their ClusterKm with them.
-        const float            softness = CloudProceduralRankSoftness( params );
-        CloudClusterSites      sites;
+        const float       softness = CloudProceduralRankSoftness( params );
+        CloudClusterSites sites;
         CloudClusterBodyDepths( params, lumps, sites );
 
         // THE SILHOUETTE NOISE moves every lump's distance BEFORE the join (SHAPE-NOISE), as the bake does.
@@ -2741,8 +2741,8 @@ namespace Desert::Assets
                                                                  uint32_t                          side )
     {
         CloudProceduralFarStatistics out;
-        const size_t rows    = kCloudProceduralVolumeHeight;
-        const size_t columns = static_cast<size_t>( side ) * side;
+        const size_t                 rows    = kCloudProceduralVolumeHeight;
+        const size_t                 columns = static_cast<size_t>( side ) * side;
         if ( side == 0u || levelBytes.size() != columns * rows * kCloudProceduralBytesPerVoxel )
             return out;
 
@@ -2754,7 +2754,8 @@ namespace Desert::Assets
             for ( size_t y = 0; y < rows; ++y )
             {
                 const size_t         band = y * kCloudFarBands / rows;
-                const unsigned char* row  = levelBytes.data() + ( z * rows + y ) * side * kCloudProceduralBytesPerVoxel;
+                const unsigned char* row =
+                     levelBytes.data() + ( z * rows + y ) * side * kCloudProceduralBytesPerVoxel;
                 voxels[band] += side;
                 for ( size_t x = 0; x < side; ++x )
                     for ( size_t c = 0; c < 4; ++c )
@@ -2772,10 +2773,12 @@ namespace Desert::Assets
             {
                 const uint64_t n = count[band][static_cast<size_t>( c )];
                 out.Presence[band][c] =
-                     voxels[band] ? static_cast<float>( static_cast<double>( n ) / static_cast<double>( voxels[band] ) )
-                                  : 0.0f;
+                     voxels[band]
+                          ? static_cast<float>( static_cast<double>( n ) / static_cast<double>( voxels[band] ) )
+                          : 0.0f;
                 out.Profile[band][c] =
-                     n ? static_cast<float>( static_cast<double>( sum[band][static_cast<size_t>( c )] ) / ( 255.0 * n ) )
+                     n ? static_cast<float>( static_cast<double>( sum[band][static_cast<size_t>( c )] ) /
+                                             ( 255.0 * n ) )
                        : 0.0f;
             }
         return out;

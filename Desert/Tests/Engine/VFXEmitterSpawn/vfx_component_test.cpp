@@ -128,8 +128,8 @@ TEST( VFXComponent, TheSystemIsStoredByGuidAndComesBackThroughIt )
     const auto        parsed = Common::Json::Read<Common::Json::Object>( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << text;
 
-    ECS::VFXData         read;
-    Common::Json::Issues issues;
+    ECS::VFXData              read;
+    Common::Json::Issues      issues;
     const Common::Json::Value root( parsed.GetValue() );
     R::DeserializeReflected( *type, &read, Common::Json::Root( root ), issues, &resolver );
     for ( const auto& issue : issues )

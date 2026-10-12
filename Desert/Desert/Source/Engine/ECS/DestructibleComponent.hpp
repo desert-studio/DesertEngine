@@ -114,6 +114,6 @@ namespace Desert::ECS
         // Transient: per node of the fracture, where its body put it after the last physics step (fracture space
         // -> world; empty = its body is gone). Written by DestructibleLifetime::WritePoses, read by the piece
         // draw (Destruction/FracturePieces.hpp); empty while not simulated, so the pieces draw at rest.
-        std::vector<std::optional<glm::mat4>> RuntimeNodeWorld;
+        std::vector<std::optional<glm::mat4>> SimulatedNodeWorld;
     };
 } // namespace Desert::ECS

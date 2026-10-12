@@ -393,8 +393,8 @@ namespace Desert::Graphic
                 if ( bytes[level] )
                 {
                     if ( level == kLastLevel )
-                        m_FarStatistics = Assets::CloudProceduralFarStatisticsOf( bytes[level]->Boxes.front(),
-                                                                                  m_DeviceParams.VolumeSideVoxels );
+                        m_FarStatistics = Assets::CloudProceduralFarStatisticsOf(
+                             bytes[level]->Boxes.front(), m_DeviceParams.VolumeSideVoxels );
                     m_DeviceOrigin[level] = m_Scroll[level]->Origin;
                     m_Scroll[level].reset();
                 }

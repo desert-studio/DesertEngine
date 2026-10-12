@@ -107,15 +107,16 @@ namespace Desert::Editor
         /// Adopts @p bytes (empty: no file) as what @p file holds.
         void Adopt( const std::filesystem::path& file, const std::vector<unsigned char>& bytes );
 
-        Destruction::FractureData m_Fracture;
-        bool                      m_Loaded = false;
+        Destruction::FractureData                        m_Fracture;
+        bool                                             m_Loaded = false;
         std::shared_ptr<const Destruction::FractureData> m_Shared; // m_Fracture as last adopted
-        std::string               m_Status;
+        std::string                                      m_Status;
 
         // What Refresh compares: the file read last, its bytes, its stamp and the undo revision then.
         std::filesystem::path      m_ReadFile;
         std::vector<unsigned char> m_ReadBytes;
         FileStamp                  m_ReadStamp;
+        bool                       m_ReadRacy = false; // the stamp is within IsRacyWriteTime's window of the read
         uint64_t                   m_ReadRevision = 0;
     };
 } // namespace Desert::Editor

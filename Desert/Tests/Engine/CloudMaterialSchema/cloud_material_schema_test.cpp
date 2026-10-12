@@ -491,7 +491,7 @@ TEST( CloudMaterialSchema, NoParameterCanCarryANumberTheRendererCannotRead )
 
     // DERIVED AND PRINTED, NOT PINNED. A number in the source could be edited to match a census that had
     // stopped looking; what is asserted is that the table was not empty and that every lane of it ran.
-    EXPECT_EQ( lanesCovered, 33u ) << "the census table's lane count moved — read kValues, not this number";
+    EXPECT_EQ( lanesCovered, 34u ) << "the census table's lane count moved — read kValues, not this number";
     std::cout << "[ CENSUS   ] cloud material value parameters: " << std::size( kValues ) << ", lanes "
               << lanesCovered << ", unreadable cases refused: " << casesRun << std::endl;
 
@@ -812,10 +812,11 @@ TEST( CloudMaterialSchema, EveryParameterDeclaresWhenItsEditBecomesVisible )
     std::printf( "[CloudMaterialSchema] %u of %u parameters declare Rebake; %u declare Immediate\n", rebake,
                  static_cast<uint32_t>( Schema().Params.size() ), immediate );
     EXPECT_EQ( rebake, 20u );
-    // FIFTEEN SINCE THE MEDIUM SLOT, which is the fourteen march parameters plus the authored medium
-    // itself. It is Immediate and CloudMaterialTiming MEASURES that it is: a medium is GPU code compiled
-    // into the march, so no amount of authoring it can move an input of a bake that has already run.
-    EXPECT_EQ( immediate, 15u );
+    // SIXTEEN SINCE SKY LIGHT CLOUD BOTTOM OCCLUSION (a march lighting term), after fifteen since the medium
+    // slot: the fourteen march parameters plus the authored medium itself. The medium is Immediate and
+    // CloudMaterialTiming MEASURES that it is: a medium is GPU code compiled into the march, so no amount of
+    // authoring it can move an input of a bake that has already run.
+    EXPECT_EQ( immediate, 16u );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════

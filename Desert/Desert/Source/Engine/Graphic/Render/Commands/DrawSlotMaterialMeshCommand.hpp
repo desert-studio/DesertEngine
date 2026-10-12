@@ -42,7 +42,8 @@ namespace Desert::Graphic::Render
 
         DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                      Graphic::Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                     bool castShadows = false, float maxDrawDistance = 0.0f, uint32_t motionPart = 0 )
+                                     bool castShadows = false, float maxDrawDistance = 0.0f,
+                                     uint32_t motionPart = 0 )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ), Transform( transform ),
                SlotMaterial( material ), VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ),
                CastShadows( castShadows ), MaxDrawDistance( maxDrawDistance )

@@ -12,6 +12,7 @@
 #include <Engine/ECS/Components.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -94,12 +95,11 @@ namespace Desert::Editor
         {
             const std::filesystem::path fractures = Common::Constants::Path::ASSETS_PATH / "Fractures";
             std::vector<std::string>    targets{ FractureTool().Path };
-            std::error_code             ec;
-            for ( const auto& entry : std::filesystem::directory_iterator( fractures, ec ) )
-                if ( entry.is_regular_file() && entry.path().extension() == ".dfrac" )
-                    targets.push_back( entry.path()
-                                            .lexically_relative( Common::Constants::Path::ASSETS_PATH )
-                                            .generic_string() );
+            // ListFilesRecursive sees a mounted .dpak as well as loose files (ContentScanners).
+            for ( const std::filesystem::path& file : Common::Utils::FileSystem::ListFilesRecursive( fractures ) )
+                if ( file.extension() == ".dfrac" )
+                    targets.push_back(
+                         file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string() );
             std::sort( targets.begin() + 1, targets.end() );
             targets.erase( std::unique( targets.begin(), targets.end() ), targets.end() );
             for ( const std::string& rel : targets )

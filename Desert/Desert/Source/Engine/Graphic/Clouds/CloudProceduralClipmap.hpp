@@ -158,9 +158,9 @@ namespace Desert::Graphic
 
         std::shared_ptr<Image3D> m_Image;
 
-        Assets::CloudProceduralFieldParams m_DeviceParams{};
-        std::array<glm::ivec2, kLevels>    m_DeviceOrigin{};
-        bool                               m_Valid = false;
+        Assets::CloudProceduralFieldParams   m_DeviceParams{};
+        std::array<glm::ivec2, kLevels>      m_DeviceOrigin{};
+        bool                                 m_Valid = false;
         Assets::CloudProceduralFarStatistics m_FarStatistics{};
 
         Assets::CloudProceduralFieldParams             m_ShapeParams{};
