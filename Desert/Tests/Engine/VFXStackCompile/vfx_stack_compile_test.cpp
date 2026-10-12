@@ -199,7 +199,10 @@ TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
     const auto& m = module.GetValue();
     EXPECT_EQ( m.Attributes, ( std::vector<VFX::VFXModuleDecl>{ { "PhysicsForce", S::VFXValueType::Vec3 },
                                                                 { "Mass", S::VFXValueType::Float } } ) );
-    EXPECT_EQ( m.Inputs, ( std::vector<VFX::VFXModuleDecl>{ { "Gravity", S::VFXValueType::Vec3 } } ) );
+    // The input's editor metadata (`Units=` `Range=` `Default=`) rides on its declaration (VFX-12).
+    EXPECT_EQ( m.Inputs, ( std::vector<VFX::VFXModuleDecl>{ { "Gravity", S::VFXValueType::Vec3, "cm/s2",
+                                                              VFX::VFXInputRange{ -2000.0f, 2000.0f },
+                                                              glm::vec4( 0.0f, -980.0f, 0.0f, 0.0f ) } } ) );
     EXPECT_NE( m.Body.find( "void Module(" ), std::string::npos );
     EXPECT_EQ( m.Body.find( "Attribute" ), std::string::npos );
 }
