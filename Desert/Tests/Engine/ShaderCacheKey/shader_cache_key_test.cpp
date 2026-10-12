@@ -2024,40 +2024,56 @@ TEST_F( ShaderCacheKeyShaderRoot, TheChannelSpawnRecordIsReadAtTheStrideTheEngin
     EXPECT_EQ( record, 64u ) << "VFXChannelSpawn is no longer Position, Direction, Color, Scalars";
 }
 
-// VFX-10b: a bound channel colour reaches the particle - the spawn writes it into Particle.Tint and the colour
-// over life is multiplied by it every step (Shade), so the tint outlives the spawn step; a bound lifetime
-// replaces the emitter's.
+// VFX-10b, ported into the stack by VFX-HOST: the host hands a newborn's channel record to the stack in VFXSim and
+// the Initialize modules read it (UE: a spawn module reading the Niagara Data Channel) - a bound colour replaces
+// InitializeColor's input and becomes InitialColor, which ColorOverLife scales every step, so the colour outlives
+// the spawn step; a bound lifetime replaces InitializeLifetime's.
 TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
 {
     const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    EXPECT_NE( simulate.find( "p.Tint         = channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 );" ),
+    EXPECT_NE( simulate.find( "sim.ChannelColor     = channel.Color;" ), std::string::npos )
+         << "the host no longer hands the channel colour to the stack";
+    EXPECT_NE( simulate.find( "sim.ChannelScalars   = channel.Scalars;" ), std::string::npos )
+         << "the host no longer hands the channel lifetime / size scale to the stack";
+    const auto        modules = Common::Constants::Path::ShaderDir() / "VFX" / "Modules";
+    const std::string colour  = ReadFile( modules / "InitializeColor.shader" );
+    EXPECT_NE( colour.find( "const vec4 colour = sim.ChannelScalars.z > 0.5 ? sim.ChannelColor : i.Color;" ),
                std::string::npos )
-         << "the spawn no longer writes the channel colour into the particle's Tint";
-    EXPECT_NE( simulate.find( "p.Color     = mix( u_StartColor, u_EndColor, t ) * p.Tint;" ), std::string::npos )
-         << "Shade no longer multiplies the colour over life by the particle's Tint";
-    EXPECT_NE( simulate.find( "life = channel.Scalars.x;" ), std::string::npos )
+         << "InitializeColor no longer takes a bound channel colour";
+    EXPECT_NE( colour.find( "p.InitialColor = colour;" ), std::string::npos )
+         << "the channel colour is no longer the base ColorOverLife scales";
+    EXPECT_NE( ReadFile( modules / "ColorOverLife.shader" ).find( "p.Color = p.InitialColor * i.Scale;" ),
+               std::string::npos )
+         << "ColorOverLife no longer scales the initial (channel) colour";
+    EXPECT_NE( ReadFile( modules / "InitializeLifetime.shader" )
+                    .find( "p.Lifetime = sim.ChannelScalars.w > 0.5 ? max( sim.ChannelScalars.x, 0.0 )" ),
+               std::string::npos )
          << "a bound channel lifetime no longer replaces the emitter's";
-    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "vec4 Tint;" ), std::string::npos ) << "struct Particle lost its Tint";
+    const std::string contract =
+         ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "VFXParticleContract.glslh" );
+    EXPECT_NE( contract.find( "vec4  ChannelColor;" ), std::string::npos ) << "VFXSim lost its ChannelColor";
 }
 
-// VFX-10c: a bound channel Size scales the particle's base size - the upload packs it into the record's Scalars.y
-// (1 when unbound), the spawn keeps it in Particle.SizeScale and Shade multiplies the size over life by it every
-// step. Particle grew a sixth vec4, so the stride the engine allocates is 96 B.
+// VFX-10c, ported into the stack by VFX-HOST: a bound channel Size scales the particle's base size - the upload
+// packs it into the record's Scalars.y (1 when unbound), InitializeSpriteSize multiplies the size by it and keeps
+// the product as InitialSpriteSize, which SizeOverLife scales every step. struct Particle no longer carries the
+// channel values: five 16-byte members (PosSize, Color, VelLife, Age, Ids), 80 B.
 TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 {
     const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    EXPECT_NE( simulate.find( "p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st ) * p.SizeScale.x;" ),
+    const auto        modules  = Common::Constants::Path::ShaderDir() / "VFX" / "Modules";
+    const std::string size     = ReadFile( modules / "InitializeSpriteSize.shader" );
+    EXPECT_NE( size.find( "p.SpriteSize        = max( i.Size, vec2( 0.0 ) ) * sim.ChannelScalars.y;" ),
                std::string::npos )
-         << "Shade no longer scales the size over life by the particle's SizeScale";
-    EXPECT_NE( simulate.find( "p.SizeScale    = vec4( channel.Scalars.y, 0.0, 0.0, 0.0 );" ), std::string::npos )
-         << "the spawn no longer keeps the channel size scale in the particle";
-    EXPECT_NE( simulate.find( "channel.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
+         << "InitializeSpriteSize no longer scales the base size by the channel size";
+    EXPECT_NE( size.find( "p.InitialSpriteSize = p.SpriteSize;" ), std::string::npos )
+         << "the channel-scaled size is no longer the base SizeOverLife scales";
+    EXPECT_NE( simulate.find( "none.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
          << "a particle not from a channel no longer gets size scale 1";
     const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "vec4 SizeScale;" ), std::string::npos ) << "struct Particle lost its SizeScale";
-    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 96u )
-         << "struct Particle is six vec4s (PosSize, Color, VelLife, Age, Tint, SizeScale)";
+    EXPECT_NE( state.find( "uvec4 Ids;" ), std::string::npos ) << "struct Particle lost the id it carries";
+    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 80u )
+         << "struct Particle is five 16-byte members (PosSize, Color, VelLife, Age, Ids)";
     const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
                                          "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
     EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )

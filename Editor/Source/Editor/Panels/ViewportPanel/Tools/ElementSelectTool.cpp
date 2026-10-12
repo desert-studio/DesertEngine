@@ -179,6 +179,7 @@ namespace Desert::Editor::Tools
                                     const glm::vec2& viewportSize, bool interactive )
     {
         auto& state = Core::MeshElementSelection::Get();
+        m_Cursor    = ToolCursor::None;
         if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
             return;
 
@@ -189,6 +190,7 @@ namespace Desert::Editor::Tools
         if ( !target.Source )
         {
             state.ReqPickCentre = false;
+            m_Cursor            = ToolCursor::Unavailable; // no mesh selected to pick elements of
             return;
         }
         // Track built the topology for exactly this mesh (it rebuilds whenever the entity's mesh changes).
@@ -227,6 +229,9 @@ namespace Desert::Editor::Tools
             view.RayDirection = ray.Direction;
             hover             = Geometry::PickElement( mesh, topology, state.Mode(), view, state.Level() );
         }
+
+        // The knife's clicks draw its line; otherwise a click picks the element under the cursor, or clears.
+        m_Cursor = m_KnifeArmed ? ToolCursor::Place : hover.IsHit() ? ToolCursor::Select : ToolCursor::Default;
 
         // THE KNIFE (Alt+K): the next two clicks draw the cut line instead of selecting, and the selected
         // polygroups are cut by the plane that line sweeps into the scene. Esc, or losing the viewport,

@@ -42,6 +42,7 @@
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
@@ -946,6 +947,20 @@ namespace Desert::Core::Serialize
                     return 0;
                 }
                 return static_cast<uint64_t>( Common::Content::HandleForGuid( sound.GetValue().Guid ) );
+            }
+            if ( type == "VFXSystemAsset" )
+            {
+                // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
+                // requests the read from the registry row on the first tick that asks for it, and the asset's
+                // constructor adopts the handle its header GUID names, so the row and this shell agree.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PrefabAsset" )
             {

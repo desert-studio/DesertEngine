@@ -3376,7 +3376,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    EXPECT_NE( particles.find( ".Storage(\"Slots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
@@ -3388,32 +3388,29 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
                std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    // Spawn+Update's block is declared device-free in ParticleSimGraph.hpp (VFX-03g), one per running emitter,
-    // bound to the layout of the program that emitter dispatches; the legacy program's block is this one.
-    const std::string simGraph = SqueezedSource(
-         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleSimGraph.hpp" );
-    EXPECT_NE( simGraph.find( ".Storage(\"Particles\",pool.Particles,RDG::Access::StorageWrite)"
-                              ".Storage(\"StepTable\",emitter.Steps,RDG::Access::StorageRead)"
-                              ".Storage(\"FreeList\",pool.Free,RDG::Access::StorageRead)"
-                              ".Storage(\"AliveList\",pool.Alive,RDG::Access::StorageWrite)"
-                              ".Storage(\"Counters\",emitter.Counters,RDG::Access::StorageRead)"
-                              ".Storage(\"ChannelSpawns\",emitter.Channel,RDG::Access::StorageRead)"
-                              ".Storage(\"Slots\",pool.Slots,RDG::Access::StorageWrite)"
-                              ".PushConstantBytes(emitter.PushBytes);" ),
-               std::string::npos );
-    EXPECT_NE( simGraph.find( "pass.Read(emitter.Args,RDG::Access::IndirectArgs);" ), std::string::npos );
-    EXPECT_NE( particles.find( "(void)DeclareParticleSimulateStep(pass,PoolRefs(),running);" ),
+    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
+                               ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"AttributeInts\",ve.IntsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StackParams\",ve.ParamsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"StackCurves\",ve.CurvesRef,RDG::Access::StorageRead)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
+                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
     // only Dispatch Args (one thread) and compact 0 (the range's full scan).
-    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,pipeline,ve.ArgsRef,"
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*ve.Frame->Pipeline,ve.ArgsRef,"
                                "kParticleSimulateArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
                                "kParticleCompactArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
-    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*ve.Frame->Pipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
     EXPECT_NE( particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
                                "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
@@ -3423,10 +3420,11 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
     EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&compact<=ve.Frame->StepCount;" ),
                std::string::npos );
-    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
-    // The draw is every view's: it is not gated by the claim.
-    EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr&&ve.Program==nullptr;" ),
+    EXPECT_NE( particles.find(
+                    "returnm_Simulates&&ve.Declared&&ve.Frame->Pipeline!=nullptr&&step<ve.Frame->StepCount;" ),
                std::string::npos );
+    // The draw is every view's: it is not gated by the claim.
+    EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr;" ), std::string::npos );
     EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
 
     // The pool is the scene's: ParticleWorldGpu, owned by the VFXWorld, claims each tick once; ParticleRenderer
@@ -5401,7 +5399,7 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     const std::string shader =
          SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
     EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
+    EXPECT_NE( shader.find( "if(t<u_Steps[step].ChannelCount)" ), std::string::npos );
     EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
          << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

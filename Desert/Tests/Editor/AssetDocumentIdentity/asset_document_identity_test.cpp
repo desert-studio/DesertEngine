@@ -309,23 +309,23 @@ TEST( AssetDocumentIdentity, AnEntitysComponentIsAWindowOfItsOwn )
     OpenDocuments well;
     well.Open(
          std::make_unique<FakeDocument>( "Hero \xc2\xb7 Anim Graph", Component( 88, "AnimationComponent" ) ) );
-    well.Open( std::make_unique<FakeDocument>( "Hero \xc2\xb7 Particles",
-                                               Component( 88, "ParticleEmitterComponent" ) ) );
+    well.Open( std::make_unique<FakeDocument>( "Hero \xc2\xb7 UI Canvas",
+                                               Component( 88, "UICanvasComponent" ) ) );
 
     // ONE ENTITY, TWO DOCUMENTS. Both subjects carry owner 88; only the facet differs. A seam keyed on the
     // owner alone would make these one window, and ImGui would draw the second into the first.
     EXPECT_EQ( well.Count(), 2u );
     ASSERT_NE( well.Find( Component( 88, "AnimationComponent" ) ), nullptr );
-    ASSERT_NE( well.Find( Component( 88, "ParticleEmitterComponent" ) ), nullptr );
+    ASSERT_NE( well.Find( Component( 88, "UICanvasComponent" ) ), nullptr );
     EXPECT_NE( well.Find( Component( 88, "AnimationComponent" ) ),
-               well.Find( Component( 88, "ParticleEmitterComponent" ) ) );
+               well.Find( Component( 88, "UICanvasComponent" ) ) );
 
     // ...and the ASSET whose handle is also 88 is a third thing again, not either of them.
     EXPECT_EQ( well.Find( Asset( 88 ) ), nullptr );
 
     // The window ids agree with that, which is the half ImGui reads.
     EXPECT_NE( WindowId( DocumentTitle( "Hero", Component( 88, "AnimationComponent" ) ) ),
-               WindowId( DocumentTitle( "Hero", Component( 88, "ParticleEmitterComponent" ) ) ) );
+               WindowId( DocumentTitle( "Hero", Component( 88, "UICanvasComponent" ) ) ) );
     EXPECT_NE( WindowId( DocumentTitle( "Hero", Component( 88, "AnimationComponent" ) ) ),
                WindowId( DocumentTitle( "Hero", Asset( 88 ) ) ) );
 }

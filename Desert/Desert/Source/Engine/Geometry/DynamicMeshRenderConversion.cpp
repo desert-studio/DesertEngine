@@ -15,7 +15,7 @@ namespace Desert::Geometry
     {
         using Common::MakeFormattedError;
 
-        // The render side (and EditMesh) wind a front face counter-clockwise; DynamicMesh3 keeps UE's clockwise
+        // The render side winds a front face counter-clockwise; DynamicMesh3 keeps UE's clockwise
         // front, the convention every ported normal / orientation algorithm assumes. The two conversions swap
         // corners 1 and 2, the one place the conventions meet. The map is its own inverse.
         constexpr int kRenderCorner[3] = { 0, 2, 1 };
@@ -30,7 +30,7 @@ namespace Desert::Geometry
             return std::abs( a.x - b.x ) <= tolerance && std::abs( a.y - b.y ) <= tolerance;
         }
 
-        // The EditMesh conversion's weld (EditMeshConversion.cpp), on DynamicMesh3: a uniform grid of cells
+        // The weld: a uniform grid of cells
         // one tolerance wide, a point matches only inside its own cell or the 26 around it. Positions are
         // stored as doubles of the render floats, so reading them back as float is exact.
         class PositionWelder
@@ -115,7 +115,7 @@ namespace Desert::Geometry
         if ( uvs != nullptr )
             if ( auto r = RequireSet( mesh, *uvs, "UV" ); !r.IsSuccess() )
                 return Common::MakeError<RenderMeshData>( r.GetError() );
-        // The streams beside the vertex (RenderMeshData::Colors / UV1), as the EditMesh core writes them: the
+        // The streams beside the vertex (RenderMeshData::Colors / UV1): the
         // colour layer, and the second UV layer when layer 0 is the drawn one.
         const DynamicMeshColorOverlay* colors = attributes->PrimaryColors();
         const DynamicMeshUVOverlay*    uv1    = uvLayer == 0 ? attributes->GetUVLayer( 1 ) : nullptr;
@@ -296,7 +296,7 @@ namespace Desert::Geometry
                     source[j] = &render.Vertices[range.VertexOffset + local[j]];
                 }
 
-                // Welded in render order, so vertex IDs come out in the order the EditMesh import makes them. Then
+                // Welded in render order, so vertex IDs come out in first-use render order. Then
                 // mesh corner j is render corner kRenderCorner[j]: counter-clockwise render winding becomes UE's
                 // clockwise-front winding (VectorUtil::Normal), so every ported algorithm sees outward normals.
                 Index3i welded;
@@ -324,7 +324,7 @@ namespace Desert::Geometry
                 {
                     // The render mesh had a third triangle on an edge; DynamicMesh3 cannot share it, so this
                     // triangle stands on its own copies of its already-used corners (a corner welded for this
-                    // very triangle is kept, or it would stay behind isolated). DynamicMesh3, unlike EditMesh,
+                    // very triangle is kept, or it would stay behind isolated). DynamicMesh3
                     // accepts an opposite winding across an edge, so only this case detaches.
                     for ( int j = 0; j < 3; ++j )
                         if ( mesh.GetVtxEdgeCount( corners[j] ) > 0 )

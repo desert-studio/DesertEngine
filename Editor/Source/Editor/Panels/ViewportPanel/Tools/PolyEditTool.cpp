@@ -9,7 +9,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -79,9 +80,29 @@ namespace Desert::Editor::Tools
         // A drag that ends any way at all - release, a changed selection, the tool switched off - is ONE
         // undo step, from the mesh the drag started on to whatever the component holds now.
         if ( m_Dragging )
-            Commands::RecordEditMeshChange( m_DragEntity, "Push/Pull Face", std::move( m_DragBefore ) );
+            Commands::RecordMeshChange( m_DragEntity, "Push/Pull Face", std::move( m_DragBefore ) );
         m_DragBefore.reset();
         m_Dragging = false;
+    }
+
+    int PolyEditTool::HitTriangle( const std::shared_ptr<const Geometry::DynamicMesh3>& mesh,
+                                   const glm::mat4& world, const Common::Math::Ray& ray )
+    {
+        if ( !mesh )
+            return Geometry::InvalidId;
+        if ( m_TopologyMesh != mesh )
+        {
+            m_TopologyMesh = mesh;
+            m_Topology     = std::make_shared<const Geometry::GroupTopology>( mesh.get(), true );
+        }
+        // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
+        Geometry::PickView view;
+        view.LocalToWorld = world;
+        view.RayOrigin    = ray.Origin;
+        view.RayDirection = ray.Direction;
+        return Geometry::PickElement( *mesh, *m_Topology, Geometry::ElementMode::Triangle, view,
+                                      Geometry::TopologyLevel::Triangle )
+             .Id;
     }
 
     bool PolyEditTool::PickFace( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
@@ -89,21 +110,12 @@ namespace Desert::Editor::Tools
         const auto target = GetTarget( scene, m_Entity );
         if ( !target )
             return false;
-        auto pickView = Geometry::Bridge::EditMeshView( target->Target.Mesh );
-        if ( !pickView.IsSuccess() )
-        {
-            LOG_ERROR( "[PolyEdit] the entity's mesh cannot be read: {0}", pickView.GetError() );
+        if ( !target->Target.Mesh )
             return false;
-        }
-        const Geometry::EditMesh& mesh  = *pickView.GetValue();
-        const glm::mat4&          world = target->World;
+        const Geometry::DynamicMesh3& mesh  = *target->Target.Mesh;
+        const glm::mat4&              world = target->World;
 
-        // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
-        Geometry::PickView view;
-        view.LocalToWorld = world;
-        view.RayOrigin    = ray.Origin;
-        view.RayDirection = ray.Direction;
-        const int hit     = Geometry::PickElement( mesh, Geometry::ElementMode::Triangle, view ).Id;
+        const int hit = HitTriangle( target->Target.Mesh, world, ray );
         if ( hit == Geometry::InvalidId )
         {
             ClearSelection();
@@ -111,35 +123,42 @@ namespace Desert::Editor::Tools
         }
 
         // Flood the coplanar face from the hit triangle across the mesh's own edges (shared edge + near-equal
-        // normal). The EditMesh knows its topology, so this no longer re-welds render vertices by a quantised
+        // normal). The DynamicMesh3 knows its topology, so this no longer re-welds render vertices by a quantised
         // position key on every click, which is what the tool had to do while it edited the render buffer.
-        const glm::vec3   hN = Geometry::TriangleNormal( mesh, hit );
+        const glm::vec3   hN = glm::vec3( mesh.GetTriNormal( hit ) );
         std::vector<int>  face{ hit };
-        std::vector<char> seen( static_cast<size_t>( mesh.MaxTriangleId() ), 0 );
+        std::vector<char> seen( static_cast<size_t>( mesh.MaxTriangleID() ), 0 );
         seen[hit] = 1;
         for ( size_t f = 0; f < face.size(); ++f )
-            for ( const int e : mesh.GetTriangleEdges( face[f] ) )
-                for ( const int nb : mesh.GetEdgeTriangles( e ) )
-                    if ( nb != Geometry::InvalidId && ( seen[nb] == 0 ) &&
-                         glm::dot( Geometry::TriangleNormal( mesh, nb ), hN ) > 0.99f )
-                    {
-                        seen[nb] = 1;
-                        face.push_back( nb );
-                    }
+        {
+            const Geometry::Index3i neighbours = mesh.GetTriNeighbourTris( face[f] );
+            for ( int j = 0; j < 3; ++j )
+            {
+                const int nb = neighbours[j];
+                if ( nb != Geometry::InvalidId && ( seen[nb] == 0 ) &&
+                     glm::dot( glm::vec3( mesh.GetTriNormal( nb ) ), hN ) > 0.99f )
+                {
+                    seen[nb] = 1;
+                    face.push_back( nb );
+                }
+            }
+        }
 
-        // Selection = the face's vertices: shared corners are ONE vertex in an EditMesh, so the neighbours
+        // Selection = the face's vertices: shared corners are ONE vertex in a DynamicMesh3, so the neighbours
         // follow the drag by construction.
         std::unordered_set<int> verts;
         for ( const int t : face )
-            for ( const int v : mesh.GetTriangle( t ) )
-                verts.insert( v );
+        {
+            const Geometry::Index3i tv = mesh.GetTriangle( t );
+            verts.insert( { tv.A, tv.B, tv.C } );
+        }
         m_SelTris = face;
         m_SelVerts.assign( verts.begin(), verts.end() );
         std::sort( m_SelVerts.begin(), m_SelVerts.end() );
 
         glm::vec3 centroidLocal( 0.0f );
         for ( const int v : m_SelVerts )
-            centroidLocal += mesh.GetPosition( v );
+            centroidLocal += glm::vec3( mesh.GetVertex( v ) );
         centroidLocal /= static_cast<float>( m_SelVerts.size() );
 
         m_FaceNormalLocal = hN;
@@ -152,6 +171,7 @@ namespace Desert::Editor::Tools
                                const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                const glm::vec2& viewportSize, bool interactive )
     {
+        m_Cursor = ToolCursor::None;
         if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::PolyEdit )
         {
             ClearSelection();
@@ -173,6 +193,7 @@ namespace Desert::Editor::Tools
         if ( !target )
         {
             ClearSelection();
+            m_Cursor = ToolCursor::Unavailable; // nothing selected to edit
             return;
         }
         const glm::mat4& world = target->World;
@@ -204,38 +225,20 @@ namespace Desert::Editor::Tools
             if ( m_Dragging && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
                 const float ds = s - m_DragS;
-                auto        dragView = Geometry::Bridge::EditMeshView( target->Target.Mesh );
-                if ( !dragView.IsSuccess() )
-                    LOG_ERROR( "[PolyEdit] the drag cannot read the entity's mesh: {0}", dragView.GetError() );
-                if ( std::abs( ds ) > 1e-4f && dragView.IsSuccess() )
+                if ( std::abs( ds ) > 1e-4f && target->Target.Mesh )
                 {
                     // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
                     // mesh, so the one the drag started from stays intact for the undo record.
-                    auto            next       = std::make_shared<Geometry::EditMesh>( *dragView.GetValue() );
-                    const glm::vec3 deltaLocal = glm::vec3( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
+                    auto             next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
+                    const glm::dvec3 deltaLocal( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
                     for ( const int vtx : m_SelVerts )
-                        next->SetPosition( vtx, next->GetPosition( vtx ) + deltaLocal );
+                        next->SetVertex( vtx, next->GetVertex( vtx ) + deltaLocal );
 
                     // Lighting follows the deform: every triangle touching a moved vertex gives its normal
                     // elements its new face normal, the rule the tool applied to render vertices before. A
                     // seam stays a seam - only element VALUES change, never which triangles share one.
-                    if ( auto* normals = next->Attributes().Normals() )
-                    {
-                        std::unordered_set<int> touched;
-                        for ( const int vtx : m_SelVerts )
-                            for ( const int t : next->GetVertexTriangles( vtx ) )
-                                touched.insert( t );
-                        for ( const int t : touched )
-                            if ( normals->IsSetTriangle( t ) )
-                            {
-                                const glm::vec3 n = Geometry::TriangleNormal( *next, t );
-                                for ( const int el : normals->GetTriangle( t ) )
-                                    normals->SetElement( el, n );
-                            }
-                    }
-                    if ( auto set =
-                              Geometry::Bridge::SetEditableMeshFromEditMesh( target->Mesh(), std::move( *next ) );
-                         set.IsSuccess() )
+                    Geometry::RefreshFaceNormalsAround( *next, m_SelVerts );
+                    if ( auto set = ECS::SetEditableMesh( target->Mesh(), std::move( next ) ); set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;
                         m_DragS = s;
@@ -248,25 +251,32 @@ namespace Desert::Editor::Tools
             }
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
                 FinishDrag();
+        }
+
+        // The cursor says what the next press does: keep pushing, pick a face, or nothing.
+        if ( m_Dragging )
+            m_Cursor = ToolCursor::Drag;
+        else
+            m_Cursor = HitTriangle( target->Target.Mesh, world, ray ) != Geometry::InvalidId
+                            ? ToolCursor::Select
+                            : ToolCursor::Unavailable;
+
+        if ( m_HasSel )
+        {
 
             // Highlight the selected face (translucent green + outline).
-            static const Geometry::EditMesh kNoMesh;
-            auto                            drawView = Geometry::Bridge::EditMeshView( target->Target.Mesh );
-            if ( !drawView.IsSuccess() )
-            {
-                LOG_ERROR( "[PolyEdit] the highlight cannot read the entity's mesh: {0}", drawView.GetError() );
+            if ( !target->Target.Mesh )
                 m_SelTris.clear();
-            }
-            const Geometry::EditMesh& mesh = drawView.IsSuccess() ? *drawView.GetValue() : kNoMesh;
             for ( const int ti : m_SelTris )
             {
+                const Geometry::DynamicMesh3& mesh = *target->Target.Mesh;
                 if ( !mesh.IsTriangle( ti ) )
                     continue;
-                const auto&     tri = mesh.GetTriangle( ti );
-                glm::vec2       s0, s1, s2;
-                const glm::vec3 a  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[0] ), 1.0f ) );
-                const glm::vec3 bb = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[1] ), 1.0f ) );
-                const glm::vec3 c  = glm::vec3( world * glm::vec4( mesh.GetPosition( tri[2] ), 1.0f ) );
+                const Geometry::Index3i tri = mesh.GetTriangle( ti );
+                glm::vec2               s0, s1, s2;
+                const glm::vec3 a  = glm::vec3( world * glm::vec4( glm::vec3( mesh.GetVertex( tri[0] ) ), 1.0f ) );
+                const glm::vec3 bb = glm::vec3( world * glm::vec4( glm::vec3( mesh.GetVertex( tri[1] ) ), 1.0f ) );
+                const glm::vec3 c  = glm::vec3( world * glm::vec4( glm::vec3( mesh.GetVertex( tri[2] ) ), 1.0f ) );
                 if ( Geometry::ProjectToViewport( a, viewProj, viewportPos, viewportSize, s0 ) &&
                      Geometry::ProjectToViewport( bb, viewProj, viewportPos, viewportSize, s1 ) &&
                      Geometry::ProjectToViewport( c, viewProj, viewportPos, viewportSize, s2 ) )

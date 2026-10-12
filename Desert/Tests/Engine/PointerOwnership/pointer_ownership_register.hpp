@@ -1002,9 +1002,19 @@ namespace Desert::Tests::PointerCensus
           "never dereferenced: a key of MeshRenderer::m_CellPipelines (CellPipeline). Four of the five pass states named here are shared_ptr members of that same MeshRenderer (m_StaticPipeline, m_StaticGBufferPipeline, m_StaticInstancedPipeline, m_InstancedGBufferPipeline), assigned by the Setup*Pass calls in Init and never re-assigned, so their addresses cannot be recycled while the map lives. The fifth, the skinned LOAD variant, is held only by the SceneRenderer's PipelineCache and can be freed by InvalidateByShader; the only pipeline that can then take its address and reach this key is that same variant rebuilt from the same m_SkinnedPipeline spec, i.e. the same pass state, because every other pass state is pinned by a member" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp",
           "ParticleFrameEmitter", "Gpu", Guard::OwnedByThisObject,
-          "points into ParticleWorldGpu::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
-          "PrepareTick can perform while it is already pushing these pointers cannot move the pointee; "
-          "every erase happens after m_FrameEmitters is cleared" },
+          "points at one emitter of a ParticleSystemGpu in ParticleWorldGpu::m_Systems, an unordered_map -- "
+          "NODE-BASED, so the insert that PrepareTick can perform while it is already pushing these pointers "
+          "cannot move the pointee; every erase happens after m_FrameEmitters is cleared" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp",
+          "ParticleFrameEmitter", "Pipeline", Guard::OwnedByThisObject,
+          "the emitter's stack host program, Gpu->Pipeline.get(): ParticleWorldGpu::m_Programs holds every "
+          "program it built by shared_ptr and never erases one, so the pointee lives as long as the pool whose "
+          "m_FrameEmitters holds this row (VFX-HOST)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ParticleRenderer", "m_SimLayouts", Guard::IdentityOnly,
+          "never dereferenced: the key of a per-program binding-layout cache. Each key is a program the scene's "
+          "ParticleWorldGpu::m_Programs keeps alive and never erases; the layout itself is re-derived from the "
+          "program this frame hands in (m_SimLayouts[&program].Get( program.GetSpecification().Shader ))" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
           "ViewEmitter", "Frame", Guard::FrameScoped,
           "points into ParticleWorldGpu::m_FrameEmitters of the tick PrepareFrame just ran; m_ViewEmitters is "
@@ -1422,12 +1432,6 @@ namespace Desert::Tests::PointerCensus
           "a string literal, held by a constexpr/static table entry" },
         { "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
           "MediumFunction", "Fallback", Guard::StaticStorage,
-          "a string literal, held by a constexpr/static table entry" },
-        { "Editor/Source/Editor/Panels/Particles/ParticleEditorPanel.cpp",
-          "Preset", "Name", Guard::StaticStorage,
-          "a string literal, held by a constexpr/static table entry" },
-        { "Editor/Source/Editor/Panels/Particles/ParticleEditorPanel.hpp",
-          "ParticleEditorPanel", "kComponentTypeName", Guard::StaticStorage,
           "a string literal, held by a constexpr/static table entry" },
         { "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp",
           "CmdPreset", "name", Guard::StaticStorage,

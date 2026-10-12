@@ -1,6 +1,6 @@
 // CG-BAKE1: Cube Grid's Accept gave a piece a BOX around it, so a room built of blocks was solid inside and could
 // not be walked into. Pinned here on the editor's own inputs: a baked room with a doorway, put on an entity the
-// way CubeGridTool::RegenMesh does (FromRenderMesh -> SetEditableMeshFromEditMesh), the collision Accept gives it
+// way CubeGridTool::RegenMesh does (DynamicMeshFromRenderMesh -> SetEditableMesh), the collision Accept gives it
 // (GiveBlockoutCollision), and the body Play builds from that collider (PhysicsECSSystem::GatherColliderMesh ->
 // PhysicsWorld::CreateBody). A ray through the doorway must reach the far wall's inner face.
 
@@ -10,8 +10,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
@@ -49,11 +49,12 @@ namespace
     // The piece as CubeGridTool::RegenMesh leaves it: a StaticMesh whose edited mesh is the bake.
     Common::BoolResultStr PutOnEntity( const Geometry::VoxelBlockout::Volume& volume, const ECS::Entity& piece )
     {
-        auto edit = Geometry::FromRenderMesh( volume.Bake() );
+        auto edit = Geometry::DynamicMeshFromRenderMesh( volume.Bake() );
         if ( !edit.IsSuccess() )
             return Common::MakeError<bool>( edit.GetError() );
         auto& mesh = piece.AddComponent<ECS::StaticMeshComponent>();
-        return Geometry::Bridge::SetEditableMeshFromEditMesh( mesh, std::move( edit.ExtractValue().Mesh ) );
+        return ECS::SetEditableMesh(
+             mesh, std::make_shared<const Geometry::DynamicMesh3>( std::move( edit.ExtractValue().Mesh ) ) );
     }
 
     // What Play builds from the entity's collider and body (PhysicsECSSystem's body creation), at the origin.

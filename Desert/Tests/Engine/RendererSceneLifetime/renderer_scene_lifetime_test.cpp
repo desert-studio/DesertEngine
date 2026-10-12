@@ -504,8 +504,8 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     ASSERT_FALSE( prepare.empty() );
     EXPECT_NE( prepare.find( "scene.GetVFXWorld()" ), std::string::npos )
          << "the particles' steps no longer come from the scene's VFXWorld.";
-    // The step table is uploaded from the world's EmitterInstance by PrepareEmitter (PrepareTick's helper).
-    EXPECT_NE( particles.find( "instance.Steps[s]" ), std::string::npos )
+    // VFX-HOST: each emitter's step table is filled by a helper PrepareTick calls per system instance.
+    EXPECT_NE( particles.find( "instance->Steps" ), std::string::npos )
          << "the step table is not the world's steps.";
     EXPECT_EQ( particles.find( "SpawnAccum" ), std::string::npos )
          << "a spawn carry of the renderer's own integrates a second clock beside the VFXWorld.";
