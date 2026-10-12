@@ -166,8 +166,12 @@ TEST( ControlProtocol, EveryKnownOperationParses )
         std::string line = std::string( R"({"id":1,"op":")" ) + spec.Name + R"(")";
         if ( spec.Operation == Op::Run )
             line += R"(,"group":"Panel","label":"Open Details")";
+        if ( spec.Operation == Op::Properties )
+            line += R"(,"subject":"document")";
         if ( spec.Operation == Op::Set )
-            line += R"(,"property":"RoughnessFactor","value":[0.25])";
+            line += R"(,"subject":"document","property":"RoughnessFactor","value":[0.25])";
+        if ( spec.Operation == Op::Quit )
+            line += R"(,"code":0)";
         if ( IsShot( spec.Operation ) )
             line += R"(,"path":"/tmp/shot.png")";
         if ( spec.Operation == Op::Drag )
@@ -229,16 +233,17 @@ TEST( ControlProtocol, TheReadinessRuleComesFromTheTableAndNotFromASecondList )
 // fictitious `--shot --shot-frames 1000000` to unlock it.
 // ---------------------------------------------------------------------------------------------------
 
-// EVERY OLDER CLIENT KEEPS WORKING BY CONSTRUCTION. A request with no `subject` is the focused document,
-// which is what the category has always meant — so the field is additive and not a migration.
-TEST( ControlProtocol, ARequestThatNamesNoSubjectMeansTheFocusedDocument )
+// THE SUBJECT IS REQUIRED. "The focused document" answered for a client that meant the viewport is a wrong
+// answer that looks right, so a request that names no subject — absent or "" — is refused naming the field.
+TEST( ControlProtocol, ARequestThatNamesNoSubjectIsRefusedNamingTheField )
 {
-    EXPECT_EQ( ParseOk( R"({"id":1,"op":"properties"})" ).Whose, Subject::Document );
-    EXPECT_EQ( ParseOk( R"({"id":1,"op":"set","property":"RoughnessFactor","value":[0.25]})" ).Whose,
-               Subject::Document );
-    // An explicitly empty subject is the same as none: absent and empty-string are not distinguished
-    // anywhere else in this parser, and a client that sent "" has failed to name a subject either way.
-    EXPECT_EQ( ParseOk( R"({"id":1,"op":"properties","subject":""})" ).Whose, Subject::Document );
+    for ( const char* line : { R"({"id":1,"op":"properties"})", R"({"id":1,"op":"properties","subject":""})",
+                               R"({"id":1,"op":"set","property":"RoughnessFactor","value":[0.25]})",
+                               R"({"id":1,"op":"drag","value":[1,2,3,4]})" } )
+    {
+        const std::string message = ParseError( line );
+        EXPECT_NE( message.find( "'subject'" ), std::string::npos ) << line << " -> " << message;
+    }
 }
 
 TEST( ControlProtocol, EveryKnownSubjectParses )
@@ -317,33 +322,38 @@ TEST( ControlProtocol, RunNeedsBothHalvesOfTheAddress )
 // prove the feature works, from the feature being broken.
 TEST( ControlProtocol, SetNeedsAPropertyAndAValueAndSaysWhichIsMissing )
 {
-    const Request request =
-         ParseOk( R"({"id":3,"op":"set","property":"AlbedoColor","value":[0.05,0.35,0.95,1]})" );
+    const Request request = ParseOk(
+         R"({"id":3,"op":"set","subject":"document","property":"AlbedoColor","value":[0.05,0.35,0.95,1]})" );
     EXPECT_EQ( request.Id, 3 );
     EXPECT_EQ( request.Property, "AlbedoColor" );
     ASSERT_EQ( request.Value.size(), 4u );
     EXPECT_FLOAT_EQ( request.Value[0], 0.05f );
     EXPECT_FLOAT_EQ( request.Value[3], 1.0f );
 
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","value":[0.5]})" ).empty() ) << "no property named";
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"","value":[0.5]})" ).empty() );
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X"})" ).empty() )
+    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","subject":"document","value":[0.5]})" ).empty() )
+         << "no property named";
+    EXPECT_FALSE(
+         ParseError( R"({"id":1,"op":"set","subject":"document","property":"","value":[0.5]})" ).empty() );
+    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","subject":"document","property":"X"})" ).empty() )
          << "a write with nothing to write would come back successful and change nothing";
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X","value":[]})" ).empty() )
+    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","subject":"document","property":"X","value":[]})" ).empty() )
          << "no property takes nothing";
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X","value":0.5})" ).empty() )
+    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","subject":"document","property":"X","value":0.5})" ).empty() )
          << "a bare number carries no COUNT, and the count is part of the property's identity";
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X","value":[0.1,0.2,0.3,0.4,0.5]})" ).empty() )
+    EXPECT_FALSE(
+         ParseError( R"({"id":1,"op":"set","subject":"document","property":"X","value":[0.1,0.2,0.3,0.4,0.5]})" )
+              .empty() )
          << "nothing this channel writes is wider than four";
 }
 
 // BOTH SPELLINGS OF EVERY NUMBER, and it is not defensive coding. reflect-cpp keeps a JSON number in the
 // variant arm its TEXT implies, so `[1, 0.5]` arrives as one int64 and one double. Reading only doubles
 // made `[1,1,1]` -- the commonest colour anybody types -- parse as no value at all, which the request
-// above would then refuse as empty. The same defect ReadInt was written for, one field along.
+// above would then refuse as empty. The same defect ReadOptionalInt was written for, one field along.
 TEST( ControlProtocol, AValueReadsWholeNumbersAndFractionsAlike )
 {
-    const Request request = ParseOk( R"({"id":1,"op":"set","property":"AlbedoColor","value":[1,0.5,0,1]})" );
+    const Request request =
+         ParseOk( R"({"id":1,"op":"set","subject":"document","property":"AlbedoColor","value":[1,0.5,0,1]})" );
     ASSERT_EQ( request.Value.size(), 4u );
     EXPECT_FLOAT_EQ( request.Value[0], 1.0f );
     EXPECT_FLOAT_EQ( request.Value[1], 0.5f );
@@ -355,8 +365,10 @@ TEST( ControlProtocol, AValueReadsWholeNumbersAndFractionsAlike )
 // with a count the client never sent -- a refusal about a request that was never made.
 TEST( ControlProtocol, AValueWithSomethingThatIsNotANumberIsRefusedWhole )
 {
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X","value":[1,"x",0]})" ).empty() );
-    EXPECT_FALSE( ParseError( R"({"id":1,"op":"set","property":"X","value":["0.5"]})" ).empty() )
+    EXPECT_FALSE(
+         ParseError( R"({"id":1,"op":"set","subject":"document","property":"X","value":[1,"x",0]})" ).empty() );
+    EXPECT_FALSE(
+         ParseError( R"({"id":1,"op":"set","subject":"document","property":"X","value":["0.5"]})" ).empty() )
          << "a number in quotes is a client that has not decided what it is sending";
 }
 
@@ -736,8 +748,9 @@ TEST( ControlPointerDrag, TheRequestCarriesFourNumbersStepsAndAnImageSubject )
     ASSERT_EQ( r.GetValue().Value.size(), 4u );
     EXPECT_FLOAT_EQ( r.GetValue().Value[3], 40.0f );
 
-    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","value":[1,2,30]})" ).IsSuccess() );
-    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","value":[1,2,3,4],"steps":0})" ).IsSuccess() );
+    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","subject":"document","value":[1,2,30]})" ).IsSuccess() );
+    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","subject":"document","value":[1,2,3,4],"steps":0})" )
+                       .IsSuccess() );
     EXPECT_FALSE(
          C::ParseRequest( R"({"id":3,"op":"drag","subject":"modeling","value":[1,2,3,4]})" ).IsSuccess() );
 }
