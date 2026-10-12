@@ -36,6 +36,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -146,6 +147,18 @@ namespace Desert::Assets
     // True when the file is an envelope whose header states a texture (or skybox) kind — a legacy `.detex`
     // (JSON `{"Intent": ...}`) is not, and neither is another binary asset such as a `.dclayout`.
     bool IsTextureSourceAssetFile( const std::filesystem::path& file );
+
+    // THE PRE-ASSET `.detex`: a JSON `{"Intent": "<name>"}` sidecar beside an image, from before the texture
+    // was an asset. It is NOT READ -- not by the importer, not by the cook, not by SceneMigrator: a file at the
+    // asset's path that is not a texture asset is REFUSED by path (UE LinkerLoad.cpp:1537-1546, a package
+    // older than the oldest loadable version is an error naming the file, never a lenient load). True when the
+    // first non-blank byte opens a JSON object, which no envelope (magic `DAST`) does.
+    bool IsLegacyTextureIntentSidecar( std::span<const std::byte> file );
+
+    // The one sentence every refusal of a legacy sidecar ends with: what it is and what replaces it.
+    inline constexpr std::string_view kLegacyTextureIntentSidecarRefusal =
+         "a pre-asset JSON intent sidecar ({\"Intent\": ...}), which this build does not read; delete it, "
+         "import the image beside it, and set Intent in the texture asset's Details";
 
     // ── THE DERIVED DATA KEY ─────────────────────────────────────────────────────────────────────────
     // UE: TEXTURE_DERIVEDDATA_VER (TextureDerivedData.cpp:68). Change it whenever the platform data the

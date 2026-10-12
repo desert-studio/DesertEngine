@@ -53,6 +53,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -197,14 +198,28 @@ namespace
         out.write( (const char*)file.data(), (std::streamsize)file.size() );
     }
 
-    /// Author an intent beside a source, the way a person would. Written through the same path formula
-    /// the cook reads it back with, so a test cannot pass by agreeing with itself about where the file
-    /// goes.
+    /// Author an intent on a source's texture asset, the way a person would: the first import carries it
+    /// as the import setting (a material slot's word), an existing asset has it edited in its settings (the
+    /// Details). The colour space follows the intent's default, as a first import with that intent gives.
     void WriteIntent( const fs::path& source, const std::string& intent )
     {
-        const fs::path path = Desert::Editor::TextureIntentPath( source );
-        std::ofstream  out( path, std::ios::binary );
-        out << R"({"Intent": ")" << intent << "\"}";
+        const Desert::Core::Formats::TextureIntent parsed = Desert::Core::Formats::TextureIntentFromName( intent );
+        ASSERT_NE( parsed, Desert::Core::Formats::TextureIntent::Count ) << intent;
+        const fs::path asset = Desert::Editor::TextureImporter::AssetPathFor( source );
+        if ( !Desert::Assets::IsTextureSourceAssetFile( asset ) )
+        {
+            const auto created = Desert::Editor::TextureImporter::ImportSourceAsset( source, parsed );
+            ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+            return;
+        }
+        auto read = Desert::Assets::ReadTextureSourceAssetFile( asset );
+        ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+        Desert::Assets::TextureSourceAsset edited = read.ExtractValue();
+        edited.Import.Settings.Intent             = parsed;
+        edited.Import.Settings.ColorSpace =
+             Desert::Assets::DefaultTextureColorSpace( parsed, std::span<const std::byte>( edited.Source ) );
+        const auto written = Desert::Assets::WriteTextureSourceAssetFile( asset, edited );
+        ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
 
     std::string ReadAll( const fs::path& path )
@@ -829,29 +844,28 @@ TEST_F( TextureImport, AMaskIsStoredAsBC4AndCostsHalfOfWhatBC7Would )
     EXPECT_EQ( header.PayloadBytes * 2u, colour.PayloadBytes );
 }
 
-TEST_F( TextureImport, AnIntentFileThatCannotBeUnderstoodStopsTheCookGuessingPastIt )
+TEST_F( TextureImport, ALegacyJsonIntentSidecarIsRefusedByPathNotReadAndNotReplaced )
 {
-    // A `.detex` WITH A TYPO IS NOT AN ABSENT ONE. Somebody wrote it, so the cook must not fall back to
-    // the measurement and compress what may be a normal map; it stores the pixels, names the file and
-    // lists the vocabulary.
-    const fs::path source = TexturesDir() / "T_Typo.bmp";
+    // THE PRE-ASSET `.detex` IS NOT READ (UE LinkerLoad: a package older than the oldest loadable version is
+    // a load error naming the file). Its image does not import, the sidecar is left as it was, and the one
+    // ERROR names the sidecar and what replaces it.
+    const fs::path source  = TexturesDir() / "T_Legacy.bmp";
+    const fs::path sidecar = Desert::Editor::TextureIntentPath( source );
     WriteBmp( source, 8, 8, 0x80 );
-    WriteIntent( source, "normalmap" ); // the right word, the wrong case
+    {
+        std::ofstream out( sidecar, std::ios::binary );
+        out << R"({"Intent": "NormalMap"})";
+    }
 
     TextureImporter importer;
     LogCapture      log;
-    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
-
-    const auto header = CookedHeader( PlatformData( source ) );
-    // AF3: the sidecar is replaced by the asset, so "do not guess" is written down as the intent that
-    // forbids a block format (Data) instead of being re-derived from a file that no longer exists.
-    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
-    EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F )
-         << "an instruction the cook could not read is not permission to compress";
-    EXPECT_NE( log.Text().find( "not one of" ), std::string::npos )
-         << "the refusal has to list what the words are\n"
+    EXPECT_EQ( (uint64_t)importer.Import( source ), 0ull ) << "a legacy sidecar was read as the asset";
+    EXPECT_FALSE( Desert::Assets::IsTextureSourceAssetFile( sidecar ) ) << "the sidecar was replaced";
+    EXPECT_EQ( ReadAll( sidecar ), R"({"Intent": "NormalMap"})" );
+    EXPECT_NE( log.Text().find( sidecar.generic_string() ), std::string::npos )
+         << "the refusal has to name the file\n"
          << log.Text();
-    EXPECT_NE( log.Text().find( "NormalMap" ), std::string::npos ) << log.Text();
+    EXPECT_NE( log.Text().find( "pre-asset JSON intent sidecar" ), std::string::npos ) << log.Text();
 }
 
 TEST_F( TextureImport, EditingTheIntentRecooksASourceWhoseOwnBytesDidNotMove )
