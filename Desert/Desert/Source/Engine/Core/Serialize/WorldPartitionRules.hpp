@@ -554,6 +554,9 @@ namespace Desert::Core::Rules
          { "Material", ComponentLoading::Spatial },
          { "Morph", ComponentLoading::Spatial },
          { "ParticleEmitter", ComponentLoading::Spatial },
+         // UE: a UNiagaraComponent is placed with its actor and spatially loaded with it; its effect plays where
+         // the entity stands, as ParticleEmitter's does.
+         { "VFX", ComponentLoading::Spatial },
          { "PointLight", ComponentLoading::Spatial }, // has a radius; the sun is the global light
          { "Projectile", ComponentLoading::Spatial },
          { "Retarget", ComponentLoading::Spatial },

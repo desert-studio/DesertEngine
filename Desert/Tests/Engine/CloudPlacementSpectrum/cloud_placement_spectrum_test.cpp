@@ -567,6 +567,28 @@ TEST( CloudPlacementSpectrum, TheShippedPlacementHasNoLatticeAndConfiningItAgain
 // a placement parameter is the easiest place in this component to get that wrong, because a sky that is
 // already busy looks about the same whatever you do to it. So each is moved on its own and the lumps are
 // compared.
+namespace
+{
+    // THE WEATHER IS READ BY THE MARCH, NOT BAKED INTO THE LUMPS (FARWX-a: the bake keeps every cell with its
+    // rank; CUT-AT-BAKE / FIELD-GRAIN-b: W multiplies the cover where the march samples it). A knob or a
+    // painting that is the weather therefore changes CloudProceduralLocalWeather and leaves the lumps alone.
+    // Largest difference of W between two parameter sets over a 32 x 32 grid of the region at `originKm`.
+    float WeatherDifference( const CloudProceduralFieldParams& a, const CloudProceduralFieldParams& b,
+                             const glm::vec2& originKm )
+    {
+        float worst = 0.0f;
+        for ( int iz = 0; iz < 32; ++iz )
+            for ( int ix = 0; ix < 32; ++ix )
+            {
+                const glm::vec2 worldKm =
+                     originKm + glm::vec2( ( ix + 0.5f ) / 32.0f, ( iz + 0.5f ) / 32.0f ) * a.RegionSizeKm;
+                worst = std::max( worst, std::abs( CloudProceduralLocalWeather( a, 0u, worldKm ) -
+                                                   CloudProceduralLocalWeather( b, 0u, worldKm ) ) );
+            }
+        return worst;
+    }
+} // namespace
+
 TEST( CloudPlacementSpectrum, EveryPlacementKnobChangesTheLumps )
 {
     const CloudProceduralFieldParams base   = ShippedParams();
@@ -602,13 +624,16 @@ TEST( CloudPlacementSpectrum, EveryPlacementKnobChangesTheLumps )
     variety.PlacementSizeVariety       = 0.0f;
     EXPECT_TRUE( differs( variety, "Cloud Size Variety" ) );
 
+    // The two weather knobs are the weather, read by the march: they move W, not the lumps.
     CloudProceduralFieldParams strength = base;
     strength.PatchStrength              = 0.0f;
-    EXPECT_TRUE( differs( strength, "Weather Patch Strength" ) );
+    EXPECT_GT( WeatherDifference( base, strength, origin ), 1e-3f )
+         << "Weather Patch Strength left the weather unchanged, so it is a setting that moves nothing";
 
     CloudProceduralFieldParams tile = base;
     tile.PatchTileKm                = 40.0f;
-    EXPECT_TRUE( differs( tile, "Weather Patch Size" ) );
+    EXPECT_GT( WeatherDifference( base, tile, origin ), 1e-3f )
+         << "Weather Patch Size left the weather unchanged, so it is a setting that moves nothing";
 }
 
 // THE DENSITY REDISTRIBUTES MATTER RATHER THAN ADDING IT, and that is a property by construction rather
@@ -1493,17 +1518,9 @@ TEST( CloudPlacementSpectrum, APaintedPatternIsTheWeatherAMultiplierOnTheSliderN
     // to the other, and the lumps are where that shows.
     const glm::vec2 origin = CloudProceduralRegionOriginKm( painted, 0.0f, 0.0f );
 
-    const std::vector<CloudModellingBlob> without = GenerateCloudProceduralBlobs( plain, 0u, origin );
-    const std::vector<CloudModellingBlob> with    = GenerateCloudProceduralBlobs( painted, 0u, origin );
-
-    size_t moved = 0;
-    for ( size_t i = 0; i < std::min( without.size(), with.size() ); ++i )
-        if ( without[i].CentreKm != with[i].CentreKm )
-            ++moved;
-
-    EXPECT_TRUE( without.size() != with.size() || moved > 0 )
-         << "the painting changed neither the number of clouds nor where any of them is, so it is a slot an "
-            "artist can fill and never see";
+    // The painting is the weather (W), read by the march: it changes W, and the lumps stay where they are.
+    EXPECT_GT( WeatherDifference( plain, painted, origin ), 1e-3f )
+         << "the painting left the weather unchanged, so it is a slot an artist can fill and never see";
 }
 
 // ONE NUMBER, ONE SOURCE — the rule that keeps the painted pattern and the procedural patch field from
@@ -1521,15 +1538,6 @@ TEST( CloudPlacementSpectrum, OnlyOneSourceModulatesACellsCoverage )
 
     const glm::vec2 origin = CloudProceduralRegionOriginKm( painted, 0.0f, 0.0f );
 
-    const auto centres = []( const std::vector<CloudModellingBlob>& blobs )
-    {
-        std::vector<glm::vec3> out;
-        out.reserve( blobs.size() );
-        for ( const CloudModellingBlob& blob : blobs )
-            out.push_back( blob.CentreKm );
-        return out;
-    };
-
     // WITH THE PAINTING RULING, the patch field must be unreachable — moving its strength from end to end
     // cannot move one lump.
     {
@@ -1539,9 +1547,8 @@ TEST( CloudPlacementSpectrum, OnlyOneSourceModulatesACellsCoverage )
         CloudProceduralFieldParams loud = painted;
         loud.PatchStrength              = 1.0f;
 
-        EXPECT_EQ( centres( GenerateCloudProceduralBlobs( quiet, 0u, origin ) ),
-                   centres( GenerateCloudProceduralBlobs( loud, 0u, origin ) ) )
-             << "the procedural patch field still moved clouds while a painting was ruling the sky, so two "
+        EXPECT_LE( WeatherDifference( quiet, loud, origin ), 1e-6f )
+             << "the procedural patch field still moved the weather while a painting was ruling the sky, so two "
                 "mechanisms are deciding one number and the artist's painting is being argued with";
     }
 
@@ -1557,8 +1564,7 @@ TEST( CloudPlacementSpectrum, OnlyOneSourceModulatesACellsCoverage )
         loud.LayoutPlacement.PatternStrength = 0.0f;
         loud.PatchStrength                   = 1.0f;
 
-        EXPECT_NE( centres( GenerateCloudProceduralBlobs( quiet, 0u, origin ) ),
-                   centres( GenerateCloudProceduralBlobs( loud, 0u, origin ) ) )
+        EXPECT_GT( WeatherDifference( quiet, loud, origin ), 1e-3f )
              << "with Layout Pattern Strength at zero the procedural patch field did nothing either, so "
                 "that end of the slider is a sky with no weather in it rather than the procedural sky it is "
                 "documented to be";
@@ -1900,7 +1906,11 @@ TEST( CloudPlacementSpectrum, ALumpsHeightAndItsWidthAreOneQuantity )
         const glm::vec2                       origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
         const std::vector<CloudModellingBlob> blobs  = GenerateCloudProceduralBlobs( params, 0u, origin );
 
-        double sum   = 0.0;
+        // THE BASE LUMP's aspect, the least of the unsquashed ones (CLOUD-SHAPE): a lump at stack parameter t
+        // is kCloudLumpVerticalOverHorizontal * (1 + kTurretStretch * t) tall over wide, so the constant is
+        // the t = 0 lump's and the stack and its turrets stand taller by design. The wobble and the stretch
+        // cancel out of tall / sqrt(wide x wide), so the base lump measures the constant exactly.
+        double least = std::numeric_limits<double>::max();
         double count = 0.0;
 
         for ( const CloudModellingBlob& blob : blobs )
@@ -1929,12 +1939,12 @@ TEST( CloudPlacementSpectrum, ALumpsHeightAndItsWidthAreOneQuantity )
             if ( at < 0.999 * kCloudLumpVerticalOverHorizontal )
                 continue;
 
-            sum += at;
+            least = std::min( least, at );
             count += 1.0;
         }
 
         EXPECT_GT( count, 0.0 ) << "no lump was measured at all, so this test asserted nothing";
-        return sum / std::max( count, 1.0 );
+        return count > 0.0 ? least : 0.0;
     };
 
     // A 3.6 km band in a 3 km cell — the shipped congestus — against a 0.9 km band in a 1 km cell. Both the
@@ -2022,24 +2032,30 @@ TEST( CloudPlacementSpectrum, EveryLumpStandsInsideItsTypesOwnBand )
 
         ASSERT_FALSE( blobs.empty() );
 
+        // THE BASE IS A PLANE (CLOUD-SHAPE, CloudProceduralCutJoin): a body's base lumps are CENTRED on the
+        // type's Base Altitude and the bake intersects every cluster with the half-space above it, so a lump's
+        // lower half below the base is cut flat by design. What bounds the body from below is the lowest
+        // CENTRE; from above, the highest extent.
         float lowest  = std::numeric_limits<float>::max();
         float highest = -std::numeric_limits<float>::max();
 
         for ( const CloudModellingBlob& blob : blobs )
         {
-            lowest  = std::min( lowest, blob.CentreKm.y - blob.RadiiKm.y );
+            lowest  = std::min( lowest, blob.CentreKm.y );
             highest = std::max( highest, blob.CentreKm.y + blob.RadiiKm.y );
         }
 
-        std::printf( "[CloudPlacementSpectrum] band %.2f..%.2f km, cell %.2f km: lumps span %.3f..%.3f km\n",
-                     baseKm, topKm, cellKm, lowest, highest );
+        std::printf(
+             "[CloudPlacementSpectrum] band %.2f..%.2f km, cell %.2f km: lowest centre %.3f, top %.3f km\n",
+             baseKm, topKm, cellKm, lowest, highest );
 
         // A voxel of the shipped volume is the tolerance, because a body inside the band by less than the
         // volume can express is inside it as far as any picture is concerned.
         const float toleranceKm = ( topKm - baseKm ) / static_cast<float>( kCloudProceduralVolumeHeight );
 
         EXPECT_GE( lowest, baseKm - toleranceKm )
-             << "a lump hangs below the type's own Base Altitude, so the volume clips its floor flat";
+             << "a lump is centred below the type's own Base Altitude, so the flat base cuts through a body "
+                "instead of under it";
         EXPECT_LE( highest, topKm + toleranceKm )
              << "a lump stands above the type's own Top Altitude, so a type's altitudes do not bound the "
                 "body they describe";

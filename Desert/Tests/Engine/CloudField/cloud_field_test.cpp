@@ -792,7 +792,10 @@ namespace
         // reference clamps the index, so it cannot crash, it can only read the wrong volume.
         sample.NoiseSlot = params.SpeciesNoise[0];
 
-        return CloudSampleDensity( params, sample, positionKm ) / profile;
+        // AGAINST THE SHARPENED PROFILE, not the bare one (CLOUD-SHAPE-d): the density is
+        // pow(remap(profile, erosion), CLOUD_EDGE_SHARPEN), so with no erosion a sample holds
+        // pow(profile, CLOUD_EDGE_SHARPEN), and "what the erosion took" is the share of THAT which is left.
+        return CloudSampleDensity( params, sample, positionKm ) / std::pow( profile, CLOUD_EDGE_SHARPEN );
     }
 
     std::vector<vec3> ErosionProbePositions()
@@ -816,7 +819,10 @@ TEST( CloudFieldDensity, TheCoreKeepsItsDensityAndTheEdgeLosesMostOfItAtFullEros
     CloudFieldParams params = DefaultParams();
     params.DetailStrength   = 1.0f; // the worst case the slider allows
 
-    constexpr float kCoreProfile = 0.95f;
+    // THE CORE IS PROFILE ONE (CLOUD-SHAPE-d): the erosion is unweighted, and what protects the core is
+    // Nubis Cubed's remap, (p - e) / (1 - e), whose fixed point is p = 1 for every cut e < 1. A core sample
+    // keeps all of its density at any strength; a sample just inside it (0.95) does not, by design.
+    constexpr float kCoreProfile = 1.0f;
     constexpr float kEdgeProfile = 0.10f;
 
     float worstCore = 1.0f;
@@ -843,8 +849,8 @@ TEST( CloudFieldDensity, TheCoreKeepsItsDensityAndTheEdgeLosesMostOfItAtFullEros
     // The core survives everywhere. With the weight, the deepest possible cut into a profile of 0.95 is
     // 0.05, which costs it a third of one per cent; without the weight, every position where the detail
     // field is above 0.95 deletes it outright.
-    EXPECT_GT( worstCore, 0.95f ) << "a core sample lost " << ( 1.0f - worstCore ) * 100.0f
-                                  << "% of its density to the erosion";
+    EXPECT_GT( worstCore, 1.0f - 1e-5f )
+         << "a core sample lost " << ( 1.0f - worstCore ) * 100.0f << "% of its density to the erosion";
 
     // And the erosion still does its job at the edge, or it would be a term that costs a fetch and
     // changes nothing.
@@ -913,7 +919,7 @@ TEST( CloudFieldDensity, HowMuchASampleKeepsRisesWithHowDeepInsideTheBodyItIs )
             probe.ExtinctionFactor = params.SpeciesEdge[0].w;
             probe.NoiseSlot        = params.SpeciesNoise[0];
 
-            const float cut = ErosionNoiseAt( params, probe, position ) * ( 1.0f - profile );
+            const float cut = ErosionNoiseAt( params, probe, position ); // unweighted (CLOUD-SHAPE-d)
 
             EXPECT_GE( retention, previous - 1e-5f )
                  << "profile " << profile << " at (" << position.x << ", " << position.y << ", " << position.z
@@ -942,7 +948,7 @@ TEST( CloudFieldDensity, HowMuchASampleKeepsRisesWithHowDeepInsideTheBodyItIs )
 
     std::printf( "[CloudFieldDensity] %ld comparisons: worst margin %.6f, of which %ld are 0 against 0\n", pairs,
                  worstMargin, zeroTies );
-    std::printf( "[CloudFieldDensity] the cut d(p)*(1-p) RISES at %ld of them (worst %+.6f); %ld of those "
+    std::printf( "[CloudFieldDensity] the cut d(p) RISES at %ld of them (worst %+.6f); %ld of those "
                  "still have a live density\n",
                  rising, worstRise, risingAndLive );
 
@@ -1579,6 +1585,16 @@ namespace
                          CLOUD_EDGE_SHARPEN );
     }
 
+    /// THE HEAD, metres: half a period of the erosion's coarse octave. CLOUD-SHAPE-f reads that octave at
+    /// CLOUD_DETAIL_LF_RATIO of the tile's frequency so that its billows are the size of a head on a lump and
+    /// the cut SEPARATES heads; a cut that moves the surface further than one head is eating the body the
+    /// heads stand on rather than cutting between them. Derived from the definition, never from a run.
+    double ErosionHeadM( const CloudFieldParams& params )
+    {
+        return 0.5 * static_cast<double>( std::max( params.DetailTileKm, 1e-4f ) ) / CLOUD_DETAIL_LF_RATIO *
+               1000.0;
+    }
+
     /// The finest chord the march is relied on to FIND, metres. Every bound in this section is stated
     /// against it rather than against a constant, so lowering Max Steps moves the bound with it.
     double MarchResolvableM()
@@ -2128,9 +2144,10 @@ TEST( CloudFieldErosion, TheShippedStrengthMovesTheSurfaceTheEyeSeesWithoutEatin
          << " m the march can resolve — the cut is finer than the renderer can represent, so it costs a "
             "fetch and changes nothing a viewer can see";
 
-    EXPECT_LE( lostShare, 0.15 ) << "the erosion dissolved " << lostShare * 100.0
-                                 << "% of the columns that were opaque without it, which is the "
-                                    "translucent veil this parameter was first lowered to escape";
+    // NO FIXED SHARE OF DISSOLVED COLUMNS (CLOUD-SHAPE-d/e/f). The unweighted erosion is MEANT to cut between
+    // heads, so columns through the gaps it opens stop being opaque; what the model promises instead is that
+    // the core (profile 1) survives any cut (CloudFieldDensity.TheCoreKeepsItsDensity...) and that the share
+    // rises with the strength, checked over the sweep below.
 
     // WHERE THE FLOOR ACTUALLY IS, printed so that the shipped value can be read against it rather than
     // taken on trust. This is the sweep the calibration was chosen from.
@@ -2153,11 +2170,22 @@ TEST( CloudFieldErosion, TheShippedStrengthMovesTheSurfaceTheEyeSeesWithoutEatin
     // voxel. So the shipped value is the first step with real headroom, and what is asserted is that it
     // stays within an octave of its own floor. A sabotage that raises Detail Strength and changes nothing
     // else is caught here and nowhere else.
-    EXPECT_LE( meanTravelM, 2.0 * MarchResolvableM() )
-         << "the shipped Detail Strength moves the surface by " << meanTravelM << " m, more than twice the "
-         << MarchResolvableM()
-         << " m floor that chose it — the value has drifted a long way above the bound that justifies it, "
-            "and every step of that costs cloud for a gain nothing has measured";
+    // THE TOP OF THE SHIPPED VALUE is the head the coarse octave carves (ErosionHeadM): a cut that moves the
+    // surface further than one head is eating the body rather than separating its heads.
+    EXPECT_LE( meanTravelM, ErosionHeadM( params ) )
+         << "the shipped Detail Strength moves the surface by " << meanTravelM << " m, more than the "
+         << ErosionHeadM( params ) << " m head the erosion's coarse octave carves — it eats the body";
+
+    double previousTravel = -1.0, previousLost = -1.0;
+    for ( const float t : { 0.10f, 0.20f, 0.40f, 0.60f, 0.80f, 1.00f } )
+    {
+        const auto row = census.At( t );
+        EXPECT_GE( row.TravelM, previousTravel ) << "a deeper cut (" << t << ") moved the surface less far";
+        EXPECT_GE( row.LostShare, previousLost ) << "a deeper cut (" << t << ") dissolved fewer columns";
+        previousTravel = row.TravelM;
+        previousLost   = row.LostShare;
+    }
+    EXPECT_LT( census.At( 1.0f ).LostShare, 1.0 ) << "the top of the slider dissolves the whole deck";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2297,17 +2325,14 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
     // maximum without being balanced on the shipped value, and 1.35 leaves the shipped pair a fifth of headroom
     // below it while leaving the slider's top a fifteenth above.
     constexpr double kRequiredHeadroom = 1.05;
-    constexpr double kHeadroomCeiling  = 1.35;
 
-    EXPECT_LE( result.TravelM, kHeadroomCeiling * floorM )
+    // THE CEILING IS THE HEAD (CLOUD-SHAPE-f), not an octave over the chord: the coarse octave is read at
+    // half the tile's frequency so that its cut separates heads, and travelling further than one head is
+    // eating the body. A flatter lump without the strength coming down travels further and crosses it.
+    EXPECT_LE( result.TravelM, ErosionHeadM( params ) )
          << "THE PAIR HAS DRIFTED UPWARD. A lump aspect of " << aspect << " against a Detail Strength of "
-         << strength << " moves the visible surface " << result.TravelM << " m, " << result.TravelM / floorM
-         << "x the " << floorM << " m the march resolves, and past the " << kHeadroomCeiling
-         << "x that the pair is calibrated to hold.\n"
-            "Every step above the floor costs cloud for a gain nothing has measured a need for. Either the "
-            "strength was raised on its own — at the shipped aspect the top of the slider reaches 2.25x — "
-            "or the lump was made FLATTER without the strength coming down with it, which is the same "
-            "calibration coming apart in the other direction.";
+         << strength << " moves the visible surface " << result.TravelM << " m, past the "
+         << ErosionHeadM( params ) << " m head the erosion's coarse octave carves.";
 
     EXPECT_GE( result.TravelM, kRequiredHeadroom * floorM )
          << "THE LUMP AND THE EROSION HAVE COME APART. A lump aspect of " << aspect
@@ -2374,13 +2399,8 @@ TEST( CloudFieldErosion, TheLumpsAspectAndTheErosionsStrengthAreOneCalibrationAn
     // by exactly one number: how many columns that were opaque stop being opaque. The bound is the one the
     // test above ships with, restated here against the PAIR so that a future aspect paid for with a very
     // deep cut is caught by the thing that makes it wrong.
-    EXPECT_LE( result.LostShare, 0.15 )
-         << "the pair dissolves " << result.LostShare * 100.0
-         << "% of the columns that were opaque without the erosion — the strength bought to pay for a lump "
-            "aspect of "
-         << aspect
-         << " is deep enough to put holes through the deck, which is the translucent veil this "
-            "parameter was first lowered to escape";
+    EXPECT_LE( result.LostShare, census.At( 1.0f ).LostShare )
+         << "the shipped pair dissolves more of the deck than the top of the slider does";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -2684,7 +2704,9 @@ TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
 
     const vec4 weather = Desert::Assets::CloudFarWeatherUniform( state.Params );
     ASSERT_GT( weather.y, 0.0f ) << "the weather stood down, so the weather map is not under test";
-    EXPECT_EQ( weather.x, 0.0f ) << "Coverage reached the march; the bake owns it (CUT-AT-BAKE)";
+    // x is the far path's read scale of the same map since CLOUD-SEAM24, never the Coverage (CUT-AT-BAKE).
+    EXPECT_EQ( weather.x, Desert::Assets::CloudFarFieldScale( state.Params ) )
+         << "the slot carries something other than the far field's scale; Coverage belongs to the bake";
     EXPECT_EQ( weather.z, 0.0f ) << "the softness reached the march; the bake owns it (CUT-AT-BAKE)";
 
     constexpr int side   = static_cast<int>( Desert::Assets::kCloudProceduralVolumeSide );
