@@ -75,7 +75,10 @@ namespace Desert::Core
     // MigrateSoundRefsV45ToV46).
     // v47 (VFX-08): ParticleEmitter.Blend is gone; a sprite composites by its Material's blend mode
     // (Tools/SceneMigrator, MigrateParticleSpriteMaterialsV46ToV47).
-    inline constexpr int kSceneVersion = 47;
+    // v49 (SHADOW-BIAS): DirectionLight.ShadowBias is world centimetres applied by the caster, not a fraction
+    // of a cascade's NDC depth; a stated older number is re-stated as the new default (Tools/SceneMigrator,
+    // MigrateShadowBiasCentimetresV48ToV49). v48 is SSR1B's.
+    inline constexpr int kSceneVersion = 49;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

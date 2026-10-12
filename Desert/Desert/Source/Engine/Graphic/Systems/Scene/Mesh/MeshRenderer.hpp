@@ -30,6 +30,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -540,15 +541,17 @@ namespace Desert::Graphic::System
         // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
         [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
-        void SetShadows( bool enabled, float bias, int debugMode, float splitLambda )
+        void SetShadows( const ViewShadowSettings& shadows, int debugMode )
         {
-            m_ShadowsEnabled  = enabled;
-            m_ShadowBias      = bias;
+            m_ShadowsEnabled  = shadows.Enabled;
+            m_ShadowBias      = shadows.Bias;
             m_ShadowDebugMode = debugMode;
-            m_SplitLambda     = splitLambda;
+            m_SplitLambda     = shadows.CascadeSplitLambda;
         }
-        bool  AreShadowsEnabled() const { return m_ShadowsEnabled; }
-        float GetShadowBias() const     { return m_ShadowBias; }
+        bool AreShadowsEnabled() const
+        {
+            return m_ShadowsEnabled;
+        }
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
 
@@ -803,8 +806,13 @@ namespace Desert::Graphic::System
         // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
         // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
         glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
+        // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
+        // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
+        glm::mat4 m_CascadeCasterVP[kMaxCascades] = { glm::mat4( 1.0f ), glm::mat4( 1.0f ), glm::mat4( 1.0f ),
+                                                      glm::mat4( 1.0f ) };
+        CascadeCasterBias                 m_CascadeCasterBias[kMaxCascades]{};
         bool                              m_ShadowsEnabled  = true;
-        float                             m_ShadowBias      = 0.005f;
+        CascadeBiasSettings               m_ShadowBias;
         int                               m_ShadowDebugMode = 0;     // ShadowDebugMode (Off/ShadowFactor/Cascades)
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
 

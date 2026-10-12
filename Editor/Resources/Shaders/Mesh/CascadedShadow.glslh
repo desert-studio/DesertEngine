@@ -39,7 +39,7 @@
 //     Uniform(d) sampler2D u_ShadowMap3;
 //     Uniform(e) ShadowUB {
 //         mat4 u_LightViewProj[4];
-//         vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+//         vec4 u_ShadowParams;      // x reserved (0), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
 //         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
 //         vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
 //     };
@@ -112,8 +112,11 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
 		return 1.0;
 
+	// NO DEPTH BIAS HERE. The caster wrote its depth already pushed back by the light's bias in world
+	// centimetres (Graphic::CascadeCasterBias: constant through the caster matrix, slope in
+	// Mesh/Surface/Pass_ShadowDepth.glslh), as UE does in ShadowDepthVertexShader.usf. A bias in this
+	// cascade's NDC depth was a world length of bias * 4R - 26 cm in cascade 0, 10 m in cascade 3.
 	float currentDepth = ndc.z;
-	float bias = clamp(u_ShadowParams.x * (1.0 - NdotL) * 4.0, u_ShadowParams.x, 0.02);
 
 	// 3x3 PCF for soft edges.
 	float shadow = 0.0;
@@ -122,7 +125,7 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 		for (int x = -1; x <= 1; ++x)
 		{
 			float closest = sampleShadowMap(c, uv + vec2(x, y) * texel);
-			shadow += (currentDepth - bias > closest) ? 0.0 : 1.0;
+			shadow += (currentDepth > closest) ? 0.0 : 1.0;
 		}
 	return shadow / 9.0;
 }

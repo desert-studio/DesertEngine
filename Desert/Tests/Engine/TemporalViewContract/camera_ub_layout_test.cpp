@@ -132,9 +132,9 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "PrevCameraPos", offsetof( Camera, PrevCameraPos ) },
          { "PrevTime", offsetof( Camera, PrevTime ) },
          { "MaterialMipBias", offsetof( Camera, MaterialMipBias ) },
+         { "ShadowSlopeBias", offsetof( Camera, ShadowSlopeBias ) },
+         { "ShadowSlopeClamp", offsetof( Camera, ShadowSlopeClamp ) },
          { "CameraPad0", offsetof( Camera, Pad0 ) },
-         { "CameraPad1", offsetof( Camera, Pad1 ) },
-         { "CameraPad2", offsetof( Camera, Pad2 ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )

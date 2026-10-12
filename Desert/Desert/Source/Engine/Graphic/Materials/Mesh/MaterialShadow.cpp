@@ -49,18 +49,22 @@ namespace Desert::Graphic
     }
 
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
-                           const double timeSeconds )
+                           const double timeSeconds, const CascadeCasterBias& bias )
     {
         // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
-        // has its one writer. Its position is the light camera's eye, its clock the frame's.
-        SceneCameraBind( &material, MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ),
-                                                        timeSeconds ) );
+        // has its one writer. Its position is the light camera's eye, its clock the frame's. The constant bias
+        // is already in `projection` (CasterViewProj); the slope term travels in the block.
+        ViewFrame frame =
+             MakeStillViewFrame( view, projection, glm::vec3( glm::inverse( view )[3] ), timeSeconds );
+        frame.ShadowSlopeBias  = bias.SlopeBias;
+        frame.ShadowSlopeClamp = bias.SlopeClamp;
+        SceneCameraBind( &material, frame );
     }
 
     void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection,
-                                         const double timeSeconds )
+                                         const double timeSeconds, const CascadeCasterBias& bias )
     {
-        WriteLightCamera( *this, view, projection, timeSeconds );
+        WriteLightCamera( *this, view, projection, timeSeconds, bias );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

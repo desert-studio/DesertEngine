@@ -188,6 +188,12 @@ namespace Desert::Graphic
         // mip).
         float MaterialMipBias = 0.0f;
 
+        // LIGHT VIEWS ONLY (a shadow cascade's caster pass, Graphic::WriteLightCamera): the slope term of the
+        // caster's depth bias, Graphic::CascadeCasterBias::SlopeBias / ::SlopeClamp, which
+        // Mesh/Surface/Pass_ShadowDepth.glslh adds to the depth it writes. 0 for every other view.
+        float ShadowSlopeBias  = 0.0f;
+        float ShadowSlopeClamp = 0.0f;
+
         // Time of this frame and of the view's previous frame, seconds. Readers: foliage/grass wind evaluated at
         // both times for the previous vertex position; particles integrate their previous position over Delta.
         double TimeSeconds     = 0.0;

@@ -234,7 +234,17 @@ namespace Desert::Migration
     inline constexpr const char* kParticleAdditiveMaterialPath =
          "engine:Engine/Materials/M_ParticleAdditive.demat";
 
-    static_assert( kSceneVersionParticleSpriteMaterial == kSceneVersion,
+    //  48 - SSR1B's (on its own branch).
+
+    //  49 - THE SHADOW BIAS IS CENTIMETRES AT THE CASTER (SHADOW-BIAS). DirectionLight.ShadowBias was a
+    //       fraction of a cascade's NDC depth, compared at the receiver - one number that meant 26 cm in the
+    //       nearest cascade and 10 m in the farthest, so it has no single length to convert to. A stated
+    //       ShadowBias is RE-STATED as the new default (kShadowBiasCentimetresDefault, the component's
+    //       default) and counted (MigrateShadowBiasCentimetresV48ToV49); ShadowSlopeBias and
+    //       ShadowCascadeBiasDistribution are new keys with their defaults. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionShadowBiasCentimetres = 49;
+
+    static_assert( kSceneVersionShadowBiasCentimetres == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -280,6 +290,13 @@ namespace Desert::Migration
 
     // MigrateGameModeSettingsV44ToV45: the number of keys it added to the scene's settings block (0..2).
     int MigrateGameModeSettingsV44ToV45( SceneSerialized& scene );
+
+    // What a stated pre-v49 ShadowBias becomes: ECS::DirectionalLightData::ShadowBias's default, in centimetres.
+    inline constexpr float kShadowBiasCentimetresDefault = 1.0f;
+
+    // Re-states every DirectionLight block's ShadowBias of @p entities (records and their prefab overrides)
+    // as kShadowBiasCentimetresDefault. Returns how many it re-stated. PURE.
+    std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -682,6 +699,9 @@ namespace Desert::Migration
         bool ParticleSpriteMaterialsRaised = false; // below kSceneVersionParticleSpriteMaterial
         ParticleSpriteMaterialsReport ParticleSpriteMaterials;
 
+        bool        ShadowBiasCentimetresRaised = false; // below kSceneVersionShadowBiasCentimetres
+        std::size_t ShadowBiasesRestated        = 0;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -693,7 +713,8 @@ namespace Desert::Migration
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
-                   ParticleSpriteMaterialsRaised;
+                   ParticleSpriteMaterialsRaised ||
+                   ShadowBiasCentimetresRaised;
         }
     };
 

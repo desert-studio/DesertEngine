@@ -157,7 +157,8 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     const auto light =
          Read<ECS::DirectionalLightData>( *FindTag( scene, "Sun" ), "DirectionLight", "DirectionalLightData" );
     EXPECT_FALSE( light.CastShadows );
-    EXPECT_EQ( light.ShadowBias, 0.0125f );
+    EXPECT_EQ( light.ShadowBias, Migration::kShadowBiasCentimetresDefault )
+         << "v43 re-states the moved NDC fraction as centimetres (MigrateShadowBiasCentimetresV42ToV43)";
     EXPECT_EQ( light.CascadeSplitLambda, 0.85f );
     EXPECT_EQ( light.Intensity, 2.0f ) << "the light's own keys survive the stamp";
 

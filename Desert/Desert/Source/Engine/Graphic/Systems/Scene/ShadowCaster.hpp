@@ -28,7 +28,9 @@ namespace Desert::Graphic::System
      * target last would clear the other's depth.
      *
      * Called once per cascade per frame, with the cascade's render pass open, only when shadows are on.
-     * `cascadeViewProj` is the matrix the receivers sample the cascade with (standard-Z, clip from world).
+     * `cascadeViewProj` is the matrix the CASTERS draw the cascade with (standard-Z, clip from world): the
+     * receivers' matrix with the light's constant depth bias folded in (Graphic::CasterViewProj), so a caster
+     * that projects with it is biased like every mesh caster without knowing the bias exists.
      */
     class IShadowCaster
     {

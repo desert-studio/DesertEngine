@@ -34,9 +34,9 @@ namespace Desert::Graphic::ShaderProtocols
         glm::vec3 PrevCameraPos{ 0.0f };             // offset 416
         float     PrevTime        = 0.0f;            // offset 428
         float     MaterialMipBias = 0.0f;            // offset 432
-        float     Pad0            = 0.0f;            // offset 436 (CameraPad0 in the block)
-        float     Pad1            = 0.0f;            // offset 440
-        float     Pad2            = 0.0f;            // offset 444; block size 448
+        float     ShadowSlopeBias  = 0.0f;            // offset 436, light views only (ViewFrame::ShadowSlopeBias)
+        float     ShadowSlopeClamp = 0.0f;            // offset 440, light views only
+        float     Pad0             = 0.0f;            // offset 444 (CameraPad0 in the block); block size 448
     };
 
     // THE one writer of the camera block: every material that declares CameraUB is filled from the frame's
@@ -57,6 +57,8 @@ namespace Desert::Graphic::ShaderProtocols
         ub.PrevCameraPos             = frame.PrevCameraPosition;
         ub.PrevTime                  = static_cast<float>( frame.PrevTimeSeconds );
         ub.MaterialMipBias           = frame.MaterialMipBias;
+        ub.ShadowSlopeBias           = frame.ShadowSlopeBias;
+        ub.ShadowSlopeClamp          = frame.ShadowSlopeClamp;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

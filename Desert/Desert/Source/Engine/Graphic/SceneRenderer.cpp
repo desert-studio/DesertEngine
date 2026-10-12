@@ -823,8 +823,7 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetShadows( shadows.Enabled, shadows.Bias, static_cast<int>( m_DebugView.ShadowDebug ),
-                           shadows.CascadeSplitLambda );
+             ->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );

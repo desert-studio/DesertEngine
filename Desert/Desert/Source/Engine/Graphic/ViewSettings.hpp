@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 
 #include <entt/entt.hpp>
@@ -16,7 +17,7 @@ namespace Desert::Graphic
     struct ViewShadowSettings
     {
         bool  Enabled            = true;
-        float Bias               = 0.005f;
+        CascadeBiasSettings Bias; // ECS::DirectionalLightData::ShadowBias / ShadowSlopeBias / ...Distribution
         float CascadeSplitLambda = 0.6f;
     };
 

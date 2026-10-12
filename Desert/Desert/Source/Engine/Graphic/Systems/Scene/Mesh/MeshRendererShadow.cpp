@@ -334,6 +334,10 @@ namespace Desert::Graphic::System
         {
             m_CascadeVP[c]                                          = fits[c].ViewProj;
             m_CascadeWorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
+            // The caster's bias, in world centimetres scaled per cascade (CascadeBiasSettings), as the
+            // matrix the casters draw with and the slope term their depth cell adds.
+            m_CascadeCasterBias[c] = ComputeCascadeCasterBias( m_ShadowBias, fits[c], fits[0].WorldPerTexel );
+            m_CascadeCasterVP[c]   = CasterViewProj( fits[c].ViewProj, m_CascadeCasterBias[c].DepthBias );
 
             if ( c == rsmCascade )
             {
@@ -534,7 +538,8 @@ namespace Desert::Graphic::System
     {
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
-        m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+        m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                             m_CascadeCasterBias[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
 
         // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
@@ -547,7 +552,7 @@ namespace Desert::Graphic::System
         // the frame it is not itself in, so the camera's frustum would buy draw calls with
         // missing shadows and the draw-call detector would report it as a win.
         //
-        // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeVP[c]`, the
+        // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeCasterVP[c]`, the
         // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
         // it as Projection with an identity View, and so does this). The cascade projection
         // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
@@ -559,7 +564,7 @@ namespace Desert::Graphic::System
         // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
         // which of the two derived planes is "near" and which is "far" — the SET of six
         // half-spaces is the same one either way, and Intersects tests all six by value.
-        const Core::Frustum cascadeFrustum( m_CascadeVP[c], glm::mat4( 1.0f ) );
+        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
         // deliberate rather than convenient: a caster drawn into the cascade at a coarser
@@ -828,7 +833,8 @@ namespace Desert::Graphic::System
         if ( m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !m_SkinnedQueue.empty() )
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
-            skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                     m_CascadeCasterBias[c] );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -880,7 +886,8 @@ namespace Desert::Graphic::System
         if ( instancingOn && !batches.empty() )
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
-            instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                     m_CascadeCasterBias[c] );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -904,7 +911,8 @@ namespace Desert::Graphic::System
         for ( std::size_t i = 0; i < maskedSetCount; ++i )
         {
             auto& set = *m_ScratchMaskedSets[i];
-            WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeVP[c], m_WorldTimeSeconds );
+            WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                              m_CascadeCasterBias[c] );
             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
@@ -991,7 +999,7 @@ namespace Desert::Graphic::System
                          {
                              continue; // gone since the setup: its draws went with it
                          }
-                         if ( auto cast = caster->RecordShadowCascade( context, c, firstBlock, m_CascadeVP[c] );
+                         if ( auto cast = caster->RecordShadowCascade( context, c, firstBlock, m_CascadeCasterVP[c] );
                               !cast.IsSuccess() )
                          {
                              return cast;

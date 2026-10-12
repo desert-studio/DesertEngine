@@ -1384,7 +1384,8 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
                ( std::vector<std::string>{ "Color", "Intensity", "AtmosphereSunLight", "AtmosphereSunLightIndex",
                                            "AffectedByAtmosphereTransmittance", "LightShaftBloom", "BloomScale",
                                            "BloomThreshold", "BloomMaxBrightness", "BloomTint", "CastShadows",
-                                           "ShadowBias", "CascadeSplitLambda" } ) );
+                                           "ShadowBias", "ShadowSlopeBias", "ShadowCascadeBiasDistribution",
+                                           "CascadeSplitLambda" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so

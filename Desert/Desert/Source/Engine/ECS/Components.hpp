@@ -872,8 +872,29 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
         bool CastShadows = true;
 
-        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 0.05f ) )
-        float ShadowBias = 0.005f;
+        // THE CASTER'S DEPTH BIAS, IN WORLD CENTIMETRES (UE: ULightComponent::ShadowBias / ShadowSlopeBias,
+        // UDirectionalLightComponent::ShadowCascadeBiasDistribution). Applied where the caster writes its
+        // depth (MeshRenderer::FitShadowCascades -> the caster matrix and CameraUB.ShadowSlopeBias), never
+        // at the receiver: a bias in a cascade's NDC depth was 26 cm in the nearest cascade and 10 m in the
+        // farthest, and erased every awning, lamp and window frame past the first. Both lengths are what
+        // the NEAREST cascade gets; Distribution scales the farther ones by their texel size relative to it.
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 50.0f ),
+                  Units( "cm" ),
+                  Tooltip( "How far the caster's depth is pushed away from the sun, in the nearest cascade. "
+                           "Larger hides self-shadow acne and detaches contact shadows." ) )
+        float ShadowBias = 1.0f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 50.0f ),
+                  Units( "cm" ),
+                  Tooltip( "Extra depth bias of a caster surface at 45 degrees to the sun (and steeper, "
+                           "clamped there), in the nearest cascade." ) )
+        float ShadowSlopeBias = 2.0f;
+
+        PROPERTY( DisplayName( "Cascade Bias Distribution" ), Category( "Cascaded Shadow Maps" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "0 = every cascade gets the same centimetres; 1 = a cascade's bias grows with its "
+                           "texel size, as UE's Shadow Cascade Bias Distribution." ) )
+        float ShadowCascadeBiasDistribution = 1.0f;
 
         PROPERTY( DisplayName( "Cascade Split Lambda" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 1.0f ),
                   Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
