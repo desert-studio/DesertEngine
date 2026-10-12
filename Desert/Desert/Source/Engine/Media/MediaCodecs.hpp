@@ -178,8 +178,10 @@ namespace Desert::Media
         OpusDecoder*       m_Decoder     = nullptr;
         OpusMSDecoder*     m_MultiStream = nullptr;
         uint32_t           m_Channels    = 0;
-        uint32_t           m_PreSkip     = 0; // frames, from the track's CodecDelay
-        int64_t            m_StartFrame  = 0; // presentation-timeline frame the output starts at
+        uint32_t           m_PreSkip     = 0;     // frames, from the track's CodecDelay
+        int64_t            m_StartFrame  = 0;     // presentation-timeline frame the output starts at
+        int64_t            m_NextFrame   = 0;     // presentation-timeline frame of the next decoded sample
+        bool               m_Anchored    = false; // m_NextFrame placed by the first packet since Open/Reset
         uint64_t           m_LeadDropped = 0;
         std::vector<float> m_Scratch;
         std::string        m_Error;

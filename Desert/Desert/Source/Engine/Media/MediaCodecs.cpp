@@ -187,6 +187,7 @@ namespace Desert::Media
         m_Channels           = head[9];
         m_PreSkip            = static_cast<uint32_t>( delayFrames );
         m_StartFrame         = 0;
+        m_Anchored           = false;
         m_LeadDropped        = 0;
         const uint8_t family = head[18];
         int           error  = OPUS_OK;
@@ -219,9 +220,17 @@ namespace Desert::Media
             return -1;
         }
         // The packet's first sample on the presentation timeline (block time − CodecDelay, RFC 7845 §4.3's
-        // granule − pre-skip); everything before the start point is dropped.
-        const int64_t firstFrame = NsToFrames( packet.PtsNs ) - m_PreSkip;
-        const int64_t first      = std::clamp<int64_t>( m_StartFrame - firstFrame, 0, frames );
+        // granule − pre-skip); everything before the start point is dropped. Block times carry the
+        // container's 1 ms resolution (ffmpeg's 20 ms packets land on 0, 21, 41 … ms), so only the first
+        // packet after a (re)start is placed by its block time and the rest follow sample by sample.
+        if ( !m_Anchored )
+        {
+            m_NextFrame = NsToFrames( packet.PtsNs ) - m_PreSkip;
+            m_Anchored  = true;
+        }
+        const int64_t firstFrame = m_NextFrame;
+        m_NextFrame += frames;
+        const int64_t first = std::clamp<int64_t>( m_StartFrame - firstFrame, 0, frames );
         m_LeadDropped += static_cast<uint64_t>( first );
         const int64_t discard = packet.DiscardPaddingNs > 0 ? NsToFrames( packet.DiscardPaddingNs ) : 0;
         const int64_t last = std::max<int64_t>( first, frames - discard );
@@ -237,6 +246,7 @@ namespace Desert::Media
         if ( m_MultiStream != nullptr )
             opus_multistream_decoder_ctl( m_MultiStream, OPUS_RESET_STATE );
         m_StartFrame  = NsToFrames( startNs );
+        m_Anchored    = false;
         m_LeadDropped = 0;
     }
 } // namespace Desert::Media
