@@ -41,6 +41,10 @@ a reduced scope ("meshes only", "the scene only"), a guess ("the first pass", "i
 path. A measurement PROVES the right structure works; it never selects a reduced one. Only the owner may reduce scope. Out of calls →
 hand over part of it with a REMAINDER, never a compromise in code.
 
+
+### 00a. UE is a reference, not the standard (owner, 2026-10-12)
+"If UE implements a feature in a way that is architecturally wrong, you must tell me." We do not copy UE verbatim where the architecture can be better. For every feature taken from UE, check responsibilities (what the engine knows vs. game/data/script), the single source of truth and coupling. Where UE mixes layers, hardcodes, keeps legacy or is shaped by its own history, say so to the owner BEFORE coding: "UE does X; architecturally better is Y, because ...". The owner decides; never copy UE silently and never deviate from it silently.
+
 ---
 
 ## 0. The rule the rest follow from
