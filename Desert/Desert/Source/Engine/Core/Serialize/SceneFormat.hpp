@@ -83,7 +83,10 @@ namespace Desert::Core
     // v50 (WP-FAR-7): a partitioned world states its HLOD layers and the one its cells use (WorldPartition's
     // HLODLayers / DefaultHLODLayer); every partitioned world states the Instancing layer it had implicitly
     // (Tools/SceneMigrator, MigrateHLODLayersV49ToV50).
-    inline constexpr int kSceneVersion = 50;
+        // v51 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
+    // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
+    // MigrateSceneDependenciesV50ToV51).
+    inline constexpr int kSceneVersion = 51;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

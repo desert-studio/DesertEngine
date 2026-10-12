@@ -1,4 +1,5 @@
 #include "SceneMigration.hpp"
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <format>
@@ -3357,6 +3358,22 @@ namespace Desert::Migration
         return true;
     }
 
+    SceneDependenciesReport MigrateSceneDependenciesV50ToV51( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot )
+    {
+        // The save's own rule (Core::GatherSceneDependencies), so a migrated scene and the same scene saved
+        // again state the same list.
+        SceneDependenciesReport     report;
+        Core::SceneDependencyGather gather = Core::GatherSceneDependencies(
+             scene.Entities, scene.Settings.has_value() ? &*scene.Settings : nullptr, assetsRoot );
+        for ( const auto& refusal : gather.Refused )
+            report.Refused.push_back( scene.SceneName + " > " + refusal );
+        report.Stated = gather.Guids.size();
+        if ( report.Refused.empty() && scene.Header.has_value() )
+            scene.Header->Dependencies = std::move( gather.Guids );
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -3446,6 +3463,18 @@ namespace Desert::Migration
              MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
         scene.SceneVersion = std::nullopt;
         scene.UnitVersion  = std::nullopt;
+
+        // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
+        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        {
+            report.SceneDependenciesRaised = true;
+            report.SceneDependencies       = MigrateSceneDependenciesV50ToV51( scene, assetsRoot );
+            if ( !report.SceneDependencies.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.SceneDependencies.Refused );
+                return report;
+            }
+        }
 
         return report;
     }

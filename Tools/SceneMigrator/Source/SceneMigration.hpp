@@ -259,7 +259,14 @@ namespace Desert::Migration
     //       has no WorldPartition block.
     inline constexpr int kSceneVersionHLODLayers = 50;
 
-    static_assert( kSceneVersionHLODLayers == kSceneVersion,
+    //  51 - A SCENE STATES WHAT IT REFERENCES (SCENE-DEPS, UE's AssetRegistry dependencies). Header.Dependencies,
+    //       written [] by every earlier build, lists every asset the scene names, unique and sorted: each
+    //       asset a component or the Settings block names and each prefab instance's prefab, by the ONE rule
+    //       the engine's save applies too (Core::GatherSceneDependencies, MigrateSceneDependenciesV50ToV51).
+    //       Scenes only.
+    inline constexpr int kSceneVersionSceneDependencies = 51;
+
+    static_assert( kSceneVersionSceneDependencies == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -515,6 +522,18 @@ namespace Desert::Migration
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
 
+    // What MigrateSceneDependenciesV50ToV51 did to one scene.
+    struct SceneDependenciesReport
+    {
+        std::size_t              Stated = 0; // GUIDs the header lists after the step
+        std::vector<std::string> Refused;    // one line per prefab instance whose file states no GUID
+    };
+
+    // Header.Dependencies under the rule kSceneVersionSceneDependencies states. Prefab paths are located
+    // against @p assetsRoot (LocateMeshFile's rule) and read for their header GUID.
+    SceneDependenciesReport MigrateSceneDependenciesV50ToV51( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot );
+
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
     {
@@ -757,6 +776,9 @@ namespace Desert::Migration
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
 
+        bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
+        SceneDependenciesReport SceneDependencies;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -769,7 +791,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised;
+                   HLODLayersRaised || SceneDependenciesRaised;
         }
     };
 
