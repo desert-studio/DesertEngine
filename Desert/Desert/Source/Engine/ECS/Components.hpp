@@ -140,6 +140,14 @@ namespace Desert::ECS
         bool Visible = true;
     };
 
+    // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
+    // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
+    struct MaterialParamOverride
+    {
+        std::string Name;
+        glm::vec4   Value = glm::vec4( 0.0f );
+    };
+
     struct StaticMeshComponent
     {
         Assets::AssetHandle              MeshHandle;
@@ -180,6 +188,13 @@ namespace Desert::ECS
         // Transient: MaterialService invalidation stamp the runtime instances were built against;
         // a mismatch forces a rebuild (see MeshECSSystem) so parent Material* can never dangle.
         uint32_t SeenMaterialsVersion = 0;
+        // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
+        // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
+        // clearMaterialParams (Scripting/MaterialBindings.cpp). Held HERE, on the mesh that owns the slot, so a
+        // write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it) is not lost,
+        // and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem applies the list
+        // to every slot-0 instance it builds. The authored slots stay the source of truth for everything else.
+        std::vector<MaterialParamOverride> ScriptSlotParams;
     };
 
     // World-space SDF text. FontService bakes the .ttf into an SDF atlas; TextECSSystem lays the
@@ -413,14 +428,6 @@ namespace Desert::ECS
         std::optional<World::Landscape::LandscapeTileData> Heights;
     };
 
-    // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
-    // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
-    struct MaterialParamOverride
-    {
-        std::string Name;
-        glm::vec4   Value = glm::vec4( 0.0f );
-    };
-
     // One overridden texture param (keyed by the shader's Texture2D property name) -> texture asset.
     struct MaterialTextureOverride
     {
@@ -432,9 +439,10 @@ namespace Desert::ECS
     // parameters edited generically in Details (built from the shader's Properties block). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
     // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role StandardSurface`, resolved from
-    // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
-    // draws its lit material slots and Params are only the slot-0 hand-off buffer. No decision compares it
-    // to a template's name.
+    // the template's handle by whoever sets it (scene load, a role lookup). Params and Textures belong to THAT
+    // shader and to nothing else: a lit mesh's per-entity parameters are its slot instances' (script writes land
+    // on StaticMeshComponent::ScriptSlotParams), and a scene block carrying Params with no Shader is refused at
+    // load with its path. No decision compares ShaderName to a template's name.
     struct MaterialComponent
     {
         std::string                          ShaderName;

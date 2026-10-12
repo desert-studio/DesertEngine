@@ -187,8 +187,8 @@ namespace Desert::Editor
         }
 
         // NOTE: the per-entity "Runtime Override" param editor was removed — meshes get their look ONLY
-        // from material-asset SLOTS now (UE-style). The MaterialComponent param channel survives purely as
-        // the scripting (Lua setMaterialParam) + legacy-scene compat path; it is no longer editor-authored.
+        // from material-asset SLOTS now (UE-style). A MaterialComponent exists only as a Shader Override; a
+        // script's lit-path writes live on StaticMeshComponent::ScriptSlotParams (slot 0, runtime only).
 
         RenderMaterialProperties( entity, host, overriddenBy );
 
@@ -197,10 +197,8 @@ namespace Desert::Editor
         {
             if ( ImGui::Button( "Clear runtime override (use material slots)" ) )
             {
-                auto& matc = entity.GetComponent<ECS::MaterialComponent>();
-                matc.ShaderName.clear();
-                matc.Params.clear();
-                matc.Textures.clear();
+                // The override's Params belong to its shader: the component goes, not just the name.
+                entity.RemoveComponent<ECS::MaterialComponent>();
             }
         }
 
@@ -757,8 +755,8 @@ namespace Desert::Editor
         }
 
         // NOTE: there is deliberately NO per-frame param-override channel over the slots anymore.
-        // Script writes go straight to the runtime instance; pre-build/legacy params are consumed
-        // ONCE by MeshECSSystem at instance build. Slots are the single authored source of truth.
+        // Script writes land on the slot-0 instance (StaticMeshComponent::ScriptSlotParams, re-applied by
+        // MeshECSSystem whenever the instance is rebuilt). Slots are the single authored source of truth.
 
         // One row per submesh (plus any extra explicit slot) — the count belongs on the header, UE-style,
         // so a collapsed section still says how many elements this mesh has.
