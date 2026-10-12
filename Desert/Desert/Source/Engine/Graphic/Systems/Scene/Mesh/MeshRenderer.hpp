@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
@@ -143,6 +144,9 @@ namespace Desert::Graphic::System
 
         // optional
         std::vector<glm::mat4> BoneMatrices;
+        // Skinned only: MorphComponent's weights and revision (empty = drawn unmorphed). See UpdateMorphTargets.
+        std::vector<float> MorphWeights;
+        uint64_t           MorphRevision = 0;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -498,6 +502,14 @@ namespace Desert::Graphic::System
         // nondeterministic). Called from SceneRenderer::OnUpdate.
         void UpdateCascades();
 
+        // MORPH TARGETS BEFORE SKINNING (UE FSkeletalMeshObjectGPUSkin::Update -> GPUMorphUpdateCS). Runs the
+        // morph graph of this frame: one compute node per skinned component whose MorphComponent revision moved
+        // since its morphed vertices were last blended (or that has none yet), base + Σ weight·delta into the
+        // component's own vertex buffer, handed to vertex input at the graph's end. Every pass then skins the
+        // morphed twin SubmitMesh put on the skinned queue. No changed revision = no graph, no dispatch. Called
+        // from SceneRenderer::OnUpdate after the frame's draws were submitted and before the view graph records.
+        void UpdateMorphTargets();
+
         // Cascade depth map (for the editor's CSM debug viewer). Null if out of range / not yet created.
         std::shared_ptr<Image2D> GetCascadeShadowImage( uint32_t cascade ) const
         {
@@ -836,6 +848,35 @@ namespace Desert::Graphic::System
 
         std::vector<StaticMeshRenderData>  m_StaticQueue;
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
+
+        // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
+        // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision
+        // the vertices hold (UE FMorphVertexBufferPool revision number); Pending carries the weights the next
+        // UpdateMorphTargets blends. A twin not drawn for kMorphTwinIdleFrames frames is released.
+        struct MorphTwin
+        {
+            SkinnedMesh*                  Base = nullptr;
+            std::shared_ptr<SkinnedMesh>  Twin;
+            std::shared_ptr<VertexBuffer> Vertices;
+            std::shared_ptr<VertexBuffer> BaseVertices;
+            bool                          Blended  = false;
+            uint64_t                      Revision = 0;
+            bool                          Pending  = false;
+            std::vector<float>            PendingWeights;
+            uint64_t                      PendingRevision = 0;
+            uint64_t                      LastDrawn       = 0;
+            RDG::ExternalBuffer           BaseImport;
+            RDG::ExternalBuffer           DeltasImport;
+            RDG::ExternalBuffer           OutputImport;
+        };
+        static constexpr uint64_t               kMorphTwinIdleFrames = 8;
+        std::unordered_map<uint32_t, MorphTwin> m_MorphTwins;
+        uint64_t                                m_MorphFrame = 0;
+        std::shared_ptr<ComputePipeline>        m_MorphPipeline;
+        ShaderBindingLayoutCache                m_MorphLayout;
+        // The mesh a skinned draw skins from: the entity's morphed twin when its weights are non-zero, else
+        // the base mesh. Records the blend UpdateMorphTargets owes when the revision moved.
+        SkinnedMesh* MorphedMeshFor( const MeshRenderData& data, SkinnedMesh* base );
 
         // Generic (data-driven) static meshes + a cache of the materials that record them. Per-object data
         // is the transform push constant plus a ROW of the material's `Materials[]` buffer, named by a

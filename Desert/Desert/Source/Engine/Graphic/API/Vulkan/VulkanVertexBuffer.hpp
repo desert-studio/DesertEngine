@@ -3,6 +3,7 @@
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 
@@ -35,7 +36,23 @@ namespace Desert::Graphic::API::Vulkan
             return m_VulkanBuffer;
         }
 
+        // What the last render graph that imported this buffer left it in (VulkanRendererAPI::ImportVertexBuffer),
+        // so the next graph starts from the truth - the same record VulkanStorageBuffer keeps. Physical is the
+        // graph's non-owning handle on m_VulkanBuffer, rebuilt when the buffer is (Invalidate).
+        struct GraphRecord
+        {
+            VkBuffer                                               Buffer = VK_NULL_HANDLE;
+            std::shared_ptr<Desert::Graphic::RDG::IPhysicalBuffer> Physical;
+            Desert::Graphic::RDG::AccessState                      State;
+        };
+        GraphRecord& GetGraphRecord()
+        {
+            return m_GraphRecord;
+        }
+
     private:
+        GraphRecord m_GraphRecord;
+
         uint32_t    m_Size = 0;
         BufferUsage m_Usage;
 

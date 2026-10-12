@@ -199,10 +199,10 @@ namespace
     // A struct field that is deliberately NOT written, with the reason. Exactly one exists; a second
     // one is a conversation, because "not saved" is the defect this whole task is about.
     const std::map<std::string, std::string> kNotWritten = {
-         { "AppliedWeights",
-           "MorphComponent's cache of the last weights the runtime blended into the geometry. Writing a "
-           "frame of cache into the file would make a saved scene differ from itself depending on when "
-           "it was saved." },
+         { "Revision",
+           "MorphComponent's count of this session's edits of Weights, which the renderer compares to re-blend "
+           "only on a change. Writing it would make a saved scene differ from itself depending on how often "
+           "it was edited." },
          { "Heights",
            "LandscapeTileComponent's loaded tile: what HeightFile decodes to. The samples live in the DLHT "
            "file beside the scene, and writing them into the block too would be two copies of one terrain." },
@@ -266,7 +266,7 @@ TEST( AuthoredComponentRoundTrip, EveryMorphWeightComesBackIndexAligned )
     ECS::MorphComponent written;
     written.Weights        = { 0.0f, 0.25f, 1.0f, 0.75f };
     written.TargetNames    = { "Smile", "BrowRaise", "JawOpen", "EyeBlink_L" };
-    written.AppliedWeights = { 9.0f, 9.0f, 9.0f, 9.0f };
+    written.Revision       = 9;
 
     const ECS::MorphComponent read = RoundTrip( written );
 
@@ -275,11 +275,11 @@ TEST( AuthoredComponentRoundTrip, EveryMorphWeightComesBackIndexAligned )
         EXPECT_FLOAT_EQ( read.Weights[i], written.Weights[i] ) << "weight " << i;
     EXPECT_EQ( read.TargetNames, written.TargetNames );
 
-    // The cache is not part of the file, so a fresh component must come back with it EMPTY rather than
-    // with a frame of somebody else's blend in it.
-    EXPECT_TRUE( read.AppliedWeights.empty() )
-         << "AppliedWeights was written to the scene; it is a per-frame cache and a saved scene would "
-            "differ from itself depending on when it was saved";
+    // The revision is not part of the file: the read component counts from its own fresh start (one bump
+    // for the read itself) rather than carrying the writer's session count.
+    EXPECT_NE( read.Revision, written.Revision )
+         << "Revision was written to the scene; it counts one session's edits and a saved scene would "
+            "differ from itself depending on how often it was edited";
 }
 
 TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotTrusted )

@@ -12,9 +12,9 @@ namespace Desert::Geometry
     // fewer weights than targets simply leaves the trailing targets inactive. Zero-weight targets are
     // skipped. Morphed normals are renormalized. `out` is overwritten (sized to base).
     //
-    // This is the correctness-first CPU path — a per-entity blend the runtime can push into a dynamic vertex
-    // buffer. The GPU path (deltas as an SSBO summed in the vertex shader) is a later optimization that
-    // reuses the exact same target data.
+    // The CPU twin of the GPU blend the renderer runs before skinning (Programs/Compute/MorphTargets.shader,
+    // MeshRendererMorph.cpp): the same rule over the same target data, for code that needs the morphed
+    // vertices on the CPU.
     inline void ApplyMorphTargets( const std::vector<Vertex>& base, const std::vector<MorphTarget>& targets,
                                    const std::vector<float>& weights, std::vector<Vertex>& out )
     {

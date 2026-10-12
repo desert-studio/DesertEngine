@@ -89,9 +89,9 @@ namespace Desert::Core::Serialize
     } // namespace AuthoredIO
 
     // ── MORPH TARGETS ──────────────────────────────────────────────────────────────────────────────
-    // `AppliedWeights` is NOT written and must not be: it is the last set the runtime blended into the
-    // geometry, kept so a per-frame apply can skip work. Writing it would put a frame of cache into
-    // every `.desce` and make a saved scene differ from itself depending on when it was saved.
+    // `Revision` is NOT written and must not be: it counts the edits of Weights in THIS session so the
+    // renderer re-blends only on a change. Writing it would put a session's edit count into every `.desce`
+    // and make a saved scene differ from itself depending on how often it was edited.
     //
     // Weights and TargetNames are index-aligned by the component's own contract, and this is where
     // that stops being a comment: a file whose two lists disagree is repaired on read and reported,
@@ -109,6 +109,7 @@ namespace Desert::Core::Serialize
     {
         AuthoredIO::ReadList( from, "Weights", c.Weights, issues );
         AuthoredIO::ReadList( from, "TargetNames", c.TargetNames, issues );
+        ++c.Revision; // the weights may have changed under a component the renderer already blended
 
         if ( c.TargetNames.size() != c.Weights.size() )
         {

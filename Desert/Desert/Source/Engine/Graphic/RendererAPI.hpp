@@ -17,6 +17,7 @@ namespace Desert::ShaderResources
 
 namespace Desert::Graphic
 {
+    class VertexBuffer;
     namespace RDG
     {
         class Builder;
@@ -94,6 +95,11 @@ namespace Desert::Graphic
         // buffer barriers. Fails when the buffer's copy for this frame cannot be bound.
         virtual Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                     RDG::ExternalBuffer& into ) = 0;
+        // The same import for a vertex buffer a compute pass reads or writes as storage (a Static mesh's base
+        // vertices, a GpuWritten morph output): one copy, its state carried across graphs by the buffer itself.
+        // Fails for a buffer that has not been built.
+        virtual Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
+                                                          RDG::ExternalBuffer&                 into ) = 0;
 
         // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,

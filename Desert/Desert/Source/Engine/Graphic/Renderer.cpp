@@ -278,6 +278,12 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportBuffer( buffer, into );
     }
 
+    Common::BoolResultStr Renderer::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
+                                                        RDG::ExternalBuffer&                 into )
+    {
+        return s_RendererAPI->ImportVertexBuffer( buffer, into );
+    }
+
     void Renderer::BeginDebugLabel( const char* name )
     {
         s_RendererAPI->BeginDebugLabel( name );

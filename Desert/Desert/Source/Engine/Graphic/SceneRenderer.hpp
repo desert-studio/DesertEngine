@@ -103,6 +103,9 @@ namespace Desert::Graphic
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             std::vector<glm::mat4> BoneMatrices; // optional
+            // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
+            std::vector<float>     MorphWeights;
+            uint64_t               MorphRevision            = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
             int                    ForcedLOD       = -1; // -1 = auto (by distance)

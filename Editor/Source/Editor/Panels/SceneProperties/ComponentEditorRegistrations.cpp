@@ -2184,8 +2184,12 @@ namespace Desert::Editor
             const auto& targets = meshAsset->GetMorphTargets();
 
             // Keep the component's arrays in step with the mesh's targets (the mesh may have been swapped).
+            // Every write of Weights bumps the Revision the renderer re-blends on (MorphComponent).
             if ( mc.Weights.size() != targets.size() )
+            {
                 mc.Weights.resize( targets.size(), 0.0f );
+                ++mc.Revision;
+            }
             mc.TargetNames.resize( targets.size() );
             for ( size_t i = 0; i < targets.size(); ++i )
                 mc.TargetNames[i] = targets[i].Name;
@@ -2195,11 +2199,15 @@ namespace Desert::Editor
             {
                 ImGui::PushID( static_cast<int>( i ) );
                 const char* name = mc.TargetNames[i].empty() ? "<unnamed>" : mc.TargetNames[i].c_str();
-                ImGui::SliderFloat( name, &mc.Weights[i], 0.0f, 1.0f );
+                if ( ImGui::SliderFloat( name, &mc.Weights[i], 0.0f, 1.0f ) )
+                    ++mc.Revision;
                 ImGui::PopID();
             }
             if ( ImGui::Button( "Reset All", ImVec2( -1.0f, 0.0f ) ) )
+            {
                 std::fill( mc.Weights.begin(), mc.Weights.end(), 0.0f );
+                ++mc.Revision;
+            }
         };
         return e;
     }

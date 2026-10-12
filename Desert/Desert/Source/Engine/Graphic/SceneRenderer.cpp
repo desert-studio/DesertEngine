@@ -968,6 +968,13 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
         }
 
+        // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
+        // small graph, ending with the morphed vertices in vertex-input state for every pass of the view graph.
+        {
+            DESERT_PROFILE_PASS( "Mesh: UpdateMorphTargets" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateMorphTargets();
+        }
+
         // The terrain's frame data, once, before any of its three passes records (the cascades in
         // DepthPrePass, the forward pass in Geometry, the G-buffer fill after the graph).
         {
@@ -1521,6 +1528,8 @@ namespace Desert::Graphic
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
                              .BoneMatrices             = extra.BoneMatrices,
+                             .MorphWeights             = extra.MorphWeights,
+                             .MorphRevision            = extra.MorphRevision,
                              .Outlined                 = extra.Outlined,
                              .HiddenSubmeshes          = extra.HiddenSubmeshes,
                              .ForcedLOD                = extra.ForcedLOD,

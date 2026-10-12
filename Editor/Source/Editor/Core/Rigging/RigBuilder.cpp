@@ -200,8 +200,10 @@ namespace Desert::Editor
 
         const std::vector<SkinnedVertex> skinned = Geometry::AutoSkinVertices( vertices, rigBones );
 
-        auto skinnedMesh = std::make_shared<SkinnedMesh>( skinned, indices, submeshes, skeleton.get(),
-                                                          meshAsset->GetVertexStreams() );
+        // The static mesh's morph targets come along: AutoSkinVertices keeps the vertex order they index.
+        auto skinnedMesh =
+             std::make_shared<SkinnedMesh>( skinned, indices, submeshes, skeleton.get(),
+                                            meshAsset->GetVertexStreams(), meshAsset->GetMorphTargets() );
 
         // Swap the component. Materials are left to the default skinned lit material (a static lit instance is
         // bound to the wrong vertex/pipeline layout) — the user re-assigns skinned materials afterward.

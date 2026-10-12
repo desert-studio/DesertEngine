@@ -50,6 +50,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
+        Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
+                                                  RDG::ExternalBuffer&                 into ) override;
 
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor ) override;

@@ -548,7 +548,7 @@ namespace Desert::Graphic::System
                 SkinnedMeshRenderData skinnedData;
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
                 // for a SkinnedMesh
-                skinnedData.Mesh          = static_cast<SkinnedMesh*>( data.Mesh );
+                skinnedData.Mesh          = MorphedMeshFor( data, static_cast<SkinnedMesh*>( data.Mesh ) );
                 skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;
