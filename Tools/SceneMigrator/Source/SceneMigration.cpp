@@ -3171,6 +3171,10 @@ namespace Desert::Migration
         {
             report.SceneSettingsHomesRaised = true;
             report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
+            // The Settings block's ShadowBias it just stamped onto the lights is the same pre-v49 NDC fraction
+            // RunSteps' v49 step re-stated before it was there: re-state again (idempotent), the count is total.
+            if ( report.ShadowBiasCentimetresRaised && report.SceneSettingsHomes.ShadowKeysFound > 0 )
+                report.ShadowBiasesRestated = MigrateShadowBiasCentimetresV48ToV49( scene.Entities );
         }
         if ( statedSceneVersion < kSceneVersionGameModeSettings )
         {
