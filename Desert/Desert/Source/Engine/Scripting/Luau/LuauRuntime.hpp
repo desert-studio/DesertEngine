@@ -136,9 +136,11 @@ namespace Desert::Scripting
                                                   std::span<const Reflection::Value> args = {} );
 
         /// Calls the slot's global `function` with ONE entity of `registry` (an engine event about an actor:
-        /// the GameMode's OnPawnDied / OnPlayerRestarted), under the watchdog.
+        /// the GameMode's OnPawnDied / OnPlayerRestarted) followed by `after` (OnHit's point, normal, impulse),
+        /// under the watchdog.
         [[nodiscard]] Common::BoolResultStr CallWithEntity( LuauSlot slot, const char* function,
-                                                            entt::registry& registry, entt::entity entity );
+                                                            entt::registry& registry, entt::entity entity,
+                                                            std::span<const Reflection::Value> after = {} );
 
         /// Calls the slot's global `function` with the `count` values at `first..` of `from`'s stack (a native
         /// forwarding a script's own arguments — entity:call(fn, ...)), under the watchdog.

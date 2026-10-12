@@ -399,6 +399,27 @@ namespace Desert::Physics
             }
         };
 
+        // A sweep's filter: no character's inner body, and none of the caller's ignored bodies.
+        class SweepBodyFilter final : public JPH::BodyFilter
+        {
+        public:
+            explicit SweepBodyFilter( std::span<const BodyHandle> ignore ) : m_Ignore( ignore )
+            {
+            }
+            bool ShouldCollide( const JPH::BodyID& id ) const override
+            {
+                const BodyHandle handle = id.GetIndexAndSequenceNumber();
+                return std::find( m_Ignore.begin(), m_Ignore.end(), handle ) == m_Ignore.end();
+            }
+            bool ShouldCollideLocked( const JPH::Body& body ) const override
+            {
+                return ( body.GetUserData() & kCharacterInnerBit ) == 0u;
+            }
+
+        private:
+            std::span<const BodyHandle> m_Ignore;
+        };
+
         // Velocity iterations of the impulse estimate: Jolt's own default for EstimateCollisionResponse.
         constexpr JPH::uint kImpulseEstimateIterations = 10u;
 
@@ -1258,7 +1279,8 @@ namespace Desert::Physics
     }
 
     std::optional<RayHit> PhysicsWorld::CastSphere( const glm::vec3& origin, const glm::vec3& direction,
-                                                    float radius, float maxDistance ) const
+                                                    float radius, float maxDistance,
+                                                    std::span<const BodyHandle> ignore ) const
     {
         if ( !m_Impl || !( maxDistance > 0.0f ) || !( radius > 0.0f ) || glm::length( direction ) == 0.0f )
             return std::nullopt;
@@ -1269,9 +1291,10 @@ namespace Desert::Physics
                                                                          ToJolt( dir * maxDistance ) );
         JPH::ShapeCastSettings                                     settings;
         JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-        const NotCharacterBodyFilter                               notCharacter;
-        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector, {}, {},
-                                                        notCharacter );
+        const QueryableLayerFilter                                 queryable( m_Impl->Profiles );
+        const SweepBodyFilter                                      bodies( ignore );
+        m_Impl->System.GetNarrowPhaseQuery().CastShape( cast, settings, JPH::RVec3::sZero(), collector, {},
+                                                        queryable, bodies );
         if ( !collector.HadHit() )
             return std::nullopt;
 
@@ -1502,7 +1525,8 @@ namespace Desert::Physics
         m_Impl->Characters[handle] = nullptr; // Ref release; slot kept so other handles stay valid
     }
 
-    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float dt )
+    void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2,
+                                        float dt )
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
@@ -1511,7 +1535,7 @@ namespace Desert::Physics
         const CollisionProfileId  profile   = m_Impl->CharacterProfiles[handle];
         const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         character->SetLinearVelocity( ToJolt( velocity ) );
-        character->Update( dt, m_Impl->System.GetGravity(),
+        character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ),
                            m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
                            {}, {}, *m_Impl->TempAllocator );
     }

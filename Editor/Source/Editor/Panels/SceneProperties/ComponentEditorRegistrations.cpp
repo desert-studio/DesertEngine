@@ -109,6 +109,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AnchorFieldComponent, Data, 
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
 // UE USpringArmComponent: the third-person camera boom (ECS/System/SpringArm.cpp places its camera child).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpringArmComponent, Data, "SpringArmData", "Spring Arm" )
+// UE UProjectileMovementComponent: moved in Play by ECS/System/ProjectileMovement.cpp.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ProjectileComponent, Data, "ProjectileData", "Projectile" )
 // UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // UE's World Partition Streaming Source: the world loads around this entity in Play
@@ -1705,50 +1707,6 @@ namespace Desert::Editor
         return e;
     }
 
-    // Projectile: integrated by ProjectileSystem in Play. Everything here is authored data except Owner,
-    // which the firing script stamps at spawn — shown read-only so a stray hit can be traced back.
-    static ComponentEditorEntry MakeProjectileEntry()
-    {
-        using C = ::Desert::ECS::ProjectileComponent;
-        ComponentEditorEntry e;
-        e.Name      = "Projectile";
-        e.CanRemove = true;
-        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
-        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
-        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& )
-        {
-            namespace U = ::Desert::Editor::Utils;
-            auto& c     = en.GetComponent<C>();
-
-            U::ImGuiUtilities::ResetPropertyRows();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Velocity", "World units per second" );
-            U::ImGuiUtilities::VectorField( "projvel", &c.Velocity.x, 3, 1.0f, "%.0f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Gravity Scale", "0 = straight line, 1 = full gravity (arc)" );
-            ImGui::SliderFloat( "##projgrav", &c.GravityScale, 0.0f, 2.0f, "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Life Remaining", "Seconds before it despawns on its own" );
-            ImGui::DragFloat( "##projlife", &c.LifeRemaining, 0.1f, 0.0f, 600.0f, "%.1f s" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Damage" );
-            ImGui::DragFloat( "##projdmg", &c.Damage, 0.5f, 0.0f, 10000.0f, "%.1f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Owner", "The shooter, stamped by the script that fired it "
-                                                          "(self-hits are skipped)" );
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextDisabled(
-                 "%s", c.Owner.IsNull() ? "None" : std::to_string( static_cast<uint64_t>( c.Owner ) ).c_str() );
-            U::ImGuiUtilities::EndPropertyRow();
-        };
-        return e;
-    }
-
     // Foliage field: the `.defoliage` it is painted with (drop one on the row) and that type's scatter
     // numbers, edited in the file itself so every field painted with the type sees the edit (FO-1).
     static ComponentEditorEntry MakeFoliageEntry()
@@ -2233,8 +2191,6 @@ namespace
          ::Desert::Editor::MakeCharacterControllerEntry() );
     const int _desert_socket_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeSocketEntry() );
-    const int _desert_projectile_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
     const int _desert_procedural_foliage_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(

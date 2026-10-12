@@ -33,8 +33,10 @@ namespace Desert::Hair
         glm::mat4                  ComponentToWorld  = glm::mat4( 1.0f );
         std::span<const glm::vec3> SkinnedMeshPositions;
         std::span<const uint32_t>  SkinnedMeshTriangleIndices;
-        glm::vec3                  Gravity      = { 0.0f, -980.0f, 0.0f }; // cm/s^2, from the physics world
-        glm::vec3                  WindVelocity = { 0.0f, 0.0f, 0.0f };    // cm/s; ECS::WindAt at the groom
+        // cm/s^2, world space. No value of its own: the caller fills it with (0, -PhysicsWorld::GetGravity(), 0),
+        // the scene's one gravity (SceneSettings::Gravity); zero until filled.
+        glm::vec3 Gravity      = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 WindVelocity = { 0.0f, 0.0f, 0.0f }; // cm/s; ECS::WindAt at the groom
     };
 
     class IGroomSimulation

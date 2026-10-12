@@ -359,7 +359,8 @@ namespace Desert::Scripting
     }
 
     Common::BoolResultStr LuauRuntime::CallWithEntity( LuauSlot slot, const char* function,
-                                                       entt::registry& registry, entt::entity entity )
+                                                       entt::registry& registry, entt::entity entity,
+                                                       std::span<const Reflection::Value> after )
     {
         Impl& impl  = *m_Impl;
         auto  found = impl.Slots.find( slot );
@@ -376,7 +377,10 @@ namespace Desert::Scripting
                  std::format( "{}: defines no function '{}'", target.Script, function ) );
         }
         LuauBinder::PushEntity( thread, registry, entity );
-        return impl.Run( thread, 1, 0, impl.Scripts.at( target.Script ).Category,
+        for ( const Reflection::Value& arg : after )
+            LuauBinder::PushValue( thread, arg );
+        return impl.Run( thread, 1 + static_cast<int>( after.size() ), 0,
+                         impl.Scripts.at( target.Script ).Category,
                          std::format( "{} {}", target.Script, function ) );
     }
 

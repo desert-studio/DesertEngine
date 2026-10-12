@@ -2,7 +2,7 @@
 
 // THE FILE FORM OF THE COMPONENTS THAT ARE AUTHORED BY HAND AND HAVE NO REFLECTED DATA BLOCK.
 //
-// THE DEFECT. Foliage, Locomotion, Morph, Socket and Projectile each have a full Details editor and
+// THE DEFECT. Foliage, Locomotion, Morph, Socket and Projectile each had a full Details editor and
 // none of them had a line in ComponentRegistry.cpp. So the sliders worked, the values were read by
 // their systems, and the next `Open Scene` threw the lot away — with no error, no warning and no
 // mark. It is the same defect VisibilityComponent had (U11) and the same one LockComponent had
@@ -10,8 +10,10 @@
 // than the scene file, because EVERY subtree copy in this editor goes through the same registry —
 // delete-undo, Ctrl+C/Ctrl+V, prefab instancing and the Play/Stop snapshot all lose the same values.
 //
-// WHY THESE FIVE ARE NOT `MakeReflected`. A reflected component serializes itself for free, and that
-// is the right answer whenever the component HAS a `Data` block. These five do not, deliberately:
+// (Projectile has since become a reflected ProjectileData block, LEG-PROJECTILE.)
+//
+// WHY THESE FOUR ARE NOT `MakeReflected`. A reflected component serializes itself for free, and that
+// is the right answer whenever the component HAS a `Data` block. These four do not, deliberately:
 // each is edited by a bespoke widget (a bone picker fed by the target's skeleton, a clip picker fed
 // by the animation library, one slider per blendshape of the mesh) and PROPERTY metadata for a widget
 // nobody builds from it would be dead metadata plus a second spelling of every display name.
@@ -122,7 +124,7 @@ namespace Desert::Core::Serialize
     // ── SOCKET ATTACHMENT ──────────────────────────────────────────────────────────────────────────
     // `Target` is a reference to another ENTITY of the same scene, written as its UUID (rule 2 above).
     // It is deliberately NOT remapped on duplicate or on prefab instancing — no entity reference in
-    // this engine is, ProjectileComponent::Owner included — so a copied weapon follows the same
+    // this engine is — so a copied weapon follows the same
     // character the original followed. That is right for a weapon and wrong for a prefab that
     // contains both ends; the general remap is a separate piece of work and is named in U13's report.
     // A refused id keeps the old reference: a weapon that stays in the hand is a visible wrong, a weapon
@@ -148,35 +150,6 @@ namespace Desert::Core::Serialize
         from.ReadInto( "OffsetScale", c.OffsetScale, issues );
     }
 
-    // ── PROJECTILE ─────────────────────────────────────────────────────────────────────────────────
-    // Written down as transient until U13 measured the claim. The reason on the exemption was "spawned
-    // by a script during Play, so there is no authored projectile to save" — but the Details panel
-    // offers `Add Component > Projectile` and then four editable fields, and the normal way to author
-    // a bullet is exactly that: an entity carrying velocity/gravity/lifetime/damage, saved as a PREFAB
-    // for the firing script to spawn. Prefabs go through this same registry, so that bullet lost its
-    // damage; so did every Ctrl+C of it, and so did Play/Stop, whose snapshot is the same code path.
-    // `Owner` is stamped by the script at spawn and is null in an authored one — it is written anyway
-    // because a block that carries all of a component is one fewer thing to reason about.
-    inline Common::Json::Object WriteComponent( const ECS::ProjectileComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "Velocity", c.Velocity )
-             .Set( "GravityScale", c.GravityScale )
-             .Set( "LifeRemaining", c.LifeRemaining )
-             .Set( "Damage", c.Damage )
-             .Set( "Owner", c.Owner )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::ProjectileComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "Velocity", c.Velocity, issues );
-        from.ReadInto( "GravityScale", c.GravityScale, issues );
-        from.ReadInto( "LifeRemaining", c.LifeRemaining, issues );
-        from.ReadInto( "Damage", c.Damage, issues );
-        from.ReadInto( "Owner", c.Owner, issues );
-    }
     // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────
     // Hand-mapped for the reason the file header gives: the tile's `Landscape` is a Common::UUID, which is
     // not a reflectable field type, and the tile carries loaded heights that must NOT be written. The root

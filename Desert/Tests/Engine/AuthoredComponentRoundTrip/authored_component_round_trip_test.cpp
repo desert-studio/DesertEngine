@@ -1,8 +1,9 @@
 // DOES AN AUTHORED COMPONENT WITH NO REFLECTED DATA BLOCK SURVIVE BEING WRITTEN AND READ BACK?
 //
 // Five of them did not survive anything at all until U13: Foliage, Locomotion, Morph,
-// SocketAttachment and Projectile each had a full Details editor and no line in ComponentRegistry.cpp,
-// so every value an artist set was discarded by the next load. `ComponentPersistence` next door is the
+// SocketAttachment and Projectile (a reflected block since LEG-PROJECTILE) each had a full Details
+// editor and no line in ComponentRegistry.cpp, so every value an artist set was discarded by the next
+// load. `ComponentPersistence` next door is the
 // gate that stops a SIXTH one existing — it asserts that the component is named by the table. This
 // suite asserts the other half, which a name cannot: that the mapping is COMPLETE and EXACT, field by
 // field, through the JSON text a `.desce` actually holds.
@@ -358,30 +359,6 @@ TEST( AuthoredComponentRoundTrip, TheSocketBlockNamesEverySocketField )
     ExpectEveryFieldIsWritten( "SocketAttachmentComponent", WriteComponent( ECS::SocketAttachmentComponent{} ) );
 }
 
-// ── PROJECTILE ─────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryProjectileFieldComesBack )
-{
-    ECS::ProjectileComponent written;
-    written.Velocity      = glm::vec3( 100.0f, 25.5f, -3000.0f );
-    written.GravityScale  = 0.35f;
-    written.LifeRemaining = 12.5f;
-    written.Damage        = 47.5f;
-    written.Owner         = Common::UUID( 9876543210987654321ull );
-
-    const ECS::ProjectileComponent read = RoundTrip( written );
-
-    EXPECT_EQ( read.Velocity, written.Velocity );
-    EXPECT_FLOAT_EQ( read.GravityScale, written.GravityScale );
-    EXPECT_FLOAT_EQ( read.LifeRemaining, written.LifeRemaining );
-    EXPECT_FLOAT_EQ( read.Damage, written.Damage );
-    EXPECT_EQ( static_cast<uint64_t>( read.Owner ), static_cast<uint64_t>( written.Owner ) );
-}
-
-TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
-{
-    ExpectEveryFieldIsWritten( "ProjectileComponent", WriteComponent( ECS::ProjectileComponent{} ) );
-}
-
 // ── THE RULE THE LOAD PATH HIDES ───────────────────────────────────────────────────────────────────
 //
 // An absent key must LEAVE THE FIELD ALONE, not reset it to the struct default. Today the two are
@@ -392,12 +369,12 @@ TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
 // property that lets a field be ADDED to one of these blocks with no scene version bump.
 TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 {
-    ECS::ProjectileComponent projectile;
-    projectile.Damage       = 999.0f;
-    projectile.GravityScale = 0.25f;
-    ReadAt( Common::Json::Object{}, projectile );
-    EXPECT_FLOAT_EQ( projectile.Damage, 999.0f );
-    EXPECT_FLOAT_EQ( projectile.GravityScale, 0.25f );
+    ECS::LandscapeComponent landscape;
+    landscape.SpacingCm = 999.0f;
+    landscape.ZScale    = 0.25f;
+    ReadAt( Common::Json::Object{}, landscape );
+    EXPECT_FLOAT_EQ( landscape.SpacingCm, 999.0f );
+    EXPECT_FLOAT_EQ( landscape.ZScale, 0.25f );
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
@@ -421,15 +398,15 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
     Common::Json::Object block;
-    block["Damage"]       = Common::Json::Value( std::string( "lots" ) );
-    block["GravityScale"] = Common::Json::Value( 0.5 ); // a good key beside the bad one still lands
+    block["SpacingCm"] = Common::Json::Value( std::string( "lots" ) );
+    block["ZScale"]    = Common::Json::Value( 0.5 ); // a good key beside the bad one still lands
 
-    ECS::ProjectileComponent projectile;
-    projectile.Damage = 42.0f;
-    ReadAt( ThroughJsonText( block ), projectile );
+    ECS::LandscapeComponent landscape;
+    landscape.SpacingCm = 42.0f;
+    ReadAt( ThroughJsonText( block ), landscape );
 
-    EXPECT_FLOAT_EQ( projectile.Damage, 42.0f );
-    EXPECT_FLOAT_EQ( projectile.GravityScale, 0.5f );
+    EXPECT_FLOAT_EQ( landscape.SpacingCm, 42.0f );
+    EXPECT_FLOAT_EQ( landscape.ZScale, 0.5f );
 
     Common::Json::Object socketBlock;
     socketBlock["SocketName"] = Common::Json::Value( 3.5 );
@@ -587,25 +564,30 @@ TEST( AuthoredComponentRoundTrip, AnIdWithTrailingJunkIsRefusedNotReadAsItsDigit
 
 TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 {
-    ECS::ProjectileComponent projectile;
-    projectile.Owner = Common::UUID( 42 );
+    ECS::SocketAttachmentComponent socket;
+    socket.Target = Common::UUID( 42 );
     Common::Json::Object block;
-    block["Owner"]    = Common::Json::Value( std::string( "-1" ) );
-    const auto issues = ReadAt( block, projectile );
-    EXPECT_EQ( static_cast<uint64_t>( projectile.Owner ), 42u );
+    block["Target"]   = Common::Json::Value( std::string( "-1" ) );
+    const auto issues = ReadAt( block, socket );
+    EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 42u );
     ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Owner" ).ToString() );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Target" ).ToString() );
 }
 
 TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
 {
-    ECS::ProjectileComponent projectile;
-    const float              damage = projectile.Damage;
-    Common::Json::Object     block;
-    block["Damage"]   = Common::Json::Value( 1e300 );
-    const auto issues = ReadAt( ThroughJsonText( block ), projectile );
-    EXPECT_EQ( projectile.Damage, damage );
-    ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Damage" ).ToString() );
-    EXPECT_EQ( issues[0].Expected, "number" );
+    ECS::LandscapeComponent landscape;
+    const float             spacing = landscape.SpacingCm;
+    Common::Json::Object    block;
+    block["SpacingCm"] = Common::Json::Value( 1e300 );
+    const auto issues  = ReadAt( ThroughJsonText( block ), landscape );
+    EXPECT_EQ( landscape.SpacingCm, spacing );
+    // The block carries no EditLayers either, which is refused on its own path; only SpacingCm's is asked here.
+    const std::string path = BlockPath().Key( "SpacingCm" ).ToString();
+    const auto        refused =
+         std::count_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    ASSERT_EQ( refused, 1 );
+    const auto found =
+         std::find_if( issues.begin(), issues.end(), [&]( const auto& issue ) { return issue.Path == path; } );
+    EXPECT_EQ( found->Expected, "number" );
 }

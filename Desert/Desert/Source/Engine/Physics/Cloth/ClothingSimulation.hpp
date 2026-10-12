@@ -44,8 +44,10 @@ namespace Desert::Physics::Cloth
         glm::mat4 ComponentToWorld  = glm::mat4( 1.0f );
         // The wearer's current model-space bone transforms, in ClothingAsset::UsedBoneNames order.
         std::span<const glm::mat4> BoneModelTransforms;
-        glm::vec3                  Gravity      = { 0.0f, -980.0f, 0.0f }; // cm/s^2, from the physics world
-        glm::vec3                  WindVelocity = { 0.0f, 0.0f, 0.0f };    // cm/s, world space
+        // cm/s^2, world space. No value of its own: the caller fills it with (0, -PhysicsWorld::GetGravity(), 0),
+        // the scene's one gravity (SceneSettings::Gravity); zero until filled.
+        glm::vec3 Gravity      = { 0.0f, 0.0f, 0.0f };
+        glm::vec3 WindVelocity = { 0.0f, 0.0f, 0.0f }; // cm/s, world space
     };
 
     // What the renderer reads after a step: one entry per ClothPhysicalMesh vertex, component space (cm).

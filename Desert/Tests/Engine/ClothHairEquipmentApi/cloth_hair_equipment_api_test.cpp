@@ -385,6 +385,7 @@ TEST( ClothHairEquipmentApi, AClothStepIsAPureFunctionOfItsInputs )
 
     const std::vector<glm::mat4> bones( 3, glm::mat4( 1.0f ) );
     ClothStepContext             context{ 1.0f / 60.0f, glm::mat4( 1.0f ), bones };
+    context.Gravity      = { 0.0f, -981.0f, 0.0f }; // what the caller reads from PhysicsWorld::GetGravity()
     context.WindVelocity = { 300.0f, 0.0f, 0.0f };
     for ( int i = 0; i < 60; ++i )
     {
@@ -514,6 +515,7 @@ TEST( ClothHairEquipmentApi, TheGroomRenderFrameCarriesTheAssetsCurveLayout )
     auto simulation = made.ExtractValue();
     Hair::GroomStepContext step;
     step.FixedDeltaSeconds = 1.0f / 60.0f;
+    step.Gravity           = { 0.0f, -981.0f, 0.0f }; // what the caller reads from PhysicsWorld::GetGravity()
     ASSERT_TRUE( simulation->Step( step ).IsSuccess() );
     EXPECT_LT( simulation->GetGuidePositions( 0 )[1].y, 165.0f );
 

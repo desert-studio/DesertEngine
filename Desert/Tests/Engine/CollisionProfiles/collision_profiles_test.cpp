@@ -370,7 +370,8 @@ TEST( CollisionProfiles, APawnStandsOnABlockingFloorAndFallsThroughATrigger )
         for ( int i = 0; i < 120; ++i )
         {
             world.Physics.Step( kStep );
-            world.Physics.UpdateCharacter( pawn.GetValue(), { 0.0f, -500.0f, 0.0f }, kStep );
+            world.Physics.UpdateCharacter( pawn.GetValue(), { 0.0f, -500.0f, 0.0f }, world.Physics.GetGravity(),
+                                           kStep );
         }
         const float y = world.Physics.GetCharacterPosition( pawn.GetValue() ).y;
         if ( blocks )

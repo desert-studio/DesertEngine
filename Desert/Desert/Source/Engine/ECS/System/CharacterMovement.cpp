@@ -209,7 +209,7 @@ namespace Desert::ECS::CharacterMovement
         cc.JumpRequested = false; // one-shot, consumed
 
         const glm::vec3 before = world.GetCharacterPosition( cc.RuntimeCharacter );
-        world.UpdateCharacter( cc.RuntimeCharacter, glm::vec3( planar.x, vertical, planar.z ), dt );
+        world.UpdateCharacter( cc.RuntimeCharacter, glm::vec3( planar.x, vertical, planar.z ), gravity, dt );
         const glm::vec3 moved = ( world.GetCharacterPosition( cc.RuntimeCharacter ) - before ) / dt;
 
         // What the world let happen (a wall stops the planar part, the floor or a ceiling the vertical) — the

@@ -681,6 +681,20 @@ namespace
          { "CollisionProfile", kCharacterMovement },
     };
 
+    constexpr const char* kProjectileMovement = "Desert/Desert/Source/Engine/ECS/System/ProjectileMovement.cpp";
+    constexpr Row         kProjectileRows[]   = {
+         { "Velocity", kProjectileMovement },
+         { "MaxSpeed", kProjectileMovement },
+         { "GravityScale", kProjectileMovement },
+         { "CollisionRadius", kProjectileMovement },
+         { "RotationFollowsVelocity", kProjectileMovement },
+         { "LifeSpan", kProjectileMovement },
+         { "ShouldBounce", kProjectileMovement },
+         { "Bounciness", kProjectileMovement },
+         { "Friction", kProjectileMovement },
+         { "BounceVelocityStopSimulatingThreshold", kProjectileMovement },
+    };
+
     constexpr const char* kSpringArm       = "Desert/Desert/Source/Engine/ECS/System/SpringArm.cpp";
     constexpr Row         kSpringArmRows[] = {
          { "TargetArmLength", kSpringArm }, { "SocketOffset", kSpringArm },    { "DoCollisionTest", kSpringArm },
@@ -1138,6 +1152,7 @@ namespace
          { "CharacterControllerData", "CharacterControllerComponent", nullptr,
            CENSUS_ROWS( kCharacterControllerRows ) },
          { "SpringArmData", "SpringArmComponent", nullptr, CENSUS_ROWS( kSpringArmRows ) },
+         { "ProjectileData", "ProjectileComponent", nullptr, CENSUS_ROWS( kProjectileRows ) },
          { "AudioSourceData", "AudioSourceComponent", nullptr, CENSUS_ROWS( kAudioRows ) },
 
          { "UICanvasData", "UICanvasComponent", nullptr, CENSUS_ROWS( kCanvasRows ) },
@@ -1381,7 +1396,8 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 59 with UI-FOCUS's UINavigationData (kNavigationRows: every field read by UIFocus.cpp).
     // -> 60 with RAG1b's RagdollData (kRagdollRows: both fields read by RagdollLifetime.cpp).
     // -> 64 with the int/b10 gameplay types (GP1-GP5) merged beside it.
-    EXPECT_EQ( all.size(), 64u );
+    // -> 65 with LEG-PROJECTILE's ProjectileData (kProjectileRows: every field read by ProjectileMovement.cpp).
+    EXPECT_EQ( all.size(), 65u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

@@ -205,6 +205,7 @@ namespace Desert::Scripting
     void RegisterLogBindings( lua_State* L );          // log(), Log.info/warn/error
     void RegisterEntityCoreBindings( lua_State* L );   // entity verbs: valid/name/destroy/call/transform/...
     void RegisterCharacterBindings( lua_State* L );    // move/jump/look/swim (gameplay)
+    void RegisterProjectileBindings( lua_State* L );   // launch/projectileVelocity/hasStopped
     void RegisterMaterialBindings( lua_State* L );     // unified material protocol
     void RegisterInputBindings( lua_State* L );        // Input table
     void RegisterTimerBindings( lua_State* L );        // Timer.after scheduler
