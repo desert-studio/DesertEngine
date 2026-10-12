@@ -175,9 +175,9 @@ namespace Desert::VFX
         std::string   PositionField;             ///< a Position field -> spawn position; empty = the emitter's
         std::string   DirectionField;            ///< a Direction field -> the cone axis; empty = Axis
         std::string   FilterField;               ///< a Float or Int field; empty = no predicate
-        std::string   ColorField;    ///< a Color field -> the newborn's colour (InitializeColor)
-        std::string   LifetimeField; ///< a Float or Int field -> the particle's lifetime in seconds
-        std::string   SizeField;     ///< a Float or Int field -> the particle's base-size scale (x size over life)
+        std::string   ColorField;                ///< a Color field -> the newborn's colour (InitializeColor)
+        std::string   LifetimeField;             ///< a Float or Int field -> the particle's lifetime in seconds
+        std::string   SizeField; ///< a Float or Int field -> the particle's base-size scale (x size over life)
         VFXChannelFilterOp FilterOp    = VFXChannelFilterOp::Greater;
         float              FilterValue = 0.0f;
 

@@ -106,9 +106,9 @@ namespace
     bool NamesAComponent( const std::string& name )
     {
         static const std::string token = "Component";
-        static const std::string data  = "Data";
+        static const std::string data        = "Data";
         const std::size_t        at    = name.find( token );
-        const bool isDataBlock = name.size() > data.size() && name.ends_with( data );
+        const bool               isDataBlock = name.size() > data.size() && name.ends_with( data );
         return at != std::string::npos && at > 0 && !isDataBlock;
     }
 

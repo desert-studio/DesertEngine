@@ -145,8 +145,9 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Systems",
            Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
            "RetireDestroyedEmitters( m_Systems, reg )",
-           "each VFX system's per-emitter step/counter/dispatch buffers in the scene's pool (VFX-HOST); PrepareTick "
-           "drops systems whose entity is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
-           "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
+           "each VFX system's per-emitter step/counter/dispatch buffers in the scene's pool (VFX-HOST); "
+           "PrepareTick drops systems whose entity is gone or lost the component, released through the "
+           "allocator's deletion ring (EntityDestroy.DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletion"
+           "Ring)" },
     } };
 } // namespace Desert::Tests::RuntimeHandles
