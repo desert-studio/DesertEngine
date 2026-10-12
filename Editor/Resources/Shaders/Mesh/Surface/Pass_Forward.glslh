@@ -36,7 +36,7 @@ layout( binding = 15 ) uniform sampler2D u_ShadowMap3;
 layout( binding = 7 ) uniform ShadowUB
 {
     mat4 u_LightViewProj[4];
-    vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+    vec4 u_ShadowParams;      // x reserved (0), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
     vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
     vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
 };

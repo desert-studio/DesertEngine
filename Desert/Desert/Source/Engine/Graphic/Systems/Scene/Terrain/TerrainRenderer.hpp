@@ -76,8 +76,9 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
-                                                                 uint32_t         firstBlock,
-                                                                 const glm::mat4& cascadeViewProj ) override;
+                                                                 uint32_t                 firstBlock,
+                                                                 const glm::mat4&         cascadeViewProj,
+                                                                 const CascadeCasterBias& bias ) override;
 
         void Submit( const TerrainDrawData& data )
         {

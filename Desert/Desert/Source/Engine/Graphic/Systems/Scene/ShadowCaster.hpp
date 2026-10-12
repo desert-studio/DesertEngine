@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
 
@@ -28,7 +29,12 @@ namespace Desert::Graphic::System
      * target last would clear the other's depth.
      *
      * Called once per cascade per frame, with the cascade's render pass open, only when shadows are on.
-     * `cascadeViewProj` is the matrix the receivers sample the cascade with (standard-Z, clip from world).
+     * `cascadeViewProj` is the matrix the CASTERS draw the cascade with (standard-Z, clip from world): the
+     * receivers' matrix with the light's constant depth bias folded in (Graphic::CasterViewProj), so a caster
+     * that projects with it is biased like every mesh caster without knowing the bias exists. `bias` is the
+     * same cascade's CascadeCasterBias: its DepthBias is the one already in `cascadeViewProj`; its SlopeBias /
+     * SlopeClamp are the slope term the caster's depth stage adds (Mesh/Surface/Pass_ShadowDepth.glslh for the
+     * mesh cells, Programs/Terrain/TerrainShadow.shader for the terrain).
      */
     class IShadowCaster
     {
@@ -47,6 +53,7 @@ namespace Desert::Graphic::System
         // error.
         [[nodiscard]] virtual Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context,
                                                                          uint32_t cascade, uint32_t firstBlock,
-                                                                         const glm::mat4& cascadeViewProj ) = 0;
+                                                                         const glm::mat4&         cascadeViewProj,
+                                                                         const CascadeCasterBias& bias ) = 0;
     };
 } // namespace Desert::Graphic::System

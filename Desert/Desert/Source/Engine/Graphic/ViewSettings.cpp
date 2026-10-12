@@ -146,7 +146,9 @@ namespace Desert::Graphic
                 continue;
             const ECS::DirectionalLightData& light = lights.get<const ECS::DirectionLightComponent>( entity ).Data;
             result.Shadows.Enabled                 = light.CastShadows;
-            result.Shadows.Bias                    = light.ShadowBias;
+            result.Shadows.Bias                    = { .BiasCm       = light.ShadowBias,
+                                                       .SlopeBiasCm  = light.ShadowSlopeBias,
+                                                       .Distribution = light.ShadowCascadeBiasDistribution };
             result.Shadows.CascadeSplitLambda      = light.CascadeSplitLambda;
             break;
         }

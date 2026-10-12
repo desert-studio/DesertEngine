@@ -516,10 +516,16 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,
                                                                 uint32_t /*cascade*/, const uint32_t firstBlock,
-                                                                const glm::mat4& cascadeViewProj )
+                                                                const glm::mat4&         cascadeViewProj,
+                                                                const CascadeCasterBias& bias )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
+        // The cascade's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
+        // like the matrix beside it, so the one shadow material per group still serves every cascade. The
+        // constant part is already in cascadeViewProj (Graphic::CasterViewProj).
+        for ( const auto& group : m_FrameGroups )
+            m_Materials.at( group.Key ).Shadow->SetShadowSlopeBias( bias.SlopeBias, bias.SlopeClamp );
         // Its own row inside the cascade's: the terrain's share of the shadow cost, summed over cascades.
         DESERT_PROFILE_PASS( "TerrainShadowCascade" );
         // Through the blocks DeclareShadowCascade declared on this cascade's node.

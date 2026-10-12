@@ -395,7 +395,6 @@ namespace Desert::Graphic
         {
             shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
             shadow.Count                = meshRenderer->GetValidCascadeCount();
-            shadow.Bias                 = meshRenderer->GetShadowBias();
             shadow.Enabled              = meshRenderer->AreShadowsEnabled();
             shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
         }

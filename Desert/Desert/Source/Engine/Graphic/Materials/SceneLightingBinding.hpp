@@ -130,9 +130,10 @@ namespace Desert::Graphic
     }
 
     /// The cascaded directional shadow maps (R32F light-space depth) and their per-cascade light
-    /// view-projections, bias, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3.
+    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3. No depth
+    /// bias: the casters wrote it into the maps (Graphic::CascadeCasterBias), so Params.x is reserved, 0.
     inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
-                                 float bias, bool enabled, int debugMode, bool showNormals,
+                                 bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, bool lightingDebug )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
@@ -151,7 +152,7 @@ namespace Desert::Graphic
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
             data.LightViewProj[i] = ( i < n ) ? cascadeViewProj[i] : glm::mat4( 1.0f );
         data.Params =
-             glm::vec4( bias, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ), static_cast<float>( n ) );
+             glm::vec4( 0.0f, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ), static_cast<float>( n ) );
         data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
         data.CascadeTexelWorld = cascadeWorldPerTexel;
 

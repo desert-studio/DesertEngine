@@ -419,7 +419,6 @@ namespace Desert::Graphic::System
         for ( uint32_t c = 0; c < frame.CascadeCount; ++c )
             frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetColorAttachmentImage().get() : nullptr;
         frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
-        frame.ShadowBias        = m_ShadowBias;
         frame.ShadowsEnabled    = m_ShadowsEnabled;
         frame.ShadowDebugMode   = m_ShadowDebugMode;
         frame.ShowNormals       = m_ShowNormals;

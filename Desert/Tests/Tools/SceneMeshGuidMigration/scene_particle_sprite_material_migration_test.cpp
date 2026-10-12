@@ -51,11 +51,11 @@ namespace
     }
 } // namespace
 
-// Red when the step is not the newest generation the engine requires.
+// Red when the step is not the generation after SoundAssets, or not below the engine's required one.
 TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterSoundAssets )
 {
     EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionSoundAssets + 1 );
-    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
+    EXPECT_LT( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
 }
 
 // Red when an Additive emitter keeps compositing over (no material), an AlphaBlend / unstated one gains a

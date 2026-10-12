@@ -177,7 +177,58 @@ namespace Desert::Graphic
         float     Radius        = 0.0f;              // world radius of the slice's bounding sphere
         float     WorldPerTexel = 0.0f;              // 2 * Radius / shadowMapSize — drives the normal-offset
         float     SplitFar      = 0.0f;              // view-space far distance this cascade covers
+        float     DepthRange    = 1.0f; // world length the projection's [0,1] depth spans (far - near)
     };
+
+    // THE CASTER DEPTH BIAS A LIGHT ASKS FOR, in world centimetres (ECS::DirectionalLightData: UE's
+    // ShadowBias / ShadowSlopeBias / ShadowCascadeBiasDistribution). Both lengths are what the NEAREST
+    // cascade gets; a farther cascade's are scaled by mix( 1, itsTexel / nearestTexel, Distribution ) -
+    // UE's Lerp( DepthBias, DepthBias * WorldSpaceTexelScale, CascadeBiasDistribution )
+    // (ShadowRendering.cpp, FProjectedShadowInfo::UpdateShaderDepthBias), with the texel made relative so
+    // the setting stays a length.
+    struct CascadeBiasSettings
+    {
+        float BiasCm       = 1.0f;
+        float SlopeBiasCm  = 2.0f;
+        float Distribution = 1.0f;
+    };
+
+    // UE's r.Shadow.ShadowMaxSlopeScaleDepthBias: the slope term stops growing at 45 degrees (tan = 1).
+    inline constexpr float kShadowMaxSlope = 1.0f;
+
+    // One cascade's bias as the CASTER applies it (the receiver applies none; its normal offset is separate).
+    //   DepthBias  - added to the caster's [0,1] depth: carried by the caster matrix (CasterViewProj).
+    //   SlopeBias  - multiplies the caster's depth gradient per shadow-map texel (Pass_ShadowDepth.glslh), so
+    //                SlopeBias * gradient = slope centimetres * tan(angle) in that depth's units.
+    //   SlopeClamp - the gradient at kShadowMaxSlope, where the slope term stops.
+    struct CascadeCasterBias
+    {
+        float DepthBias  = 0.0f;
+        float SlopeBias  = 0.0f;
+        float SlopeClamp = 0.0f;
+    };
+
+    [[nodiscard]] inline CascadeCasterBias ComputeCascadeCasterBias( const CascadeBiasSettings& settings,
+                                                                     const CascadeFit&          fit,
+                                                                     const float nearestWorldPerTexel )
+    {
+        if ( fit.WorldPerTexel <= 0.0f || fit.DepthRange <= 0.0f || nearestWorldPerTexel <= 0.0f )
+            return {};
+        const float relativeTexel = fit.WorldPerTexel / nearestWorldPerTexel;
+        const float scale = 1.0f + ( relativeTexel - 1.0f ) * std::clamp( settings.Distribution, 0.0f, 1.0f );
+        return { .DepthBias  = settings.BiasCm * scale / fit.DepthRange,
+                 .SlopeBias  = settings.SlopeBiasCm * scale / fit.WorldPerTexel,
+                 .SlopeClamp = kShadowMaxSlope * fit.WorldPerTexel / fit.DepthRange };
+    }
+
+    // The matrix a CASTER draws a cascade with: the receivers' matrix with its depth pushed back by the
+    // constant bias. The projection is orthographic (w = 1), so a translation of clip z is exactly a
+    // constant shift of the written depth - every caster (mesh cells, the terrain, any IShadowCaster)
+    // gets the constant bias through the matrix it already takes, and none can be left without it.
+    [[nodiscard]] inline glm::mat4 CasterViewProj( const glm::mat4& viewProj, const float depthBias )
+    {
+        return glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, depthBias ) ) * viewProj;
+    }
 
     struct CascadeSetup
     {
@@ -315,14 +366,16 @@ namespace Desert::Graphic
             // precisely nothing — while costing an inverted compare in the seven shaders that sample
             // these maps and a re-tuned shadow bias. The pass that consumes this matrix says so too
             // (MeshRenderer::SetupShadowPass) and clears its depth to 1 rather than the engine's 0.
-            const glm::mat4 proj =
-                 glm::orthoRH_ZO( -radius, radius, -radius, radius, Common::Units::Cm( 10.0f ), radius * 4.0f );
+            const float     depthNear = Common::Units::Cm( 10.0f );
+            const float     depthFar  = radius * 4.0f;
+            const glm::mat4 proj      = glm::orthoRH_ZO( -radius, radius, -radius, radius, depthNear, depthFar );
 
             out[c].ViewProj      = proj * view;
             out[c].Center        = snapped;
             out[c].Radius        = radius;
             out[c].WorldPerTexel = worldPerTexel;
             out[c].SplitFar      = zFar;
+            out[c].DepthRange    = depthFar - depthNear;
 
             lastFar = zFar;
         }

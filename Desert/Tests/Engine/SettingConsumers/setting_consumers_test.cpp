@@ -593,6 +593,8 @@ namespace
          { "BloomTint", kCollector },
          { "CastShadows", kViewSettings },
          { "ShadowBias", kViewSettings },
+         { "ShadowSlopeBias", kViewSettings },
+         { "ShadowCascadeBiasDistribution", kViewSettings },
          { "CascadeSplitLambda", kViewSettings },
     };
 

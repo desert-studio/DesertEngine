@@ -89,6 +89,11 @@ namespace Desert::Graphic
         // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
 
+        // A light-view caster's slope depth bias (Graphic::CascadeCasterBias::SlopeBias / SlopeClamp): the push
+        // field `ShadowSlope`, read by a caster whose one material serves every cascade and so cannot carry it
+        // in a uniform block (Programs/Terrain/TerrainShadow.shader). A cell without the field refuses.
+        void SetShadowSlopeBias( float slopeBias, float slopeClamp );
+
         // The SKINNED vertex path's two inputs — the vertex factory's, not the surface's, so they live here
         // on every material and not on a surface class: the packed bone palette of every skinned draw this
         // frame, in the path's `Bones` storage buffer (MeshPathOwnBinding(Skinned)), and where THIS draw's

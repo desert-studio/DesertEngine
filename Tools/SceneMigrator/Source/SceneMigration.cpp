@@ -1008,6 +1008,32 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t restated = 0;
+        const auto  restate  = [&]( rfl::ExtraFields<rfl::Generic>& components )
+        {
+            const auto payload = components.get( "DirectionLight" );
+            if ( !payload.has_value() )
+                return;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() || !fields.value().get( "ShadowBias" ).has_value() )
+                return;
+            fields.value()["ShadowBias"] = rfl::Generic( static_cast<double>( kShadowBiasCentimetresDefault ) );
+            components["DirectionLight"] = rfl::Generic( std::move( fields.value() ) );
+            ++restated;
+        };
+        for ( auto& entity : entities )
+        {
+            restate( entity.Components );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                restate( override_.Components );
+        }
+        return restated;
+    }
+
     std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities )
     {
         std::size_t dropped = 0;
@@ -2764,6 +2790,13 @@ namespace Desert::Migration
                 report.ParticleSpriteMaterials       = MigrateParticleSpriteMaterialsV46ToV47( entities );
             }
 
+            // The shadow bias is centimetres at the caster (SHADOW-BIAS): a stated NDC fraction is re-stated.
+            if ( statedSceneVersion < kSceneVersionShadowBiasCentimetres )
+            {
+                report.ShadowBiasCentimetresRaised = true;
+                report.ShadowBiasesRestated        = MigrateShadowBiasCentimetresV48ToV49( entities );
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3138,6 +3171,10 @@ namespace Desert::Migration
         {
             report.SceneSettingsHomesRaised = true;
             report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
+            // The Settings block's ShadowBias it just stamped onto the lights is the same pre-v49 NDC fraction
+            // RunSteps' v49 step re-stated before it was there: re-state again (idempotent), the count is total.
+            if ( report.ShadowBiasCentimetresRaised && report.SceneSettingsHomes.ShadowKeysFound > 0 )
+                report.ShadowBiasesRestated = MigrateShadowBiasCentimetresV48ToV49( scene.Entities );
         }
         if ( statedSceneVersion < kSceneVersionGameModeSettings )
         {

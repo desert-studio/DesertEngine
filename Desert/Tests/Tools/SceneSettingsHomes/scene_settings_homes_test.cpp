@@ -163,7 +163,8 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     const auto light =
          Read<ECS::DirectionalLightData>( *FindTag( scene, "Sun" ), "DirectionLight", "DirectionalLightData" );
     EXPECT_FALSE( light.CastShadows );
-    EXPECT_EQ( light.ShadowBias, 0.0125f );
+    EXPECT_EQ( light.ShadowBias, Migration::kShadowBiasCentimetresDefault )
+         << "the moved NDC fraction is re-stated as centimetres (MigrateShadowBiasCentimetresV48ToV49)";
     EXPECT_EQ( light.CascadeSplitLambda, 0.85f );
     EXPECT_EQ( light.Intensity, 2.0f ) << "the light's own keys survive the stamp";
 
@@ -265,7 +266,7 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
     EXPECT_FALSE( v.Shadows.Enabled );
-    EXPECT_EQ( v.Shadows.Bias, 0.0125f );
+    EXPECT_EQ( v.Shadows.Bias.BiasCm, Migration::kShadowBiasCentimetresDefault );
     EXPECT_EQ( v.Shadows.CascadeSplitLambda, 0.85f );
 }
 

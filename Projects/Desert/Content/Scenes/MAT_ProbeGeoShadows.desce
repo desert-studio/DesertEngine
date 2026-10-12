@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "75a226b1a3a247cc893938e10e3ba5a5",
         "Versions": {
-            "SCNE": 47,
+            "SCNE": 49,
             "UNIT": 1
         },
         "Dependencies": []
@@ -197,7 +197,9 @@
                 "BloomMaxBrightness": 20.0,
                 "BloomTint": [1.0, 0.949999988079071, 0.8500000238418579],
                 "CastShadows": true,
-                "ShadowBias": 0.004999999888241291,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
                 "CascadeSplitLambda": 0.6000000238418579
             }
         },
