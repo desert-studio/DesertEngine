@@ -7,6 +7,17 @@ DesertPlatform.IsWindows = os.target() == "windows"
 DesertPlatform.IsMacOS   = os.target() == "macosx"
 DesertPlatform.IsLinux   = os.target() == "linux"
 
+-- Writes a file premake generates for the compile (a third-party config.h, a template instantiation) only when its
+-- text changed. io.writefile restamped every one on every generation, so each `premake5 gmake` recompiled every
+-- Assimp, OpenEXR and dav1d source that includes one, and relinked Desert behind them (BLD-DEVTESTS measured ~190
+-- TUs per run once suite.sh --dev-suites regenerates on a change of suite list).
+function DesertPlatform.WriteGenerated(path, text)
+    os.mkdir(path:match("^(.*)/[^/]*$"))
+    if os.writefile_ifnotequal(text, path) < 0 then
+        error("cannot write " .. path, 0)
+    end
+end
+
 -- Extension of built executables on the target platform ("" on unix-likes).
 DesertPlatform.ExeExt = DesertPlatform.IsWindows and ".exe" or ""
 

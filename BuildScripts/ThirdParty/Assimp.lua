@@ -122,7 +122,7 @@ local function GenerateHeaders()
     -- assumes. Written as the comment CMake would leave, so the header reads like a configured one.
     configIn = configIn:gsub( "#cmakedefine ASSIMP_DOUBLE_PRECISION 1",
                               "/* #undef ASSIMP_DOUBLE_PRECISION */" )
-    io.writefile( generated .. "/assimp/config.h", configIn )
+    DesertPlatform.WriteGenerated( generated .. "/assimp/config.h", configIn )
 
     -- The version is read out of assimp's own PROJECT() line, so the number this engine reports and the
     -- number the pinned source carries cannot disagree. Desert/Tests/Editor/AssimpBoundary asserts the
@@ -150,7 +150,7 @@ local function GenerateHeaders()
                            :gsub( "@CMAKE_SHARED_LIBRARY_PREFIX@", "" )
                            :gsub( "@LIBRARY_SUFFIX@", "" )
                            :gsub( "@CMAKE_DEBUG_POSTFIX@", "" )
-    io.writefile( generated .. "/assimp/revision.h", revisionIn )
+    DesertPlatform.WriteGenerated( generated .. "/assimp/revision.h", revisionIn )
 
     -- AND zlib's zconf.h, WHICH IS THE SAME KIND OF GENERATED HEADER AND WAS THE FIRST THING TO BREAK.
     -- contrib/zlib ships zconf.h.in / .cmakein / .included but NO zconf.h — zlib's own CMake configures
@@ -165,11 +165,11 @@ local function GenerateHeaders()
         error( "assimp's contrib/zlib/zconf.h.included is missing; zlib cannot be configured and the " ..
                "build would silently read the system zlib's zconf.h instead." )
     end
-    io.writefile( generated .. "/zconf.h", zconf )
+    DesertPlatform.WriteGenerated( generated .. "/zconf.h", zconf )
 
     -- The one number the whole pin rests on, written where a test can read it without a compiler and
     -- without CMake. See Desert/Tests/Editor/AssimpBoundary.
-    io.writefile( _MAIN_SCRIPT_DIR .. "/build/generated/assimp/VERSION.txt",
+    DesertPlatform.WriteGenerated( _MAIN_SCRIPT_DIR .. "/build/generated/assimp/VERSION.txt",
                   major .. "." .. minor .. "." .. patch .. "\n" )
 end
 

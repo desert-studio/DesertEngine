@@ -237,12 +237,8 @@ local kRunners = {
     end,
     Engine = function(deps)
         DesertRunnerSettings(deps)
-        files {
-            -- The launcher/engine project-format conformance suite; Engine/ProjectFormat adopts it.
-            "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp",
-            -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
-            -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
-        }
+        -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
+        -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         includedirs {
             -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
             "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
@@ -354,6 +350,14 @@ local kRunners = {
     end,
 }
 
+-- TEST SOURCES OUTSIDE Desert/Tests THAT A SUITE ADOPTS (AdoptedTestSource, TestSupport/runner.hpp): suite -> its
+-- files. They go wherever that suite is compiled -- its layer runner, and DevTests only when the suite is named
+-- there: a runner holding the file without its adopting suite fails with "test outside Desert/Tests/<Layer>/<Suite>/".
+local kAdoptedSources = {
+    -- The launcher/engine project-format conformance suite (ThirdParty/desert-shared).
+    ProjectFormat = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Tests/project_format_test.cpp" },
+}
+
 local deps           = dofile(currentDir .. "/Desert/Dependencies.lua")
 local manifest_lines = {} -- "<Executable> <Suite>", one per suite
 local test_projects  = {} -- every project RunAllTests depends on
@@ -384,10 +388,16 @@ for _, layer in ipairs(kLayers) do
             files { testsDir .. "/TestSupport/RunnerMain.cpp" }
             for _, dir in ipairs(converted) do
                 files { dir .. "/*.cpp" }
+                files(kAdoptedSources[path.getname(dir)] or {})
             end
             configure(deps)
             removeconfigurations { "Shipping" }
         table.insert(test_projects, runnerName)
+    end
+end
+for suite in pairs(kAdoptedSources) do
+    if not suite_home[suite] then
+        error(string.format("kAdoptedSources names %s, which is no suite directory Desert/Tests/<Layer>/%s", suite, suite), 0)
     end
 end
 
@@ -426,6 +436,7 @@ if _OPTIONS["dev-suites"] then
         files { testsDir .. "/TestSupport/RunnerMain.cpp" }
         for _, dir in ipairs(dev_dirs) do
             files { dir .. "/*.cpp" }
+            files(kAdoptedSources[path.getname(dir)] or {})
         end
         for _, layer in ipairs(kLayers) do
             if dev_layers[layer] then

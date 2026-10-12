@@ -119,13 +119,13 @@ do
 
     os.mkdir( generated .. "/Imath" )
     local cmake = root .. "/cmake"
-    io.writefile( generated .. "/OpenEXRConfig.h", Substitute( cmake .. "/OpenEXRConfig.h.in", values, defined ) )
-    io.writefile( generated .. "/OpenEXRConfigInternal.h",
+    DesertPlatform.WriteGenerated( generated .. "/OpenEXRConfig.h", Substitute( cmake .. "/OpenEXRConfig.h.in", values, defined ) )
+    DesertPlatform.WriteGenerated( generated .. "/OpenEXRConfigInternal.h",
                   Substitute( cmake .. "/OpenEXRConfigInternal.h.in", values, defined ) )
-    io.writefile( generated .. "/IlmThreadConfig.h", Substitute( cmake .. "/IlmThreadConfig.h.in", values, defined ) )
+    DesertPlatform.WriteGenerated( generated .. "/IlmThreadConfig.h", Substitute( cmake .. "/IlmThreadConfig.h.in", values, defined ) )
     local imathConfig = Substitute( imath .. "/config/ImathConfig.h.in", values, defined )
-    io.writefile( generated .. "/Imath/ImathConfig.h", imathConfig )
-    io.writefile( generated .. "/ImathConfig.h", imathConfig )
+    DesertPlatform.WriteGenerated( generated .. "/Imath/ImathConfig.h", imathConfig )
+    DesertPlatform.WriteGenerated( generated .. "/ImathConfig.h", imathConfig )
 end
 
 
