@@ -774,8 +774,8 @@ namespace Desert::ECS
         // Weight of target @p index, or 0 when the component holds no weight for it.
         float GetWeight( std::size_t index ) const;
         // Sets the weight of target @p index, growing the list with zeros if it is shorter.
-        void SetWeight( std::size_t index, float weight );
-        void SetWeights( std::vector<float> weights );
+        void     SetWeight( std::size_t index, float weight );
+        void     SetWeights( std::vector<float> weights );
         uint64_t GetRevision() const;
 
     private:
