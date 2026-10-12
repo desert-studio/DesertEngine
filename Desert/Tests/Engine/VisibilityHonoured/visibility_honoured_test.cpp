@@ -205,6 +205,10 @@ namespace
               "drops the hidden light from its candidates so nothing lit is affected." },
          Row{ "VolumetricCloudECSSystem.hpp", Verdict::Honours,
               "the cloud layer and every sculpted hero body; same stale-state argument as the fog." },
+         Row{ "WaterZoneECSSystem.hpp", Verdict::Honours,
+              "WATER-W6: it emits the frame's water surface; a hidden zone draws no surface and a hidden body "
+              "contributes no footprint, as a hidden mesh is no geometry (the physics half, WaterBodyGather, "
+              "keeps the body for buoyancy)." },
          Row{ "WaterBodyGather.hpp", Verdict::MustNot,
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
@@ -256,6 +260,8 @@ namespace
                "view<ECS::HeroCloudComponent, ECS::TransformComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the Sky Atmosphere election", "view<ECS::SkyAtmosphereComponent>" },
          Site{ "SkyboxECSSystem.hpp", "the HDR cubemap", "view<ECS::SkyboxComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water body footprints", "view<WaterBodyComponent, TransformComponent>" },
+         Site{ "WaterZoneECSSystem.hpp", "water zones", "for ( const entt::entity entity : zones )" },
          Site{ "PointLightSystem.hpp", "point lights", "view<PointLightComponent, TransformComponent>" },
          Site{ "SpotLightSystem.hpp", "spot lights", "view<SpotLightComponent, TransformComponent>" },
     };

@@ -718,8 +718,11 @@ namespace
     //     RDG_LandscapeParticles, fourteen point-only records on both counts (measured at SCNE 39).
     //   * +12 with the b10-b12 merges (2345 / 2368, measured by CI 38186860592 at SCNE 47): the gameplay,
     //     wind and time-of-day probe scenes' extent-less records (WindSource, TimeOfDay, PlayerStart, pawns).
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2345;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2368;
+    //   * +56 with int/b12 (2401 / 2424, SCNE 49): UI-WAVE-LIVE's UI_ListPlusProbe (14 records) and
+    //     UI_RichTextProbe (16) and the twenty elements it adds to MainMenu, and WATER-W6's Water_Ocean (6: sky,
+    //     sun, camera, PostProcessVolume, WaterBody, WaterZone; its three primitive meshes carry their extent).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2401;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2424;
 
     // A committed project (TestSupport/committed_projects.hpp), opened the way the editor opens it: the engine
     // directory is the checkout's Editor/ and the project root is the .deproj's directory, its assets root read

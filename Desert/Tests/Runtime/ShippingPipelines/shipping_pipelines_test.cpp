@@ -454,6 +454,8 @@ namespace
                "TerrainPipeline (forward path) and TerrainGBufferPipeline (deferred path) from one helper" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
                "\"TerrainShadowPipeline\"", Verdict::Shipped, "the terrain as a cascade caster (LS-5)" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Water/WaterRenderer.cpp",
+               "\"WaterSurfacePipeline\"", Verdict::Shipped, "the water surface's deferred node (WATER-W6)" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
                "kMarchShaderName", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",

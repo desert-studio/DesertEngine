@@ -42,7 +42,7 @@ namespace Desert::ECS
             const auto                            view = registry.view<WaterBodyComponent, TransformComponent>();
             for ( const entt::entity entity : view )
             {
-                if ( IsHidden( registry, entity ) )
+                if ( ECS::IsHidden( registry, entity ) )
                     continue;
                 const glm::vec3& location = view.get<TransformComponent>( entity ).Translation;
                 const glm::vec2  half     = 0.5f * view.get<WaterBodyComponent>( entity ).Data.OceanExtents;
@@ -55,7 +55,7 @@ namespace Desert::ECS
 
             for ( const entt::entity entity : zones )
             {
-                if ( IsHidden( registry, entity ) )
+                if ( ECS::IsHidden( registry, entity ) )
                     continue;
                 const WaterZoneData& data     = zones.get<WaterZoneComponent>( entity ).Data;
                 const glm::vec3&     location = zones.get<TransformComponent>( entity ).Translation;
