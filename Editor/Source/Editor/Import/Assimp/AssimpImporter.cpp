@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <limits>
 #include <functional>
+#include <optional>
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -294,8 +295,10 @@ namespace Desert::Editor
     // body lying down. UE's import bakes the same into the reference pose. The rest shape is
     // sum(w * G_b * O_b) * v; baking it into the vertices and stating O_b = inverse(G_b) makes the stored
     // vertices the drawn shape, and every animated pose is unchanged: G(t) * inverse(G_b) * v' = G(t) * O_b * v
-    // wherever the bones under a vertex agree on G_b * O_b, which a bound skin does.
-    static void BakeBindPose( SkeletonAssetData& skeleton, MeshAssetData& mesh )
+    // wherever the bones under a vertex agree on G_b * O_b, which a bound skin does. A RIGID mesh's vertices
+    // (the RIGID branch of ProcessScene) are written already in that rest space, so `rigid` marks them to be left
+    // as they are; they take the same O_b = inverse(G_b) below and follow their bone from there.
+    static void BakeBindPose( SkeletonAssetData& skeleton, MeshAssetData& mesh, const std::vector<char>& rigid )
     {
         const std::size_t                       n = skeleton.Bones.size();
         std::vector<glm::mat4>                  global( n, glm::mat4( 1.0f ) );
@@ -318,6 +321,8 @@ namespace Desert::Editor
 
         for ( std::size_t vi = 0; vi < mesh.SkinnedVertices.size(); ++vi )
         {
+            if ( vi < rigid.size() && rigid[vi] != 0 )
+                continue;
             auto&     v = mesh.SkinnedVertices[vi];
             glm::mat4 m( 0.0f );
             float     sum = 0.0f;
@@ -517,8 +522,6 @@ namespace Desert::Editor
 
         std::unordered_map<std::string, uint32_t> boneMapping;
 
-        bool hasBones = false;
-
         // EVERY NODE THAT REFERENCES A MESH IS ITS OWN INSTANCE (UE: the FBX static mesh import bakes each
         // mesh-bearing node into the combined mesh, FbxStaticMeshImport ImportStaticMeshAsSingle over every node;
         // with Combine Meshes off each node is its own UStaticMesh, FbxFactory RecursiveImportNode). A source
@@ -529,12 +532,14 @@ namespace Desert::Editor
         // the STATIC vertices below (without it a Blender FBX imports rotated ~90 degrees about X). Skinned meshes
         // are NOT baked and NOT copied: their bind/bone hierarchy (BuildSkeletonHierarchy) already carries the
         // node transforms, so a skinned mesh keeps its first placement only. A mesh no node references keeps one
-        // placement at the identity, unnamed.
+        // placement at the identity, unnamed. In a source with a skin, a mesh without one is a RIGID part of the
+        // skeletal mesh (the RIGID branch below) and every placement of it is its own rigid copy.
         struct MeshPlacement
         {
-            uint32_t    Mesh = 0;
-            glm::mat4   World{ 1.0f };
-            std::string Node;
+            uint32_t      Mesh = 0;
+            glm::mat4     World{ 1.0f };
+            std::string   Node;
+            const aiNode* Source = nullptr;
         };
         // One entry per submesh of the imported mesh: mesh-index major, then the mesh's placements in node-walk
         // order, so a source that shares no mesh keeps the submesh order it always had.
@@ -552,7 +557,7 @@ namespace Desert::Editor
                         continue;
                     if ( scene->mMeshes[mi]->HasBones() && !meshPlacements[mi].empty() )
                         continue;
-                    meshPlacements[mi].push_back( { mi, world, node->mName.C_Str() } );
+                    meshPlacements[mi].push_back( { mi, world, node->mName.C_Str(), node } );
                 }
                 for ( unsigned i = 0; i < node->mNumChildren; ++i )
                     walk( node->mChildren[i], world );
@@ -566,6 +571,51 @@ namespace Desert::Editor
                 placements.insert( placements.end(), meshPlacements[mi].begin(), meshPlacements[mi].end() );
             }
         }
+
+        // A SOURCE WITH A SKIN IS ONE SKELETAL MESH, ITS RIGID PARTS INCLUDED (UE: FbxSkeletalMeshImport with
+        // bImportMeshesInBoneHierarchy — a mesh that hangs under a bone of the skeleton is skinned to that bone
+        // with weight 1, its vertices taken at the node's global transform). RobotExpressive is built that way:
+        // only its hands carry a skin, the head, torso, arms and legs are meshes parented to bones under the
+        // RobotArmature node (scale 100, -90 degrees about X); taken as static vertices they were written to an
+        // array a skeletal mesh never draws, and only the hands showed. The skin's joints are therefore registered
+        // before any mesh (in the order the mesh loop met them, which the skeleton's bone order and signature were
+        // made from), so a rigid mesh met first already finds its bone. A joint is matched to its node by the name
+        // the skin states, as BuildSkeletonHierarchy matches it.
+        bool hasBones = false;
+        for ( uint32_t mi = 0; mi < scene->mNumMeshes; ++mi )
+        {
+            const aiMesh* mesh = scene->mMeshes[mi];
+            if ( !mesh->HasBones() )
+                continue;
+            hasBones = true;
+            for ( uint32_t b = 0; b < mesh->mNumBones; ++b )
+            {
+                const std::string name = mesh->mBones[b]->mName.C_Str();
+                if ( boneMapping.contains( name ) )
+                    continue;
+                boneMapping[name] = static_cast<uint32_t>( skeletonData.Bones.size() );
+                Desert::Animation::BoneInfo bone;
+                bone.Name               = name;
+                bone.OffsetMatrix       = ConvertMatrix( mesh->mBones[b]->mOffsetMatrix );
+                bone.LocalBindTransform = glm::mat4( 1.0f );
+                skeletonData.Bones.push_back( bone );
+            }
+        }
+        std::unordered_map<const aiNode*, uint32_t> jointOfNode;
+        if ( hasBones && scene->mRootNode )
+            for ( const auto& [name, index] : boneMapping )
+                if ( const aiNode* node = FindNodeRecursive( scene->mRootNode, name ) )
+                    jointOfNode[node] = index;
+        // The bone a rigid mesh follows: the nearest joint at or above its node.
+        const auto rigidBoneOf = [&]( const aiNode* node ) -> std::optional<uint32_t>
+        {
+            for ( ; node != nullptr; node = node->mParent )
+                if ( const auto it = jointOfNode.find( node ); it != jointOfNode.end() )
+                    return it->second;
+            return std::nullopt;
+        };
+        // One flag per skinned vertex: 1 where the vertex belongs to a rigid mesh, already in the rest space.
+        std::vector<char> rigidVertices;
 
         // ============================
         // Mesh extraction
@@ -591,13 +641,30 @@ namespace Desert::Editor
         {
             aiMesh* mesh = scene->mMeshes[placement.Mesh];
 
-            bool meshHasBones = mesh->HasBones();
-            hasBones |= meshHasBones;
+            const bool meshHasBones = mesh->HasBones();
+
+            std::optional<uint32_t> rigidBone;
+            if ( hasBones && !meshHasBones )
+            {
+                rigidBone = rigidBoneOf( placement.Source );
+                if ( !rigidBone )
+                {
+                    // UE's skeletal mesh import takes the skinned meshes and the meshes in the bone hierarchy;
+                    // a mesh outside both is not part of the character.
+                    LOG_WARN(
+                         "[Import] '{}': mesh '{}' (node '{}') hangs under no bone of the skeleton and has no "
+                         "skin, so it is not part of the skeletal mesh.",
+                         sourcePath.string(), mesh->mName.C_Str(), placement.Node );
+                    continue;
+                }
+            }
+            const bool skinnedVertices = meshHasBones || rigidBone.has_value();
 
             SubmeshData submesh;
             submesh.Name = mesh->mName.C_Str();
 
-            submesh.VertexOffset = meshHasBones ? meshData.SkinnedVertices.size() : meshData.StaticVertices.size();
+            submesh.VertexOffset =
+                 skinnedVertices ? meshData.SkinnedVertices.size() : meshData.StaticVertices.size();
 
             submesh.IndexOffset    = meshData.Indices.size() * 3;
             submesh.VertexCount    = mesh->mNumVertices;
@@ -609,7 +676,7 @@ namespace Desert::Editor
             // VERTICES
             // ============================
 
-            if ( !meshHasBones )
+            if ( !skinnedVertices )
             {
                 // -------- STATIC -------- (bake the node world transform so orientation/placement match the
                 // DCC tool; normals/tangents use the 3x3 part, renormalized to survive any scale.)
@@ -643,6 +710,42 @@ namespace Desert::Editor
 
                     meshData.StaticVertices.push_back( v );
                 }
+                AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
+            }
+            else if ( rigidBone )
+            {
+                // -------- RIGID (a mesh in the bone hierarchy) -------- the node's global transform puts the
+                // vertices where the bind pose draws them, the same rest space BakeBindPose takes the skinned
+                // vertices to; one bone, full weight.
+                const glm::mat4 world      = placement.World;
+                const glm::mat3 tangentMat = glm::mat3( world );
+                const glm::mat3 normalMat  = glm::transpose( glm::inverse( tangentMat ) );
+                const auto      unit       = []( const glm::vec3& d )
+                { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+
+                rigidVertices.resize( meshData.SkinnedVertices.size(), 0 );
+                for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
+                {
+                    SkinnedVertexData v{};
+                    v.Position = glm::vec3( world * glm::vec4( mesh->mVertices[i].x, mesh->mVertices[i].y,
+                                                               mesh->mVertices[i].z, 1.0f ) );
+                    if ( mesh->HasNormals() )
+                        v.Normal = unit( normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
+                                                                mesh->mNormals[i].z ) );
+                    if ( mesh->HasTangentsAndBitangents() )
+                    {
+                        v.Tangent   = unit( tangentMat * glm::vec3( mesh->mTangents[i].x, mesh->mTangents[i].y,
+                                                                    mesh->mTangents[i].z ) );
+                        v.Bitangent = unit( tangentMat * glm::vec3( mesh->mBitangents[i].x, mesh->mBitangents[i].y,
+                                                                    mesh->mBitangents[i].z ) );
+                    }
+                    if ( mesh->HasTextureCoords( 0 ) )
+                        v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
+                    v.BoneIDs[0]     = *rigidBone;
+                    v.BoneWeights[0] = 1.0f;
+                    meshData.SkinnedVertices.push_back( v );
+                }
+                rigidVertices.resize( meshData.SkinnedVertices.size(), 1 );
                 AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
             }
             else
@@ -747,8 +850,9 @@ namespace Desert::Editor
             // ============================
             // Assimp exposes FBX/glTF blendshapes as aiAnimMesh entries — each stores the FULL morphed
             // vertex positions, so the per-vertex delta is (morphed - base). Static meshes bake the node
-            // world transform into base positions, so the delta (a direction) uses only the 3x3 part;
-            // skinned meshes keep local space (their base verts are untransformed too).
+            // world transform into base positions, so the delta (a direction) uses only the 3x3 part, and so
+            // do rigid meshes of a skeletal mesh; skinned meshes keep local space (their base verts are
+            // untransformed too) until BakeBindPose turns both.
             for ( uint32_t a = 0; a < mesh->mNumAnimMeshes; ++a )
             {
                 const aiAnimMesh* anim = mesh->mAnimMeshes[a];
@@ -872,7 +976,7 @@ namespace Desert::Editor
         {
 
             BuildSkeletonHierarchy( scene->mRootNode, boneMapping, skeletonData );
-            BakeBindPose( skeletonData, meshData );
+            BakeBindPose( skeletonData, meshData, rigidVertices );
 
             // The bones' hash: import pre-selects an existing .skeleton by it (ImportManager::Import); the mesh's
             // Skeleton GUID is set there, once the rig is known to be an existing skeleton or a new one.
