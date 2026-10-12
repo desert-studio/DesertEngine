@@ -88,7 +88,7 @@ namespace
         return ss.str();
     }
 
-    const Desert::Common::Content::AssetGuid kMesh{ 0x5717Cull, 0xAE5Bull };
+    const Common::Content::AssetGuid kMesh{ 0x5717Cull, 0xAE5Bull };
 } // namespace
 
 // Undo / redo of a Generate are seen by the tool the panel draws on its next Refresh (called every frame by
@@ -163,7 +163,7 @@ TEST( FractureTool, InteriorMaterialIsPickedFromMaterialAssetsAsOneUndoStep )
     AimAtScratch( tool, "Interior.dfrac" );
     tool.Settings.Levels = { Uniform( 4 ) };
     ASSERT_TRUE( tool.Generate( cube, kMesh ) );
-    const Desert::Common::Content::AssetGuid material{ 0x3A7Eull, 0x21A1ull };
+    const Common::Content::AssetGuid material{ 0x3A7Eull, 0x21A1ull };
     ASSERT_TRUE( tool.SetInteriorMaterial( material ) );
     EXPECT_EQ( tool.Fracture().InteriorMaterial, material );
     ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );

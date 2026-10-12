@@ -211,7 +211,7 @@ TEST( FractureMode, InteriorMaterialIsWrittenToTheAssetAndReadBack )
     ASSERT_TRUE( step );
     EXPECT_NE( step.GetValue().Before, step.GetValue().After );
     const FractureData back = ReadBack( file );
-    EXPECT_EQ( back.InteriorMaterial, ( Desert::Common::Content::AssetGuid{ 0xBEEF, 0xF00D } ) );
+    EXPECT_EQ( back.InteriorMaterial, ( Common::Content::AssetGuid{ 0xBEEF, 0xF00D } ) );
     EXPECT_EQ( back.Nodes, data.Nodes );
 }
 
@@ -303,7 +303,7 @@ TEST( FractureMode, TheExplodeSliderIsPreviewStateNotSerialized )
 // current fracture (a new asset then names no mesh) or ignores the mesh it was given.
 TEST( FractureMode, FirstGenerateRecordsTheMeshItCutAsTheSource )
 {
-    const Desert::Common::Content::AssetGuid mesh{ 0x5717Cull, 0xAE5Bull };
+    const Common::Content::AssetGuid mesh{ 0x5717Cull, 0xAE5Bull };
     const auto first = GenerateFracture( Cube(), mesh, FractureData{}, Settings( 21, { Uniform( 4 ) } ) );
     ASSERT_TRUE( first ) << ( first ? "" : first.GetError() );
     EXPECT_EQ( first.GetValue().SourceMesh, mesh );
@@ -313,7 +313,7 @@ TEST( FractureMode, FirstGenerateRecordsTheMeshItCutAsTheSource )
     ASSERT_TRUE( Desert::Assets::FractureAsset::WriteStep( file, first.GetValue() ) );
     EXPECT_EQ( ReadBack( file ).SourceMesh, mesh );
 
-    const Desert::Common::Content::AssetGuid other{ 0x07E2ull, 0x0B1Eull };
+    const Common::Content::AssetGuid other{ 0x07E2ull, 0x0B1Eull };
     const auto rebake = GenerateFracture( Cube(), other, ReadBack( file ), Settings( 21, { Uniform( 4 ) } ) );
     ASSERT_TRUE( rebake );
     EXPECT_EQ( rebake.GetValue().SourceMesh, other );
