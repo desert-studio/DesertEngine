@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 #include <string>
@@ -19,9 +19,10 @@ namespace Desert::VFX
     {
         REFLECT( ScriptName( "VFX" ) )
 
-        FUNCTION( ScriptCallable, ScriptName( "useChannel" ),
-                  Tooltip( "Registers the data channel asset of that name (as a script names IA_Jump) on the played "
-                           "scene; false (logged) when it cannot." ) )
+        FUNCTION(
+             ScriptCallable, ScriptName( "useChannel" ),
+             Tooltip( "Registers the data channel asset of that name (as a script names IA_Jump) on the played "
+                      "scene; false (logged) when it cannot." ) )
         static bool UseChannel( const std::string& name );
 
         FUNCTION( ScriptCallable, ScriptName( "writeChannel" ),

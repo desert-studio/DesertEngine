@@ -47,8 +47,8 @@ namespace Desert::Scripting::LuauBinder
     void PushValue( lua_State* L, const Reflection::Value& value );
 
     /// The value at `index` as a Value of kind `expected`, or nullopt with `why` set. A table is an Array (a
-    /// sequence) or a Map (string keys), its elements in their own Luau kinds; a function is a Callable made by the
-    /// host's factory (none installed: refused).
+    /// sequence) or a Map (string keys), its elements in their own Luau kinds; a function is a Callable made by
+    /// the host's factory (none installed: refused).
     std::optional<Reflection::Value> ToValue( lua_State* L, int index, Reflection::FieldType expected,
                                               std::string& why );
 

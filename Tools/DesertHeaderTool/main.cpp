@@ -135,8 +135,9 @@ namespace
         std::string                                      name;
         std::string                                      returnType;
         std::vector<std::pair<std::string, std::string>> params; // { name, C++ spelling }
-        std::vector<std::string> defaults; // per parameter: its C++ default expression (UE's CPP_Default_), or empty
-        FunctionMeta             meta;
+        std::vector<std::string>
+                     defaults; // per parameter: its C++ default expression (UE's CPP_Default_), or empty
+        FunctionMeta meta;
     };
 
     // EVENT(...) attributes (CoreReflection/ReflectionMacros.hpp).
@@ -238,7 +239,8 @@ namespace
         if ( type == "glm::vec2" || type == "vec2" ) return "Vec2";
         if ( type == "glm::vec3" || type == "vec3" ) return "Vec3";
         if ( type == "glm::vec4" || type == "vec4" ) return "Vec4";
-        if ( type == "ECS::Entity" || type == "Desert::ECS::Entity" ) return "Entity";
+        if ( type == "ECS::Entity" || type == "Desert::ECS::Entity" )
+            return "Entity";
         if ( type == "AssetHandle" || type == "Assets::AssetHandle" ||
              type == "Desert::Assets::AssetHandle" ) return "AssetHandle";
         return "Struct"; // unknown class type — resolved later by TypeName
@@ -510,8 +512,8 @@ namespace
         int         depth;    // brace depth at which this scope opened
         bool        isStruct; // struct/class vs namespace
         bool        reflected = false;
-        std::string scriptName = {}; // REFLECT( ScriptName( "..." ) )
-        bool        scriptStruct = false; // REFLECT( ScriptStruct )
+        std::string        scriptName   = {};    // REFLECT( ScriptName( "..." ) )
+        bool               scriptStruct = false; // REFLECT( ScriptStruct )
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
         std::vector<Function>         functions = {};

@@ -36,9 +36,9 @@ namespace Desert::Reflection
         Enum,
         Struct,
         AssetHandle,
-        Entity, // an entity of a world: its id and the world it lives in (Value::EntityRef)
-        Any,    // a parameter/result of a reflected function that takes whatever kind it is given (Godot's
-                // Variant): the callee reads the Value's own Type(). Never a field's kind, never a Value's.
+        Entity,   // an entity of a world: its id and the world it lives in (Value::EntityRef)
+        Any,      // a parameter/result of a reflected function that takes whatever kind it is given (Godot's
+                  // Variant): the callee reads the Value's own Type(). Never a field's kind, never a Value's.
         Array,    // an ordered list of Values (UE's TArray, a Lua sequence): Value::Array
         Map,      // string keys to Values (UE's TMap<FString, ...>, a Lua record): Value::Map
         Callable, // something to call later that a language handed over (UE's delegate): Value::Callable

@@ -98,9 +98,9 @@ namespace Desert::Scripting
             return 0;
         }
 
-        /// A Luau function held by the engine: pinned in the VM's registry for as long as a copy lives, alive while
-        /// the (entity, slot) that made it still runs the same load, called on that slot's thread with the world
-        /// open — exactly as the slot's own OnUpdate is.
+        /// A Luau function held by the engine: pinned in the VM's registry for as long as a copy lives, alive
+        /// while the (entity, slot) that made it still runs the same load, called on that slot's thread with the
+        /// world open — exactly as the slot's own OnUpdate is.
         class LuauCallable final : public Reflection::Callable::Target
         {
         public:
@@ -164,7 +164,8 @@ namespace Desert::Scripting
                 return std::nullopt;
             }
             ScriptEngine::Impl& host = ScriptEngine::Impl::Of( L );
-            return Reflection::Callable( std::make_shared<LuauCallable>( host, host.CurrentOwner, lua_ref( L, index ) ) );
+            return Reflection::Callable(
+                 std::make_shared<LuauCallable>( host, host.CurrentOwner, lua_ref( L, index ) ) );
         }
 
         /// The global table `name` (the reflected library's, when one is bound under it), created when absent.
@@ -189,8 +190,8 @@ namespace Desert::Scripting
         lua_setglobal( L, "log" );
 
         OpenGlobalTable( L, "World" );
-        for ( const luaL_Reg& entry :
-              { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet }, luaL_Reg{ "has", &WorldVarHas } } )
+        for ( const luaL_Reg& entry : { luaL_Reg{ "set", &WorldVarSet }, luaL_Reg{ "get", &WorldVarGet },
+                                        luaL_Reg{ "has", &WorldVarHas } } )
         {
             lua_pushcfunction( L, entry.func, entry.name );
             lua_setfield( L, -2, entry.name );

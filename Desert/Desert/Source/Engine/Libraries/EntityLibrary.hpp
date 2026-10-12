@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/EntityValue.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -104,8 +104,8 @@ namespace Desert::Libraries
     };
 
     /// The verbs of a projectile entity (UE UProjectileMovementComponent's Velocity / SetVelocityInLocalSpace and
-    /// AActor::SetInstigator). The movement itself is ECS/System/ProjectileMovement.cpp; each verb is a no-op on an
-    /// entity without a ProjectileComponent.
+    /// AActor::SetInstigator). The movement itself is ECS/System/ProjectileMovement.cpp; each verb is a no-op on
+    /// an entity without a ProjectileComponent.
     struct ProjectileLibrary
     {
         REFLECT( ScriptName( "Projectile" ) )
@@ -130,8 +130,9 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "Material" ) )
 
-        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setMaterialParam" ),
-                  Tooltip( "value = {x, y, z, w}; fails on an entity with no static mesh and no Shader Override." ) )
+        FUNCTION(
+             ScriptCallable, ScriptMethod, ScriptName( "setMaterialParam" ),
+             Tooltip( "value = {x, y, z, w}; fails on an entity with no static mesh and no Shader Override." ) )
         static void SetMaterialParam( ECS::Entity entity, const std::string& name, const glm::vec4& value );
 
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "getMaterialParam" ) )
@@ -148,9 +149,9 @@ namespace Desert::Libraries
         static std::string GetShader( ECS::Entity entity );
     };
 
-    /// What a trace through the world found — a port of UE's FHitResult (Engine/HitResult.h) to what Scene::Raycast
-    /// measures: whether something blocked the trace, where and with which surface normal, how far along it and the
-    /// entity hit. A miss leaves bBlockingHit false and Entity nil.
+    /// What a trace through the world found — a port of UE's FHitResult (Engine/HitResult.h) to what
+    /// Scene::Raycast measures: whether something blocked the trace, where and with which surface normal, how far
+    /// along it and the entity hit. A miss leaves bBlockingHit false and Entity nil.
     struct HitResult
     {
         REFLECT( ScriptStruct )
@@ -199,14 +200,16 @@ namespace Desert::Libraries
                   Tooltip( "A debug sphere drawn with the DebugColor template." ) )
         static ECS::Entity SpawnMarker( const glm::vec3& position, float scale, const glm::vec3& color );
 
-        FUNCTION( ScriptCallable, ScriptName( "raycast" ),
-                  Tooltip( "The nearest static-mesh or landscape hit along a ray, within maxDistance (unbounded by "
-                           "default)." ) )
+        FUNCTION(
+             ScriptCallable, ScriptName( "raycast" ),
+             Tooltip( "The nearest static-mesh or landscape hit along a ray, within maxDistance (unbounded by "
+                      "default)." ) )
         static HitResult Raycast( const glm::vec3& origin, const glm::vec3& direction,
                                   float maxDistance = std::numeric_limits<float>::max() );
 
-        FUNCTION( ScriptCallable, ScriptName( "cameraRay" ),
-                  Tooltip( "The active camera's eye ray (looking down -Z from the origin when there is no camera)." ) )
+        FUNCTION(
+             ScriptCallable, ScriptName( "cameraRay" ),
+             Tooltip( "The active camera's eye ray (looking down -Z from the origin when there is no camera)." ) )
         static WorldRay CameraRay();
     };
 } // namespace Desert::Libraries

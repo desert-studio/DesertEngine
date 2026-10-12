@@ -147,8 +147,9 @@ namespace Desert::Scripting
         [[nodiscard]] Common::BoolResultStr CallFrom( LuauSlot slot, const char* function, lua_State* from,
                                                       int first, int count );
 
-        /// Calls the function a native pinned with lua_ref (a Callable's, Timer.after's callback) with `args` on the
-        /// slot's thread, under the watchdog and the slot's memory category. The reference stays; Unref drops it.
+        /// Calls the function a native pinned with lua_ref (a Callable's, Timer.after's callback) with `args` on
+        /// the slot's thread, under the watchdog and the slot's memory category. The reference stays; Unref drops
+        /// it.
         [[nodiscard]] Common::BoolResultStr CallRef( LuauSlot slot, int function,
                                                      std::span<const Reflection::Value> args = {} );
         void                                Unref( int reference );

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -10,10 +10,10 @@
 
 namespace Desert::Libraries
 {
-    /// Keyboard/mouse state and the local player's Enhanced Input for gameplay code — UE's input functions of APlayerController (IsInputKeyDown,
-    /// WasInputKeyJustPressed, GetInputMouseDelta). Keys are named ("W", "5", "Space", "Shift", "Left", ...).
-    /// The frame state (edges, mouse delta, the cursor request) is advanced by the game loop: NewFrame before
-    /// gameplay runs, ConsumeCursorLockRequest after.
+    /// Keyboard/mouse state and the local player's Enhanced Input for gameplay code — UE's input functions of
+    /// APlayerController (IsInputKeyDown, WasInputKeyJustPressed, GetInputMouseDelta). Keys are named ("W", "5",
+    /// "Space", "Shift", "Left", ...). The frame state (edges, mouse delta, the cursor request) is advanced by the
+    /// game loop: NewFrame before gameplay runs, ConsumeCursorLockRequest after.
     struct InputLibrary
     {
         REFLECT( ScriptName( "Input" ) )
@@ -46,7 +46,8 @@ namespace Desert::Libraries
                   Tooltip( "The action's value this frame (x; x, y for Axis2D; x, y, z for Axis3D)." ) )
         static glm::vec3 ActionValue( const std::string& action );
 
-        FUNCTION( ScriptCallable, ScriptName( "actionTriggered" ), Tooltip( "ETriggerEvent::Triggered this frame." ) )
+        FUNCTION( ScriptCallable, ScriptName( "actionTriggered" ),
+                  Tooltip( "ETriggerEvent::Triggered this frame." ) )
         static bool ActionTriggered( const std::string& action );
 
         FUNCTION( ScriptCallable, ScriptName( "actionStarted" ), Tooltip( "ETriggerEvent::Started this frame." ) )
@@ -55,10 +56,12 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "actionOngoing" ), Tooltip( "ETriggerEvent::Ongoing this frame." ) )
         static bool ActionOngoing( const std::string& action );
 
-        FUNCTION( ScriptCallable, ScriptName( "actionCompleted" ), Tooltip( "ETriggerEvent::Completed this frame." ) )
+        FUNCTION( ScriptCallable, ScriptName( "actionCompleted" ),
+                  Tooltip( "ETriggerEvent::Completed this frame." ) )
         static bool ActionCompleted( const std::string& action );
 
-        FUNCTION( ScriptCallable, ScriptName( "actionCanceled" ), Tooltip( "ETriggerEvent::Canceled this frame." ) )
+        FUNCTION( ScriptCallable, ScriptName( "actionCanceled" ),
+                  Tooltip( "ETriggerEvent::Canceled this frame." ) )
         static bool ActionCanceled( const std::string& action );
 
         FUNCTION( ScriptCallable, ScriptName( "actionSeconds" ),
@@ -76,8 +79,8 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptName( "rebindKey" ),
                   Tooltip( "UE MapPlayerKey: key in place of defaultKey for the action, saved to this user's "
                            "input.json." ) )
-        static void RebindKey( const std::string& context, const std::string& action, const std::string& defaultKey,
-                               const std::string& key );
+        static void RebindKey( const std::string& context, const std::string& action,
+                               const std::string& defaultKey, const std::string& key );
 
         /// Advances the frame: key edges for WasPressed, and the mouse delta the host computed (capture aware).
         static void NewFrame( glm::vec2 mouseDelta );

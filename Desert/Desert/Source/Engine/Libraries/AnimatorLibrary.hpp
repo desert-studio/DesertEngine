@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/EntityValue.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 #include <string>

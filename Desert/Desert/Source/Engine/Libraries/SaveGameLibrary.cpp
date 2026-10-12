@@ -26,7 +26,8 @@ namespace Desert::Libraries
         return Core::SaveGameToSlot( *world->World, slot, user );
     }
 
-    Common::ResultStr<std::vector<std::string>> SaveGameLibrary::Load( const std::string& slot, std::uint32_t user )
+    Common::ResultStr<std::vector<std::string>> SaveGameLibrary::Load( const std::string& slot,
+                                                                       std::uint32_t      user )
     {
         using Skipped                   = std::vector<std::string>;
         const Core::WorldContext* world = Played();

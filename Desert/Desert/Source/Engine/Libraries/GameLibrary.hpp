@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 #include <string>
@@ -64,8 +64,9 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "Timer" ) )
 
-        FUNCTION( ScriptCallable, ScriptName( "after" ),
-                  Tooltip( "Calls the function once after `seconds` of game time (Play only); it may re-arm itself." ) )
+        FUNCTION(
+             ScriptCallable, ScriptName( "after" ),
+             Tooltip( "Calls the function once after `seconds` of game time (Play only); it may re-arm itself." ) )
         static void After( float seconds, const Reflection::Callable& callback );
     };
 } // namespace Desert::Libraries

@@ -273,9 +273,10 @@ namespace Desert::Libraries
         auto* smc = Get<ECS::StaticMeshComponent>( entity );
         if ( smc == nullptr )
         {
-            Reflection::RaiseCallError( std::format( "setMaterialParam('{}'): the entity has no static mesh and no "
-                                                     "Shader Override - there is no material to write",
-                                                     name ) );
+            Reflection::RaiseCallError(
+                 std::format( "setMaterialParam('{}'): the entity has no static mesh and no "
+                              "Shader Override - there is no material to write",
+                              name ) );
             return;
         }
         UpsertParam( smc->ScriptSlotParams, name, value );
@@ -316,7 +317,8 @@ namespace Desert::Libraries
             mc->Params.clear();
             mc->Textures.clear();
         }
-        if ( auto* smc = Get<ECS::StaticMeshComponent>( entity ); smc != nullptr && !smc->ScriptSlotParams.empty() )
+        if ( auto* smc = Get<ECS::StaticMeshComponent>( entity );
+             smc != nullptr && !smc->ScriptSlotParams.empty() )
         {
             smc->ScriptSlotParams.clear();
             smc->RuntimeMaterialInstances.clear();

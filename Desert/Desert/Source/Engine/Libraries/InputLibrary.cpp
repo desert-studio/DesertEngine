@@ -103,9 +103,8 @@ namespace Desert::Libraries
                 return std::nullopt;
             auto guid = input->ActionNamed( name );
             if ( !guid )
-                Reflection::RaiseCallError(
-                     std::format( "Input.{}: no mapping context the player added maps an action named '{}'", function,
-                                  name ) );
+                Reflection::RaiseCallError( std::format(
+                     "Input.{}: no mapping context the player added maps an action named '{}'", function, name ) );
             return guid;
         }
 

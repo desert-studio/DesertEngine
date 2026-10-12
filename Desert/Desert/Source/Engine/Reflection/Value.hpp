@@ -30,7 +30,7 @@ namespace Desert::Reflection
         {
             virtual ~Target() = default;
             /// Whether calling still reaches the owner it was made for.
-            [[nodiscard]] virtual bool Alive() const = 0;
+            [[nodiscard]] virtual bool    Alive() const                                = 0;
             virtual Common::BoolResultStr Call( const Value* args, std::size_t count ) = 0;
         };
 
@@ -172,7 +172,8 @@ namespace Desert::Reflection
         }
         static Value MakeStruct( std::string type, Map fields )
         {
-            return Value( Storage( std::in_place_type<StructData>, StructData{ std::move( type ), std::move( fields ) } ) );
+            return Value(
+                 Storage( std::in_place_type<StructData>, StructData{ std::move( type ), std::move( fields ) } ) );
         }
         static Value MakeCallable( Reflection::Callable callable )
         {
@@ -199,9 +200,9 @@ namespace Desert::Reflection
         }
 
     private:
-        using Storage = std::variant<std::monostate, bool, std::int64_t, std::uint64_t, float, double, std::string,
-                                     Float2, Float3, Float4, EnumBits, EntityRef, Array, Map, StructData,
-                                     Reflection::Callable>;
+        using Storage =
+             std::variant<std::monostate, bool, std::int64_t, std::uint64_t, float, double, std::string, Float2,
+                          Float3, Float4, EnumBits, EntityRef, Array, Map, StructData, Reflection::Callable>;
 
         explicit Value( Storage data ) : m_Data( std::move( data ) )
         {

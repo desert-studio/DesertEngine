@@ -70,8 +70,9 @@ namespace Desert::Libraries
         const std::optional<UI::UIDataStore::Value> shown = Shown( value );
         if ( !shown )
         {
-            LOG_ERROR( "[Script] ui.set('{}'): a value is a number, a boolean, a string or a colour (vector); got {}",
-                       key, Reflection::FieldTypeName( value.Type() ) );
+            LOG_ERROR(
+                 "[Script] ui.set('{}'): a value is a number, a boolean, a string or a colour (vector); got {}",
+                 key, Reflection::FieldTypeName( value.Type() ) );
             return;
         }
         Store().Set( key, *shown );
@@ -143,9 +144,10 @@ namespace Desert::Libraries
     {
         const std::optional<UI::UIDataStore::Value> shown = Shown( value );
         if ( !shown )
-            return Common::MakeError<bool>( std::format(
-                 "ui.list_set('{}', {}, '{}'): a value is a number, a boolean, a string or a colour (vector); got {}",
-                 key, index, field, Reflection::FieldTypeName( value.Type() ) ) );
+            return Common::MakeError<bool>( std::format( "ui.list_set('{}', {}, '{}'): a value is a number, a "
+                                                         "boolean, a string or a colour (vector); got {}",
+                                                         key, index, field,
+                                                         Reflection::FieldTypeName( value.Type() ) ) );
         return Store().Collection( key ).SetField( index - 1, field, *shown );
     }
 

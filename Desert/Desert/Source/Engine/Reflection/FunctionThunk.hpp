@@ -77,7 +77,7 @@ namespace Desert::Reflection
     struct StructMember
     {
         const char* Name;
-        M C::*      Pointer;
+        M C::*Pointer;
     };
     template <typename C, typename M>
     StructMember( const char*, M C::* ) -> StructMember<C, M>;
@@ -390,8 +390,8 @@ namespace Desert::Reflection
                          bool ok    = false;
                          ( ( !found && data.Fields.Keys[i] == member.Name
                                   ? ( found = true,
-                                      ok    = KindFits<std::remove_cvref_t<decltype( std::declval<T&>().*
-                                                                                   member.Pointer )>>(
+                                      ok    = KindFits<
+                                              std::remove_cvref_t<decltype( std::declval<T&>().*member.Pointer )>>(
                                            data.Fields.Values[i] ) )
                                   : false ),
                            ... );
@@ -410,12 +410,13 @@ namespace Desert::Reflection
             std::apply(
                  [&]( const auto&... member )
                  {
-                     ( ( [&]
-                         {
-                             using M = std::remove_cvref_t<decltype( out.*member.Pointer )>;
-                             if ( const Value* field = data.Fields.Find( member.Name ) )
-                                 out.*member.Pointer = ValueTraits<M>::From( *field );
-                         }() ),
+                     ( (
+                            [&]
+                            {
+                                using M = std::remove_cvref_t<decltype( out.*member.Pointer )>;
+                                if ( const Value* field = data.Fields.Find( member.Name ) )
+                                    out.*member.Pointer = ValueTraits<M>::From( *field );
+                            }() ),
                        ... );
                  },
                  ReflectedStruct<T>::Members );
@@ -597,7 +598,7 @@ namespace Desert::Reflection
             }
             else if constexpr ( kIsResult<typename S::Return> )
             {
-                using T                                   = typename ResultValueOf<std::remove_cvref_t<typename S::Return>>::Type;
+                using T = typename ResultValueOf<std::remove_cvref_t<typename S::Return>>::Type;
                 const std::remove_cvref_t<typename S::Return> result = invoke();
                 rets[0] = result.IsSuccess() ? ValueTraits<T>::To( result.GetValue() ) : Value();
                 rets[1] = Value::String( result.IsSuccess() ? std::string() : result.GetError() );
@@ -670,10 +671,11 @@ namespace Desert::Reflection
         info.Name   = name;
         info.Owner  = owner;
         info.Params = Detail::Params<Args>( params, std::make_index_sequence<N>{} );
-        using R = std::remove_cvref_t<typename S::Return>;
+        using R     = std::remove_cvref_t<typename S::Return>;
         if constexpr ( kIsOutcome<R> )
         {
-            info.Returns.push_back( ParamInfo{ .Name = "Ok", .Type = FieldType::Bool, .TypeName = returnSpelling } );
+            info.Returns.push_back(
+                 ParamInfo{ .Name = "Ok", .Type = FieldType::Bool, .TypeName = returnSpelling } );
             info.Returns.push_back(
                  ParamInfo{ .Name = "Error", .Type = FieldType::String, .TypeName = returnSpelling } );
         }

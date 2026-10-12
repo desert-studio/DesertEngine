@@ -67,7 +67,8 @@ namespace Desert::VFX
             }
             const std::optional<glm::vec4> c = Components( value );
             if ( !c )
-                return Common::MakeFormattedError<bool>( "field '{}' needs a vector or a list of numbers", f.Name );
+                return Common::MakeFormattedError<bool>( "field '{}' needs a vector or a list of numbers",
+                                                         f.Name );
             if ( f.Type == T::Position )
                 return w.WritePosition( index, f.Name, glm::vec3( *c ) );
             if ( f.Type == T::Direction )
@@ -86,10 +87,12 @@ namespace Desert::VFX
             return false;
         if ( world->Assets == nullptr )
         {
-            LOG_ERROR( "[Script] VFX.useChannel('{}'): no AssetManager bound to resolve the channel through", name );
+            LOG_ERROR( "[Script] VFX.useChannel('{}'): no AssetManager bound to resolve the channel through",
+                       name );
             return false;
         }
-        const Common::BoolResultStr used = world->World->GetVFXWorld().GetDataChannels().Use( name, *world->Assets );
+        const Common::BoolResultStr used =
+             world->World->GetVFXWorld().GetDataChannels().Use( name, *world->Assets );
         if ( !used )
             LOG_ERROR( "[Script] VFX.useChannel('{}'): {}", name, used.GetError() );
         return used.IsSuccess();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 #include <string>
@@ -35,7 +35,8 @@ namespace Desert::Libraries
     {
         REFLECT( ScriptName( "loc" ) )
 
-        FUNCTION( ScriptCallable, ScriptName( "text" ), Tooltip( "The translation of a key, in the current language." ) )
+        FUNCTION( ScriptCallable, ScriptName( "text" ),
+                  Tooltip( "The translation of a key, in the current language." ) )
         static std::string Text( const std::string& key, const Reflection::Value::Map& args = {} );
 
         FUNCTION( ScriptCallable, ScriptName( "plural" ), Tooltip( "The translation of a key for a count." ) )
@@ -48,7 +49,8 @@ namespace Desert::Libraries
                   Tooltip( "An amount in a currency (ISO 4217 code); an unknown code is logged and shown raw." ) )
         static std::string Money( double amount, const std::string& code );
 
-        FUNCTION( ScriptCallable, ScriptName( "date" ), Tooltip( "A calendar date in the current locale's form." ) )
+        FUNCTION( ScriptCallable, ScriptName( "date" ),
+                  Tooltip( "A calendar date in the current locale's form." ) )
         static std::string Date( int year, int month, int day );
 
         FUNCTION( ScriptCallable, ScriptName( "language" ), Tooltip( "The current language's tag." ) )

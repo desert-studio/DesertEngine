@@ -91,8 +91,8 @@ namespace Desert::Scripting
         Core::TimerManager Timers;
 
         /// The local player's Enhanced Input (ScriptEngine::PlayerInput; the Input library's action*/
-        /// addContext/rebindKey read it through Core::WorldContext::PlayerInput). Begun on the first played frame (TickPlayerInput), ended when Play
-        /// stops.
+        /// addContext/rebindKey read it through Core::WorldContext::PlayerInput). Begun on the first played frame
+        /// (TickPlayerInput), ended when Play stops.
         Input::LocalPlayerInput PlayerInput;
         bool                    PlayerInputBegun = false;
 

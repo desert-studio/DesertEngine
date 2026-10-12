@@ -65,11 +65,11 @@ namespace Desert::Reflection
         while ( required > 0 && Params[required - 1].Default != nullptr )
             --required;
         if ( argc < required || argc > Params.size() )
-            return Common::MakeError<bool>( std::format(
-                 "{}::{} takes {} argument(s), got {}", Owner, Name,
-                 required == Params.size() ? std::format( "{}", required )
-                                           : std::format( "{} to {}", required, Params.size() ),
-                 argc ) );
+            return Common::MakeError<bool>( std::format( "{}::{} takes {} argument(s), got {}", Owner, Name,
+                                                         required == Params.size()
+                                                              ? std::format( "{}", required )
+                                                              : std::format( "{} to {}", required, Params.size() ),
+                                                         argc ) );
         std::vector<Value> filled;
         if ( argc < Params.size() )
         {

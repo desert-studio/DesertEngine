@@ -211,7 +211,7 @@ namespace Desert::Scripting
         const LuauSlot target = m_Impl->SlotOf( entity, slot );
         if ( target == 0 || !m_Impl->Runtime->Defines( target, "OnHit" ) )
             return;
-        m_Impl->CurrentOwner                         = Impl::SlotKey( entity, slot ); // Timer.after ownership
+        m_Impl->CurrentOwner = Impl::SlotKey( entity, slot ); // Timer.after ownership
         const Core::WorldContext::Scope        world( m_Impl->Context );
         const std::array<Reflection::Value, 3> after = {
              Reflection::Value::Vec3( { point.x, point.y, point.z } ),

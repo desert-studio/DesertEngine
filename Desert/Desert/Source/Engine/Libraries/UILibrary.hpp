@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 #include <string>
@@ -50,7 +50,8 @@ namespace Desert::Libraries
         static Common::BoolResultStr ListInsert( const std::string& key, int index,
                                                  const Reflection::Value::Map& record );
 
-        FUNCTION( ScriptCallable, ScriptName( "list_remove" ), Tooltip( "Removes the index-th record (1-based)." ) )
+        FUNCTION( ScriptCallable, ScriptName( "list_remove" ),
+                  Tooltip( "Removes the index-th record (1-based)." ) )
         static Common::BoolResultStr ListRemove( const std::string& key, int index );
 
         FUNCTION( ScriptCallable, ScriptName( "list_set" ),

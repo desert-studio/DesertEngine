@@ -407,7 +407,8 @@ namespace Desert::Scripting
                          std::format( "{} {}", target.Script, function ) );
     }
 
-    Common::BoolResultStr LuauRuntime::CallRef( LuauSlot slot, int function, std::span<const Reflection::Value> args )
+    Common::BoolResultStr LuauRuntime::CallRef( LuauSlot slot, int function,
+                                                std::span<const Reflection::Value> args )
     {
         Impl& impl  = *m_Impl;
         auto  found = impl.Slots.find( slot );
@@ -422,8 +423,8 @@ namespace Desert::Scripting
         }
         for ( const Reflection::Value& arg : args )
             LuauBinder::PushValue( target.Thread, arg );
-        return impl.Run( target.Thread, static_cast<int>( args.size() ), 0, impl.Scripts.at( target.Script ).Category,
-                         std::format( "{} callback", target.Script ) );
+        return impl.Run( target.Thread, static_cast<int>( args.size() ), 0,
+                         impl.Scripts.at( target.Script ).Category, std::format( "{} callback", target.Script ) );
     }
 
     void LuauRuntime::Unref( int reference )

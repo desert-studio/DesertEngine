@@ -2,7 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/ECS/EntityValue.hpp>
-#include <Engine/Reflection/ReflectionMacros.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
 namespace Desert::Libraries

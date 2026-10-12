@@ -79,7 +79,8 @@ namespace Desert::Scripting::LuauBinder
         }
 
         /// Calls `function` with the arguments from stack slot `first` on; pushes its results. Arguments left out
-        /// at the end — or passed as nil there — take their parameters' defaults (FunctionInfo::Invoke fills them).
+        /// at the end — or passed as nil there — take their parameters' defaults (FunctionInfo::Invoke fills
+        /// them).
         int Invoke( lua_State* L, const FunctionInfo& function, void* self, int first )
         {
             const int total    = static_cast<int>( function.Params.size() );
@@ -547,8 +548,8 @@ namespace Desert::Scripting::LuauBinder
         /// The function a Callable is pushed as: its arguments in their own Luau kinds, its failure a Luau error.
         int CallCallable( lua_State* L )
         {
-            const auto* callable =
-                 static_cast<const Reflection::Callable*>( lua_touserdatatagged( L, lua_upvalueindex( 1 ), kCallableTag ) );
+            const auto* callable = static_cast<const Reflection::Callable*>(
+                 lua_touserdatatagged( L, lua_upvalueindex( 1 ), kCallableTag ) );
             std::vector<Value> args;
             for ( int i = 1, n = lua_gettop( L ); i <= n; ++i )
             {
@@ -590,7 +591,8 @@ namespace Desert::Scripting::LuauBinder
         {
             if ( lua_type( L, index ) != LUA_TTABLE )
             {
-                why = std::format( "expected a {} (table), got {}", type.Name, lua_typename( L, lua_type( L, index ) ) );
+                why = std::format( "expected a {} (table), got {}", type.Name,
+                                   lua_typename( L, lua_type( L, index ) ) );
                 return std::nullopt;
             }
             const int  table = lua_absindex( L, index );
@@ -612,8 +614,9 @@ namespace Desert::Scripting::LuauBinder
                     why = std::format( "{} has no field '{}'", type.Name, name );
                     return std::nullopt;
                 }
-                std::optional<Value> value = ToElement(
-                     L, -1, field->Type, field->StructType != nullptr ? field->StructType->Name : field->TypeName, why );
+                std::optional<Value> value =
+                     ToElement( L, -1, field->Type,
+                                field->StructType != nullptr ? field->StructType->Name : field->TypeName, why );
                 if ( !value )
                 {
                     lua_pop( L, 2 );
@@ -788,7 +791,8 @@ namespace Desert::Scripting::LuauBinder
         lua_setfield( L, LUA_REGISTRYINDEX, kCallableFactory );
     }
 
-    std::optional<Value> ToParamValue( lua_State* L, int index, const Reflection::ParamInfo& param, std::string& why )
+    std::optional<Value> ToParamValue( lua_State* L, int index, const Reflection::ParamInfo& param,
+                                       std::string& why )
     {
         switch ( param.Type )
         {
