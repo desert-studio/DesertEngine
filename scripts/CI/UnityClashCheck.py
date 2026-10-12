@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Approximate MSBuild unity groups with clang -fsyntax-only.
-Usage: UnityClashCheck.py <repo root> <scratch dir> 12 Common Desert Editor, after `CI=true premake5 gmake`
+Usage: UnityClashCheck.py <repo root> <scratch dir> 12 Common Desert EditorCore, after `CI=true premake5 gmake`
 and `CI=true VULKAN_SDK=/opt/homebrew PROGRAMFILES=/tmp premake5 vs2022 --os=windows --unity` in the root.
 Both write into build/Projects/ (BuildScripts/Workspace.lua); every path inside is relative to it.
 Re-derives the opt-out list in BuildScripts/UnityBuild.lua; "0 with errors" is the pass.

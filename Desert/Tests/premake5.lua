@@ -256,77 +256,15 @@ local kRunners = {
                   'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
     end,
     Editor = function(deps)
+        -- EditorCore (Editor/premake5.lua) is every editor source but the entry point, built once as a static
+        -- library, so a suite gets the editor code it tests by LINKING it, as the Editor executable does -- not
+        -- from a list of editor sources compiled here a second time (BLD-EDITORCORE; the list was 67 files).
+        -- Named before DesertRunnerSettings so the link line has it ahead of Desert and the libraries it uses:
+        -- gmake resolves static libraries left to right.
+        links { "EditorCore" }
         DesertRunnerSettings(deps)
-        -- The editor is an executable, so the editor sources its suites test are compiled here, once
-        -- (the union of what the suites compiled one by one before BUILD1).
         files {
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetFileOps.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InstanceFold.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Control/ControlSocket.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GizmoState.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/LogView.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/MultiEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ThemeManager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ViewportModes.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/EditedMeshAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/LevelEditor/SceneMeshBounds.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PropertyEditor/PropertyReset.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/CurveView.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Splash/SplashImage.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/InputAssetEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeMeshSplit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeActors.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailFoliage.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceAlphaMode.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceMaterialAdapter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportManager.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MaterialImportContract.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SkeletonBindEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/PhysicsAssetEditor/PhysicsAssetEdit.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/LevelMaterialProperties.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Retarget/RetargetDocumentModel.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ControlRig/ControlRigDocumentModel.cpp", -- the rig editor model (ControlRigDocument suite)
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/OutlinerColumn.cpp", -- the Sequencer Outliner column (OutlinerColumn suite)
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Sequencer/TrackFilter.cpp",
-            "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.cpp",
+            -- PackagedContent: the player's packaged-content resolution (the Runtime executable's source).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source/PackagedContent.cpp",
         }
         includedirs {
@@ -343,9 +281,15 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         }
         links { "ImGuiNodeEditor" }
+        -- EditorCore's face tracking builds against dlib when ThirdParty/dlib is present (Editor/premake5.lua).
+        if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
+            links { "Dlib" }
+        end
         filter "system:windows"
-            -- The control socket (ControlTransport, ControlDispatch) is Winsock.
-            links { "ws2_32", "advapi32" }
+            -- The control socket (ControlTransport, ControlDispatch) is Winsock; the system file dialogs
+            -- (Editor/Platform/Windows/DesktopPlatformWindows.cpp) are comdlg32/shell32/ole32 -- the same
+            -- system libraries the Editor executable names, since both link EditorCore.
+            links { "ws2_32", "advapi32", "comdlg32", "shell32", "ole32" }
         filter {}
     end,
 }
