@@ -14,7 +14,7 @@
 // declared its own longer block (skinned: BoneOffset; instanced: wind) left the fragment 68 bytes against
 // a 72/112-byte vertex — one pipeline, two lengths. The tails therefore live here: a path that does not
 // read them leaves them unpushed (a push of a sub-range is legal), and every stage of every pipeline
-// reflects the same 112 bytes, inside the 128 every Vulkan device guarantees.
+// reflects the same 120 bytes, inside the 128 every Vulkan device guarantees.
 //
 // The guard is real work, not ceremony: DShaderParser injects this include into the fragment stage of any
 // shader with a `Properties Binding(n)` block, and that shader's own vertex stage includes it too.
@@ -31,6 +31,9 @@ PushConstant PushConstants
                          // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
+    vec2 ShadowSlope;   // offset 112 — terrain light-view cell only (Programs/Terrain/TerrainShadow.shader,
+                        // Material::SetShadowSlopeBias): Graphic::CascadeCasterBias SlopeBias / SlopeClamp
+                        // of the cascade being drawn. Block size 120, inside the 128 every device guarantees.
 }
 m_PushConstants;
 

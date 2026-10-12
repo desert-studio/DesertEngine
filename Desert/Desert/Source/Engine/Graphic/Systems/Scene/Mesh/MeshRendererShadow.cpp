@@ -999,7 +999,8 @@ namespace Desert::Graphic::System
                          {
                              continue; // gone since the setup: its draws went with it
                          }
-                         if ( auto cast = caster->RecordShadowCascade( context, c, firstBlock, m_CascadeCasterVP[c] );
+                         if ( auto cast = caster->RecordShadowCascade(
+                                   context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
                               !cast.IsSuccess() )
                          {
                              return cast;

@@ -57,6 +57,15 @@ Shader "TerrainShadow"
 
         void main()
         {
+            // THE CASTER'S SLOPE DEPTH BIAS, as Mesh/Surface/Pass_ShadowDepth.glslh adds it to every mesh
+            // caster (UE: ComputeDepthBiasDirectionalSpot): the depth's gradient per shadow-map texel is
+            // tan(angle to the sun) in this depth's units, clamped at 45 degrees. The constant part is already
+            // in the pushed cascade matrix (Graphic::CasterViewProj); this cell takes the slope pair from the
+            // push block, beside that matrix, because one material draws every cascade. Taken before the
+            // discard, while the quad's derivatives are defined.
+            const float depth    = gl_FragCoord.z;
+            const float gradient = max( abs( dFdx( depth ) ), abs( dFdy( depth ) ) );
+            const float biased   = depth + m_PushConstants.ShadowSlope.x * min( gradient, m_PushConstants.ShadowSlope.y );
             // A hole casts no shadow: the same visibility test as the surface (LandscapeIsHole).
             if ( u_T.Params2.y > 0.5 && u_T.Params.z > 0.5 )
             {
@@ -69,7 +78,7 @@ Shader "TerrainShadow"
                     discard;
             }
             // Same encoding as Shadow.shader: the R32F-in-RGBA32F target the receivers sample.
-            o_Depth = vec4( gl_FragCoord.z, 0.0, 0.0, 1.0 );
+            o_Depth = vec4( biased, 0.0, 0.0, 1.0 );
         }
     }
 }

@@ -3984,7 +3984,8 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
 
     const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( shadow.empty() );
-    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeVP[c]);"
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeCasterVP[c],"
+                            "m_CascadeCasterBias[c]);"
                             "!cast.IsSuccess()){returncast;}" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
