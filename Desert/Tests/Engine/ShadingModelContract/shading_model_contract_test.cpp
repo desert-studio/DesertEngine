@@ -1,9 +1,9 @@
 // The shading-model contract (Engine/Core/ShaderCompiler/ShadingModels/,
 // ShadingModels/ShadingModelContract.glslh).
 //
-// Two halves. The shading-word tests pin the TABLE — where the index, the texture count and the two payload floats
-// live in the G-buffer shading word (R32_UINT) — on both sides of the C++/GLSL boundary; they hold from the
-// contract alone. The registry tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most two payload
+// Two halves. The shading-word tests pin the TABLE — where the index, the texture count and the four payload floats
+// live in the G-buffer shading word (RG32_UINT) — on both sides of the C++/GLSL boundary; they hold from the
+// contract alone. The registry tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most four payload
 // floats, Inputs within SurfaceOutput, a Guid-stable index — over the shipped files and over built-up manifests;
 // they need the implementation (ShadingModels/*.cpp, compiled in by the premake match).
 
@@ -93,7 +93,7 @@ namespace
     }
 
     const std::vector<std::string> kFields{ "BaseColor", "Metallic",    "Roughness",  "Emissive",
-                                            "Normal",    "CustomData0", "CustomData1" };
+                                            "Normal",    "CustomData0", "CustomData1", "CustomData2", "CustomData3" };
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -101,14 +101,16 @@ namespace
 
 TEST( ShadingWord, FieldsAreDisjointInsideTheUintWord )
 {
-    std::uint32_t used = 0;
+    std::uint64_t used = 0;
     for ( const SM::ShadingWordField& f : SM::kShadingWordFields )
     {
         ASSERT_GT( f.BitCount, 0 ) << f.Name;
         ASSERT_LE( f.FirstBit + f.BitCount, SM::kShadingWordBits )
              << f.Name << " reaches past bit " << static_cast<int>( SM::kShadingWordBits ) << " of the word";
-        const auto mask = static_cast<std::uint32_t>( ( ( 1ull << f.BitCount ) - 1ull ) << f.FirstBit );
+        const std::uint64_t mask = ( ( 1ull << f.BitCount ) - 1ull ) << f.FirstBit;
         EXPECT_EQ( used & mask, 0u ) << f.Name << " overlaps another field of the shading word";
+        EXPECT_EQ( f.FirstBit / 32, ( f.FirstBit + f.BitCount - 1 ) / 32 )
+             << f.Name << " straddles the word's .x and .y halves";
         used |= mask;
     }
 }
@@ -119,9 +121,9 @@ TEST( ShadingWord, IndexFieldHoldsExactlyTheModelCapacityAndUnlitIsZero )
     EXPECT_EQ( Field( "INDEX" ).FirstBit, 0 ) << "a word of zero must read as index 0, Unlit";
 }
 
-TEST( ShadingWord, PayloadIsTwoFloatsOutsideTheOccupiedFields )
+TEST( ShadingWord, PayloadIsFourFloatsOutsideTheOccupiedFields )
 {
-    EXPECT_EQ( SM::kMaxPayloadFloats, 2u );
+    EXPECT_EQ( SM::kMaxPayloadFloats, 4u );
     EXPECT_EQ( SM::kPayloadPins.size(), SM::kMaxPayloadFloats );
     for ( std::size_t i = 0; i < SM::kMaxPayloadFloats; ++i )
     {
@@ -146,6 +148,8 @@ TEST( ShadingWord, GlslDefinesAreTheCppTable )
     EXPECT_EQ( glsl.at( "TEXTURES_BITS" ), Field( "TEXTURES" ).BitCount );
     EXPECT_EQ( glsl.at( "PAYLOAD0_FIRST_BIT" ), Field( "PAYLOAD0" ).FirstBit );
     EXPECT_EQ( glsl.at( "PAYLOAD1_FIRST_BIT" ), Field( "PAYLOAD1" ).FirstBit );
+    EXPECT_EQ( glsl.at( "PAYLOAD2_FIRST_BIT" ), Field( "PAYLOAD2" ).FirstBit );
+    EXPECT_EQ( glsl.at( "PAYLOAD3_FIRST_BIT" ), Field( "PAYLOAD3" ).FirstBit );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD0" ).BitCount );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD1" ).BitCount );
     EXPECT_EQ( glsl.at( "NO_SUN_SHADOWS_BIT" ), Field( "NO_SUN_SHADOWS" ).FirstBit );
@@ -164,8 +168,8 @@ TEST( ShadingWord, SunShadowFlagIsOneBitAndTheClearValueReceives )
     EXPECT_EQ( SM::kShadingWordClearValue & ( ( 1u << Field( "INDEX" ).BitCount ) - 1u ), 0u )
          << "a cleared texel must read as index 0, Unlit";
     const std::string contract = ReadFile( ShaderRoot() / SM::kContractInclude );
-    EXPECT_NE( contract.find( "uint DesertMarkSunShadowReceive( uint shadingWord" ), std::string::npos );
-    EXPECT_NE( contract.find( "bool DesertReceivesSunShadows( uint shadingWord )" ), std::string::npos );
+    EXPECT_NE( contract.find( "uvec2 DesertMarkSunShadowReceive( uvec2 shadingWord" ), std::string::npos );
+    EXPECT_NE( contract.find( "bool DesertReceivesSunShadows( uvec2 shadingWord )" ), std::string::npos );
     EXPECT_EQ( contract.find( "uintBitsToFloat" ), std::string::npos ) << "no float<->uint bridge on the word";
     EXPECT_EQ( contract.find( "floatBitsToUint" ), std::string::npos ) << "no float<->uint bridge on the word";
 }

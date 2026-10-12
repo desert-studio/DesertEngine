@@ -95,12 +95,13 @@ TEST( MaterialImportContract, ATieIsBrokenOnlyByDefaultSurface )
     EXPECT_EQ( chosen.GetValue(), 1u );
 }
 
-// The RELATION with the shipped files: the two templates that declare Import today choose as the rule says.
+// The RELATION with the shipped files: the three templates that declare Import today choose as the rule says.
 TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 {
     const std::vector<std::pair<std::string, std::string>> files = {
          { "StandardSurface", "Editor/Resources/Shaders/Programs/Surface/StandardSurface.shader" },
-         { "Unlit", "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } };
+         { "Unlit", "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" },
+         { "FoliageSurface", "Editor/Resources/Shaders/Programs/Surface/FoliageSurface.shader" } };
     std::vector<ImportTemplate> shipped;
     for ( const auto& [name, file] : files )
     {
@@ -128,6 +129,15 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     const auto fbx = ChooseImportTemplate( Material( { "fbx.DiffuseColor" } ), shipped, "a.fbx" );
     ASSERT_TRUE( fbx.IsSuccess() ) << fbx.GetError();
     EXPECT_EQ( shipped[fbx.GetValue()].ShaderName, "StandardSurface" );
+
+    // A two-sided cut-out card (Bistro's Foliage_Leaves.DoubleSided) is foliage; either statement alone is not.
+    const auto leaf = ChooseImportTemplate(
+         Material( { "fbx.DiffuseColor", "fbx.doubleSided", "fbx.alphaMask" } ), shipped, "a.fbx" );
+    ASSERT_TRUE( leaf.IsSuccess() ) << leaf.GetError();
+    EXPECT_EQ( shipped[leaf.GetValue()].ShaderName, "FoliageSurface" );
+    const auto sheet = ChooseImportTemplate( Material( { "fbx.DiffuseColor", "fbx.doubleSided" } ), shipped, "a.fbx" );
+    ASSERT_TRUE( sheet.IsSuccess() ) << sheet.GetError();
+    EXPECT_EQ( shipped[sheet.GetValue()].ShaderName, "StandardSurface" );
 }
 
 // THM1k (owner): AN IMPORT WRITES NO PreviewMesh - every imported material's thumbnail is the ball, as in UE.

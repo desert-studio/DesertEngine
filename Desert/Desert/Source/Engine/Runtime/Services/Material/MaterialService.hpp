@@ -361,8 +361,12 @@ namespace Desert::Runtime
         // cache fill, not a change of what the service answers.
         mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
-        /// Handles the registry has no row for; logged once each, not once per frame.
+        /// Handles the registry has no row for; logged once each, not once per frame. A handle leaves the set when
+        /// the registry writes a material row for it (an import or a save that runs after the reference was
+        /// read), so the material is discovered then instead of staying missing for the session.
         mutable std::unordered_set<Assets::AssetHandle> m_ReportedMissing;
+        /// The content registry's write serial m_ReportedMissing was last reconciled against (WrittenSince).
+        mutable uint64_t m_MissingSerial = 0;
         /// Live metadata reads started by Get(); a handle here answers Pending (nullptr).
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::weak_ptr<Assets::AssetManager>                                  m_Assets;

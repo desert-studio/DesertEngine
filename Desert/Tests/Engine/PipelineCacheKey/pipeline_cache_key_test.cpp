@@ -705,7 +705,7 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
     EXPECT_EQ( uses, 1u );
 }
 
-// G-buffer slot 2 is the R32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
+// G-buffer slot 2 is the RG32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
 // declares a float sampler for a *ShadingWord, none reads one through texture()/textureLod (texelFetch only), the
 // one C++ binding is DeferredLighting's u_GBufferShadingWord fed from gbuffer[2], and the editor's buffer views of
 // the word's three fields (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive =
@@ -741,7 +741,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
             offenders.push_back( entry.path().filename().string() );
     }
     EXPECT_GT( shaders, 50u );
-    EXPECT_TRUE( offenders.empty() ) << "reads the R32_UINT shading word through a float sampler: "
+    EXPECT_TRUE( offenders.empty() ) << "reads the RG32_UINT shading word through a float sampler: "
                                      << ::testing::PrintToString( offenders );
 
     const std::string lighting =
@@ -749,7 +749,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     ASSERT_FALSE( lighting.empty() );
     EXPECT_NE( lighting.find( "Uniform(1)usampler2Du_GBufferShadingWord;" ), std::string::npos );
     const auto fetch =
-         lighting.find( "constuintword=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).r;" );
+         lighting.find( "constuvec2word=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).rg;" );
     ASSERT_NE( fetch, std::string::npos );
     for ( const char* branch : { "if(dbg==9){oColor=vec4(HeatColor(DesertSampledTextureCount(word)",
                                  "if(dbg==10){constfloathue=fract(float(shadingModel)",
