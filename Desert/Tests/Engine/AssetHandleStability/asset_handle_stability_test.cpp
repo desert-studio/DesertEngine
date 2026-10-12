@@ -556,19 +556,15 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     // the link resolved in the session that wrote it and missed after a restart. The two ids must be the
     // same value, and this is the assertion that says so.
     //
-    // A REAL file with no MaterialId in it, because that is the case under test. It is written rather than
-    // fixtured because the whole point is a material the importer never stamped, which by definition is
-    // not something the repository ships.
+    // The one material that LOADS with no GUID is a NEW one: the editor names a file that does not exist yet
+    // and the load answers canonical defaults. A file that exists and states no GUID in a v4 header is not a
+    // material at all — it is refused and the record is broken (AssetMissingFile pins that), so the
+    // property under test lives on the not-yet-written file.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_noguid.demat";
-    {
-        std::ofstream out( scratch );
-        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[],"CloudAssets":[]})";
-    }
+    std::filesystem::remove( scratch );
 
     Desert::Assets::SurfaceMaterialAsset material{ Common::Filepath( scratch ) };
     ASSERT_TRUE( material.Load().IsSuccess() );
-    std::filesystem::remove( scratch );
 
     EXPECT_EQ( static_cast<uint64_t>( material.GetMaterialUUID() ),
                static_cast<uint64_t>( material.GetMetadata().Handle ) )
