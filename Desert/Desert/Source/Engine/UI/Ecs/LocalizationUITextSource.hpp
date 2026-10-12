@@ -1,6 +1,10 @@
 #pragma once
 
 #include <UI/UITextSource.hpp>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
 
 namespace Desert::UI
 {

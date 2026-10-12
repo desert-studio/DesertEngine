@@ -16,7 +16,7 @@ namespace Desert::Assets::Serialization
     namespace
     {
         // The action GUIDs a context's header states: first-mention order, each once.
-        std::vector<std::string> DependenciesOf( const InputMappingContextData& data )
+        std::vector<std::string> MappingContextDependencies( const InputMappingContextData& data )
         {
             std::vector<std::string> out;
             for ( const InputKeyMappingData& mapping : data.Mappings )
@@ -159,7 +159,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<InputMappingContextData>( "{}", valid.GetError() );
         // The header's edges are the actions the mappings name; a file where the two disagree would have the
         // registry and the subsystem see different actions.
-        if ( data.Header->Dependencies != DependenciesOf( data ) )
+        if ( data.Header->Dependencies != MappingContextDependencies( data ) )
             return Common::MakeFormattedError<InputMappingContextData>(
                  "the header's Dependencies ({} entries) are not exactly the mapped actions' GUIDs",
                  data.Header->Dependencies.size() );
@@ -179,7 +179,7 @@ namespace Desert::Assets::Serialization
         InputMappingContextData out = data;
         out.Header = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::InputMappingContext,
                                               InputMappingContextTextSubsystems() );
-        out.Header->Dependencies = DependenciesOf( data );
+        out.Header->Dependencies = MappingContextDependencies( data );
         return Common::Json::Write( out );
     }
 

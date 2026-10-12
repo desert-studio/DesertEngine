@@ -67,8 +67,8 @@ TEST( WindSource, PointWindBlowsOutwardAndFallsLinearlyToZeroAtRadius )
     EXPECT_NEAR( half.Velocity.z, 500.0f, 1e-2f );
     EXPECT_NEAR( half.Velocity.x, 0.0f, 1e-3f );
     // A quarter of the way along -X: three quarters of the speed, towards -X.
-    const auto near = WindAtFromSources( sources, glm::vec3( 0.0f, 0.0f, 0.0f ) );
-    EXPECT_NEAR( near.Velocity.x, -750.0f, 1e-2f );
+    const auto quarterWay = WindAtFromSources( sources, glm::vec3( 0.0f, 0.0f, 0.0f ) );
+    EXPECT_NEAR( quarterWay.Velocity.x, -750.0f, 1e-2f );
     // At and beyond the radius: nothing.
     EXPECT_EQ( WindAtFromSources( sources, glm::vec3( 500.0f, 0.0f, 0.0f ) ).Velocity, glm::vec3( 0.0f ) );
     EXPECT_EQ( WindAtFromSources( sources, glm::vec3( 100.0f, 0.0f, 9000.0f ) ).Velocity, glm::vec3( 0.0f ) );

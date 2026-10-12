@@ -134,7 +134,8 @@ namespace Desert::Editor
 
     /**
      * @brief UE's "Create Physics Asset" on a skeletal mesh: Physics::GeneratePhysicsAsset over the mesh's
-     * vertices and its skeleton, written next to the mesh as `<Mesh>_PhysicsAsset.dephysasset` (a free name:
+     * vertices and its skeleton, written under the PhysicsAssets root of the mesh's mount (project or engine) as
+     * `<Mesh>_PhysicsAsset.dephysasset` (a free name:
      * `<Mesh>_PhysicsAsset1`, `2`, ... when it is taken — an existing asset is never overwritten). Returns the
      * written path; refuses, naming the mesh, a mesh with no skeleton, a skeleton that does not load, or a mesh
      * the generator finds no body in.

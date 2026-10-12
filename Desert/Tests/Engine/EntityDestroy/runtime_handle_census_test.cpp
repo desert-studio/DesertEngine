@@ -347,7 +347,7 @@ TEST( RuntimeHandleCensus, EveryEntityKeyedTableHasARegisteredRelease )
     EXPECT_GE( found.size(), 9u );
 }
 
-// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters, PrepareFrame), so
+// PFX-REL1: a destroyed emitter's GPU state is erased mid-session (RetireDestroyedEmitters, ParticleWorldGpu::PrepareTick), so
 // everything that erase destroys must go through the allocator's deletion ring and never be freed while the
 // last submitted frame may still read it. The chain: the entry's StorageBuffers own MappedBufferCopy copies,
 // and its MaterialParticleBillboard owns a VulkanMaterialBackend whose sets live in VulkanViewDescriptorPools.
@@ -357,11 +357,12 @@ TEST( RuntimeHandleCensus, ARetiredEmitterReleasesItsGpuStateThroughTheDeletionR
     const fs::path root = RepoRoot();
     const fs::path vk   = root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan";
 
+    // VFX-07b: the emitters' GPU state is the scene's pool (ParticleWorldGpu), retired once per VFXWorld tick.
     const std::string renderer =
-         Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+         Code( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
     ASSERT_FALSE( renderer.empty() );
     EXPECT_TRUE( Contains( renderer, "RetireDestroyedEmitters( m_Emitters, reg )" ) )
-         << "PrepareFrame no longer retires emitters whose entity is gone";
+         << "PrepareTick no longer retires emitters whose entity is gone";
 
     const std::string copy =
          Code( root / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.cpp" );

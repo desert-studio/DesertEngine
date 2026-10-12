@@ -1418,7 +1418,7 @@ namespace Desert::Editor
             if ( !m_LevelEventTargetEditing && !m_LevelEventActionPending )
                 std::snprintf( m_LevelEventTarget, sizeof( m_LevelEventTarget ), "%s",
                                action ? action->Target.c_str() : "" );
-            constexpr int kPlaySound  = static_cast<int>( LevelTL::EventActionKind::PlaySound ) + 1;
+            constexpr int kPlaySound  = static_cast<int>( LevelTL::EventActionKind::PlayAudio ) + 1;
             constexpr int kParticles  = static_cast<int>( LevelTL::EventActionKind::ActivateParticles ) + 1;
             constexpr int kCallScript = static_cast<int>( LevelTL::EventActionKind::CallScript ) + 1;
             ImGui::SetCursorScreenPos( ImVec2( contentX0 + 32.0f, bottom + 2.0f ) );

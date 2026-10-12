@@ -514,12 +514,20 @@ namespace
                Verdict::Shipped, "" },
 
              // ── particles ───────────────────────────────────────────────────────────────────────────
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleSimulate\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleAdd\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleAlpha\"", Verdict::Shipped, "" },
+             // VFX-07b/VFX-08: the scene pool's simulation kernels, and one pipeline per material sprite cell.
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "name", Verdict::Shipped,
+               "the particle simulation/sort kernels, named by the kernel table" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "cellShader", Verdict::Shipped,
+               "a material's ParticleSprite cell, named by its shader" },
+
+             // ── the view's temporal and lens chain (TAA1, DOF, motion blur, upscalers) ─────────────────
+             { "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp", "name", Verdict::Shipped, "the six DOF kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/MotionBlur.cpp", "name", Verdict::Shipped, "the four motion-blur kernels" },
+             { "Desert/Desert/Source/Engine/Graphic/View/SpatialUpscale.cpp", "ShaderName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp", "pipelineName", Verdict::Shipped, "one per TAA variant define" },
+             { "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp", "kResolveShaderName", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp", "\"PopulateSceneDepth\"",
+               Verdict::Shipped, "" },
 
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"", Verdict::Shipped,

@@ -17,7 +17,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t    kGroupSize       = 8; // TemporalAA.shader LocalSize(8, 8, 1)
+        constexpr uint32_t    kTaaGroupSize       = 8; // TemporalAA.shader LocalSize(8, 8, 1)
         constexpr const char* kShaderName      = "TemporalAA";
         constexpr const char* kHistoryName     = "TAA.History";
         constexpr const char* kPreviousName    = "TAA.History.Previous";
@@ -26,9 +26,9 @@ namespace Desert::Graphic
         constexpr auto        kHistoryFormat   = Core::Formats::ImageFormat::RGBA16F;
         constexpr uint32_t    kQualityVariants = 3; // TemporalAAQuality Low / Medium / High
 
-        uint32_t GroupCount( uint32_t size )
+        uint32_t TaaGroupCount( uint32_t size )
         {
-            return ( size + kGroupSize - 1 ) / kGroupSize;
+            return ( size + kTaaGroupSize - 1 ) / kTaaGroupSize;
         }
 
         bool IsTemporalSplit( const ResolutionSplit& split )
@@ -174,8 +174,8 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeError( error );
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( extent.Width ),
-                                                                 GroupCount( extent.Height ), 1 );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TaaGroupCount( extent.Width ),
+                                                                 TaaGroupCount( extent.Height ), 1 );
              } );
 
         return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = output } );
@@ -210,8 +210,8 @@ namespace Desert::Graphic
                                  DebugName(), kShaderName, define );
             return nullptr;
         }
-        const auto built = ComputePipeline::Create(
-             { .Shader = shader, .DebugName = std::format( "{} ({})", kShaderName, define ) } );
+        const std::string pipelineName = std::format( "{} ({})", kShaderName, define );
+        const auto        built = ComputePipeline::Create( { .Shader = shader, .DebugName = pipelineName } );
         if ( !built )
         {
             error =

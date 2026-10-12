@@ -306,9 +306,7 @@ TEST( RagdollRuntime, PoseWriteBackRoundTripsBoneLocalsUnderAHundredthScaledRoot
     // The bodies are in world centimetres whatever the root's scale: pelvis sits 90 cm out of the root.
     Desert::Animation::ComponentPose animatedView( skeleton, animated );
     EXPECT_NEAR( glm::length( bodies.GetValue()[0].Position - glm::vec3( entity * animatedView.Get( 0 )[3] ) ),
-                 glm::length( 0.01f * ( glm::vec3( 0.0f, 0.0f, 9000.0f ) + animated[1].Translation -
-                                        glm::vec3( 0.0f, 0.0f, 9000.0f ) + glm::vec3( 0.0f, 0.0f, 9000.0f ) ) ),
-                 1e-2f );
+                 glm::length( 0.01f * animated[1].Translation ), 1e-2f );
 
     // Write the bodies into a pose that starts somewhere else (the bind): every bone with a body gets its
     // animated local back, and the body-less twist keeps the local it had.

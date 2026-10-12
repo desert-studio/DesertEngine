@@ -197,10 +197,10 @@ TEST( ProceduralFoliage, NoTwoSurvivorsStandCloserThanTheirGrownCollisionRadii )
     auto large                       = Type( 60.0f, 60.0f, 1.0f, 2.0f );
     large.Procedural.ProceduralScale = { 1.0f, 2.0f };
     large.Procedural.MaxAge          = 3.0f;
-    auto small                       = Type( 15.0f, 15.0f, 0.0f, 5.0f );
-    small.Procedural.ProceduralScale = { 0.5f, 1.5f };
-    small.Procedural.MaxAge          = 2.0f;
-    const std::vector<FoliageTypeData> types{ large, small };
+    auto smallType                       = Type( 15.0f, 15.0f, 0.0f, 5.0f );
+    smallType.Procedural.ProceduralScale = { 0.5f, 1.5f };
+    smallType.Procedural.MaxAge          = 2.0f;
+    const std::vector<FoliageTypeData> types{ large, smallType };
     ProceduralFoliageSpawner           spawner( Settings( 21, 1, 4000.0f ), types );
     spawner.Simulate();
     const auto placed = spawner.GetRandomTile( 0, 0 )->PlacedInstances();
@@ -219,7 +219,7 @@ TEST( ProceduralFoliage, NoTwoSurvivorsStandCloserThanTheirGrownCollisionRadii )
 
 TEST( ProceduralFoliage, ShadeKillsATypeThatCannotGrowInShadeAndSparesOneThatCan )
 {
-    // Trees with a small trunk (collision 30) and a wide crown (shade 200) over ground cover (10 / 10).
+    // Trees with a smallType trunk (collision 30) and a wide crown (shade 200) over ground cover (10 / 10).
     const auto tree  = Type( 30.0f, 200.0f, 1.0f, 2.0f );
     auto       cover = Type( 10.0f, 10.0f, 0.0f, 6.0f );
 

@@ -365,6 +365,9 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
          "MatProbe.shader",
          "MatProbeUnlit.shader",
+         // The particle sprite templates' cells read the generated row of the material their emitter names.
+         "ParticleSpriteAdditive.shader",
+         "ParticleSpriteDefault.shader",
          // MAT1a: the mesh lit programs read the one generated row the renderer writes per object (their
          // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
          // template whose cells replaced the five forward/G-buffer programs.

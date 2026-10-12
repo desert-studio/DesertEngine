@@ -9,6 +9,7 @@
 #include <cmath>
 #include <format>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Migration = Desert::Migration;
@@ -145,7 +146,11 @@ TEST( ParticleEmitterToVFX, NameAndGuidAreDeterministicAndARerunWritesTheSameFil
 // Red if identical emitters stop sharing one file, or different ones share.
 TEST( ParticleEmitterToVFX, IdenticalEmittersShareOneSystem )
 {
-    std::vector<EntityData> entities{ Emitter( 1, 50.0 ), Emitter( 2, 50.0 ), Emitter( 3, 70.0 ) };
+    // One named local per emitter: the gate refuses two Emit calls in one full expression.
+    EntityData              first  = Emitter( 1, 50.0 );
+    EntityData              second = Emitter( 2, 50.0 );
+    EntityData              third  = Emitter( 3, 70.0 );
+    std::vector<EntityData> entities{ std::move( first ), std::move( second ), std::move( third ) };
     const auto              report = Migration::MigrateParticleEmittersToVFX( entities, "Level", "/assets" );
     EXPECT_EQ( report.Emitters, 3u );
     EXPECT_EQ( report.Shared, 1u );

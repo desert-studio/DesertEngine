@@ -14,7 +14,7 @@
 
 #include <vector>
 
-namespace MotionBlurTest
+namespace
 {
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
@@ -56,9 +56,7 @@ namespace MotionBlurTest
 
     const MotionBlurSettings kDefault{
          .Amount = 0.5f, .MaxPercent = 5.0f, .TargetFPS = 30.0f, .Samples = kMotionBlurSamplesHigh };
-} // namespace MotionBlurTest
-
-using namespace MotionBlurTest;
+} // namespace
 
 // TileMax: the longest vector of the tile wins, not the largest component and not the average; NeighborMax: a
 // tile with no motion next to a moving one takes the moving one's velocity (the soft edge), and the grid's edge
@@ -200,6 +198,22 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
                     mask |= barrier.After.Memory;
         return mask;
     };
+    // The access a texture is held in WHILE a pass runs: its last barrier at or before that pass. The graph emits no
+    // barrier for a read after a read of the same state (RDG folds them, INT-B11D), so a second sampler of a texture
+    // is proven by the state it finds, not by a barrier of its own.
+    const auto heldDuring = [&]( const char* passName, TextureRef resource )
+    {
+        uint32_t mask = MemoryAccess_None;
+        for ( const CompiledPass& pass : result.Passes )
+        {
+            for ( const Barrier& barrier : pass.Barriers )
+                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                    mask = barrier.After.Memory;
+            if ( pass.Name == passName )
+                return mask;
+        }
+        return static_cast<uint32_t>( MemoryAccess_None );
+    };
     const auto written = [&]( const char* passName, const char* by ) -> TextureRef
     {
         // The node's storage-written texture other than the output: found through its reader's sampled read.
@@ -222,7 +236,7 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
     EXPECT_TRUE( accessOf( "MotionBlur: Flatten", depth ) & MemoryAccess_ShaderSampledRead );
     const TextureRef flat = written( "MotionBlur: Flatten", "MotionBlur: TileMax" );
     ASSERT_TRUE( flat.IsValid() ) << "TileMax samples what Flatten writes";
-    EXPECT_TRUE( accessOf( "MotionBlur: Gather", flat ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "MotionBlur: Gather", flat ) & MemoryAccess_ShaderSampledRead );
     const TextureRef tiles = written( "MotionBlur: TileMax", "MotionBlur: NeighborMax" );
     ASSERT_TRUE( tiles.IsValid() ) << "NeighborMax samples what TileMax writes";
     const TextureRef neighbourhood = written( "MotionBlur: NeighborMax", "MotionBlur: Gather" );

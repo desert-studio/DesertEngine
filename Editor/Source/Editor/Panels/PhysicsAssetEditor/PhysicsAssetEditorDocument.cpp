@@ -731,12 +731,28 @@ namespace Desert::Editor
             return Common::MakeFormattedError<Path>( "skeletal mesh '{}': {}", meshPath.generic_string(),
                                                      data.GetError() );
 
-        // UE names it <Mesh>_PhysicsAsset beside the mesh, and never writes over an asset that is there.
+        // UE names it <Mesh>_PhysicsAsset and never writes over an asset that is there. UE puts it beside the
+        // mesh; here a kind is gathered only under its own roots (ScanRootsOf: the project's PhysicsAssets/
+        // and the engine mount's), so it goes to the root of the mount the mesh lives in - beside the mesh it
+        // would be a file the registry never finds.
+        const auto roots = Common::Content::ScanRootsOf(
+             Common::Content::KindSpec( Common::Content::ContentKind::PhysicsAsset ) );
+        if ( roots.empty() )
+            return Common::MakeError<Path>( "the PhysicsAsset kind states no content root" );
+        const Path fromEngine = meshPath.lexically_normal().lexically_relative(
+             Path( Common::Constants::Path::ENGINE_CONTENT_PATH ).lexically_normal() );
+        const bool  engineMesh = !fromEngine.empty() && *fromEngine.begin() != "..";
+        const Path& directory  = engineMesh && roots.size() > 1 ? roots[1] : roots.front();
+
         const std::string stem = std::format( "{}_PhysicsAsset", meshPath.stem().string() );
         std::error_code   ec;
-        Path              target = meshPath.parent_path() / ( stem + Physics::kPhysicsAssetExtension );
+        Path              target = directory / ( stem + Physics::kPhysicsAssetExtension );
         for ( int n = 1; std::filesystem::exists( target, ec ); ++n )
-            target = meshPath.parent_path() / std::format( "{}{}{}", stem, n, Physics::kPhysicsAssetExtension );
+            target = directory / std::format( "{}{}{}", stem, n, Physics::kPhysicsAssetExtension );
+        std::filesystem::create_directories( directory, ec );
+        if ( ec )
+            return Common::MakeFormattedError<Path>( "'{}' could not be created: {}", directory.generic_string(),
+                                                     ec.message() );
 
         if ( const auto saved = Assets::PhysicsAsset::Save( target, data.GetValue() ); !saved )
             return Common::MakeFormattedError<Path>( "'{}' could not be written: {}", target.generic_string(),

@@ -8,6 +8,8 @@
 #include <UI/UIOverlay.hpp>
 
 #include <Engine/UI/Ecs/EcsUITree.hpp>
+#include <string>
+#include <vector>
 
 namespace Desert::UI
 {

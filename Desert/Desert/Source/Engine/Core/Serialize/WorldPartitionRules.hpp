@@ -511,6 +511,8 @@ namespace Desert::Core::Rules
          // would stop mid-cinematic when the player walks away (UE: ALevelSequenceActor is not spatially
          // loaded).
          { "LevelSequence", ComponentLoading::Global },
+         // The level's clock of day drives the one sun and sky (UE: the Sun Position actor); it has no place.
+         { "TimeOfDay", ComponentLoading::Global },
          // ── By field ──
          // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
          // ScreenSpace (HUD, menus), the default: it has no place in the world at all.
@@ -520,9 +522,16 @@ namespace Desert::Core::Rules
          // `Unbound` true (the default) is the level's base grade, applied wherever the camera is; false is a
          // box around the entity, which grades only the cells it covers (UE's bUnbound on APostProcessVolume).
          { "PostProcessVolume", ComponentLoading::ByField, "Unbound", 0.0, true },
+         // `PointWind` false (the default) blows everywhere along Direction (UE's directional wind source); true
+         // fades to nothing at Radius around the entity, so it lives in its cell.
+         { "WindSource", ComponentLoading::ByField, "PointWind", 1.0, true },
          // ── Spatial ──
          { "Animation", ComponentLoading::Spatial },
          { "CharacterController", ComponentLoading::Spatial },
+         // The pawn's input, its camera boom and its ragdoll travel with the pawn they sit on.
+         { "EnhancedInputPlayer", ComponentLoading::Spatial },
+         { "Ragdoll", ComponentLoading::Spatial },
+         { "SpringArm", ComponentLoading::Spatial },
          { "Collider", ComponentLoading::Spatial },
          { "ControlRig", ComponentLoading::Spatial },
          { "CubeGridBlockout", ComponentLoading::Spatial }, // the voxels its own mesh was baked from
@@ -538,7 +547,6 @@ namespace Desert::Core::Rules
          { "ProceduralFoliageField", ComponentLoading::Spatial },
          { "InstancedStaticMesh", ComponentLoading::Spatial }, // its instances are its footprint
          { "Lock", ComponentLoading::Spatial },
-         { "Locomotion", ComponentLoading::Spatial },
          { "Material", ComponentLoading::Spatial },
          { "Morph", ComponentLoading::Spatial },
          { "ParticleEmitter", ComponentLoading::Spatial },

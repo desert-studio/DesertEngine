@@ -140,7 +140,10 @@ namespace
          ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
          // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
          // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
-         ContentKind::LevelSequence };
+         ContentKind::LevelSequence,
+         // An Audio Source states its `.desound` as {Guid, Path} and ResolveGuidRef reads the GUID first
+         // (ComponentRegistry.cpp's SoundAsset branch, the AssetsRelative form in StoredAssetForm.cpp).
+         ContentKind::Sound };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -322,6 +325,16 @@ namespace
                 // No channel ships with the corpus yet; the least `.dfxch` header the scan reads.
                 const std::string text = std::format(
                      R"({{"Header":{{"Kind":"VFXDataChannel","Guid":"{}","Versions":{{"VFXD":1}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::Sound:
+            {
+                // No sound ships with the corpus yet; the least `.desound` SoundAsset::Parse accepts (a
+                // versionless header, SoundFormat.cpp, and the Source it was imported from).
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"Sound","Guid":"{}","Versions":{{}},"Dependencies":[]}},"Source":"AF10a_Probe.wav"}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };

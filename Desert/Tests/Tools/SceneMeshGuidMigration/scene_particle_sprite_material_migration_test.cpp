@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Migration = Desert::Migration;
@@ -51,9 +52,9 @@ namespace
 } // namespace
 
 // Red when the step is not the newest generation the engine requires.
-TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterCollisionProfiles )
+TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterSoundAssets )
 {
-    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionCollisionProfiles + 1 );
+    EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Migration::kSceneVersionSoundAssets + 1 );
     EXPECT_EQ( Migration::kSceneVersionParticleSpriteMaterial, Desert::Core::kSceneVersion );
 }
 
@@ -61,8 +62,11 @@ TEST( SceneParticleSpriteMaterialMigration, VersionIsTheGenerationAfterCollision
 // material, or any Blend key survives (the component no longer declares it).
 TEST( SceneParticleSpriteMaterialMigration, AdditiveEmittersMoveOntoTheAdditiveMaterialAndBlendLeaves )
 {
-    std::vector<EntityData> entities = { Emitter( "Fire", 0 ), Emitter( "Smoke", 1 ),
-                                         Emitter( "Dust", std::nullopt ) };
+    // One named local per emitter: the gate refuses two Emit calls in one full expression.
+    EntityData              fire     = Emitter( "Fire", 0 );
+    EntityData              smoke    = Emitter( "Smoke", 1 );
+    EntityData              dust     = Emitter( "Dust", std::nullopt );
+    std::vector<EntityData> entities = { std::move( fire ), std::move( smoke ), std::move( dust ) };
     const auto              report   = Migration::MigrateParticleSpriteMaterialsV46ToV47( entities );
 
     EXPECT_EQ( report.Emitters, 3u );

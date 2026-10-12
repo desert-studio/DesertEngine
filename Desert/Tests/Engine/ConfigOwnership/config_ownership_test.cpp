@@ -514,6 +514,10 @@ namespace
          // What Play spawns at this level's PlayerStart (SPAWN1): a property of the level, as UE's
          // per-level GameMode override is.
          { "DefaultPawn", Owner::Level },
+         // The controller Play spawns before that pawn, and the delay before a dead pawn is replaced (GameMode):
+         // both are the level's rules of play, as UE's per-level GameMode override is.
+         { "PlayerController", Owner::Level },
+         { "RespawnDelay", Owner::Level },
     };
 
     constexpr FileCensus kFiles[] = {

@@ -29,7 +29,7 @@ namespace Desert::Core
      * added tomorrow reddens it whatever spelled the number.
      *
      * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
-     * it was none; the window now opens at 27, above the scene-read range below. The lit shader-graph surface
+     * it was none; the window now opens at 28, above the scene-read range below. The lit shader-graph surface
      * layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader), so the next binding
      * that layout grows lands here. That is what the census is for: the collision becomes a red test rather than a
      * wrong picture.
@@ -42,9 +42,12 @@ namespace Desert::Core
      */
     /**
      * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
-     * bound by name by Graphic::SceneFrameBinding::ApplyTo — the view's per-primitive motion rows
-     * (`ObjectMotions`) and the view's bone palettes (`ObjectBones`), both declared by Common/ObjectMotion.glslh
-     * (TAA1 step 4).
+     * bound by name — the view's per-primitive motion rows (`ObjectMotions`) and the view's bone palettes
+     * (`ObjectBones`), both declared by Common/ObjectMotion.glslh and bound by Graphic::SceneFrameBinding::ApplyTo
+     * (TAA1 step 4), and the view's scene depth (`u_SceneDepth`) the particle-sprite cell reads for Depth Fade,
+     * declared by Mesh/Surface/SurfaceTypes.glslh and bound by ParticleRenderer. The depth had sat at 26 on its
+     * own, i.e. on top of the bone palettes in every sprite cell — a per-view scene read is exactly what this
+     * range is for, so it takes the range's third slot rather than a number of its own.
      *
      * They need fixed numbers because one header declares them into EVERY view-pass cell of EVERY surface
      * template, beside a template's own hand-numbered textures and the forward pass's lighting slots, which
@@ -59,14 +62,16 @@ namespace Desert::Core
     inline constexpr uint32_t kSceneReadBindingFirst = 25u;
     inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
     inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
-    inline constexpr uint32_t kSceneReadBindingCount = 2u;
+    inline constexpr uint32_t kSceneDepthBinding = kSceneReadBindingFirst + 2u; // Mesh/Surface/SurfaceTypes.glslh
+    inline constexpr uint32_t kSceneReadBindingCount = 3u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
         return binding >= kSceneReadBindingFirst && binding < kSceneReadBindingFirst + kSceneReadBindingCount;
     }
 
-    // Raised from 24 (TAA1 step 4) to sit above the scene-read range; see the paragraph on moving it above.
+    // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), to sit above the scene-read
+    // range; see the paragraph on moving it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 27u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 28u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

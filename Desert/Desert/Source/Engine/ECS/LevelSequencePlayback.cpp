@@ -198,7 +198,7 @@ namespace Desert::ECS
         const bool            bound  = target && m_Registry.valid( entity );
         switch ( action.Kind )
         {
-            case T::EventActionKind::PlaySound:
+            case T::EventActionKind::PlayAudio:
                 m_Sounds.push_back( action.Target );
                 return;
             case T::EventActionKind::ActivateParticles:

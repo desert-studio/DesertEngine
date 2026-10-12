@@ -15,13 +15,13 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t    kGroupSize                = 8; // both shaders: LocalSize(8, 8, 1)
+        constexpr uint32_t    kUpscaleGroupSize                = 8; // both shaders: LocalSize(8, 8, 1)
         constexpr const char* kSpatialUpscaleShaderName = "SpatialUpscale";
         constexpr const char* kSharpenShaderName        = "Sharpen";
 
         uint32_t Groups( const uint32_t size )
         {
-            return ( size + kGroupSize - 1 ) / kGroupSize;
+            return ( size + kUpscaleGroupSize - 1 ) / kUpscaleGroupSize;
         }
 
         // The compute pipeline of one shader, made on the first record and kept for the owner's life (a

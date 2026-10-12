@@ -35,6 +35,8 @@ namespace Desert::Core
         // Play instantiates it when the button is pressed (Core::SpawnDefaultPawn), long after the scene-load
         // sweep: unrooted, the sweep released it and Play found a prefab with no entities.
         roots.Mark( scene.GetSettings().DefaultPawn, "the scene's Default Pawn" );
+        // The same for the controller Play spawns once before the pawn (Core::SpawnPlayerController).
+        roots.Mark( scene.GetSettings().PlayerController, "the scene's Player Controller" );
 
         // ── GEOMETRY ──────────────────────────────────────────────────────────────────────────────────
         //

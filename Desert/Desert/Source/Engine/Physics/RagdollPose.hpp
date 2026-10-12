@@ -35,8 +35,8 @@ namespace Desert::Physics
     RagdollPartsFromPose( const RagdollDesc& desc, const Animation::Skeleton& skeleton,
                           const Animation::LocalPose& pose, const glm::mat4& entityWorld );
 
-    /// The component-space overrides that put every part's bone where its body is, parents first (the part
-    /// order), the scale of each bone taken from @p animated. Refuses a part count other than the desc's, a pose
+    /// The component-space overrides that put every part's bone where its body is, in @p skeleton's
+    /// resolve order (what ApplyBoneOverrides takes), the scale of each bone taken from @p animated. Refuses a part count other than the desc's, a pose
     /// of another rig's length, and a transform that does not decompose (naming the bone).
     [[nodiscard]] Common::ResultStr<std::vector<Animation::BoneOverride>>
     RagdollBoneOverrides( const RagdollDesc& desc, const Animation::Skeleton& skeleton,

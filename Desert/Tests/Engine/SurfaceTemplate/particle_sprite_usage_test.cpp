@@ -12,11 +12,16 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <TestSupport/scratch_dir.hpp>
+
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace P = Desert::Core::Preprocess;
 using Desert::Core::Formats::ShaderStage;
@@ -49,6 +54,13 @@ namespace
         return P::SurfaceCellName( P::kSurfaceParticleSpritePath, P::kSurfaceParticleSpritePass );
     }
 
+    // The parser loads the shading models from the engine directory: these tests name the checkout's, rather than
+    // inheriting whichever directory the suite's previous test left behind (a fixture's scratch tree on CI).
+    std::filesystem::path CheckoutEditorDir()
+    {
+        return Desert::TestSupport::RepositoryRoot() / "Editor";
+    }
+
     std::vector<std::string> MeshCells()
     {
         std::vector<std::string> cells;
@@ -61,6 +73,7 @@ namespace
 
 TEST( SurfaceTemplate, ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell )
 {
+    const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
     const auto without = P::DShaderParser::Parse( Template( "" ) );
     ASSERT_TRUE( without.IsSuccess() ) << without.GetError();
     EXPECT_FALSE( without.GetValue().Surface.UsedWithParticleSprites );
@@ -97,6 +110,7 @@ TEST( SurfaceTemplate, ParticleSpriteUsageAddsOneSpriteCellAfterEveryMeshCell )
 
 TEST( SurfaceTemplate, TranslucentSpriteCellIsToldItBlends )
 {
+    const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
     const auto parsed =
          P::DShaderParser::Parse( Template( "    BlendMode Translucent\n    Usage ParticleSprites\n" ) );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -113,6 +127,7 @@ TEST( SurfaceTemplate, TranslucentSpriteCellIsToldItBlends )
 
 TEST( SurfaceTemplate, UnknownUsageAndUsageWithoutASurfaceAreRefused )
 {
+    const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
     const auto unknown = P::DShaderParser::Parse( Template( "    Usage Ribbons\n" ) );
     ASSERT_FALSE( unknown.IsSuccess() );
     EXPECT_NE( unknown.GetError().find( "Ribbons" ), std::string::npos ) << unknown.GetError();
@@ -124,6 +139,7 @@ TEST( SurfaceTemplate, UnknownUsageAndUsageWithoutASurfaceAreRefused )
 
 TEST( SurfaceTemplate, ShaderMapKeyHashesTheSpriteHeaders )
 {
+    const Desert::TestSupport::EngineDirScope engine( CheckoutEditorDir() );
     const std::vector<std::string> includes = P::SurfaceTemplateIncludes();
     const auto                     has      = [&]( const std::string& header )
     { return std::find( includes.begin(), includes.end(), header ) != includes.end(); };

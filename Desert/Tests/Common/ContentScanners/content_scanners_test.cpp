@@ -205,6 +205,10 @@ namespace
            "lists the slots of <Project>/Saved/Trash - the editor's machine-local recycle bin of deleted assets, "
            "gitignored with the rest of Saved/. What is in the trash is no longer content; a package has none.",
            "" },
+         { "Desert/Desert/Source/Engine/Core/SaveGame.cpp", Verdict::NotContent,
+           "lists the save slots of the user's save directory (UE's SaveGames/ under the user's Saved/): "
+           "machine-local player data, never project content and never in a package.",
+           "" },
          { "Runtime/Source/PackagedContent.cpp", Verdict::NotContent,
            "finds the .dpak files THEMSELVES. It cannot go through the mount it is about to create.", "" },
 

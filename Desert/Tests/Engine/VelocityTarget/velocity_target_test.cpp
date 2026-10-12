@@ -254,12 +254,11 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 
 // Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
 // lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
-// reserved numbers carry the two scene-read resources and nothing else, and ObjectMotion.glslh spells exactly the
-// C++ numbers SceneFrameBinding's resources are reserved under. Text, not reflection, because a resource that only
-// collides inside one cell would need that cell compiled to be seen; the after-compile half is
-// ShaderReflection::ReflectStage, which refuses a slot claimed twice by name.
-// Mutation: move SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) ->
-// red.
+// reserved numbers carry the three scene-read resources and nothing else, and their two declaring headers
+// (ObjectMotion.glslh, SurfaceTypes.glslh) spell exactly the C++ numbers they are reserved under. Text, not
+// reflection, because a resource that only collides inside one cell would need that cell compiled to be seen; the
+// after-compile half is ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: move
+// SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) -> red.
 TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 {
     const auto       shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
@@ -281,7 +280,10 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const auto&    m       = *it;
             const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
-            if ( entry.path().filename() == "ObjectMotion.glslh" )
+            const bool        sceneReadHeader =
+                 entry.path().filename() == "ObjectMotion.glslh" ||
+                 ( entry.path().filename() == "SurfaceTypes.glslh" && name == "u_SceneDepth" );
+            if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else
                 EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
@@ -291,9 +293,10 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 2u );
+    ASSERT_EQ( sceneRead.size(), 3u );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
+    EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

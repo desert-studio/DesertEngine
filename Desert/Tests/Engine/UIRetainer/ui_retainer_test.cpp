@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <vector>
+#include <cstdint>
 
 using namespace Desert::Graphic::Render2D;
 
