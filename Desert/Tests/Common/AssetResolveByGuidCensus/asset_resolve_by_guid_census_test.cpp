@@ -140,7 +140,10 @@ namespace
          ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
          // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
          // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
-         ContentKind::LevelSequence };
+         ContentKind::LevelSequence,
+         // An Audio Source states its `.desound` as {Guid, Path} and ResolveGuidRef reads the GUID first
+         // (ComponentRegistry.cpp's SoundAsset branch, the AssetsRelative form in StoredAssetForm.cpp).
+         ContentKind::Sound };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )

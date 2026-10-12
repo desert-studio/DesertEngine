@@ -238,8 +238,8 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 
     const auto headers = PP::SurfaceTemplateIncludes();
     // Types + one vertex header per path + one pass header per pass (every shading model is lit by the same
-    // headers) + the translucency pass header.
-    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + PP::kSurfaceCellPasses.size() + 1u );
+    // headers) + the translucency pass header + the particle sprite path's vertex and pass headers (VFX-08).
+    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + PP::kSurfaceCellPasses.size() + 1u + 2u );
     for ( const auto& header : headers )
     {
         ASSERT_TRUE( std::filesystem::exists( shaders / header ) ) << header;

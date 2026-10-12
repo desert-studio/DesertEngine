@@ -15,24 +15,24 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t kGroupSize = 8; // LocalSize(8, 8, 1) in all four MotionBlur*.shader
+        constexpr uint32_t kBlurGroupSize = 8; // LocalSize(8, 8, 1) in all four MotionBlur*.shader
 
-        constexpr const char* kKernelShaders[] = { "MotionBlurFlatten", "MotionBlurTileMax",
+        constexpr const char* kBlurKernelShaders[] = { "MotionBlurFlatten", "MotionBlurTileMax",
                                                    "MotionBlurNeighborMax", "MotionBlurGather" };
-        constexpr const char* kKernelPasses[]  = { "MotionBlur: Flatten", "MotionBlur: TileMax",
+        constexpr const char* kBlurKernelPasses[]  = { "MotionBlur: Flatten", "MotionBlur: TileMax",
                                                    "MotionBlur: NeighborMax", "MotionBlur: Gather" };
 
         // Flattened velocity: output-pixel velocity (xy) and the scene's device depth (z).
         constexpr auto kFlatFormat = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kTileFormat = Core::Formats::ImageFormat::RG16F;
-        constexpr auto kOutFormat  = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kBlurTileFormat = Core::Formats::ImageFormat::RG16F;
+        constexpr auto kBlurOutFormat  = Core::Formats::ImageFormat::RGBA16F;
 
-        uint32_t GroupCount( uint32_t size )
+        uint32_t BlurGroupCount( uint32_t size )
         {
-            return ( size + kGroupSize - 1 ) / kGroupSize;
+            return ( size + kBlurGroupSize - 1 ) / kBlurGroupSize;
         }
 
-        std::shared_ptr<const RDG::ShaderBindingLayout> MakeLayout( const char*                  shader,
+        std::shared_ptr<const RDG::ShaderBindingLayout> MakeBlurLayout( const char*                  shader,
                                                                     std::vector<RDG::ShaderSlot> slots )
         {
             slots.push_back( { "MotionBlurBuffer", RDG::ShaderResourceKind::StorageBuffer } );
@@ -137,7 +137,7 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurFlattenLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout( kKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
+        static const auto layout = MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
                                                                     { "u_SceneDepth", Kind::SampledTexture },
                                                                     { "u_Flat", Kind::StorageTexture } } );
         return layout;
@@ -146,15 +146,15 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurTileMaxLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout(
-             kKernelShaders[1], { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
+        static const auto layout = MakeBlurLayout(
+             kBlurKernelShaders[1], { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurNeighborMaxLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout( kKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
+        static const auto layout = MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
                                                                     { "u_NeighborMax", Kind::StorageTexture } } );
         return layout;
     }
@@ -162,7 +162,7 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& MotionBlurGatherLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout( kKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
+        static const auto layout = MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
                                                                     { "u_Flat", Kind::SampledTexture },
                                                                     { "u_NeighborMax", Kind::SampledTexture },
                                                                     { "u_Output", Kind::StorageTexture } } );
@@ -204,11 +204,11 @@ namespace Desert::Graphic
         desc.Format                       = kFlatFormat;
         const RDG::TextureRef flat        = graph.CreateTexture( desc, "MotionBlur.Flat" );
         desc.Size                         = tileExtent;
-        desc.Format                       = kTileFormat;
+        desc.Format                       = kBlurTileFormat;
         const RDG::TextureRef tileMax     = graph.CreateTexture( desc, "MotionBlur.TileMax" );
         const RDG::TextureRef neighborMax = graph.CreateTexture( desc, "MotionBlur.NeighborMax" );
         desc.Size                         = output;
-        desc.Format                       = kOutFormat;
+        desc.Format                       = kBlurOutFormat;
         const RDG::TextureRef blurred     = graph.CreateTexture( desc, "MotionBlur.Output" );
 
         const MotionBlurParams params = MakeMotionBlurParams( settings, frame );
@@ -225,14 +225,14 @@ namespace Desert::Graphic
                 if ( !pipeline )
                     return Common::MakeError( error );
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( extent.Width ),
-                                                                GroupCount( extent.Height ), 1 );
+                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, BlurGroupCount( extent.Width ),
+                                                                BlurGroupCount( extent.Height ), 1 );
             };
         };
         const auto point = RDG::SamplerDesc::PointClamp();
 
         graph.AddPass(
-             kKernelPasses[0], RDG::PassFlags::Compute,
+             kBlurKernelPasses[0], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurFlattenLayout(), RDG::OtherRouteFill{} )
@@ -246,7 +246,7 @@ namespace Desert::Graphic
              exec( Kernel::Flatten, render ) );
 
         graph.AddPass(
-             kKernelPasses[1], RDG::PassFlags::Compute,
+             kBlurKernelPasses[1], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurTileMaxLayout(), RDG::OtherRouteFill{} )
@@ -257,7 +257,7 @@ namespace Desert::Graphic
              exec( Kernel::TileMax, tileExtent ) );
 
         graph.AddPass(
-             kKernelPasses[2], RDG::PassFlags::Compute,
+             kBlurKernelPasses[2], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::OtherRouteFill{} )
@@ -269,7 +269,7 @@ namespace Desert::Graphic
              exec( Kernel::NeighborMax, tileExtent ) );
 
         graph.AddPass(
-             kKernelPasses[3], RDG::PassFlags::Compute,
+             kBlurKernelPasses[3], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  // The colour taps are bilinear (sub-pixel positions along the velocity); the flattened velocity
@@ -301,7 +301,7 @@ namespace Desert::Graphic
         if ( m_Pipelines[index] )
             return m_Pipelines[index];
 
-        const char*             name    = kKernelShaders[index];
+        const char*             name    = kBlurKernelShaders[index];
         Runtime::ShaderService* service = Runtime::ResourceRegistry::GetShaderService();
         if ( !service )
         {

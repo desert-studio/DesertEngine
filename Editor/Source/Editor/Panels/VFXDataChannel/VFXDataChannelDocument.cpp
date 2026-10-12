@@ -48,7 +48,7 @@ namespace Desert::Editor
             return "?";
         }
 
-        void CopyName( std::array<char, 64>& buffer, const std::string& name )
+        void CopyFieldName( std::array<char, 64>& buffer, const std::string& name )
         {
             const std::size_t n = std::min( name.size(), buffer.size() - 1 );
             std::copy_n( name.data(), n, buffer.data() );
@@ -151,14 +151,14 @@ namespace Desert::Editor
         std::array<char, 64> shown{};
         const bool           typing = m_NameRow == index;
         if ( !typing )
-            CopyName( shown, m_Working.Fields[index].Name );
+            CopyFieldName( shown, m_Working.Fields[index].Name );
         auto& buffer = typing ? m_NameBuffer : shown;
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::InputText( "##name", buffer.data(), buffer.size() );
         if ( ImGui::IsItemActivated() )
         {
             m_NameRow = index;
-            CopyName( m_NameBuffer, m_Working.Fields[index].Name );
+            CopyFieldName( m_NameBuffer, m_Working.Fields[index].Name );
         }
         if ( ImGui::IsItemDeactivated() )
         {

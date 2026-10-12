@@ -111,7 +111,7 @@ namespace Desert::Animation::Timeline
     {
         /// Plays `Target` (an audio file, absolute or Assets-relative — the form AudioSourceData::Clip stores)
         /// once, 2D, at full volume.
-        PlaySound = 0,
+        PlayAudio = 0,
         /// (Re)starts the bound entity's particle emitter from zero: Enabled, every particle respawned.
         ActivateParticles = 1,
         /// Calls the Lua function named `Target` on every started script slot of the bound entity, with the
@@ -121,8 +121,8 @@ namespace Desert::Animation::Timeline
 
     struct EventAction
     {
-        EventActionKind Kind = EventActionKind::PlaySound;
-        /// PlaySound: the audio file; CallScript: the Lua function; ActivateParticles: empty.
+        EventActionKind Kind = EventActionKind::PlayAudio;
+        /// PlayAudio: the audio file; CallScript: the Lua function; ActivateParticles: empty.
         std::string Target;
     };
 

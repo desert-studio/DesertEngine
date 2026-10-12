@@ -870,7 +870,7 @@ namespace
         T::Section& eventSection = T::AddSection( events, A::FrameNumber{ 0 }, A::FrameNumber{ 48000 } );
         auto&       keys         = std::get<T::EventChannel>( std::get<T::Channel>( eventSection.Content ) ).Keys;
         keys.push_back( T::EventKey{ A::FrameNumber{ 100 }, A::FrameNumber{ 0 }, "Bell", 0,
-                                     T::EventAction{ T::EventActionKind::PlaySound, "Audio/Bell.wav" } } );
+                                     T::EventAction{ T::EventActionKind::PlayAudio, "Audio/Bell.wav" } } );
         keys.push_back( T::EventKey{ A::FrameNumber{ 200 }, A::FrameNumber{ 0 }, "Sparks", 0,
                                      T::EventAction{ T::EventActionKind::ActivateParticles, "" } } );
         keys.push_back( T::EventKey{ A::FrameNumber{ 300 }, A::FrameNumber{ 0 }, "Open", 0,
@@ -905,7 +905,7 @@ TEST( LevelSequenceAsset, EventActionsAndASubsequenceKeepEveryFieldThroughTheFil
                             .Keys;
     ASSERT_EQ( keys.size(), 4U );
     ASSERT_TRUE( keys[0].Action && keys[1].Action && keys[2].Action );
-    EXPECT_EQ( keys[0].Action->Kind, T::EventActionKind::PlaySound );
+    EXPECT_EQ( keys[0].Action->Kind, T::EventActionKind::PlayAudio );
     EXPECT_EQ( keys[0].Action->Target, "Audio/Bell.wav" );
     EXPECT_EQ( keys[1].Action->Kind, T::EventActionKind::ActivateParticles );
     EXPECT_EQ( keys[2].Action->Kind, T::EventActionKind::CallScript );
@@ -1073,7 +1073,7 @@ TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTh
 {
     World             world;
     const T::Sequence sequence = EventDoor(
-         { EventAt( 10, "Boom", T::EventAction{ T::EventActionKind::PlaySound, "Assets/Audio/boom.wav" } ),
+         { EventAt( 10, "Boom", T::EventAction{ T::EventActionKind::PlayAudio, "Assets/Audio/boom.wav" } ),
            EventAt( 20, "Sparks", T::EventAction{ T::EventActionKind::ActivateParticles, "" } ),
            EventAt( 30, "Open", T::EventAction{ T::EventActionKind::CallScript, "OnDoorOpen" } ) } );
     world.registry.emplace<ECS::ParticleEmitterComponent>( world.door ).Data.Enabled = false;
@@ -1265,12 +1265,12 @@ TEST( LevelSequenceEvents, AnActionIsSetClearedAndRefusedWithoutItsTarget )
 
     const uint64_t revision = sequence.Revision;
     EXPECT_FALSE(
-         ECS::SetEventKeyAction( sequence, master, 0, T::EventAction{ T::EventActionKind::PlaySound, "" } )
+         ECS::SetEventKeyAction( sequence, master, 0, T::EventAction{ T::EventActionKind::PlayAudio, "" } )
               .IsSuccess() );
     EXPECT_EQ( sequence.Revision, revision );
 
     ASSERT_TRUE( ECS::SetEventKeyAction( sequence, master, 0,
-                                         T::EventAction{ T::EventActionKind::PlaySound, "Audio/boom.wav" } )
+                                         T::EventAction{ T::EventActionKind::PlayAudio, "Audio/boom.wav" } )
                       .IsSuccess() );
     const auto keys = ECS::EventKeys( sequence, master );
     ASSERT_TRUE( keys.front().Action.has_value() );

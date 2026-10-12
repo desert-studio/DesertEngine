@@ -1598,11 +1598,11 @@ namespace Desert::Physics
                     break;
                 case PhysicsBodyShape::Box:
                 {
-                    // Jolt's default convex radius must not exceed the smallest half extent.
+                    // The engine's convex radius (kConvexRadiusCm), never more than half the smallest half extent.
                     const float smallest =
                          std::min( { part.HalfExtents.x, part.HalfExtents.y, part.HalfExtents.z } );
                     inner = new JPH::BoxShape( ToJolt( part.HalfExtents ),
-                                               std::min( JPH::cDefaultConvexRadius, 0.5f * smallest ) );
+                                               std::min( kConvexRadiusCm, 0.5f * smallest ) );
                     break;
                 }
             }
@@ -1658,6 +1658,7 @@ namespace Desert::Physics
             joltPart.mObjectLayer                  = layer;
             joltPart.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
             joltPart.mMassPropertiesOverride.mMass = part.MassKg;
+            joltPart.mNumPositionStepsOverride     = kRagdollPositionSolverSteps;
 
             if ( part.Parent >= 0 && part.HasConstraint )
             {
@@ -1674,6 +1675,7 @@ namespace Desert::Physics
                 joint->mPlaneHalfConeAngle                        = c.PlaneHalfConeAngle;
                 joint->mTwistMinAngle                             = c.TwistMinAngle;
                 joint->mTwistMaxAngle                             = c.TwistMaxAngle;
+                joint->mNumPositionStepsOverride                  = kRagdollPositionSolverSteps;
                 joltPart.mToParent                                = joint;
             }
         }

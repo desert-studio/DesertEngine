@@ -12,7 +12,7 @@
 
 #include <string>
 
-namespace TemporalUpscalerTest
+namespace
 {
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
@@ -188,9 +188,7 @@ namespace TemporalUpscalerTest
         EXPECT_EQ( resolved.GetValue().Upscaler, ::Common::Scalability::Upscaler::Spatial );
         EXPECT_TRUE( resolved.GetValue().Clamped.empty() ) << resolved.GetValue().Clamped;
     }
-} // namespace TemporalUpscalerTest
-
-using namespace TemporalUpscalerTest;
+} // namespace
 
 // Mutations: CreateTemporalUpscaler(TAAU) returning a TAA object -> red; None returning an object -> red.
 TEST( TemporalUpscaler, CreateMakesOneObjectPerMethodAndNoneForNone )

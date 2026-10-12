@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 
 // WHERE AN ELEMENT'S COLOUR, FONT AND SPACING COME FROM — one object, asked once per element per frame.
 //

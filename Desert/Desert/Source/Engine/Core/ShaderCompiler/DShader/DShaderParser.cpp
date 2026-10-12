@@ -1850,10 +1850,11 @@ namespace Desert::Core::Preprocess
             {
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
                 // meshes.
-                const std::string v = Lower( ReadIdent( c ) );
-                if ( v != "particlesprites" )
+                const std::string stated = ReadIdent( c );
+                if ( Lower( stated ) != "particlesprites" )
                 {
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", v ) };
+                    // The author's spelling, not the folded one the comparison used.
+                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", stated ) };
                     return fail();
                 }
                 result.Surface.UsedWithParticleSprites = true;

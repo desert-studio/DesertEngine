@@ -209,6 +209,23 @@ namespace
               "it hands the physics step the water bodies buoyancy floats against (UE: the solver-safe "
               "water body data); same argument as PhysicsECSSystem: hiding a lake in the outliner must "
               "not sink every boat on it." },
+         Row{ "CharacterMovement.hpp", Verdict::MustNot,
+              "the playable character's walking/falling model on its Jolt CharacterVirtual (GP2a); a hidden "
+              "character is still in the simulation (PhysicsECSSystem's verdict), so hiding it must not freeze "
+              "its capsule in mid-air or let it walk through what it stood on." },
+         Row{ "GameModeSystem.hpp", Verdict::MustNot,
+              "it ticks the GameMode: the respawn delay counts down in game time and the restart spawns the "
+              "Default Pawn; a rule of the match, not a picture -- the outliner must not stop a respawn." },
+         Row{ "KinematicBodies.hpp", Verdict::MustNot,
+              "a kinematic body follows its entity's transform (UE: a kinematic body follows its component); a "
+              "hidden moving platform still carries what stands on it, as PhysicsECSSystem's bodies do." },
+         Row{ "SpringArm.hpp", Verdict::MustNot,
+              "UE USpringArmComponent: it places the arm's camera; the camera is the view, never drawn, and "
+              "hiding the pawn it hangs from must not snap the player's view to the arm's origin." },
+         Row{ "WindField.hpp", Verdict::MustNot,
+              "the one wind query over WindSource entities (UE: UWindDirectionalSourceComponent, never drawn); "
+              "a source is a field acting on foliage, clouds and cloth, and hiding it must not still the air -- "
+              "the same argument as DestructionFields." },
     };
 
     // ── ONE ROW PER SITE, NOT PER FILE ──────────────────────────────────────────────────────────────

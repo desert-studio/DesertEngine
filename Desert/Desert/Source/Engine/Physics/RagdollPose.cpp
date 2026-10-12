@@ -5,6 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 
@@ -106,6 +107,10 @@ namespace Desert::Physics
             entry.Transform = decomposed.GetValue();
             overrides.push_back( entry );
         }
+        // ApplyBoneOverrides converts each override against its parent's SOLVED transform, so it takes the list in
+        // the skeleton's resolve order; the desc promises only parent-before-child.
+        std::ranges::sort( overrides, [&]( const Animation::BoneOverride& a, const Animation::BoneOverride& b )
+                           { return skeleton.GetResolveRank( a.Bone ) < skeleton.GetResolveRank( b.Bone ); } );
         return Common::MakeSuccess( std::move( overrides ) );
     }
 } // namespace Desert::Physics

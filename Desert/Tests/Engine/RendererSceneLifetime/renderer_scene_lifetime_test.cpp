@@ -492,9 +492,12 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     EXPECT_NE( renderer.find( "->Simulate( context, step )" ), std::string::npos )
          << "SceneRenderer no longer runs the particles' fixed steps one node each.";
 
+    // VFX-07b: the scene's GPU particle state (ParticleWorldGpu, owned by the VFXWorld) snapshots the tick;
+    // the renderer's PrepareFrame only asks it, so both files are read.
     const std::string particles =
-         StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" ) );
-    const std::string prepare = BodyAfter( particles, "ParticleRenderer::PrepareFrame(" );
+         StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" ) ) +
+         StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" ) );
+    const std::string prepare = BodyAfter( particles, "ParticleWorldGpu::PrepareTick(" );
     ASSERT_FALSE( prepare.empty() );
     EXPECT_NE( prepare.find( "scene.GetVFXWorld()" ), std::string::npos )
          << "the particles' steps no longer come from the scene's VFXWorld.";
@@ -505,7 +508,7 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
 
     // The wind: the scene's world clock step (TIME1's WorldTime, handed in through SetWorldTime), nothing else.
     const std::string wind = StripComments( EngineSource( "ECS/System/VolumetricCloudECSSystem.hpp" ) );
-    EXPECT_NE( wind.find( "AdvanceWind( data, m_WorldDeltaSeconds )" ), std::string::npos )
+    EXPECT_NE( wind.find( "AdvanceWind( data, wind, m_WorldDeltaSeconds )" ), std::string::npos )
          << "the cloud wind no longer advances by the world clock's step.";
     EXPECT_NE( wind.find( "m_WorldDeltaSeconds = time.GetDeltaSeconds()" ), std::string::npos )
          << "the cloud wind's step no longer comes from WorldTime.";

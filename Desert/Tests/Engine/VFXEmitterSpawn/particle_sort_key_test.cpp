@@ -53,12 +53,12 @@ TEST( ParticleSortKey, StagesCoverTheWholeBitonicNetwork )
 {
     using Kind = PS::ParticleSortStageKind;
     // N <= one block: keys, one shared-memory sort, write.
-    const auto small = PS::ParticleSortStages( 256 );
-    ASSERT_EQ( small.size(), 3u );
-    EXPECT_EQ( small[0].Kind, Kind::Keys );
-    EXPECT_EQ( small[1].Kind, Kind::Local );
-    EXPECT_EQ( small[1].Groups, 1u );
-    EXPECT_EQ( small[2].Kind, Kind::Write );
+    const auto oneBlock = PS::ParticleSortStages( 256 );
+    ASSERT_EQ( oneBlock.size(), 3u );
+    EXPECT_EQ( oneBlock[0].Kind, Kind::Keys );
+    EXPECT_EQ( oneBlock[1].Kind, Kind::Local );
+    EXPECT_EQ( oneBlock[1].Groups, 1u );
+    EXPECT_EQ( oneBlock[2].Kind, Kind::Write );
 
     // N = 4096: k = 2048 -> global j 1024, merge; k = 4096 -> global j 2048, 1024, merge.
     const auto big = PS::ParticleSortStages( 4096 );

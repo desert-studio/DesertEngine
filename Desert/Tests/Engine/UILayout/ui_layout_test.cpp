@@ -4,6 +4,7 @@
 #include <UI/UILayout.hpp>
 
 #include <gtest/gtest.h>
+#include <vector>
 
 using Desert::UI::CanvasRect;
 using Desert::UI::Rect;

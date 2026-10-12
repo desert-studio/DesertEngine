@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <string_view>
+#include <vector>
 
 namespace Desert::UI
 {

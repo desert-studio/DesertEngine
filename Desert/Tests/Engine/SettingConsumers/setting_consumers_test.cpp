@@ -479,6 +479,8 @@ namespace
 
          // Play instantiates it at the chosen PlayerStart (SPAWN1, UE's GameMode DefaultPawnClass).
          { "DefaultPawn", kPlayerStart },
+         // Play spawns it once, before the pawn (Core::SpawnPlayerController, UE's GameMode PlayerControllerClass).
+         { "PlayerController", kPlayerStart },
          // The GameMode's respawn wait (GP2, UE's RespawnDelay).
          { "RespawnDelay", "Desert/Desert/Source/Engine/Core/GameMode.cpp" },
     };
@@ -498,8 +500,10 @@ namespace
     constexpr const char* kPointLight = "Desert/Desert/Source/Engine/ECS/System/PointLightSystem.hpp";
     constexpr const char* kSpotLight  = "Desert/Desert/Source/Engine/ECS/System/SpotLightSystem.hpp";
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
+    // VFX-07b: the scene's GPU particle state snapshots every emitter's settings into its sim push once per
+    // VFXWorld tick (ParticleWorldGpu::PrepareTick); the renderer only draws the pool.
     constexpr const char* kParticles =
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp";
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp";
     // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
     // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
     constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
@@ -633,7 +637,9 @@ namespace
          { "EndColor", kParticles },
          { "StartAlpha", kParticles },
          { "EndAlpha", kParticles },
-         { "Blend", kParticles },
+         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the emitter
+         // names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
+         { "Material", kParticles },
     };
 
     // All three reach the frame the same way: SkyboxECSSystem packs them into a Graphic::SkyLook on the
@@ -1801,11 +1807,13 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
     // its response (Strength, Speed, Height), and MakeInstanceWind takes the scene's wind, not an angle.
     const std::string meshSystem = ReadFile( root / "Desert/Desert/Source/Engine/ECS/System/MeshECSSystem.hpp" );
     EXPECT_NE( meshSystem.find( "ECS::WindAt(" ), std::string::npos ) << "foliage sway must ask ECS::WindAt";
+    // Code only: FoliageType.hpp's version history names the field that left.
     const std::string foliageType =
-         ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" );
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.hpp" ) );
     EXPECT_EQ( foliageType.find( "DirectionDegrees" ), std::string::npos )
          << "FoliageWind declares its own wind direction";
-    const std::string instanceWind = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" );
+    const std::string instanceWind =
+         Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadFile( root / "Desert/Desert/Source/Engine/Graphic/InstanceWind.hpp" ) );
     EXPECT_EQ( instanceWind.find( "directionDegrees" ), std::string::npos )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 

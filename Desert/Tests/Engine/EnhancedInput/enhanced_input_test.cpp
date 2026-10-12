@@ -559,9 +559,13 @@ TEST( EnhancedInputPlayer, ActionsAndContextsAreCalledByTheirFileNames )
 
 namespace
 {
+    // A repository source, found by walking up from the runner's working directory (the runner runs from build/).
     std::string SourceText( const char* path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        std::filesystem::path root = std::filesystem::current_path();
+        while ( !root.empty() && !std::filesystem::exists( root / "Desert/Desert/Source/Engine" ) )
+            root = root == root.parent_path() ? std::filesystem::path() : root.parent_path();
+        std::ifstream      in( root / path, std::ios::binary );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();

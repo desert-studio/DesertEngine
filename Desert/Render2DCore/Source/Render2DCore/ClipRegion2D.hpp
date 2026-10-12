@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 
 // The 2D clip region of the whole UI: ONE description of "which screen pixels survive", read FORWARD by
 // the draw list (geometry outside it is cut away before it is ever a vertex) and POINTWISE by the hit test

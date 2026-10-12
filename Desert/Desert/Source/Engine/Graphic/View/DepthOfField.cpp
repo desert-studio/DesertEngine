@@ -19,15 +19,15 @@ namespace Desert::Graphic
 {
     namespace
     {
-        constexpr uint32_t kGroupSize = 8; // LocalSize(8, 8, 1) in all six DepthOfField*.shader
+        constexpr uint32_t kDofGroupSize = 8; // LocalSize(8, 8, 1) in all six DepthOfField*.shader
 
-        constexpr const char* kKernelShaders[] = { "DepthOfFieldSetup",
+        constexpr const char* kDofKernelShaders[] = { "DepthOfFieldSetup",
                                                    "DepthOfFieldTileFlatten",
                                                    "DepthOfFieldTileDilate",
                                                    "DepthOfFieldGatherForeground",
                                                    "DepthOfFieldGatherBackground",
                                                    "DepthOfFieldRecombine" };
-        constexpr const char* kKernelPasses[]  = { "DepthOfField: Setup",
+        constexpr const char* kDofKernelPasses[]  = { "DepthOfField: Setup",
                                                    "DepthOfField: TileFlatten",
                                                    "DepthOfField: TileDilate",
                                                    "DepthOfField: GatherForeground",
@@ -37,18 +37,18 @@ namespace Desert::Graphic
         // Half-res colour (rgb) with its signed CoC radius in half-res pixels (a); the gathered layers (rgb, and
         // a = foreground opacity / background presence); the tiles (x foreground radius, y background radius).
         constexpr auto kHalfFormat  = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kTileFormat  = Core::Formats::ImageFormat::RG16F;
+        constexpr auto kDofTileFormat  = Core::Formats::ImageFormat::RG16F;
         constexpr auto kLayerFormat = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kOutFormat   = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto kDofOutFormat   = Core::Formats::ImageFormat::RGBA16F;
 
         constexpr float kMmPerCm = 10.0f;
 
-        uint32_t GroupCount( uint32_t size )
+        uint32_t DofGroupCount( uint32_t size )
         {
-            return ( size + kGroupSize - 1 ) / kGroupSize;
+            return ( size + kDofGroupSize - 1 ) / kDofGroupSize;
         }
 
-        std::shared_ptr<const RDG::ShaderBindingLayout> MakeLayout( const char*                  shader,
+        std::shared_ptr<const RDG::ShaderBindingLayout> MakeDofLayout( const char*                  shader,
                                                                     std::vector<RDG::ShaderSlot> slots )
         {
             slots.push_back( { "DepthOfFieldBuffer", RDG::ShaderResourceKind::StorageBuffer } );
@@ -181,7 +181,7 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofSetupLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout( kKernelShaders[0], { { "u_SceneColor", Kind::SampledTexture },
+        static const auto layout = MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::SampledTexture },
                                                                     { "u_SceneDepth", Kind::SampledTexture },
                                                                     { "u_Half", Kind::StorageTexture } } );
         return layout;
@@ -190,16 +190,16 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofTileFlattenLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout(
-             kKernelShaders[1], { { "u_Half", Kind::SampledTexture }, { "u_Tiles", Kind::StorageTexture } } );
+        static const auto layout = MakeDofLayout(
+             kDofKernelShaders[1], { { "u_Half", Kind::SampledTexture }, { "u_Tiles", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofTileDilateLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout(
-             kKernelShaders[2], { { "u_Tiles", Kind::SampledTexture }, { "u_Dilated", Kind::StorageTexture } } );
+        static const auto layout = MakeDofLayout(
+             kDofKernelShaders[2], { { "u_Tiles", Kind::SampledTexture }, { "u_Dilated", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -208,7 +208,7 @@ namespace Desert::Graphic
         std::shared_ptr<const RDG::ShaderBindingLayout> MakeGatherLayout( const char* shader )
         {
             using Kind = RDG::ShaderResourceKind;
-            return MakeLayout( shader, { { "u_Half", Kind::SampledTexture },
+            return MakeDofLayout( shader, { { "u_Half", Kind::SampledTexture },
                                          { "u_Dilated", Kind::SampledTexture },
                                          { "u_Layer", Kind::StorageTexture } } );
         }
@@ -216,20 +216,20 @@ namespace Desert::Graphic
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofGatherForegroundLayout()
     {
-        static const auto layout = MakeGatherLayout( kKernelShaders[3] );
+        static const auto layout = MakeGatherLayout( kDofKernelShaders[3] );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofGatherBackgroundLayout()
     {
-        static const auto layout = MakeGatherLayout( kKernelShaders[4] );
+        static const auto layout = MakeGatherLayout( kDofKernelShaders[4] );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofRecombineLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeLayout( kKernelShaders[5], { { "u_SceneColor", Kind::SampledTexture },
+        static const auto layout = MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::SampledTexture },
                                                                     { "u_SceneDepth", Kind::SampledTexture },
                                                                     { "u_Foreground", Kind::SampledTexture },
                                                                     { "u_Background", Kind::SampledTexture },
@@ -276,11 +276,11 @@ namespace Desert::Graphic
         const RDG::TextureRef foreground = graph.CreateTexture( desc, "DepthOfField.Foreground" );
         const RDG::TextureRef background = graph.CreateTexture( desc, "DepthOfField.Background" );
         desc.Size                        = tileExtent;
-        desc.Format                      = kTileFormat;
+        desc.Format                      = kDofTileFormat;
         const RDG::TextureRef tiles      = graph.CreateTexture( desc, "DepthOfField.Tiles" );
         const RDG::TextureRef dilated    = graph.CreateTexture( desc, "DepthOfField.DilatedTiles" );
         desc.Size                        = output;
-        desc.Format                      = kOutFormat;
+        desc.Format                      = kDofOutFormat;
         const RDG::TextureRef result     = graph.CreateTexture( desc, "DepthOfField.Output" );
 
         const DofParams      params = MakeDofParams( settings, frame );
@@ -297,8 +297,8 @@ namespace Desert::Graphic
                 if ( !pipeline )
                     return Common::MakeError( error );
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( extent.Width ),
-                                                                GroupCount( extent.Height ), 1 );
+                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, DofGroupCount( extent.Width ),
+                                                                DofGroupCount( extent.Height ), 1 );
             };
         };
         const auto point  = RDG::SamplerDesc::PointClamp();
@@ -307,7 +307,7 @@ namespace Desert::Graphic
 
         // 1. Setup: the 2x2 average (one bilinear tap at the half-res pixel's centre) and the CoC of the depth.
         graph.AddPass(
-             kKernelPasses[0], RDG::PassFlags::Compute,
+             kDofKernelPasses[0], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofSetupLayout(), RDG::OtherRouteFill{} )
@@ -319,7 +319,7 @@ namespace Desert::Graphic
              exec( Kernel::Setup, half ) );
 
         graph.AddPass(
-             kKernelPasses[1], RDG::PassFlags::Compute,
+             kDofKernelPasses[1], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileFlattenLayout(), RDG::OtherRouteFill{} )
@@ -330,7 +330,7 @@ namespace Desert::Graphic
              exec( Kernel::TileFlatten, tileExtent ) );
 
         graph.AddPass(
-             kKernelPasses[2], RDG::PassFlags::Compute,
+             kDofKernelPasses[2], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileDilateLayout(), RDG::OtherRouteFill{} )
@@ -345,7 +345,7 @@ namespace Desert::Graphic
                                  RDG::TextureRef layer )
         {
             graph.AddPass(
-                 kKernelPasses[static_cast<std::size_t>( kernel )], RDG::PassFlags::Compute,
+                 kDofKernelPasses[static_cast<std::size_t>( kernel )], RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( layout, RDG::OtherRouteFill{} )
@@ -360,7 +360,7 @@ namespace Desert::Graphic
         gather( Kernel::GatherBackground, DofGatherBackgroundLayout(), background );
 
         graph.AddPass(
-             kKernelPasses[5], RDG::PassFlags::Compute,
+             kDofKernelPasses[5], RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofRecombineLayout(), RDG::OtherRouteFill{} )
@@ -389,7 +389,7 @@ namespace Desert::Graphic
         if ( m_Pipelines[index] )
             return m_Pipelines[index];
 
-        const char*             name    = kKernelShaders[index];
+        const char*             name    = kDofKernelShaders[index];
         Runtime::ShaderService* service = Runtime::ResourceRegistry::GetShaderService();
         if ( !service )
         {

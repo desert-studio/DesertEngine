@@ -17,7 +17,7 @@
 #include <limits>
 #include <string>
 
-namespace DepthOfFieldTest
+namespace
 {
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
@@ -75,9 +75,7 @@ namespace DepthOfFieldTest
                                       .SensorWidthMm   = 36.0f,
                                       .MaxBokehPercent = 2.5f,
                                       .Rings           = kDofRingsHigh };
-} // namespace DepthOfFieldTest
-
-using namespace DepthOfFieldTest;
+} // namespace
 
 // The thin lens, worked by hand for f = 50 mm, N = 2 (A = 25 mm), s = 2000 mm:
 //   z = 4000 mm: CoC = 25 * 50 * 2000 / (4000 * 1950) = 0.3205128 mm -> 0.3205128 / 36 * 1920 / 2 = 8.547 px
@@ -228,6 +226,22 @@ TEST( DepthOfField, TheSixNodesDeclareTheirReadsAndWritesAndRunBeforeMotionBlur 
                     mask |= barrier.After.Memory;
         return mask;
     };
+    // The access a texture is held in WHILE a pass runs: its last barrier at or before that pass. The graph emits no
+    // barrier for a read after a read of the same state (RDG folds them, INT-B11D), so a second sampler of a texture
+    // is proven by the state it finds, not by a barrier of its own.
+    const auto heldDuring = [&]( const char* passName, TextureRef resource )
+    {
+        uint32_t mask = MemoryAccess_None;
+        for ( const CompiledPass& pass : result.Passes )
+        {
+            for ( const Barrier& barrier : pass.Barriers )
+                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                    mask = barrier.After.Memory;
+            if ( pass.Name == passName )
+                return mask;
+        }
+        return static_cast<uint32_t>( MemoryAccess_None );
+    };
     // The texture a node storage-writes that another node samples.
     const auto written = [&]( const char* passName, const char* by ) -> TextureRef
     {
@@ -251,20 +265,20 @@ TEST( DepthOfField, TheSixNodesDeclareTheirReadsAndWritesAndRunBeforeMotionBlur 
     EXPECT_TRUE( accessOf( "DepthOfField: Setup", depth ) & MemoryAccess_ShaderSampledRead );
     const TextureRef half = written( "DepthOfField: Setup", "DepthOfField: TileFlatten" );
     ASSERT_TRUE( half.IsValid() ) << "TileFlatten samples what Setup writes";
-    EXPECT_TRUE( accessOf( "DepthOfField: GatherForeground", half ) & MemoryAccess_ShaderSampledRead );
-    EXPECT_TRUE( accessOf( "DepthOfField: GatherBackground", half ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "DepthOfField: GatherForeground", half ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "DepthOfField: GatherBackground", half ) & MemoryAccess_ShaderSampledRead );
     const TextureRef tiles = written( "DepthOfField: TileFlatten", "DepthOfField: TileDilate" );
     ASSERT_TRUE( tiles.IsValid() ) << "TileDilate samples what TileFlatten writes";
     const TextureRef dilated = written( "DepthOfField: TileDilate", "DepthOfField: GatherForeground" );
     ASSERT_TRUE( dilated.IsValid() ) << "GatherForeground samples what TileDilate writes";
-    EXPECT_TRUE( accessOf( "DepthOfField: GatherBackground", dilated ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "DepthOfField: GatherBackground", dilated ) & MemoryAccess_ShaderSampledRead );
     const TextureRef foreground = written( "DepthOfField: GatherForeground", "DepthOfField: Recombine" );
     const TextureRef background = written( "DepthOfField: GatherBackground", "DepthOfField: Recombine" );
     ASSERT_TRUE( foreground.IsValid() ) << "Recombine samples the foreground layer";
     ASSERT_TRUE( background.IsValid() ) << "Recombine samples the background layer";
     EXPECT_NE( foreground.Index, background.Index ) << "the two layers are gathered apart";
-    EXPECT_TRUE( accessOf( "DepthOfField: Recombine", color ) & MemoryAccess_ShaderSampledRead );
-    EXPECT_TRUE( accessOf( "DepthOfField: Recombine", depth ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "DepthOfField: Recombine", color ) & MemoryAccess_ShaderSampledRead );
+    EXPECT_TRUE( heldDuring( "DepthOfField: Recombine", depth ) & MemoryAccess_ShaderSampledRead );
     EXPECT_TRUE( accessOf( "DepthOfField: Recombine", defocused.GetValue() ) & MemoryAccess_ShaderStorageWrite );
 
     // Motion blur reads the recombined colour: DOF runs before it.

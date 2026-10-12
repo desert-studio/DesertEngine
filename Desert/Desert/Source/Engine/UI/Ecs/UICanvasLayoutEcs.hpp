@@ -6,6 +6,7 @@
 #include <UI/UICanvasLayout.hpp>
 
 #include <Engine/UI/Ecs/EcsUITree.hpp>
+#include <vector>
 
 namespace Desert::UI
 {
