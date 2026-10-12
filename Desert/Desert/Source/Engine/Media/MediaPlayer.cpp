@@ -167,7 +167,7 @@ namespace Desert::Media
         if ( m_Video )
             m_Video->Flush();
         if ( m_Audio )
-            m_Audio->Reset( targetNs == 0 );
+            m_Audio->Reset( targetNs ); // drops the SeekPreRoll lead the demuxer restarted early by
         if ( m_Sink != nullptr )
         {
             m_Sink->Flush();
@@ -176,7 +176,6 @@ namespace Desert::Media
         m_Queue.clear();
         m_OriginNs          = targetNs;
         m_InternalNs        = targetNs;
-        m_DropAudioBeforeNs = targetNs;
         m_DemuxDone         = false;
         m_DecodeError.clear();
         m_DecodeClockNs.store( targetNs );
@@ -294,14 +293,10 @@ namespace Desert::Media
                 m_DecodeError = m_Audio->Error();
                 return false;
             }
-            // After a seek the restart cluster begins before the target: drop the sound before it, so
-            // played-frame 0 is exactly the target time.
-            int64_t skip = 0;
-            if ( packet.PtsNs < m_DropAudioBeforeNs && m_DropAudioBeforeNs > 0 )
-                skip = std::min<int64_t>( frames, ( m_DropAudioBeforeNs - packet.PtsNs ) *
-                                                       OpusAudioDecoder::kSampleRate / 1000000000 );
-            if ( frames > skip )
-                m_Sink->Push( m_Pcm.data() + skip * m_Audio->Channels(), static_cast<uint64_t>( frames - skip ) );
+            // The decoder has already dropped the sound before the restart target (Reset), so played-frame 0
+            // is exactly the target time.
+            if ( frames > 0 )
+                m_Sink->Push( m_Pcm.data(), static_cast<uint64_t>( frames ) );
         }
         return true;
     }

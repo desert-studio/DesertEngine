@@ -151,6 +151,16 @@ namespace Desert::Media
 
     // ----------------------------------------------------------------------------------------- Opus
 
+    namespace
+    {
+        // Nanoseconds → frames at Opus's 48 kHz, rounded to nearest (a pre-skip of 311 samples is muxed as
+        // 6 479 167 ns and comes back as 311).
+        int64_t NsToFrames( int64_t ns )
+        {
+            return ( ns * OpusAudioDecoder::kSampleRate + 500000000 ) / 1000000000;
+        }
+    } // namespace
+
     OpusAudioDecoder::~OpusAudioDecoder()
     {
         if ( m_Decoder != nullptr )
@@ -165,9 +175,19 @@ namespace Desert::Media
         const std::vector<uint8_t>& head = track.CodecPrivate;
         if ( head.size() < 19 || std::memcmp( head.data(), "OpusHead", 8 ) != 0 )
             return "the Opus track's CodecPrivate is not an OpusHead";
+        // ONE pre-skip: the container's CodecDelay (Matroska A_OPUS mapping: "the Opus pre-skip value, in
+        // nanoseconds"; to be subtracted from every block time). OpusHead carries the same value in samples
+        // and is checked against it, not used beside it.
+        const auto    headPreSkip = static_cast<uint32_t>( head[10] | ( head[11] << 8 ) );
+        const int64_t delayFrames = NsToFrames( track.CodecDelayNs );
+        if ( delayFrames != headPreSkip )
+            return std::format( "the Opus track's CodecDelay ({} ns = {} frames at 48 kHz) disagrees with "
+                                "OpusHead's pre-skip ({} frames)",
+                                track.CodecDelayNs, delayFrames, headPreSkip );
         m_Channels           = head[9];
-        m_PreSkip            = static_cast<uint32_t>( head[10] | ( head[11] << 8 ) );
-        m_SkipLeft           = m_PreSkip;
+        m_PreSkip            = static_cast<uint32_t>( delayFrames );
+        m_StartFrame         = 0;
+        m_LeadDropped        = 0;
         const uint8_t family = head[18];
         int           error  = OPUS_OK;
         if ( family == 0 )
@@ -198,22 +218,25 @@ namespace Desert::Media
             m_Error = std::format( "opus decode failed at {} ns: {}", packet.PtsNs, opus_strerror( frames ) );
             return -1;
         }
-        const uint32_t first = std::min<uint32_t>( m_SkipLeft, static_cast<uint32_t>( frames ) );
-        m_SkipLeft -= first;
-        const int64_t discard =
-             packet.DiscardPaddingNs > 0 ? ( packet.DiscardPaddingNs * kSampleRate + 500000000 ) / 1000000000 : 0;
+        // The packet's first sample on the presentation timeline (block time − CodecDelay, RFC 7845 §4.3's
+        // granule − pre-skip); everything before the start point is dropped.
+        const int64_t firstFrame = NsToFrames( packet.PtsNs ) - m_PreSkip;
+        const int64_t first      = std::clamp<int64_t>( m_StartFrame - firstFrame, 0, frames );
+        m_LeadDropped += static_cast<uint64_t>( first );
+        const int64_t discard = packet.DiscardPaddingNs > 0 ? NsToFrames( packet.DiscardPaddingNs ) : 0;
         const int64_t last = std::max<int64_t>( first, frames - discard );
         interleaved.insert( interleaved.end(), m_Scratch.begin() + static_cast<ptrdiff_t>( first ) * m_Channels,
                             m_Scratch.begin() + static_cast<ptrdiff_t>( last ) * m_Channels );
         return last - first;
     }
 
-    void OpusAudioDecoder::Reset( bool fromStart )
+    void OpusAudioDecoder::Reset( int64_t startNs )
     {
         if ( m_Decoder != nullptr )
             opus_decoder_ctl( m_Decoder, OPUS_RESET_STATE );
         if ( m_MultiStream != nullptr )
             opus_multistream_decoder_ctl( m_MultiStream, OPUS_RESET_STATE );
-        m_SkipLeft = fromStart ? m_PreSkip : 0;
+        m_StartFrame  = NsToFrames( startNs );
+        m_LeadDropped = 0;
     }
 } // namespace Desert::Media
