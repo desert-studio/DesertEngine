@@ -1890,8 +1890,10 @@ TEST( SettingConsumers, TheSunIsDrivenFromTheTimeOfDayComponentNotTheSky )
     ASSERT_FALSE( text.empty() );
     EXPECT_NE( text.find( "registry.view<ECS::TimeOfDayComponent>" ), std::string::npos )
          << "TimeOfDayECSSystem does not view TimeOfDayComponent";
-    EXPECT_NE( text.find( "DirectionLightComponent" ), std::string::npos )
-         << "TimeOfDayECSSystem no longer drives the directional light";
+    // SUN-SOURCE: the light it drives is the one ECS::PickAtmosphereSun names for the sky, the lighting and
+    // the shadows alike.
+    EXPECT_NE( text.find( "PickAtmosphereSun(" ), std::string::npos )
+         << "TimeOfDayECSSystem no longer drives the atmosphere's sun light";
     EXPECT_EQ( text.find( "SkyAtmosphere" ), std::string::npos )
          << "TimeOfDayECSSystem reads the sky: the clock is TimeOfDayComponent alone";
 }
