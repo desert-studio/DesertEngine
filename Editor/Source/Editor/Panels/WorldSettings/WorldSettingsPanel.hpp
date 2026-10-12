@@ -29,7 +29,7 @@ namespace Desert::Editor
     class WorldSettingsPanel final : public IPanel
     {
     public:
-        WorldSettingsPanel( std::shared_ptr<::Desert::Core::Scene>             scene,
+        WorldSettingsPanel( std::shared_ptr<::Desert::Core::Scene>          scene,
                             std::shared_ptr<::Desert::Assets::AssetManager> assetManager );
 
         void OnUIRender() override;
