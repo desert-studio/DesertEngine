@@ -19,9 +19,12 @@
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <string>
 #include <span>
 #include <vector>
 
@@ -71,4 +74,29 @@ namespace Desert::Core::EditorRegions
 
     // Every record of the world: the scene holds all of it again, as an open would have made it.
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets );
+
+    // What an editor open reads of the scene at a path.
+    struct OpenRead
+    {
+        std::string               Text;             // the document ParseLoadableScene reads
+        bool                      ByRegion = false; // a partitioned world: Text holds its always-loaded part only
+        RegionSelection           Selection;        // ByRegion: what of the world Text holds
+        std::vector<Common::UUID> NotLoaded;        // ByRegion: the records left on disk, in the world's order
+    };
+
+    // THE EDITOR'S OPEN (WP20, owner's decision O3 - UE's World Partition editor opens a world unloaded): a
+    // partitioned world is read as its always-loaded part only (LoadRegions with no region, decided over the
+    // descriptor index before anything else is read); every other scene is ReadSceneFileText. After the scene is
+    // made from Text and adopted as saved, the caller hands NotLoaded to EntityPackages::AdoptRegion so a save
+    // keeps the records on disk. Refused, naming the file, as ReadSceneFileText and LoadRegions refuse.
+    [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path );
+
+    // THE PLAYED WORLD OF A WORLD HELD IN PART (WP20). UE's Play-in-Editor plays the WHOLE partitioned world:
+    // every actor the editor holds as it is in memory (unsaved edits included), every other one from its
+    // package. Here: every record the scene does not hold (its packages' not-loaded set) is read from its file
+    // and made beside what the scene holds, so the scene is the whole world as Play must stream it. The
+    // packages are NOT told - the played scene is not the edited one; the caller keeps the edit world's packages
+    // and puts them back with the edit world at Stop. Returns how many records were made (0: the scene already
+    // holds the whole world, nothing is read). Refused, changing nothing, when the index or a file cannot be read.
+    [[nodiscard]] Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene& scene, Assets::AssetManager* assets );
 } // namespace Desert::Core::EditorRegions

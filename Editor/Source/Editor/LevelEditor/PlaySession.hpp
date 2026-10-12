@@ -14,6 +14,7 @@
 #include "Editor/Widgets/ToolbarLayout.hpp"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,9 @@ namespace Desert::Editor
         // the editor's scene): read and version-gated before anything is destroyed, then cleared, loaded,
         // initialised, Play begun and the world streamer started on the new level.
         [[nodiscard]] Common::BoolResultStr LoadIntoPlayWorld( const std::string& path );
+        // A Play refused after the world was completed from disk: the scene goes back to the edit world's
+        // snapshot and packages.
+        void RestoreEditWorld( const std::string& snapshot );
 
         enum class State
         {
@@ -88,6 +92,7 @@ namespace Desert::Editor
         const std::shared_ptr<Assets::AssetManager>& m_Assets;
         State                                        m_State = State::Paused;
         PlayWorldTravel                              m_PlayWorld; // the authored snapshot + the travelled map
+        std::optional<Desert::Core::EntityPackages>  m_EditPackages; // the edit world's, from Play to Stop
         bool                                         m_PendingStop = false;
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
         double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
