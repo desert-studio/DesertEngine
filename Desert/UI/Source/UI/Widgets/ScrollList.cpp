@@ -47,9 +47,9 @@ namespace Desert::UI::Walk
             const auto& lv = *frame.Tree.Get<UIListViewData>( frame.E );
             if ( lv.SelectionMode == UISelectionMode::None && shape.Tree == nullptr )
                 return;
-            const UIListItemKey key  = shape.KeyAt( frame.Tree, frame.E, i );
-            const glm::vec2     mn   = { row.X, row.Y };
-            const glm::vec2     mx   = { row.X + row.W, row.Y + row.H };
+            const UIListItemKey key = shape.KeyAt( frame.Tree, frame.E, i );
+            const glm::vec2     mn  = { row.X, row.Y };
+            const glm::vec2     mx  = { row.X + row.W, row.Y + row.H };
             if ( state.Selection.Has( key ) )
                 frame.Dl.AddRectFilled( mn, mx, Tinted( frame.Ctx, glm::vec4( lv.SelectionColor, 1.0f ) ) );
             else if ( i == hoverRow && lv.SelectionMode != UISelectionMode::None )
@@ -71,8 +71,8 @@ namespace Desert::UI::Walk
             const bool          cell   = frame.Focused != nullptr && *frame.Focused == frame.E;
             const float         border = std::max( 1.0f, 2.0f * frame.Scale );
             if ( cell && key == state.Selection.Cursor )
-                frame.Dl.AddRect( mn, mx, glm::vec4( glm::min( lv.SelectionColor * 1.8f, glm::vec3( 1.0f ) ), 1.0f ),
-                                  border );
+                frame.Dl.AddRect(
+                     mn, mx, glm::vec4( glm::min( lv.SelectionColor * 1.8f, glm::vec3( 1.0f ) ), 1.0f ), border );
             else if ( state.Selection.Has( key ) )
                 frame.Dl.AddRect( mn, mx, Tinted( frame.Ctx, glm::vec4( lv.SelectionColor, 1.0f ) ), border );
             if ( shape.Tree == nullptr )
@@ -84,14 +84,14 @@ namespace Desert::UI::Walk
             const auto&     tv = *frame.Tree.Get<UITreeViewData>( frame.E );
             const Rect      g  = TreeExpanderRect( row, tr.Depth, tv.Indent * frame.Scale );
             const float     cx = g.X + g.W * 0.5f, cy = g.Y + g.H * 0.5f;
-            const float     a  = std::min( g.W, g.H ) * 0.22f;
+            const float     a = std::min( g.W, g.H ) * 0.22f;
             const glm::vec4 c( tv.ExpanderColor, 1.0f );
             if ( tr.Expanded )
-                frame.Dl.AddTriangleFilled( { cx - a, cy - a * 0.6f }, { cx + a, cy - a * 0.6f }, { cx, cy + a * 0.6f },
-                                            c );
+                frame.Dl.AddTriangleFilled( { cx - a, cy - a * 0.6f }, { cx + a, cy - a * 0.6f },
+                                            { cx, cy + a * 0.6f }, c );
             else
-                frame.Dl.AddTriangleFilled( { cx - a * 0.6f, cy - a }, { cx - a * 0.6f, cy + a }, { cx + a * 0.6f, cy },
-                                            c );
+                frame.Dl.AddTriangleFilled( { cx - a * 0.6f, cy - a }, { cx - a * 0.6f, cy + a },
+                                            { cx + a * 0.6f, cy }, c );
         }
 
         void SendSelectionChanged( ElementFrame& frame, const UIListViewData& lv, int row )
@@ -124,138 +124,141 @@ namespace Desert::UI::Walk
             state.TreeStale = true;
         }
 
-    // The pointer and the keyboard of a list, tile or tree view. Returns true when the rows or the scroll
-    // offset changed (the caller resolves and solves again). @p hoverRow receives the row under the pointer.
-    bool HandleListInput( ElementFrame& frame, UIListViewData& lv, const UIListShape& shape,
-                          const ListWindow& window, UIListViewState& state, int& hoverRow )
-    {
-        auto&       ctx    = frame.Ctx;
-        auto&       tree   = frame.Tree;
-        const auto  e      = frame.E;
-        const auto* input  = frame.Input;
-        const auto& rect   = frame.ElementRect;
-        const float scale  = frame.Scale;
-        const bool  tree_  = shape.Tree != nullptr;
-        const bool  select = lv.SelectionMode != UISelectionMode::None;
-        if ( input == nullptr || !frame.Interactive || ( !select && !tree_ ) )
-            return false;
-
-        const auto keyAt = [&]( int i ) { return shape.KeyAt( tree, e, i ); };
-        bool       rowsChanged = false;
-
-        // --- Pointer ------------------------------------------------------------------------------------
-        const glm::vec2 p        = frame.PointerPx;
-        const bool      overBar  = lv.ShowScrollbar && window.ScrollMaxPx > 0.0f &&
-                             p.x >= rect.X + rect.W - 6.0f * scale;
-        const NodeId    hot      = ctx.View.Hot;
-        // A control inside a row (a button, a toggle) takes its own click, as a UE button in an entry does —
-        // also when the pointer landed on its label or icon: the click bubbles to that control
-        // (UIViewContext::PointerTarget), never to the row under it.
-        const NodeId ctl       = ctx.View.PointerTarget;
-        const bool   onControl = ( hot != e && tree.Valid( hot ) && IsFocusable( tree, hot ) ) ||
-                               ( ctl != e && ctl != NodeId::Null && HotWithin( tree, ctl, e ) );
-        if ( HotWithin( tree, hot, e ) && !overBar && PointIn( rect, p ) && ctx.View.ThumbDrag.Owner != e )
-            for ( int i = window.First; i <= window.Last; ++i )
-                if ( PointIn( ListRowRect( rect, window, i ), p ) )
-                {
-                    hoverRow = i;
-                    break;
-                }
-        const bool press = input->MouseDown && !ctx.View.PrevDown;
-        if ( press && hoverRow >= 0 && !onControl )
+        // The pointer and the keyboard of a list, tile or tree view. Returns true when the rows or the scroll
+        // offset changed (the caller resolves and solves again). @p hoverRow receives the row under the pointer.
+        bool HandleListInput( ElementFrame& frame, UIListViewData& lv, const UIListShape& shape,
+                              const ListWindow& window, UIListViewState& state, int& hoverRow )
         {
-            if ( select && frame.Focused != nullptr )
-                *frame.Focused = e; // focus on press, as STableViewBase takes keyboard focus on a row click
-            const UITreeRow* tr =
-                 tree_ ? &shape.Rows()[static_cast<std::size_t>( hoverRow )] : nullptr;
-            if ( tr != nullptr && tr->HasChildren &&
-                 PointIn( TreeExpanderRect( ListRowRect( rect, window, hoverRow ), tr->Depth, shape.Tree->Indent * scale ),
-                          p ) )
-            {
-                SetExpanded( state, tr->Key, !tr->Expanded );
-                rowsChanged = true;
-            }
-            else if ( ClickRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, hoverRow,
-                                HasMod( input->Mods, UIKeyMods::Shift ),
-                                HasMod( input->Mods, UIKeyMods::Ctrl ) || HasMod( input->Mods, UIKeyMods::Super ) ) )
-                SendSelectionChanged( frame, lv, hoverRow );
-        }
+            auto&       ctx    = frame.Ctx;
+            auto&       tree   = frame.Tree;
+            const auto  e      = frame.E;
+            const auto* input  = frame.Input;
+            const auto& rect   = frame.ElementRect;
+            const float scale  = frame.Scale;
+            const bool  tree_  = shape.Tree != nullptr;
+            const bool  select = lv.SelectionMode != UISelectionMode::None;
+            if ( input == nullptr || !frame.Interactive || ( !select && !tree_ ) )
+                return false;
 
-        // --- Keyboard (focused list only) ----------------------------------------------------------------
-        if ( !select || frame.Focused == nullptr || *frame.Focused != e )
-            return rowsChanged;
-        using Common::KeyCode;
-        const float pitchPx   = ( std::max( 1.0f, lv.ItemHeight ) + std::max( 0.0f, lv.Spacing ) ) * scale;
-        const int   pageItems = std::max( 1, static_cast<int>( rect.H / std::max( 1.0f, pitchPx ) ) ) * shape.Columns;
-        for ( const UIKeyEvent& k : input->Keys )
-        {
-            // Rows change under a tree's expand/collapse; later keys of the same frame see the new rows only
-            // after the caller re-resolves, so a frame stops at the first structural change.
-            if ( rowsChanged && tree_ )
-                break;
-            const bool shift  = HasMod( k.Mods, UIKeyMods::Shift );
-            const bool ctrl   = HasMod( k.Mods, UIKeyMods::Ctrl ) || HasMod( k.Mods, UIKeyMods::Super );
-            const int  cursor = IndexOfKey( shape.Count, keyAt, state.Selection.Cursor );
-            if ( k.Key == KeyCode::A && ctrl )
-            {
-                if ( SelectAllRows( state.Selection, lv.SelectionMode, shape.Count, keyAt ) )
-                    SendSelectionChanged( frame, lv, std::max( 0, cursor ) );
-                ctx.View.ConsumeKey( k.Key );
-                continue;
-            }
-            if ( k.Key == KeyCode::Space || k.Key == KeyCode::Enter )
-            {
-                if ( cursor >= 0 && ToggleCursorRow( state.Selection, lv.SelectionMode, shape.Count, keyAt ) )
-                    SendSelectionChanged( frame, lv, cursor );
-                ctx.View.ConsumeKey( k.Key );
-                continue;
-            }
-            // A tree's Left/Right (STreeView::OnKeyDown): Right expands, then steps into the first child; Left
-            // collapses, then steps out to the parent.
-            if ( tree_ && cursor >= 0 && ( k.Key == KeyCode::Left || k.Key == KeyCode::Right ) )
-            {
-                const UITreeRow& tr     = shape.Rows()[static_cast<std::size_t>( cursor )];
-                int              target = -1;
-                if ( k.Key == KeyCode::Right )
-                {
-                    if ( tr.HasChildren && !tr.Expanded )
+            const auto keyAt       = [&]( int i ) { return shape.KeyAt( tree, e, i ); };
+            bool       rowsChanged = false;
+
+            // --- Pointer ------------------------------------------------------------------------------------
+            const glm::vec2 p = frame.PointerPx;
+            const bool      overBar =
+                 lv.ShowScrollbar && window.ScrollMaxPx > 0.0f && p.x >= rect.X + rect.W - 6.0f * scale;
+            const NodeId hot = ctx.View.Hot;
+            // A control inside a row (a button, a toggle) takes its own click, as a UE button in an entry does —
+            // also when the pointer landed on its label or icon: the click bubbles to that control
+            // (UIViewContext::PointerTarget), never to the row under it.
+            const NodeId ctl       = ctx.View.PointerTarget;
+            const bool   onControl = ( hot != e && tree.Valid( hot ) && IsFocusable( tree, hot ) ) ||
+                                   ( ctl != e && ctl != NodeId::Null && HotWithin( tree, ctl, e ) );
+            if ( HotWithin( tree, hot, e ) && !overBar && PointIn( rect, p ) && ctx.View.ThumbDrag.Owner != e )
+                for ( int i = window.First; i <= window.Last; ++i )
+                    if ( PointIn( ListRowRect( rect, window, i ), p ) )
                     {
-                        SetExpanded( state, tr.Key, true );
-                        rowsChanged = true;
+                        hoverRow = i;
+                        break;
+                    }
+            const bool press = input->MouseDown && !ctx.View.PrevDown;
+            if ( press && hoverRow >= 0 && !onControl )
+            {
+                if ( select && frame.Focused != nullptr )
+                    *frame.Focused = e; // focus on press, as STableViewBase takes keyboard focus on a row click
+                const UITreeRow* tr = tree_ ? &shape.Rows()[static_cast<std::size_t>( hoverRow )] : nullptr;
+                if ( tr != nullptr && tr->HasChildren &&
+                     PointIn( TreeExpanderRect( ListRowRect( rect, window, hoverRow ), tr->Depth,
+                                                shape.Tree->Indent * scale ),
+                              p ) )
+                {
+                    SetExpanded( state, tr->Key, !tr->Expanded );
+                    rowsChanged = true;
+                }
+                else if ( ClickRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, hoverRow,
+                                    HasMod( input->Mods, UIKeyMods::Shift ),
+                                    HasMod( input->Mods, UIKeyMods::Ctrl ) ||
+                                         HasMod( input->Mods, UIKeyMods::Super ) ) )
+                    SendSelectionChanged( frame, lv, hoverRow );
+            }
+
+            // --- Keyboard (focused list only) ----------------------------------------------------------------
+            if ( !select || frame.Focused == nullptr || *frame.Focused != e )
+                return rowsChanged;
+            using Common::KeyCode;
+            const float pitchPx = ( std::max( 1.0f, lv.ItemHeight ) + std::max( 0.0f, lv.Spacing ) ) * scale;
+            const int   pageItems =
+                 std::max( 1, static_cast<int>( rect.H / std::max( 1.0f, pitchPx ) ) ) * shape.Columns;
+            for ( const UIKeyEvent& k : input->Keys )
+            {
+                // Rows change under a tree's expand/collapse; later keys of the same frame see the new rows only
+                // after the caller re-resolves, so a frame stops at the first structural change.
+                if ( rowsChanged && tree_ )
+                    break;
+                const bool shift  = HasMod( k.Mods, UIKeyMods::Shift );
+                const bool ctrl   = HasMod( k.Mods, UIKeyMods::Ctrl ) || HasMod( k.Mods, UIKeyMods::Super );
+                const int  cursor = IndexOfKey( shape.Count, keyAt, state.Selection.Cursor );
+                if ( k.Key == KeyCode::A && ctrl )
+                {
+                    if ( SelectAllRows( state.Selection, lv.SelectionMode, shape.Count, keyAt ) )
+                        SendSelectionChanged( frame, lv, std::max( 0, cursor ) );
+                    ctx.View.ConsumeKey( k.Key );
+                    continue;
+                }
+                if ( k.Key == KeyCode::Space || k.Key == KeyCode::Enter )
+                {
+                    if ( cursor >= 0 && ToggleCursorRow( state.Selection, lv.SelectionMode, shape.Count, keyAt ) )
+                        SendSelectionChanged( frame, lv, cursor );
+                    ctx.View.ConsumeKey( k.Key );
+                    continue;
+                }
+                // A tree's Left/Right (STreeView::OnKeyDown): Right expands, then steps into the first child; Left
+                // collapses, then steps out to the parent.
+                if ( tree_ && cursor >= 0 && ( k.Key == KeyCode::Left || k.Key == KeyCode::Right ) )
+                {
+                    const UITreeRow& tr     = shape.Rows()[static_cast<std::size_t>( cursor )];
+                    int              target = -1;
+                    if ( k.Key == KeyCode::Right )
+                    {
+                        if ( tr.HasChildren && !tr.Expanded )
+                        {
+                            SetExpanded( state, tr.Key, true );
+                            rowsChanged = true;
+                        }
+                        else if ( tr.Expanded )
+                            target = cursor + 1;
                     }
                     else if ( tr.Expanded )
-                        target = cursor + 1;
+                    {
+                        SetExpanded( state, tr.Key, false );
+                        rowsChanged = true;
+                    }
+                    else
+                        target = tr.Parent;
+                    if ( target >= 0 && target < shape.Count )
+                    {
+                        if ( NavigateRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, target, shift,
+                                          ctrl ) )
+                            SendSelectionChanged( frame, lv, target );
+                        ScrollRowIntoView( lv, shape, target, rect.H, scale );
+                        rowsChanged = true;
+                    }
+                    ctx.View.ConsumeKey( k.Key );
+                    continue;
                 }
-                else if ( tr.Expanded )
-                {
-                    SetExpanded( state, tr.Key, false );
-                    rowsChanged = true;
-                }
-                else
-                    target = tr.Parent;
-                if ( target >= 0 && target < shape.Count )
-                {
-                    if ( NavigateRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, target, shift, ctrl ) )
-                        SendSelectionChanged( frame, lv, target );
-                    ScrollRowIntoView( lv, shape, target, rect.H, scale );
-                    rowsChanged = true;
-                }
+                const int target = NavigateTarget( k.Key, cursor, shape.Count, shape.Columns, pageItems );
+                // Not a key of this list, or one that cannot move (Up on the first row): left to focus navigation,
+                // so the arrow that would go nowhere inside the list moves focus out of it.
+                if ( target < 0 || ( target == cursor && cursor >= 0 ) )
+                    continue;
+                if ( NavigateRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, target, shift, ctrl ) )
+                    SendSelectionChanged( frame, lv, target );
+                ScrollRowIntoView( lv, shape, target, rect.H, scale );
+                rowsChanged = true;
                 ctx.View.ConsumeKey( k.Key );
-                continue;
             }
-            const int target = NavigateTarget( k.Key, cursor, shape.Count, shape.Columns, pageItems );
-            // Not a key of this list, or one that cannot move (Up on the first row): left to focus navigation,
-            // so the arrow that would go nowhere inside the list moves focus out of it.
-            if ( target < 0 || ( target == cursor && cursor >= 0 ) )
-                continue;
-            if ( NavigateRow( state.Selection, lv.SelectionMode, shape.Count, keyAt, target, shift, ctrl ) )
-                SendSelectionChanged( frame, lv, target );
-            ScrollRowIntoView( lv, shape, target, rect.H, scale );
-            rowsChanged = true;
-            ctx.View.ConsumeKey( k.Key );
+            return rowsChanged;
         }
-        return rowsChanged;
-    }
     } // namespace
 
     void DrawChildren( ElementFrame& frame )
@@ -380,7 +383,8 @@ namespace Desert::UI::Walk
                 (void)PruneSelection( listState->Selection,
                                       [&tree, e]( UIListItemKey k )
                                       {
-                                          const auto n = static_cast<NodeId>( static_cast<std::uint32_t>( k - 1 ) );
+                                          const auto n =
+                                               static_cast<NodeId>( static_cast<std::uint32_t>( k - 1 ) );
                                           return tree.Valid( n ) && tree.Parent( n ) == e;
                                       } );
             }
@@ -550,9 +554,9 @@ namespace Desert::UI::Walk
             if ( press && interactive && HotWithin( tree, ctx.View.Hot, e ) && pointer.x >= trackX &&
                  pointer.x <= rect.X + rect.W && pointer.y >= rect.Y && pointer.y <= rect.Y + rect.H )
             {
-                drag.Owner  = e;
-                drag.GrabPx = ( pointer.y >= thumbY && pointer.y <= thumbY + thumbH ) ? pointer.y - thumbY
-                                                                                        : thumbH * 0.5f;
+                drag.Owner = e;
+                drag.GrabPx =
+                     ( pointer.y >= thumbY && pointer.y <= thumbY + thumbH ) ? pointer.y - thumbY : thumbH * 0.5f;
             }
             if ( drag.Owner == e )
             {

@@ -137,7 +137,7 @@ namespace Desert::UI::Walk
         {
             if ( s.empty() )
                 return false;
-            uint64_t v = 0;
+            uint64_t v           = 0;
             const auto [ptr, ec] = std::from_chars( s.data(), s.data() + s.size(), v );
             if ( ec == std::errc{} && ptr == s.data() + s.size() )
                 out = v;

@@ -109,7 +109,7 @@ namespace Desert::UI
     // The child collection of record @p record under @p childrenField, from @p store (null when the field is
     // empty or names no collection).
     [[nodiscard]] const UICollection* TreeChildren( const UIDataStore& store, const UIDataStore& record,
-                                                 const std::string& childrenField );
+                                                    const std::string& childrenField );
 
     // Flatten @p roots (key @p rootsKey in @p store) into @p out, descending into rows whose key is in
     // @p expanded. @p seen receives every collection read (null = do not record).
@@ -147,12 +147,12 @@ namespace Desert::UI
     // laid out how (tile columns), and what each row is (a child entity, a bound record, a tree record).
     struct UIListShape
     {
-        int                   Count     = 0;
-        int                   Columns   = 1;
-        float                 ItemWidth = 0.0f;      // design px; 0 = full-width rows
-        const UICollection*   Bound     = nullptr;   // a flat collection-bound list
-        const UITreeViewData* Tree      = nullptr;   // a tree view (bound); rows are Rows()
-        const std::vector<UITreeRow>* Cached = nullptr;
+        int                           Count     = 0;
+        int                           Columns   = 1;
+        float                         ItemWidth = 0.0f;    // design px; 0 = full-width rows
+        const UICollection*           Bound     = nullptr; // a flat collection-bound list
+        const UITreeViewData*         Tree      = nullptr; // a tree view (bound); rows are Rows()
+        const std::vector<UITreeRow>* Cached    = nullptr;
         std::vector<UITreeRow>        Own;
 
         [[nodiscard]] const std::vector<UITreeRow>& Rows() const

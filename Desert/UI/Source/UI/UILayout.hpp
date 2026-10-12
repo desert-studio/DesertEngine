@@ -682,7 +682,8 @@ namespace Desert::UI
         if ( scale <= 0.0f )
             return 1;
         const float pitch = ( std::max( 1.0f, itemWidth ) + std::max( 0.0f, spacing ) ) * scale;
-        return std::max( 1, static_cast<int>( std::floor( ( viewportW + std::max( 0.0f, spacing ) * scale ) / pitch ) ) );
+        return std::max(
+             1, static_cast<int>( std::floor( ( viewportW + std::max( 0.0f, spacing ) * scale ) / pitch ) ) );
     }
 
     // @p itemHeight and @p spacing are DESIGN px; @p viewportH is the container's own height in PIXELS,
@@ -735,9 +736,9 @@ namespace Desert::UI
     // and the scrollbar is drawn over it, exactly as UIScrollView draws its own.
     inline Rect ListRowRect( const Rect& container, const ListWindow& w, int index )
     {
-        const int line = index / std::max( 1, w.Columns );
-        const int col  = index % std::max( 1, w.Columns );
-        const float y  = container.Y + static_cast<float>( line ) * w.PitchPx - w.ScrollPx;
+        const int   line = index / std::max( 1, w.Columns );
+        const int   col  = index % std::max( 1, w.Columns );
+        const float y    = container.Y + static_cast<float>( line ) * w.PitchPx - w.ScrollPx;
         if ( w.ItemWidthPx <= 0.0f )
             return Rect{ container.X, y, container.W, w.RowHeightPx };
         return Rect{ container.X + static_cast<float>( col ) * w.ColPitchPx, y, w.ItemWidthPx, w.RowHeightPx };

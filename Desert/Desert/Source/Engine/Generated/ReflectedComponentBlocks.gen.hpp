@@ -18,6 +18,7 @@
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
+#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 
 namespace Desert::Core::Serialize
@@ -91,6 +92,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::UITweenComponent, decltype( ::Desert::ECS::UITweenComponent::Data )>{ "UITween", "UITweenData", &::Desert::ECS::UITweenComponent::Data, R::UIAfterRenderTexture } );
         visit( ReflectedMemberBlock<::Desert::ECS::VolumetricCloudComponent, decltype( ::Desert::ECS::VolumetricCloudComponent::Data )>{ "VolumetricCloud", "VolumetricCloudData", &::Desert::ECS::VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<::Desert::ECS::WaterZoneComponent, decltype( ::Desert::ECS::WaterZoneComponent::Data )>{ "WaterZone", "WaterZoneData", &::Desert::ECS::WaterZoneComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WindSourceComponent, decltype( ::Desert::ECS::WindSourceComponent::Data )>{ "WindSource", "WindSourceData", &::Desert::ECS::WindSourceComponent::Data, R::SkyAndAtmosphere } );
     }
 } // namespace Desert::Core::Serialize

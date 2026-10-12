@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "803fb12985dde3690e19e8ae9880b3da",
         "Versions": {
-            "SCNE": 48,
+            "SCNE": 49,
             "UNIT": 1
         },
         "Dependencies": []
@@ -394,17 +394,6 @@
             "parent": 1008,
             "siblingIndex": 0,
             "Tag": "Btn_PLAY",
-            "UINavigation": {
-                "Up": 0,
-                "UpTarget": "",
-                "Down": 0,
-                "DownTarget": "",
-                "Left": 0,
-                "LeftTarget": "",
-                "Right": 0,
-                "RightTarget": "",
-                "InitialFocus": true
-            },
             "UIButton": {
                 "NormalColor": [0.10000000149011612, 0.11999999731779099, 0.1599999964237213],
                 "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
@@ -449,6 +438,17 @@
                 "FitWidth": false,
                 "FitHeight": false
             },
+            "UINavigation": {
+                "Up": 0,
+                "UpTarget": "",
+                "Down": 0,
+                "DownTarget": "",
+                "Left": 0,
+                "LeftTarget": "",
+                "Right": 0,
+                "RightTarget": "",
+                "InitialFocus": true
+            },
             "UITween": {
                 "Property": 0,
                 "From": [-40.0, 0.0, 0.0, 0.0],
@@ -456,6 +456,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.0,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -597,6 +598,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.05999999865889549,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -738,6 +740,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.11999999731779099,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -879,6 +882,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.18000000715255737,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1020,6 +1024,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.23999999463558197,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1161,6 +1166,7 @@
                 "Duration": 0.44999998807907104,
                 "Delay": 0.30000001192092896,
                 "Easing": 5,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1351,6 +1357,7 @@
                 "Duration": 0.5,
                 "Delay": 0.25,
                 "Easing": 2,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1645,6 +1652,7 @@
                 "Duration": 0.5,
                 "Delay": 0.25,
                 "Easing": 2,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -1952,6 +1960,7 @@
                 "Duration": 0.5,
                 "Delay": 0.25,
                 "Easing": 2,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -2463,6 +2472,7 @@
                 "Duration": 0.3499999940395355,
                 "Delay": 0.0,
                 "Easing": 7,
+                "Trigger": 0,
                 "Loop": 0,
                 "Playing": true,
                 "RewindOnHide": true
@@ -2525,7 +2535,7 @@
             "Tag": "SettingsRow1",
             "UILayout": {
                 "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.36, 0.0],
+                "AnchorMax": [0.36000001430511475, 0.0],
                 "OffsetMin": [0.0, 0.0],
                 "OffsetMax": [0.0, 40.0],
                 "CustomMinimumSize": [0.0, 0.0],
@@ -2801,25 +2811,6 @@
             "parent": 1069,
             "siblingIndex": 0,
             "Tag": "Tab_Video",
-            "UILayout": {
-                "AnchorMin": [0.0, 0.0],
-                "AnchorMax": [0.5, 1.0],
-                "OffsetMin": [0.0, 0.0],
-                "OffsetMax": [-6.0, 0.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FlexShrink": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.1599999964237213, 0.20000000298023224, 0.2800000011920929],
                 "HoverColor": [0.23999999463558197, 0.30000001192092896, 0.4000000059604645],
@@ -2844,6 +2835,25 @@
                 "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.5, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [-6.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
@@ -2872,7 +2882,7 @@
             },
             "UIText": {
                 "Text": "#settings.tab.video",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.8999999761581421, 0.9399999976158142, 1.0],
                 "Align": 1,
@@ -2901,25 +2911,6 @@
             "parent": 1069,
             "siblingIndex": 1,
             "Tag": "Tab_Audio",
-            "UILayout": {
-                "AnchorMin": [0.5, 0.0],
-                "AnchorMax": [1.0, 1.0],
-                "OffsetMin": [6.0, 0.0],
-                "OffsetMax": [0.0, 0.0],
-                "CustomMinimumSize": [0.0, 0.0],
-                "Rotation": 0.0,
-                "Scale": [1.0, 1.0],
-                "Pivot": [0.5, 0.5],
-                "ClipContents": false,
-                "Visibility": 0,
-                "HitTest": 0,
-                "AspectRatio": 0.0,
-                "AspectMode": 1,
-                "FlexGrow": 0.0,
-                "FlexShrink": 0.0,
-                "FitWidth": false,
-                "FitHeight": false
-            },
             "UIButton": {
                 "NormalColor": [0.1599999964237213, 0.20000000298023224, 0.2800000011920929],
                 "HoverColor": [0.23999999463558197, 0.30000001192092896, 0.4000000059604645],
@@ -2944,6 +2935,25 @@
                 "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
                 "Disabled": false,
                 "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            },
+            "UILayout": {
+                "AnchorMin": [0.5, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [6.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FlexShrink": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             }
         },
         {
@@ -2972,7 +2982,7 @@
             },
             "UIText": {
                 "Text": "#settings.tab.audio",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.8999999761581421, 0.9399999976158142, 1.0],
                 "Align": 1,
@@ -3022,7 +3032,7 @@
             },
             "UIScreenStack": {
                 "InitialScreen": "Video",
-                "TransitionTime": 0.2,
+                "TransitionTime": 0.20000000298023224,
                 "SlidePx": 60.0,
                 "Easing": 5
             }
@@ -3061,7 +3071,7 @@
             "siblingIndex": 1,
             "Tag": "Resolutions",
             "UILayout": {
-                "AnchorMin": [0.36, 0.0],
+                "AnchorMin": [0.36000001430511475, 0.0],
                 "AnchorMax": [1.0, 1.0],
                 "OffsetMin": [0.0, 0.0],
                 "OffsetMax": [0.0, 0.0],
@@ -3084,14 +3094,14 @@
                 "ItemHeight": 32.0,
                 "Spacing": 2.0,
                 "Overscan": 1,
-                "Background": [0.07, 0.08, 0.11],
+                "Background": [0.07000000029802322, 0.07999999821186066, 0.10999999940395355],
                 "ShowScrollbar": true,
-                "ScrollbarColor": [0.35, 0.37, 0.44],
+                "ScrollbarColor": [0.3499999940395355, 0.3700000047683716, 0.4399999976158142],
                 "Collection": "",
                 "FollowEnd": false,
                 "SelectionMode": 1,
-                "SelectionColor": [0.85, 0.42, 0.18],
-                "HoverColor": [0.16, 0.22, 0.3],
+                "SelectionColor": [0.8500000238418579, 0.41999998688697815, 0.18000000715255737],
+                "HoverColor": [0.1599999964237213, 0.2199999988079071, 0.30000001192092896],
                 "OnSelectionChangedMessage": "settings.resolution.selected"
             }
         },
@@ -3121,7 +3131,7 @@
             },
             "UIText": {
                 "Text": "3840 x 2160",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3171,7 +3181,7 @@
             },
             "UIText": {
                 "Text": "2560 x 1440",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3221,7 +3231,7 @@
             },
             "UIText": {
                 "Text": "2560 x 1080",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3271,7 +3281,7 @@
             },
             "UIText": {
                 "Text": "1920 x 1200",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3321,7 +3331,7 @@
             },
             "UIText": {
                 "Text": "1920 x 1080",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3371,7 +3381,7 @@
             },
             "UIText": {
                 "Text": "1680 x 1050",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3421,7 +3431,7 @@
             },
             "UIText": {
                 "Text": "1600 x 900",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3471,7 +3481,7 @@
             },
             "UIText": {
                 "Text": "1440 x 900",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3521,7 +3531,7 @@
             },
             "UIText": {
                 "Text": "1366 x 768",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3571,7 +3581,7 @@
             },
             "UIText": {
                 "Text": "1280 x 720",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,
@@ -3621,7 +3631,7 @@
             },
             "UIText": {
                 "Text": "1024 x 768",
-                "FontSize": 18,
+                "FontSize": 18.0,
                 "Font": "",
                 "Color": [0.75, 0.800000011920929, 0.8799999952316284],
                 "Align": 0,

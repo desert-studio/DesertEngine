@@ -94,10 +94,10 @@ namespace Desert::ECS
                                                    -glm::normalize( transform.Translation ).y, -1.0f, 1.0f ) ) )
                                             : 0.0f;
                 LOG_INFO(
-                     "[TimeOfDay] Sky Atmosphere 'Drive Sun From Time Of Day' is on: the sun light's direction "
+                     "[TimeOfDay] Time Of Day 'Drive Sun From Time Of Day' is on: the sun light's direction "
                      "comes from the clock ({:.2f} h, latitude {:.1f} deg) at elevation {:.1f} deg, replacing "
                      "the authored {:.1f} deg. Untick it to keep the light's own direction.",
-                     sky.Data.TimeOfDay, sky.Data.Latitude,
+                     clock.TimeOfDay, clock.Latitude,
                      glm::degrees( std::asin( glm::clamp( -travel.y, -1.0f, 1.0f ) ) ), authored );
             }
 

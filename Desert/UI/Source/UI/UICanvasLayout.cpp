@@ -568,10 +568,11 @@ namespace Desert::UI
                     {
                         Rect rowRect = ListRowRect( rect, listWindow, i );
                         if ( listShape.Tree != nullptr )
-                            rowRect = TreeContentRect( rowRect, listShape.Rows()[static_cast<std::size_t>( i )].Depth,
-                                                       listShape.Tree->Indent * scale );
-                        EnumScope row = child;
-                        row.Row       = listShape.RowRecord( i );
+                            rowRect =
+                                 TreeContentRect( rowRect, listShape.Rows()[static_cast<std::size_t>( i )].Depth,
+                                                  listShape.Tree->Indent * scale );
+                        EnumScope row      = child;
+                        row.Row            = listShape.RowRecord( i );
                         row.RowIndex       = i;
                         EnumRecurse( tree, entry, row, scale, viewportPx, ctx, out, order, &rowRect );
                     }

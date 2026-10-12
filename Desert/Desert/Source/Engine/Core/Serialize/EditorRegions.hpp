@@ -98,5 +98,6 @@ namespace Desert::Core::EditorRegions
     // packages are NOT told - the played scene is not the edited one; the caller keeps the edit world's packages
     // and puts them back with the edit world at Stop. Returns how many records were made (0: the scene already
     // holds the whole world, nothing is read). Refused, changing nothing, when the index or a file cannot be read.
-    [[nodiscard]] Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene& scene, Assets::AssetManager* assets );
+    [[nodiscard]] Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene&                scene,
+                                                                       Assets::AssetManager* assets );
 } // namespace Desert::Core::EditorRegions

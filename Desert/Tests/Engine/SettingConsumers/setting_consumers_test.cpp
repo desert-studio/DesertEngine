@@ -1054,10 +1054,10 @@ namespace
 
     constexpr Row kDropdownRows[] = {
          // The options — authored or from a collection — are resolved in one place, DropdownOptions.
-         { "Options", kUIWalkCtx },        { "Collection", kUIWalkCtx },        { "LabelField", kUIWalkCtx },
-         { "SelectedIndex", kUIDropdown }, { "Open", kUIDropdown },
-         { "FontSize", kCanvasRenderer },  { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer },
-         { "Highlight", kCanvasRenderer }, { "CornerRadius", kCanvasRenderer },
+         { "Options", kUIWalkCtx },           { "Collection", kUIWalkCtx },     { "LabelField", kUIWalkCtx },
+         { "SelectedIndex", kUIDropdown },    { "Open", kUIDropdown },          { "FontSize", kCanvasRenderer },
+         { "Background", kCanvasRenderer },   { "TextColor", kCanvasRenderer }, { "Highlight", kCanvasRenderer },
+         { "CornerRadius", kCanvasRenderer },
     };
 
     constexpr Row kTweenRows[] = {

@@ -318,7 +318,8 @@ namespace Desert::Graphic
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
                 RegisterSystem<System::WaterRenderer>( "WaterSystem", this, m_TargetFramebuffer );
-                if ( const auto init = SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
+                if ( const auto init =
+                          SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
                      !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",

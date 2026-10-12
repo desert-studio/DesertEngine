@@ -102,11 +102,11 @@ namespace Desert::Core
                 const glm::mat3 normalMatrix = glm::inverseTranspose( glm::mat3( submesh.Transform ) );
                 for ( uint32_t v = 0; v < submesh.VertexCount; ++v )
                 {
-                    Desert::Vertex vertex   = mesh.Vertices.at( submesh.VertexOffset + v );
-                    vertex.Position         = glm::vec3( submesh.Transform * glm::vec4( vertex.Position, 1.0f ) );
-                    vertex.Normal           = glm::normalize( normalMatrix * vertex.Normal );
-                    vertex.Tangent          = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Tangent );
-                    vertex.Bitangent        = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Bitangent );
+                    Desert::Vertex vertex = mesh.Vertices.at( submesh.VertexOffset + v );
+                    vertex.Position       = glm::vec3( submesh.Transform * glm::vec4( vertex.Position, 1.0f ) );
+                    vertex.Normal         = glm::normalize( normalMatrix * vertex.Normal );
+                    vertex.Tangent        = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Tangent );
+                    vertex.Bitangent      = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Bitangent );
                     source.Vertices.push_back( vertex );
                 }
                 std::vector<Desert::Index>& section = source.Sections.emplace_back();
@@ -168,9 +168,9 @@ namespace Desert::Core
                     const glm::mat3 linear       = glm::mat3( world );
                     const glm::mat3 normalMatrix = glm::inverseTranspose( linear );
                     // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
-                    const bool                     mirrored = glm::determinant( linear ) < 0.0f;
-                    std::vector<Desert::Vertex>&   vertices = sectionVertices[slot];
-                    std::map<uint32_t, uint32_t>   local;
+                    const bool                   mirrored = glm::determinant( linear ) < 0.0f;
+                    std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
+                    std::map<uint32_t, uint32_t> local;
                     for ( const Desert::Index& triangle : mesh.Sections[section] )
                     {
                         std::array<uint32_t, 3> corners{ triangle.V1, triangle.V2, triangle.V3 };
@@ -180,11 +180,11 @@ namespace Desert::Core
                                  local.emplace( corner, static_cast<uint32_t>( vertices.size() ) );
                             if ( fresh )
                             {
-                                Desert::Vertex vertex   = mesh.Vertices.at( corner );
-                                vertex.Position         = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
-                                vertex.Normal           = glm::normalize( normalMatrix * vertex.Normal );
-                                vertex.Tangent          = glm::normalize( linear * vertex.Tangent );
-                                vertex.Bitangent        = glm::normalize( linear * vertex.Bitangent );
+                                Desert::Vertex vertex = mesh.Vertices.at( corner );
+                                vertex.Position       = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
+                                vertex.Normal         = glm::normalize( normalMatrix * vertex.Normal );
+                                vertex.Tangent        = glm::normalize( linear * vertex.Tangent );
+                                vertex.Bitangent      = glm::normalize( linear * vertex.Bitangent );
                                 vertices.push_back( vertex );
                             }
                             corner = where->second;

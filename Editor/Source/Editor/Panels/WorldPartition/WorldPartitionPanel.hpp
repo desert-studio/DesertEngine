@@ -74,9 +74,9 @@ namespace Desert::Editor
         };
         /// UE's "Load Region from Selection" / "Unload All" / "Load All" (WP19-20, decision O3): the scene holds
         /// exactly the part of its world on disk that the regions (X/Z, cm) select - EditorRegions::LoadRegions,
-        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a dirty entity that would leave, a scene not opened from its files). The
-        /// undo history is reset on success, as UE resets its transactions when it unloads actors: an entry may
-        /// name an entity that is gone.
+        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a dirty entity that would leave, a
+        /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
+        /// when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.

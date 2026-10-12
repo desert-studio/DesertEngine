@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b72387f29f8e894416d4511b36ebb337",
         "Versions": {
-            "SCNE": 48,
+            "SCNE": 49,
             "UNIT": 1
         },
         "Dependencies": []
@@ -264,7 +264,11 @@
                 "ShowScrollbar": true,
                 "ScrollbarColor": [0.3499999940395355, 0.3700000047683716, 0.4399999976158142],
                 "Collection": "",
-                "FollowEnd": false
+                "FollowEnd": false,
+                "SelectionMode": 0,
+                "SelectionColor": [0.20000000298023224, 0.36000001430511475, 0.6000000238418579],
+                "HoverColor": [0.1599999964237213, 0.18000000715255737, 0.23999999463558197],
+                "OnSelectionChangedMessage": ""
             }
         },
         {

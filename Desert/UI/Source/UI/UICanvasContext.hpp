@@ -563,7 +563,7 @@ namespace Desert::UI
             ConsumedKeys.clear();
             Focus = FocusMemory{};
             DropdownHighlight.clear();
-            ThumbDrag = ScrollThumbDrag{};
+            ThumbDrag      = ScrollThumbDrag{};
             Tint           = glm::vec4( 1.0f );
             WarnedMaterial = Common::AssetHandle{};
             ViewportPx     = Rect{};

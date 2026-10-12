@@ -484,7 +484,9 @@ namespace Desert::UI::Walk
         {
             out.reserve( static_cast<std::size_t>( c->Size() ) );
             for ( int i = 0; i < c->Size(); ++i )
-                out.push_back( text.Resolve( c->Record( i ).Text( d.LabelField ).value_or( std::string() ) ).Text );
+                out.push_back(
+                     text.Resolve( c->Record( i ).Text( d.LabelField ).value_or( std::string() ), std::nullopt )
+                          .Text );
         }
         return out;
     }

@@ -109,7 +109,7 @@ namespace Desert::Editor
             return;
         }
         const bool        completedFromDisk = completed.GetValue() > 0;
-        const std::string playedWorld = completedFromDisk ? serializer.SerializeToJson() : std::string();
+        const std::string playedWorld       = completedFromDisk ? serializer.SerializeToJson() : std::string();
         phases.Lap( "read the records the editor left on disk", completed.GetValue() );
         // A refusal below takes Play back; a world completed from disk goes back to the part the editor held.
         const auto refuse = [&]()

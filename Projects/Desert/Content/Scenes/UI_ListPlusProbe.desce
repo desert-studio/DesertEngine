@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "982e89e662384784aabf82df41110e46",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 49,
             "UNIT": 1
         },
         "Dependencies": []
@@ -35,12 +35,7 @@
                 },
                 "Visible": true,
                 "SortOrder": 0,
-                "SafeArea": [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "SafeArea": [0.0, 0.0, 0.0, 0.0],
                 "Theme": "",
                 "FontScale": 1.0,
                 "HighContrast": false
@@ -52,35 +47,14 @@
             "siblingIndex": 0,
             "Tag": "BG",
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    0.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -92,11 +66,7 @@
                 "FitHeight": false
             },
             "UIPanel": {
-                "Color": [
-                    0.09000000357627869,
-                    0.10000000149011612,
-                    0.12999999523162842
-                ],
+                "Color": [0.09000000357627869, 0.10000000149011612, 0.12999999523162842],
                 "Opacity": 1.0,
                 "CornerRadius": 0.0,
                 "BackdropBlur": 0.0,
@@ -104,59 +74,27 @@
                     "Guid": "",
                     "Path": ""
                 },
-                "SpriteBorder": [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
-                "RingColorA": [
-                    1.0,
-                    0.47999998927116394,
-                    0.15000000596046448
-                ],
-                "RingColorB": [
-                    0.18000000715255737,
-                    0.8899999856948853,
-                    1.0
-                ],
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
                 "Pulse": false,
                 "PulseSpeed": 2.5,
                 "PulseMin": 0.3499999940395355,
                 "UseGradient": false,
-                "GradientColor": [
-                    0.10000000149011612,
-                    0.10999999940395355,
-                    0.14000000059604645
-                ],
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
                 "BorderWidth": 0.0,
-                "BorderColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "BorderColor": [0.0, 0.0, 0.0],
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    3.0,
-                    4.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
                 "Glow": false,
-                "GlowColor": [
-                    0.30000001192092896,
-                    0.6000000238418579,
-                    1.0
-                ],
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
                 "GlowSize": 12.0
             }
         },
@@ -166,35 +104,14 @@
             "siblingIndex": 1,
             "Tag": "Title",
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    0.0
-                ],
-                "OffsetMin": [
-                    0.0,
-                    16.0
-                ],
-                "OffsetMax": [
-                    0.0,
-                    64.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 0.0],
+                "OffsetMin": [0.0, 16.0],
+                "OffsetMax": [0.0, 64.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -209,11 +126,7 @@
                 "Text": "UI-LIST+ probe: tile view (multi), tree view, dropdown from a collection",
                 "FontSize": 22.0,
                 "Font": "",
-                "Color": [
-                    0.9300000071525574,
-                    0.949999988079071,
-                    0.9800000190734863
-                ],
+                "Color": [0.9300000071525574, 0.949999988079071, 0.9800000190734863],
                 "Align": 1,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -225,27 +138,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -260,35 +158,14 @@
                 "Target": 0
             },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMin": [
-                    60.0,
-                    70.0
-                ],
-                "OffsetMax": [
-                    600.0,
-                    100.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [60.0, 70.0],
+                "OffsetMax": [600.0, 100.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -303,11 +180,7 @@
                 "Text": "",
                 "FontSize": 18.0,
                 "Font": "",
-                "Color": [
-                    0.6000000238418579,
-                    0.6499999761581421,
-                    0.75
-                ],
+                "Color": [0.6000000238418579, 0.6499999761581421, 0.75],
                 "Align": 0,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -319,27 +192,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -350,35 +208,14 @@
             "siblingIndex": 3,
             "Tag": "Inventory",
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMin": [
-                    60.0,
-                    104.0
-                ],
-                "OffsetMax": [
-                    600.0,
-                    680.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [60.0, 104.0],
+                "OffsetMax": [600.0, 680.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -394,30 +231,14 @@
                 "ItemHeight": 40.0,
                 "Spacing": 6.0,
                 "Overscan": 1,
-                "Background": [
-                    0.07000000029802322,
-                    0.07999999821186066,
-                    0.10999999940395355
-                ],
+                "Background": [0.07000000029802322, 0.07999999821186066, 0.10999999940395355],
                 "ShowScrollbar": true,
-                "ScrollbarColor": [
-                    0.3499999940395355,
-                    0.3700000047683716,
-                    0.4399999976158142
-                ],
+                "ScrollbarColor": [0.3499999940395355, 0.3700000047683716, 0.4399999976158142],
                 "Collection": "probe.inventory",
                 "FollowEnd": false,
                 "SelectionMode": 3,
-                "SelectionColor": [
-                    0.95,
-                    0.75,
-                    0.25
-                ],
-                "HoverColor": [
-                    0.2,
-                    0.22,
-                    0.3
-                ],
+                "SelectionColor": [0.949999988079071, 0.75, 0.25],
+                "HoverColor": [0.20000000298023224, 0.2199999988079071, 0.30000001192092896],
                 "OnSelectionChangedMessage": "probe.inv.selected"
             },
             "UITileView": {
@@ -434,35 +255,14 @@
                 "Target": 3
             },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    0.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -474,11 +274,7 @@
                 "FitHeight": false
             },
             "UIPanel": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "CornerRadius": 0.0,
                 "BackdropBlur": 0.0,
@@ -486,59 +282,27 @@
                     "Guid": "",
                     "Path": ""
                 },
-                "SpriteBorder": [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
-                "RingColorA": [
-                    1.0,
-                    0.47999998927116394,
-                    0.15000000596046448
-                ],
-                "RingColorB": [
-                    0.18000000715255737,
-                    0.8899999856948853,
-                    1.0
-                ],
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
                 "Pulse": false,
                 "PulseSpeed": 2.5,
                 "PulseMin": 0.3499999940395355,
                 "UseGradient": false,
-                "GradientColor": [
-                    0.10000000149011612,
-                    0.10999999940395355,
-                    0.14000000059604645
-                ],
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
                 "BorderWidth": 0.0,
-                "BorderColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "BorderColor": [0.0, 0.0, 0.0],
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    3.0,
-                    4.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
                 "Glow": false,
-                "GlowColor": [
-                    0.30000001192092896,
-                    0.6000000238418579,
-                    1.0
-                ],
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
                 "GlowSize": 12.0
             }
         },
@@ -552,35 +316,14 @@
                 "Target": 0
             },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    8.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    -40.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [8.0, 0.0],
+                "OffsetMax": [-40.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -595,11 +338,7 @@
                 "Text": "item",
                 "FontSize": 14.0,
                 "Font": "",
-                "Color": [
-                    0.07999999821186066,
-                    0.09000000357627869,
-                    0.11999999731779099
-                ],
+                "Color": [0.07999999821186066, 0.09000000357627869, 0.11999999731779099],
                 "Align": 0,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -611,27 +350,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -646,35 +370,14 @@
                 "Target": 0
             },
             "UILayout": {
-                "AnchorMin": [
-                    1.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    -38.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    -6.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [1.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [-38.0, 0.0],
+                "OffsetMax": [-6.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -689,11 +392,7 @@
                 "Text": "0",
                 "FontSize": 14.0,
                 "Font": "",
-                "Color": [
-                    0.07999999821186066,
-                    0.09000000357627869,
-                    0.11999999731779099
-                ],
+                "Color": [0.07999999821186066, 0.09000000357627869, 0.11999999731779099],
                 "Align": 2,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -705,27 +404,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -736,35 +420,14 @@
             "siblingIndex": 4,
             "Tag": "Tree",
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMin": [
-                    680.0,
-                    104.0
-                ],
-                "OffsetMax": [
-                    1220.0,
-                    560.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [680.0, 104.0],
+                "OffsetMax": [1220.0, 560.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -780,34 +443,20 @@
                 "ItemHeight": 30.0,
                 "Spacing": 2.0,
                 "Overscan": 1,
-                "Background": [
-                    0.07000000029802322,
-                    0.07999999821186066,
-                    0.10999999940395355
-                ],
+                "Background": [0.07000000029802322, 0.07999999821186066, 0.10999999940395355],
                 "ShowScrollbar": true,
-                "ScrollbarColor": [
-                    0.3499999940395355,
-                    0.3700000047683716,
-                    0.4399999976158142
-                ],
+                "ScrollbarColor": [0.3499999940395355, 0.3700000047683716, 0.4399999976158142],
                 "Collection": "probe.tree",
                 "FollowEnd": false,
                 "SelectionMode": 1,
-                "SelectionColor": [
-                    0.25,
-                    0.45,
-                    0.75
-                ]
+                "SelectionColor": [0.25, 0.44999998807907104, 0.75],
+                "HoverColor": [0.1599999964237213, 0.18000000715255737, 0.23999999463558197],
+                "OnSelectionChangedMessage": ""
             },
             "UITreeView": {
                 "ChildrenField": "children",
                 "Indent": 20.0,
-                "ExpanderColor": [
-                    0.85,
-                    0.88,
-                    0.95
-                ]
+                "ExpanderColor": [0.8500000238418579, 0.8799999952316284, 0.949999988079071]
             }
         },
         {
@@ -816,35 +465,14 @@
             "siblingIndex": 0,
             "Tag": "Tree Entry",
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    0.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -856,11 +484,7 @@
                 "FitHeight": false
             },
             "UIPanel": {
-                "Color": [
-                    0.11999999731779099,
-                    0.12999999523162842,
-                    0.17000000178813934
-                ],
+                "Color": [0.11999999731779099, 0.12999999523162842, 0.17000000178813934],
                 "Opacity": 1.0,
                 "CornerRadius": 0.0,
                 "BackdropBlur": 0.0,
@@ -868,59 +492,27 @@
                     "Guid": "",
                     "Path": ""
                 },
-                "SpriteBorder": [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
                 "Circle": false,
                 "RingWidth": 0.0,
-                "RingColorA": [
-                    1.0,
-                    0.47999998927116394,
-                    0.15000000596046448
-                ],
-                "RingColorB": [
-                    0.18000000715255737,
-                    0.8899999856948853,
-                    1.0
-                ],
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
                 "Pulse": false,
                 "PulseSpeed": 2.5,
                 "PulseMin": 0.3499999940395355,
                 "UseGradient": false,
-                "GradientColor": [
-                    0.10000000149011612,
-                    0.10999999940395355,
-                    0.14000000059604645
-                ],
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
                 "BorderWidth": 0.0,
-                "BorderColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "BorderColor": [0.0, 0.0, 0.0],
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    3.0,
-                    4.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
                 "Glow": false,
-                "GlowColor": [
-                    0.30000001192092896,
-                    0.6000000238418579,
-                    1.0
-                ],
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
                 "GlowSize": 12.0
             }
         },
@@ -934,35 +526,14 @@
                 "Target": 0
             },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    0.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    10.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    110.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 1.0],
+                "OffsetMin": [10.0, 0.0],
+                "OffsetMax": [110.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -977,11 +548,7 @@
                 "Text": "",
                 "FontSize": 18.0,
                 "Font": "",
-                "Color": [
-                    0.949999988079071,
-                    0.75,
-                    0.3499999940395355
-                ],
+                "Color": [0.949999988079071, 0.75, 0.3499999940395355],
                 "Align": 0,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -993,27 +560,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -1028,35 +580,14 @@
                 "Target": 0
             },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    1.0,
-                    1.0
-                ],
-                "OffsetMin": [
-                    120.0,
-                    0.0
-                ],
-                "OffsetMax": [
-                    -10.0,
-                    0.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [120.0, 0.0],
+                "OffsetMax": [-10.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -1071,11 +602,7 @@
                 "Text": "",
                 "FontSize": 18.0,
                 "Font": "",
-                "Color": [
-                    0.8500000238418579,
-                    0.8799999952316284,
-                    0.9399999976158142
-                ],
+                "Color": [0.8500000238418579, 0.8799999952316284, 0.9399999976158142],
                 "Align": 0,
                 "VerticalAlign": 1,
                 "Wrap": false,
@@ -1087,27 +614,12 @@
                 "Marquee": false,
                 "MarqueeSpeed": 60.0,
                 "Shadow": false,
-                "ShadowColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "ShadowOffset": [
-                    1.0,
-                    1.0
-                ],
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
                 "Outline": false,
-                "OutlineColor": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
+                "OutlineColor": [0.0, 0.0, 0.0],
                 "Glow": false,
-                "GlowColor": [
-                    1.0,
-                    0.699999988079071,
-                    0.3499999940395355
-                ],
+                "GlowColor": [1.0, 0.699999988079071, 0.3499999940395355],
                 "GlowRadius": 6.0,
                 "GlowStrength": 0.5
             }
@@ -1117,36 +629,27 @@
             "parent": 4001,
             "siblingIndex": 5,
             "Tag": "Server Dropdown",
+            "UIDropdown": {
+                "Options": "unused",
+                "Collection": "probe.servers",
+                "LabelField": "label",
+                "SelectedIndex": 1,
+                "Open": false,
+                "FontSize": 18.0,
+                "Background": [0.1599999964237213, 0.17000000178813934, 0.20999999344348907],
+                "TextColor": [0.9200000166893005, 0.9399999976158142, 0.9800000190734863],
+                "Highlight": [0.25999999046325684, 0.4000000059604645, 0.6200000047683716],
+                "CornerRadius": 4.0
+            },
             "UILayout": {
-                "AnchorMin": [
-                    0.0,
-                    0.0
-                ],
-                "AnchorMax": [
-                    0.0,
-                    0.0
-                ],
-                "OffsetMin": [
-                    680.0,
-                    590.0
-                ],
-                "OffsetMax": [
-                    1000.0,
-                    630.0
-                ],
-                "CustomMinimumSize": [
-                    0.0,
-                    0.0
-                ],
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [680.0, 590.0],
+                "OffsetMax": [1000.0, 630.0],
+                "CustomMinimumSize": [0.0, 0.0],
                 "Rotation": 0.0,
-                "Scale": [
-                    1.0,
-                    1.0
-                ],
-                "Pivot": [
-                    0.5,
-                    0.5
-                ],
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
                 "ClipContents": false,
                 "Visibility": 0,
                 "HitTest": 0,
@@ -1156,42 +659,18 @@
                 "FlexShrink": 0.0,
                 "FitWidth": false,
                 "FitHeight": false
-            },
-            "UIDropdown": {
-                "Options": "unused",
-                "SelectedIndex": 1,
-                "Open": false,
-                "FontSize": 18.0,
-                "Collection": "probe.servers",
-                "LabelField": "label"
             }
         },
         {
             "id": 12051086227421878206,
             "siblingIndex": 1,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -1199,7 +678,7 @@
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "EnableSSR": true,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "Tonemapper": 0,
@@ -1215,28 +694,23 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
@@ -1254,6 +728,11 @@
             "Guid": "",
             "Path": ""
         },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
         "SplashSprite": {
             "Guid": "",
             "Path": ""

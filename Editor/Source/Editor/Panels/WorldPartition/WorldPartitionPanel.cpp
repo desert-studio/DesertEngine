@@ -366,11 +366,12 @@ namespace Desert::Editor
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
-        auto* assets  = m_Assets;
-        auto  changed = request.Whole ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets )
-                                      : ::Desert::Core::EditorRegions::LoadRegions(
-                                             *m_Scene, assets,
-                                             std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ) );
+        auto* assets = m_Assets;
+        auto  changed =
+             request.Whole
+                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets )
+                   : ::Desert::Core::EditorRegions::LoadRegions(
+                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ) );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();

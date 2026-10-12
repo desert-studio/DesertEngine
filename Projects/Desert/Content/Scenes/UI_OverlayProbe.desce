@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9c9c08149fc4034cefc3171c96cebec1",
         "Versions": {
-            "SCNE": 48,
+            "SCNE": 49,
             "UNIT": 1
         },
         "Dependencies": []
@@ -222,6 +222,8 @@
             "Tag": "Dropdown",
             "UIDropdown": {
                 "Options": "Low,Medium,High",
+                "Collection": "",
+                "LabelField": "label",
                 "SelectedIndex": 1,
                 "Open": false,
                 "FontSize": 20.0,

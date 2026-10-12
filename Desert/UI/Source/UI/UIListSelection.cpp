@@ -332,7 +332,7 @@ namespace Desert::UI
         {
             const auto& tile = *tree.Get<UITileViewData>( e );
             shape.ItemWidth  = std::max( 1.0f, tile.ItemWidth );
-            shape.Columns   = TileColumns( shape.ItemWidth, lv->Spacing, viewportWPx, scale );
+            shape.Columns    = TileColumns( shape.ItemWidth, lv->Spacing, viewportWPx, scale );
         }
         if ( lv->Collection.empty() )
         {

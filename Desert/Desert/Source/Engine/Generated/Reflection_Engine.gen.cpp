@@ -18,6 +18,7 @@
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
@@ -107,6 +108,16 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Priority", .Type = FieldType::Float, .Offset = offsetof( T, Priority ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Priority )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Priority", .Category = "Post Process Volume", .Tooltip = "Higher priority is applied later and therefore wins where volumes overlap.", } } )
                     .Field( FieldInfo{ .Name = "BlendWeight", .Type = FieldType::Float, .Offset = offsetof( T, BlendWeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BlendWeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Blend Weight", .Category = "Post Process Volume", .Tooltip = "0 = no effect, 1 = full effect.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "Settings", .Type = FieldType::Struct, .Offset = offsetof( T, Settings ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Settings )>(), .TypeName = "Core::PostProcessSettings", .Meta = PropertyMetadata{ .DisplayName = "Settings", .Category = "Post Process Volume", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::WaterZoneData;
+        TypeBuilder( "WaterZoneData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "ZoneExtent", .Type = FieldType::Vec2, .Offset = offsetof( T, ZoneExtent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ZoneExtent )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Zone Extent", .Category = "Water Mesh", .Tooltip = "The footprint of the zone around the entity, X by Z (UE ZoneExtent). Water bodies are drawn inside it and nowhere else.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TileSize", .Type = FieldType::Float, .Offset = offsetof( T, TileSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TileSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Tile Size", .Category = "Water Mesh", .Tooltip = "The side of one leaf tile of the water quadtree, the finest LOD (UE TileSize).", .HasRange = true, .RangeMin = 100.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TessellationFactor", .Type = FieldType::Int, .Offset = offsetof( T, TessellationFactor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TessellationFactor )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Tessellation Factor", .Category = "Water Mesh", .Tooltip = "A leaf tile is a grid of 2^factor quads per side (UE TessellationFactor). Coarser LODs reuse the grid over larger tiles.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, } } )
+                    .Field( FieldInfo{ .Name = "LODScale", .Type = FieldType::Float, .Offset = offsetof( T, LODScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LODScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "LOD Scale", .Category = "Water Mesh", .Tooltip = "How far each LOD reaches, in leaf tiles: LOD L ends 2^(L+1) x LOD Scale x Tile Size from the camera (UE LODScale, at least 0.5).", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 100.0f, } } )
             .WithDefault<T>()
             .Register();
     }
