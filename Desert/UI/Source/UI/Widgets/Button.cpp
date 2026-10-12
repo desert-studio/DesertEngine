@@ -10,6 +10,7 @@
 #include <UI/UIDataStore.hpp>
 #include <UI/UIPathGeometry.hpp>
 #include <UI/UIRichText.hpp>
+#include <UI/UIScreenMachine.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -46,10 +47,20 @@ namespace Desert::UI::Walk
         // Disabled swallows all pointer/keyboard interaction and rests on the dim colour.
         const bool hover = !b.Disabled && input != nullptr && hot;
         const bool down  = hover && input->MouseDown;
+        // A ShowScreen button under a tab bar is a TAB, and its Selected is not authored: it is "the screen
+        // I name is current in the switcher I drive" (UCommonTabListWidgetBase, CommonTabListWidgetBase.h:108),
+        // read from the same resolution a click uses, so the highlight and the switch cannot disagree.
+        bool selected = b.Selected;
+        if ( b.Action == UIButtonAction::ShowScreen && TabsOf( tree, e ) != NodeId::Null )
+        {
+            const NodeId switcher = ShowScreenTarget( ctx.Canvas, tree, e, b.OnClickMessage );
+            const auto   m        = ctx.Canvas.Screens.find( switcher );
+            selected              = m != ctx.Canvas.Screens.end() && m->second.Screen == b.OnClickMessage;
+        }
         // Resting colour is Selected (persistent highlight) or Normal; hover cross-fades toward
         // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
-        const glm::vec3 rest = b.Selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
-                                          : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
+        const glm::vec3 rest = selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
+                                        : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
         const float     ht   = HoverEase( ctx, e, hover && !down );
         glm::vec3       c    = glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
         if ( down )
@@ -67,7 +78,7 @@ namespace Desert::UI::Walk
                  b.SpriteBorder, scale, 6.0f * scale );
 
         // Selected accent: a rounded bar hugging the left edge (the "you are here" marker).
-        if ( b.Selected && !b.Disabled )
+        if ( selected && !b.Disabled )
         {
             const float barW  = std::max( 2.0f, 3.0f * scale );
             const float inset = 4.0f * scale;
@@ -104,11 +115,11 @@ namespace Desert::UI::Walk
                     break;
                 case UIButtonAction::ShowScreen:
                     // Handled inside the canvas — the host never sees a screen switch.
-                    RequestScreen( ctx, b.OnClickMessage, false );
+                    RequestScreen( ctx, tree, e, b.OnClickMessage, false );
                     *outClicked = "screen:" + b.OnClickMessage;
                     break;
                 case UIButtonAction::BackScreen:
-                    RequestScreen( ctx, "", true );
+                    RequestScreen( ctx, tree, e, "", true );
                     *outClicked = "screen:back";
                     break;
                 case UIButtonAction::SendEvent:

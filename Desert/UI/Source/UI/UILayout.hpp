@@ -666,7 +666,24 @@ namespace Desert::UI
         float ContentPx   = 0.0f; // every row plus the gaps between them
         float ScrollPx    = 0.0f; // the CLAMPED offset, which is what both walks must shift rows by
         float ScrollMaxPx = 0.0f; // 0 when the content fits, so >0 is also "show the scrollbar"
+
+        // A TILE view's grid (UITileViewData): items per line, and each tile's width and column pitch in
+        // pixels. Columns == 1 with ItemWidthPx == 0 is a plain list, whose row spans the container. First
+        // and Last are ITEM indices either way — whole lines of them.
+        int   Columns     = 1;
+        float ItemWidthPx = 0.0f;
+        float ColPitchPx  = 0.0f;
     };
+
+    // How many tiles of @p itemWidth (design px) fit a line of a container @p viewportW PIXELS wide, @p spacing
+    // apart. At least one: a tile wider than its list still gets a line of its own.
+    inline int TileColumns( float itemWidth, float spacing, float viewportW, float scale )
+    {
+        if ( scale <= 0.0f )
+            return 1;
+        const float pitch = ( std::max( 1.0f, itemWidth ) + std::max( 0.0f, spacing ) ) * scale;
+        return std::max( 1, static_cast<int>( std::floor( ( viewportW + std::max( 0.0f, spacing ) * scale ) / pitch ) ) );
+    }
 
     // @p itemHeight and @p spacing are DESIGN px; @p viewportH is the container's own height in PIXELS,
     // and @p scale converts between them. @p scrollY is design px as authored, and comes back clamped in
@@ -676,18 +693,28 @@ namespace Desert::UI
     // ITEM HEIGHT IS FLOORED AT ONE DESIGN PIXEL. A pitch of zero makes the window unbounded — every row
     // of the list, which is the whole-list walk this container exists to delete — so the one input that
     // could quietly turn virtualization off is not allowed to.
+    //
+    // A TILE view passes @p columns > 1 and @p itemWidth: the window is solved over LINES of @p columns items
+    // and widened back to the items those lines hold.
     inline ListWindow SolveListWindow( int itemCount, float itemHeight, float spacing, int overscan, float scrollY,
-                                       float viewportH, float scale )
+                                       float viewportH, float scale, int columns = 1, float itemWidth = 0.0f )
     {
         ListWindow w;
         if ( itemCount <= 0 || scale <= 0.0f )
         {
             return w;
         }
+        w.Columns = std::max( 1, columns );
+        if ( itemWidth > 0.0f )
+        {
+            w.ItemWidthPx = std::max( 1.0f, itemWidth ) * scale;
+            w.ColPitchPx  = w.ItemWidthPx + std::max( 0.0f, spacing ) * scale;
+        }
+        const int lineCount = ( itemCount + w.Columns - 1 ) / w.Columns;
 
         w.RowHeightPx = std::max( 1.0f, itemHeight ) * scale;
         w.PitchPx     = w.RowHeightPx + std::max( 0.0f, spacing ) * scale;
-        w.ContentPx   = static_cast<float>( itemCount ) * w.PitchPx - std::max( 0.0f, spacing ) * scale;
+        w.ContentPx   = static_cast<float>( lineCount ) * w.PitchPx - std::max( 0.0f, spacing ) * scale;
         w.ScrollMaxPx = std::max( 0.0f, w.ContentPx - viewportH );
         w.ScrollPx    = std::clamp( scrollY * scale, 0.0f, w.ScrollMaxPx );
 
@@ -699,8 +726,8 @@ namespace Desert::UI
         const int first = static_cast<int>( std::floor( w.ScrollPx / w.PitchPx ) ) - over;
         const int last  = static_cast<int>( std::ceil( ( w.ScrollPx + viewportH ) / w.PitchPx ) ) - 1 + over;
 
-        w.First = std::clamp( first, 0, itemCount - 1 );
-        w.Last  = std::clamp( last, 0, itemCount - 1 );
+        w.First = std::clamp( first, 0, lineCount - 1 ) * w.Columns;
+        w.Last  = std::min( itemCount - 1, ( std::clamp( last, 0, lineCount - 1 ) + 1 ) * w.Columns - 1 );
         return w;
     }
 
@@ -708,7 +735,24 @@ namespace Desert::UI
     // and the scrollbar is drawn over it, exactly as UIScrollView draws its own.
     inline Rect ListRowRect( const Rect& container, const ListWindow& w, int index )
     {
-        return Rect{ container.X, container.Y + static_cast<float>( index ) * w.PitchPx - w.ScrollPx, container.W,
-                     w.RowHeightPx };
+        const int line = index / std::max( 1, w.Columns );
+        const int col  = index % std::max( 1, w.Columns );
+        const float y  = container.Y + static_cast<float>( line ) * w.PitchPx - w.ScrollPx;
+        if ( w.ItemWidthPx <= 0.0f )
+            return Rect{ container.X, y, container.W, w.RowHeightPx };
+        return Rect{ container.X + static_cast<float>( col ) * w.ColPitchPx, y, w.ItemWidthPx, w.RowHeightPx };
+    }
+
+    // A TREE row (UITreeViewData) at @p depth: the expander gutter is one indent wide, after @p depth indents,
+    // and the entry template is drawn in what is left. Both walks place the template here, so the expander is
+    // clicked where it is drawn and the row's content is picked where it is drawn.
+    inline Rect TreeExpanderRect( const Rect& row, int depth, float indentPx )
+    {
+        return Rect{ row.X + static_cast<float>( depth ) * indentPx, row.Y, indentPx, row.H };
+    }
+    inline Rect TreeContentRect( const Rect& row, int depth, float indentPx )
+    {
+        const float inset = std::min( row.W, static_cast<float>( depth + 1 ) * indentPx );
+        return Rect{ row.X + inset, row.Y, row.W - inset, row.H };
     }
 } // namespace Desert::UI

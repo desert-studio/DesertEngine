@@ -140,6 +140,25 @@ namespace
         dl.AddImage( &img, { cx - sw * 0.5f, cy - sh * 0.5f }, { cx + sw * 0.5f, cy + sh * 0.5f }, { 0.0f, 0.0f },
                      { 1.0f, 1.0f }, glm::vec4( 1.0f, 1.0f, 1.0f, alpha ) );
     }
+
+    /// The modifier keys held right now, as the UI reads them — for a key event and for the pointer alike
+    /// (a Shift-click in a list), asked of one function so the two cannot disagree about Cmd vs Ctrl.
+    Desert::UI::UIKeyMods HeldUIMods()
+    {
+        using Desert::Common::KeyCode;
+        using Desert::Input::Keyboard;
+        using Desert::UI::UIKeyMods;
+        UIKeyMods mods = UIKeyMods::None;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftShift ) || Keyboard::IsKeyPressed( KeyCode::RightShift ) )
+            mods = mods | UIKeyMods::Shift;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftControl ) || Keyboard::IsKeyPressed( KeyCode::RightControl ) )
+            mods = mods | UIKeyMods::Ctrl;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftAlt ) || Keyboard::IsKeyPressed( KeyCode::RightAlt ) )
+            mods = mods | UIKeyMods::Alt;
+        if ( Keyboard::IsKeyPressed( KeyCode::LeftSuper ) || Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
+            mods = mods | UIKeyMods::Super;
+        return mods;
+    }
 } // namespace
 
 namespace Desert::Player
@@ -1088,6 +1107,7 @@ namespace Desert::Player
                     input.ScrollDelta    = m_ScrollAccum;
                     input.TypedText      = m_TypedText;
                     input.Keys           = m_UIKeys;
+                    input.Mods           = HeldUIMods();
                     m_PrevMouseDown      = down;
                     m_ScrollAccum        = 0.0f;
                     m_TypedText.clear();
@@ -1390,21 +1410,7 @@ namespace Desert::Player
         }
         // Every key goes to the UI as it happened — key, modifiers, repeat — in arrival order; what a key
         // means to a menu is the UI's decision (UIInput::Keys), not this host's.
-        using Common::KeyCode;
-        UI::UIKeyMods mods = UI::UIKeyMods::None;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftShift ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightShift ) )
-            mods = mods | UI::UIKeyMods::Shift;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftControl ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightControl ) )
-            mods = mods | UI::UIKeyMods::Ctrl;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftAlt ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightAlt ) )
-            mods = mods | UI::UIKeyMods::Alt;
-        if ( Input::Keyboard::IsKeyPressed( KeyCode::LeftSuper ) ||
-             Input::Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
-            mods = mods | UI::UIKeyMods::Super;
-        m_UIKeys.push_back( { key.GetKeyCode(), mods, key.GetRepeatCount() > 0 } );
+        m_UIKeys.push_back( { key.GetKeyCode(), HeldUIMods(), key.GetRepeatCount() > 0 } );
         return false;
     }
 } // namespace Desert::Player

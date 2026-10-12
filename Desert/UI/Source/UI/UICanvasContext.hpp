@@ -8,9 +8,11 @@
 #include <UI/UIAnimationSource.hpp>
 #include <UI/UIDataStore.hpp>
 #include <UI/UIFocus.hpp>
+#include <UI/UIListSelection.hpp>
 #include <UI/UILayout.hpp>
 #include <UI/UIMaterialSource.hpp>
 #include <UI/UIRenderTextureSource.hpp>
+#include <UI/UIScreenMachine.hpp>
 #include <UI/UITextEditState.hpp>
 
 #include <glm/glm.hpp>
@@ -94,30 +96,23 @@ namespace Desert::UI
         std::unordered_map<NodeId, uint64_t> HighlightedOn;
 
         // --- Screens ----------------------------------------------------------------------------------
-        // Which of THIS canvas's UIScreen sub-trees is current, and the hand-over running between two of
-        // them.
+        // The screen machines of THIS canvas, one per owner (UIScreenMachine.hpp): the canvas itself, and
+        // every element below it that carries a UIScreenStack. Nested switchers each keep their own current
+        // screen, hand-over and back history.
         //
         // WHY THE PAIR AND NOT EITHER HALF. Per view, because one viewport navigating to Settings must not
         // move another view of the same scene — including the UI Editor's preview, which an author uses to
         // look at a screen the running game is not on. Per canvas, because a screen IS a sub-tree of one
-        // canvas and the machine is seeded from that canvas's own UIScreenStackComponent: two canvases in
-        // one view have disjoint screen NAMES, so a single machine cannot be current in both. The
-        // re-seed below ("the current name does not exist here") is what turns that from a shared value
-        // into an oscillation, since each canvas's walk finds the other's name foreign and overwrites it.
+        // canvas and its machine is seeded from that canvas's own UIScreenStack components: two canvases in
+        // one view have disjoint screen NAMES, so a single machine cannot be current in both. Keyed by the
+        // owner NodeId, which an entity of this canvas only ever is.
         //
         // The alternative — one screen per GAME, i.e. per process — was considered and refused: it is the
         // process-wide state this whole file exists to undo, and it cannot express the editor previewing a
         // screen while the viewport shows another, which is the ordinary authoring loop.
-        std::string              Screen;                // current screen name
-        std::string              ScreenFrom;            // the one handing over, while a transition runs
-        std::vector<std::string> ScreenStack;           // history for BackScreen
-        float                    ScreenT       = 1.0f;  // 0..1 progress of the transition (1 = idle)
-        float                    ScreenSlidePx = 60.0f; // mirrored from the canvas's UIScreenStack
-        float                    ScreenTime    = 0.25f;
-        UIEasing                 ScreenEasing  = UIEasing::CubicOut;
-        bool                     ScreenBack    = false; // a Back transition slides the other way
-        std::string              ScreenReq;             // requested by a button, applied at the walk's end
-        bool                     ScreenReqBack = false;
+        std::unordered_map<NodeId, UIScreenMachine> Screens;
+        std::vector<UIScreenEntry>                  ScreenIndex;    // this frame's named screens and owners
+        std::vector<UIScreenRequest>                ScreenRequests; // queued by buttons, applied at walk end
 
         // The background sprite this cell last refused to draw, so an unresolvable handle is reported once
         // instead of once per frame. Cleared when the handle changes or resolves.
@@ -193,6 +188,12 @@ namespace Desert::UI
         // Bound lists already reported for not having exactly one child (their entry template). Per entity,
         // said once, like WarnedStyles.
         std::unordered_set<NodeId> WarnedListTemplates;
+
+        // --- List, tile and tree views (UI-LIST+) ---------------------------------------------------------
+        // What each list remembers between frames as a VIEW of it rather than as the scene's data: which
+        // rows are selected (UE keeps it in the widget, never in the asset), which tree rows are expanded,
+        // and the tree's linearised rows, rebuilt only when the expansion or a collection it read changed.
+        std::unordered_map<NodeId, UIListViewState> Lists;
         // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
         // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
         // the twenty elements that were duplicated from one another and the interesting fact is the name,
@@ -363,6 +364,14 @@ namespace Desert::UI
         NodeId      Hot     = NodeId::Null; // resolved last frame: what the controls react to now
         NodeId      HotNext = NodeId::Null; // being elected during this frame's walks
         Rect        HotNextRect{};
+        // WHERE THE HOT ELEMENT'S INPUT BUBBLES TO (Slate routes a mouse event from the widget under the
+        // cursor up its path until one handles it). A button's label and icon sit on top of the button, so
+        // the election lands on THEM — and a control that compared against the leaf never saw its own hover
+        // or its click: every labelled button was dead in Preview and in the game. Resolved once per frame,
+        // at the hand-over in EndUIFrame, from `Hot`: the nearest control at or above it, and the nearest
+        // scrolling container at or above it (a wheel over a list's row scrolls the list).
+        NodeId      PointerTarget = NodeId::Null;
+        NodeId      WheelTarget   = NodeId::Null;
         bool        PrevDown = false; // for the press edge (UIInput only carries held + release)
         UIDragState Drag;
 
@@ -379,6 +388,14 @@ namespace Desert::UI
         std::vector<Common::KeyCode> ConsumedKeys;
         // Which control each screen / overlay / canvas last had focused, and which scopes were up last frame.
         FocusMemory Focus;
+        // The scrollbar thumb the pointer is dragging (pressed on it and still held), and where on the thumb it
+        // was grabbed, in the container's pixels. One per view: there is one pointer.
+        struct ScrollThumbDrag
+        {
+            NodeId Owner  = NodeId::Null;
+            float  GrabPx = 0.0f;
+        };
+        ScrollThumbDrag ThumbDrag;
         // The option an open dropdown's keyboard highlight is on (view state: two views of one dropdown each
         // keep their own). Erased when the list closes.
         std::unordered_map<NodeId, int> DropdownHighlight;
@@ -535,6 +552,8 @@ namespace Desert::UI
             Hot         = NodeId::Null;
             HotNext     = NodeId::Null;
             HotNextRect = Rect{};
+            PointerTarget = NodeId::Null;
+            WheelTarget   = NodeId::Null;
             PrevDown    = false;
             Drag        = UIDragState{};
             Focusables.clear();
@@ -544,6 +563,7 @@ namespace Desert::UI
             ConsumedKeys.clear();
             Focus = FocusMemory{};
             DropdownHighlight.clear();
+            ThumbDrag = ScrollThumbDrag{};
             Tint           = glm::vec4( 1.0f );
             WarnedMaterial = Common::AssetHandle{};
             ViewportPx     = Rect{};

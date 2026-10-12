@@ -22,9 +22,11 @@
 //                              canvas would not be drawn at all (the renderer takes the first one).
 //   * UILayoutComponent      - the rect; every element gets one automatically (see UIElementFactory).
 //   * UIScreen/UIScreenStack - the screen machine. A screen with no NAME is skipped by the renderer's own
-//                              seeding loop, and a stack belongs on the canvas rather than on a child, so a
-//                              menu entry for either would produce something that cannot be drawn at all —
-//                              which is a different thing from an element still waiting for its asset.
+//                              seeding loop, so a menu entry would produce something that cannot be drawn at
+//                              all; a stack is a switcher added in Details to the canvas or to an existing
+//                              container (UIScreenMachine.hpp), not an element of its own.
+//   * UITabs                 - a MODIFIER on an existing tab-bar container (its ShowScreen buttons select
+//                              themselves).
 //   * UIAnim, UIBinding, UITween, UIDraggable, UIDropTarget, UIPointerEvents
 //                            - MODIFIERS. They are added in Details to an element that already exists and
 //                              draw nothing by themselves, ever.

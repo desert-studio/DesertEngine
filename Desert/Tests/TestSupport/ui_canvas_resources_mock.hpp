@@ -10,6 +10,7 @@
 #include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include <memory>
@@ -33,6 +34,10 @@ namespace TestSupport
         [[nodiscard]] Desert::UI::TextureRef SpriteTexture( const ::Common::AssetHandle& ) override
         {
             return {};
+        }
+        [[nodiscard]] uint64_t ImageAtPath( const std::string& ) override
+        {
+            return 0;
         }
         [[nodiscard]] Desert::UI::TextureRef AnimatedFrame( const ::Common::AssetHandle& sprite ) override
         {

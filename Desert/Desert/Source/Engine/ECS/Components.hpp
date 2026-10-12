@@ -1119,6 +1119,16 @@ namespace Desert::ECS
         COMPONENT( Key( "UIListView" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIListViewData Data;
     };
+    struct UITileViewComponent
+    {
+        COMPONENT( Key( "UITileView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITileViewData Data;
+    };
+    struct UITreeViewComponent
+    {
+        COMPONENT( Key( "UITreeView" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITreeViewData Data;
+    };
     struct UIInputFieldComponent
     {
         COMPONENT( Key( "UIInputField" ), Block( Data ), Run( UIAfterRenderTexture ) )
@@ -1198,6 +1208,13 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "UIScreenStack" ), Block( Data ), Run( UIAfterRenderTexture ) )
         UI::UIScreenStackData Data;
+    };
+    // A tab bar: the ShowScreen buttons below it select themselves from the switcher they drive
+    // (UI::UITabsData, UI/UIScreenMachine.hpp). A modifier on a container element; draws nothing itself.
+    struct UITabsComponent
+    {
+        COMPONENT( Key( "UITabs" ), Block( Data ), Run( UIAfterRenderTexture ) )
+        UI::UITabsData Data;
     };
     struct UIPointerEventsComponent
     {

@@ -409,10 +409,8 @@ namespace Desert::UI
             // an author must be able to pick an element on a screen the game is not showing.
             if ( self == UISkipCause::None && ctx != nullptr && tree.Has<UIScreenData>( e ) )
             {
-                const std::string& name      = tree.Get<UIScreenData>( e )->Name;
-                const bool         isCurrent = ( name == ctx->Screen );
-                const bool         isLeaving = ( name == ctx->ScreenFrom && ctx->ScreenT < 1.0f );
-                if ( !isCurrent && !isLeaving )
+                const UIScreenPresence sp = ScreenPresenceOf( *ctx, tree, e ); // its own machine
+                if ( !sp.Current && !sp.Leaving )
                     self = UISkipCause::ScreenNotCurrent;
             }
             if ( self == UISkipCause::None && ( ctx != nullptr || scope.Row != nullptr ) &&
@@ -504,21 +502,24 @@ namespace Desert::UI
 
             // The virtualized list (Ю17) clips exactly as the scroll view does; its rows are placed from
             // the window solved below rather than from childParent, so nothing is shifted here.
-            ListWindow          listWindow;
-            const bool          isList    = tree.Has<UIListViewData>( e );
-            const UICollection* boundRows = nullptr;
+            ListWindow  listWindow;
+            const bool  isList = tree.Has<UIListViewData>( e );
+            UIListShape listShape;
             if ( isList )
             {
                 // READ-ONLY where the renderer writes, for the reason the scroll view states above: a
                 // query must not edit the scene. SolveListWindow clamps the offset it was given, so the
                 // number used here is the same one for any ScrollY the renderer could have left behind.
+                // The rows come from the same resolution the renderer asks (UIListSelection.hpp): a tile
+                // view's columns, a tree view's linearised expanded records, the view's own expansion.
                 const auto& lv = *tree.Get<UIListViewData>( e );
-                boundRows = lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
-                std::size_t n = tree.ChildCount( e );
-                if ( !lv.Collection.empty() )
-                    n = static_cast<std::size_t>( boundRows != nullptr ? boundRows->Size() : 0 );
-                listWindow = SolveListWindow( static_cast<int>( n ), lv.ItemHeight, lv.Spacing, lv.Overscan,
-                                              lv.ScrollY, rect.H, scale );
+                const UIListViewState* listState = nullptr;
+                if ( ctx != nullptr )
+                    if ( const auto it = ctx->Lists.find( e ); it != ctx->Lists.end() )
+                        listState = &it->second;
+                listShape  = ResolveListShape( tree, e, rect.W, scale, listState );
+                listWindow = SolveListWindow( listShape.Count, lv.ItemHeight, lv.Spacing, lv.Overscan, lv.ScrollY,
+                                              rect.H, scale, listShape.Columns, listShape.ItemWidth );
                 clip       = true;
             }
             node.ClipsChildren = clip;
@@ -561,13 +562,16 @@ namespace Desert::UI
                 // whole-collection walk, per query, that binding exists to avoid. The renderer walks the
                 // same [First, Last] with the same record per row, so the two describe one frame.
                 const NodeId entry = childCount == 1 ? tree.ChildAt( e, 0 ) : NodeId::Null;
-                if ( boundRows != nullptr && tree.Valid( entry ) )
+                if ( listShape.Count > 0 && tree.Valid( entry ) )
                 {
                     for ( int i = listWindow.First; i <= listWindow.Last; ++i )
                     {
-                        const Rect rowRect = ListRowRect( rect, listWindow, i );
-                        EnumScope  row     = child;
-                        row.Row            = &boundRows->Record( i );
+                        Rect rowRect = ListRowRect( rect, listWindow, i );
+                        if ( listShape.Tree != nullptr )
+                            rowRect = TreeContentRect( rowRect, listShape.Rows()[static_cast<std::size_t>( i )].Depth,
+                                                       listShape.Tree->Indent * scale );
+                        EnumScope row = child;
+                        row.Row       = listShape.RowRecord( i );
                         row.RowIndex       = i;
                         EnumRecurse( tree, entry, row, scale, viewportPx, ctx, out, order, &rowRect );
                     }
