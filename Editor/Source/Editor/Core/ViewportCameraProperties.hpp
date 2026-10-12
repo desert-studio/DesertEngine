@@ -66,9 +66,15 @@ namespace Desert::Editor
     /// line in the capture path.
     inline constexpr float kViewportCameraFramingDistance = 500.0f;
 
-    /// The two properties, named once. `set` addresses by these strings, so they are the wire.
+    /// The properties, named once. `set` addresses by these strings, so they are the wire.
     inline constexpr const char* kViewportCameraPosition  = "Camera.Position";
     inline constexpr const char* kViewportCameraDirection = "Camera.Direction";
+    inline constexpr const char* kViewportCameraFOV       = "Camera.FOV";
+
+    /// The field of view the viewport's own FOV slider offers, in degrees — one range for the slider and for
+    /// a `set`, so a client cannot put the lens where a person's hands could not.
+    inline constexpr float kViewportCameraMinFOV = 20.0f;
+    inline constexpr float kViewportCameraMaxFOV = 120.0f;
 
     // THE SUBJECT'S WIRE NAME IS NOT SPELLED HERE, deliberately. It lives once, in the protocol's own
     // kSubjects table (Control/ControlProtocol.hpp), which is what the parser matches against and what a
@@ -97,8 +103,8 @@ namespace Desert::Editor
     ///
     /// NO Min/Max. A world position has no clamp in an engine whose unit is the centimetre, and inventing
     /// one here would refuse a legitimate placement on the authority of a number nobody chose.
-    [[nodiscard]] inline std::vector<EditableProperty> DescribeViewportCamera( const glm::vec3& position,
-                                                                               const glm::vec3& forward )
+    [[nodiscard]] inline std::vector<EditableProperty>
+    DescribeViewportCamera( const glm::vec3& position, const glm::vec3& forward, float fovDegrees )
     {
         std::vector<EditableProperty> census;
 
@@ -120,6 +126,17 @@ namespace Desert::Editor
         directionRow.Value      = { forward.x, forward.y, forward.z, 0.0f };
         census.push_back( directionRow );
 
+        EditableProperty fovRow;
+        fovRow.Name       = kViewportCameraFOV;
+        fovRow.Label      = "FOV";
+        fovRow.Group      = "Camera";
+        fovRow.Type       = "float";
+        fovRow.Components = 1;
+        fovRow.Min        = kViewportCameraMinFOV;
+        fovRow.Max        = kViewportCameraMaxFOV;
+        fovRow.Value      = { fovDegrees, 0.0f, 0.0f, 0.0f };
+        census.push_back( fovRow );
+
         return census;
     }
 
@@ -128,6 +145,7 @@ namespace Desert::Editor
     {
         Position,
         Direction,
+        FOV,
     };
 
     /**
@@ -147,13 +165,27 @@ namespace Desert::Editor
     {
         const bool isPosition  = ( property == kViewportCameraPosition );
         const bool isDirection = ( property == kViewportCameraDirection );
+        const bool isFOV       = ( property == kViewportCameraFOV );
 
-        if ( !isPosition && !isDirection )
+        if ( !isPosition && !isDirection && !isFOV )
         {
             return Common::MakeFormattedError<ViewportCameraWrite>(
-                 "'{}' is not a property of the viewport. It offers '{}' and '{}'; ask 'properties' for the "
-                 "same subject to see their current values.",
-                 property, kViewportCameraPosition, kViewportCameraDirection );
+                 "'{}' is not a property of the viewport. It offers '{}', '{}' and '{}'; ask 'properties' for "
+                 "the same subject to see their current values.",
+                 property, kViewportCameraPosition, kViewportCameraDirection, kViewportCameraFOV );
+        }
+
+        if ( isFOV )
+        {
+            if ( value.size() != 1 )
+                return Common::MakeFormattedError<ViewportCameraWrite>(
+                     "'{}' takes one number (degrees) and was given {}.", property, value.size() );
+            if ( !( value[0] >= kViewportCameraMinFOV && value[0] <= kViewportCameraMaxFOV ) )
+                return Common::MakeFormattedError<ViewportCameraWrite>(
+                     "'{}' was given {}, outside the viewport's range [{}, {}]; a value moved into it would be "
+                     "read back as the caller's own.",
+                     property, value[0], kViewportCameraMinFOV, kViewportCameraMaxFOV );
+            return Common::MakeSuccess( ViewportCameraWrite::FOV );
         }
 
         if ( value.size() != 3 )

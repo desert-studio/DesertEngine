@@ -162,7 +162,7 @@ namespace Desert::ECS
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.
         std::shared_ptr<DynamicMesh>           RuntimeMesh;
         bool                                   OutlineDraw = false;
-        int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
+        int                                    ForcedLOD   = -1; // -1 = auto (by screen size); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)

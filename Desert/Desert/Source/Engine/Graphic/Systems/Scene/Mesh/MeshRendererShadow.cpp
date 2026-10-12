@@ -567,7 +567,9 @@ namespace Desert::Graphic::System
         // object it belongs to. The per-object caster loop below has always asked it this
         // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
         const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
-        const glm::vec3 lodViewPosition = lodCamera != nullptr ? lodCamera->GetPosition() : glm::vec3( 0.0f );
+        const Geometry::LODView lodView =
+             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
+                                  : Geometry::LODView{};
 
         std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
@@ -712,14 +714,13 @@ namespace Desert::Graphic::System
                 // one of the four — and the batch is a single draw whose cost is entirely
                 // its instance count.
                 const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-                const uint32_t           maxLevel    = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
                 // The cull distance from the MAIN camera, as the geometry pass measures it:
                 // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
                 CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodViewPosition, lodViewPosition, maxLevel, visible, levels );
+                                     lodView.Origin, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 if ( visible.empty() )
                     continue;
 

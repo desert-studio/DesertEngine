@@ -22,6 +22,7 @@ namespace Desert
             {
                 const std::vector<Index> gpu =
                      Geometry::BuildLODIndexBuffer( m_Vertices, m_Indices, m_Submeshes );
+                ResolveLODScreenSizes();
                 m_IndexBuffer = Graphic::IndexBuffer::Create( gpu.data(), gpu.size() * sizeof( Index ) );
             }
             else

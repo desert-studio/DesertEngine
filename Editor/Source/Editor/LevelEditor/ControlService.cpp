@@ -437,7 +437,8 @@ namespace Desert::Editor
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( camera->GetPosition(), camera->GetDirection() ) ) );
+                              DescribeViewportCamera( camera->GetPosition(), camera->GetDirection(),
+                                                      camera->GetFOV() ) ) );
                 }
 
                 // `m_Documents` here on А6-1's side; О9-2 moved document OWNERSHIP out of the well into
@@ -649,6 +650,13 @@ namespace Desert::Editor
         const auto which = ValidateViewportCameraWrite( request.Property, request.Value );
         if ( !which )
             return Control::Response::Failure( request.Id, which.GetError() );
+
+        // The lens, through the same setter the viewport's FOV slider calls.
+        if ( which.GetValue() == ViewportCameraWrite::FOV )
+        {
+            camera->SetFOV( request.Value[0] );
+            return Control::Response::Success( request.Id );
+        }
 
         // THE OTHER HALF OF THE POSE IS READ BACK FROM THE CAMERA, not remembered here. A client that sets
         // only the direction means "look that way from where you are", and a copy of the position kept on
