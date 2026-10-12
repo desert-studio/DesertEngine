@@ -61,7 +61,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 22> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 21> kEntityTables{ {
          { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp", "m_Live", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp", "on_destroy<RagdollComponent>().connect",
            "RAG1b: the ragdoll's description and rig signature; OnRagdollDestroyed releases the ragdoll and its "
@@ -136,7 +136,8 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Emitters",
            Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
            "RetireDestroyedEmitters( m_Emitters, reg )",
-           "the emitter's step/counter/dispatch buffers in the scene's pool; PrepareTick drops emitters whose entity "
+           "the emitter's step/counter/dispatch buffers in the scene's pool; PrepareTick drops emitters whose "
+           "entity "
            "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
            "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
     } };

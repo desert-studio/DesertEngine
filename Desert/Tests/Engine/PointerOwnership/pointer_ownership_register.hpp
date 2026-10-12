@@ -978,12 +978,35 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp",
           "MeshCellPipelineKey", "PassState", Guard::IdentityOnly,
           "never dereferenced: a key of MeshRenderer::m_CellPipelines (CellPipeline). Four of the five pass states named here are shared_ptr members of that same MeshRenderer (m_StaticPipeline, m_StaticGBufferPipeline, m_StaticInstancedPipeline, m_InstancedGBufferPipeline), assigned by the Setup*Pass calls in Init and never re-assigned, so their addresses cannot be recycled while the map lives. The fifth, the skinned LOAD variant, is held only by the SceneRenderer's PipelineCache and can be freed by InvalidateByShader; the only pipeline that can then take its address and reach this key is that same variant rebuilt from the same m_SkinnedPipeline spec, i.e. the same pass state, because every other pass state is pinned by a member" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp",
+          "ParticleFrameEmitter", "Gpu", Guard::OwnedByThisObject,
+          "points into ParticleWorldGpu::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
+          "PrepareTick can perform while it is already pushing these pointers cannot move the pointee; "
+          "every erase happens after m_FrameEmitters is cleared" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
-          "FrameEmitter", "Gpu", Guard::OwnedByThisObject,
-          "points into ParticleRenderer::m_Emitters, an unordered_map -- NODE-BASED, so the insert that "
-          "PrepareFrame can perform while it is already pushing these pointers cannot move the pointee; "
-          "the erases are OnSceneReplaced's clear() and PrepareFrame's RetireDestroyedEmitters, both after "
-          "m_FrameEmitters is cleared" },
+          "ViewEmitter", "Frame", Guard::FrameScoped,
+          "points into ParticleWorldGpu::m_FrameEmitters of the tick PrepareFrame just ran; m_ViewEmitters is "
+          "cleared at the top of every PrepareFrame and by OnSceneReplaced, so no row outlives that tick" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewEmitter", "Sprite", Guard::OwnedByThisObject,
+          "the unique_ptr<SpriteDraw> in ParticleRenderer::m_Sprites, a node-based map that never erases while "
+          "m_ViewEmitters holds rows; a unique_ptr's pointee does not move" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewEmitter", "Instance", Guard::OwnedByThisObject,
+          "EmitterMaterial::Instance (a shared_ptr) of ParticleRenderer::m_Materials; that map is cleared only by "
+          "OnSceneReplaced, which clears m_ViewEmitters first" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ParticleRenderer", "m_World", Guard::ReboundBeforeEveryUse,
+          "re-pointed by PrepareFrame to the scene's ParticleWorldGpu every frame and nulled by OnSceneReplaced; "
+          "every reader checks it against nullptr" },
+        { "Desert/Desert/Source/Engine/VFX/VFXDataChannel.hpp",
+          "VFXDataChannelWriter", "m_Channel", Guard::FrameScoped,
+          "UE UNiagaraDataChannelWriter: a window valid until the next VFXWorld tick clears the entries; the "
+          "channel lives in VFXDataChannels::m_Channels, a node-based std::map, so registering another cannot "
+          "move it" },
+        { "Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.hpp",
+          "NodeSpec", "Category", Guard::StaticStorage,
+          "a string literal, held by a constexpr/static table entry" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",
           "SkyboxRenderer", "m_ActiveCamera", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareCamera from SceneRenderer::BeginScene at the top of every frame, before any pass that reads it; the camera itself is a persistent member of Scene that Scene::Clear does not touch" },

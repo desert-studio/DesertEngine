@@ -6,7 +6,10 @@
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <Engine/Physics/PhysicsAssetGeneration.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -15,6 +18,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <span>
 #include <vector>
 
 namespace Desert::Geometry
@@ -121,6 +125,13 @@ namespace Desert::Geometry
     std::filesystem::path HumanoidClipFile( std::string_view clipName )
     {
         return HumanoidSkeletonFile().parent_path() / std::format( "Humanoid_{}.anim", clipName );
+    }
+
+    std::filesystem::path HumanoidPhysicsAssetFile()
+    {
+        // Under the engine mount's PhysicsAssets root (the kind's census row), the one place a gather finds it.
+        return Common::Constants::Path::ENGINE_CONTENT_PATH /
+               std::format( "PhysicsAssets/Humanoid_PhysicsAsset{}", Physics::kPhysicsAssetExtension );
     }
 
     Common::ResultStr<Assets::Serialization::MeshAssetData>
@@ -234,6 +245,27 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<Result>( "'{}' was not written: {}",
                                                        HumanoidMeshFile().generic_string(), ok.GetError() );
         written.push_back( HumanoidMeshFile() );
+
+        // The bodies come from the vertices just built, exactly as "Create Physics Asset" makes them from the
+        // loaded mesh — the same generator over the same runtime vertices.
+        std::vector<SkinnedVertex> vertices;
+        vertices.reserve( mesh.GetValue().SkinnedVertices.size() );
+        for ( const auto& v : mesh.GetValue().SkinnedVertices )
+            vertices.push_back( Assets::Serialization::ToSkinnedVertex( v ) );
+        auto physics = Physics::GeneratePhysicsAsset( skeleton, vertices, skeletonGuid );
+        if ( !physics )
+            return Common::MakeFormattedError<Result>( "the humanoid's physics asset: {}", physics.GetError() );
+        Physics::PhysicsAssetData bodies = physics.ExtractValue();
+        bodies.Guid                      = kHumanoidPhysicsAssetGuid;
+        const auto encoded               = Physics::EncodePhysicsAsset( bodies );
+        if ( !encoded )
+            return Common::MakeFormattedError<Result>( "the humanoid's physics asset: {}", encoded.GetError() );
+        if ( const auto ok = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                  HumanoidPhysicsAssetFile(), std::as_bytes( std::span( encoded.GetValue() ) ) );
+             !ok )
+            return Common::MakeFormattedError<Result>(
+                 "'{}' was not written: {}", HumanoidPhysicsAssetFile().generic_string(), ok.GetError() );
+        written.push_back( HumanoidPhysicsAssetFile() );
 
         for ( const HumanoidClipAsset& clipAsset : kHumanoidClips )
         {
