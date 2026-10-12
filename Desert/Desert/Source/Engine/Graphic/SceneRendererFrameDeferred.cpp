@@ -441,6 +441,7 @@ namespace Desert::Graphic
              { return deferred->Record( context ); } );
     }
 
+#if DESERT_DEV_INSTRUMENTS
     void SceneRenderer::AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures,
                                               const RDG::TextureRef target )
     {
@@ -478,6 +479,7 @@ namespace Desert::Graphic
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
     }
+#endif // DESERT_DEV_INSTRUMENTS
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                       const std::vector<RDG::TextureRef>& sceneColor,
