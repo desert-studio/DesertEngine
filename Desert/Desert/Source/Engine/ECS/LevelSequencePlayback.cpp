@@ -209,10 +209,17 @@ namespace Desert::ECS
                     return;
                 }
                 {
-                    // UE UNiagaraComponent::Activate(true): the placed system starts bearing, from the start.
-                    auto& vfx             = m_Registry.get<VFXComponent>( entity );
-                    vfx.Data.AutoActivate = true;
-                    vfx.RequestRestart    = true;
+                    // UE UNiagaraComponent::Activate(true): the placed system starts bearing, from the start. The
+                    // restart is the scene's VFXWorld's (LevelSequenceSystem forwards VFXRestarts to it).
+                    const auto* id = m_Registry.try_get<UUIDComponent>( entity );
+                    if ( id == nullptr )
+                    {
+                        m_Refusals.push_back( std::format(
+                             "Event '{}': Activate Particles needs the bound entity's UUID", key->Name ) );
+                        return;
+                    }
+                    m_Registry.get<VFXComponent>( entity ).Data.AutoActivate = true;
+                    m_VFXRestarts.push_back( static_cast<uint64_t>( id->UUID ) );
                 }
                 return;
             case T::EventActionKind::CallScript:
@@ -428,6 +435,7 @@ namespace Desert::ECS
         out.Refusals    = host.Refusals();
         out.FiredEvents = host.FiredEvents();
         out.Sounds      = host.Sounds();
+        out.VFXRestarts = host.VFXRestarts();
         return out;
     }
 

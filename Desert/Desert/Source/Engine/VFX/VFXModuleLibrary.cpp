@@ -38,7 +38,16 @@ namespace Desert::VFX
                        glm::vec4( 64, 0, 0, 0 ) ),
                  Decl( "MaxDistance", T::Float, "cm", VFXInputRange{ 0.0f, 100000.0f }, glm::vec4( 0.0f ) ),
                  Decl( "FilterOp", T::Int, "", std::nullopt, std::nullopt ),
-                 Decl( "FilterValue", T::Float, "", std::nullopt, std::nullopt ) },
+                 Decl( "FilterValue", T::Float, "", std::nullopt, std::nullopt ),
+                 // Bindings: the channel (DataChannel.<channel>) and the fields of its entries the particles take
+                 // (DataChannel.<channel>.<field>); VFXEmitterSpawn.hpp states what each means.
+                 Decl( "Channel", T::Int, "", std::nullopt, std::nullopt ),
+                 Decl( "Position", T::Vec3, "cm", std::nullopt, std::nullopt ),
+                 Decl( "Direction", T::Vec3, "", std::nullopt, std::nullopt ),
+                 Decl( "Color", T::Vec4, "", std::nullopt, std::nullopt ),
+                 Decl( "Lifetime", T::Float, "s", std::nullopt, std::nullopt ),
+                 Decl( "Size", T::Float, "cm", std::nullopt, std::nullopt ),
+                 Decl( "Filter", T::Float, "", std::nullopt, std::nullopt ) },
                false },
         };
         return table;

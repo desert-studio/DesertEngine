@@ -127,6 +127,9 @@ namespace Desert::Graphic::System
         // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
         Common::AssetHandle Material;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // The emitter's renderer rows (VFXRendererData): drawn when one Sprite row is enabled. It simulates
+        // either way (UE: a disabled renderer stops the draw, not the emitter).
+        bool Drawn = true;
     };
 
     // The pool's buffers: particles, the free list (one entry per particle) and the alive list (two per particle).

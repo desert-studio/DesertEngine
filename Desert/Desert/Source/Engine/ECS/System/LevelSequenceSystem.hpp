@@ -158,6 +158,8 @@ namespace Desert::ECS
                     LOG_INFO( "[LevelSequence] '{}': event '{}'", actor->Name, name );
                 for ( const auto& clip : result.Sounds )
                     Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects );
+                for ( const uint64_t uuid : result.VFXRestarts )
+                    m_Scene->GetVFXWorld().Restart( uuid );
 
                 if ( const auto target =
                           LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )

@@ -22,6 +22,7 @@ namespace Desert::VFX
         m_Clock = Clock( m_Clock.GetSettings() );
         m_Plan  = {};
         m_Systems.clear();
+        m_Restarts.clear();
         m_GpuState.reset(); // the scene's GPU particle state goes with its instances
         m_Channels.Clear();
         // m_LastGeneration is NOT reset: a renderer may still hold GPU state stamped with an old
@@ -93,19 +94,14 @@ namespace Desert::VFX
         view.each(
              [&]( entt::entity entity, ECS::VFXComponent& vfx, const ECS::UUIDComponent& id )
              {
-                 // The system editor's preview plays its working copy (VFXComponent::PreviewSystem).
-                 std::shared_ptr<const Assets::Serialization::VFXSystemData> data = vfx.PreviewSystem;
-                 if ( !data )
-                 {
-                     if ( static_cast<uint64_t>( vfx.Data.System ) == 0 )
-                         return; // an empty slot plays nothing
-                     // Pending = not yet read (the system starts when it lands); a failed read is logged once by
-                     // the service, naming the handle.
-                     const auto resolved = systems->Get( vfx.Data.System );
-                     if ( !resolved.IsSuccess() || !resolved.GetValue() )
-                         return;
-                     data = resolved.GetValue();
-                 }
+                 if ( static_cast<uint64_t>( vfx.Data.System ) == 0 )
+                     return; // an empty slot plays nothing
+                 // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
+                 // service, naming the handle. An editor's working copy resolves here too (PublishWorkingCopy).
+                 const auto resolved = systems->Get( vfx.Data.System );
+                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                     return;
+                 const auto& data = resolved.GetValue();
 
                  const std::uint64_t uuid   = id.UUID;
                  SystemInstance&     system = m_Systems[uuid];
@@ -137,13 +133,10 @@ namespace Desert::VFX
                  }
                  system.Seen = true;
 
-                 // The editor's Restart: this system alone starts over.
-                 if ( vfx.RequestRestart )
-                 {
-                     vfx.RequestRestart = false;
+                 // Restart (the editor's button, a sequence's Activate): this system alone starts over.
+                 if ( m_Restarts.erase( uuid ) > 0 )
                      for ( EmitterInstance& emitter : system.Emitters )
                          ResetInstance( emitter );
-                 }
 
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::vec3 emitterCm =
@@ -164,6 +157,7 @@ namespace Desert::VFX
              } );
 
         std::erase_if( m_Systems, []( const auto& entry ) { return !entry.second.Seen; } );
+        m_Restarts.clear();        // a restart of a system that plays nothing this tick has nothing to restart
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
     }
 } // namespace Desert::VFX

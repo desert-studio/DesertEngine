@@ -1087,7 +1087,8 @@ TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTh
     EXPECT_EQ( step.Sounds, std::vector<std::string>{ "Assets/Audio/boom.wav" } );
     const auto& emitter = world.registry.get<ECS::VFXComponent>( world.door );
     EXPECT_TRUE( emitter.Data.AutoActivate );
-    EXPECT_TRUE( emitter.RequestRestart );
+    EXPECT_EQ( step.VFXRestarts, std::vector<uint64_t>{ static_cast<uint64_t>(
+                                      world.registry.get<ECS::UUIDComponent>( world.door ).UUID ) } );
     const auto& calls = world.registry.get<ECS::ScriptComponent>( world.door ).PendingSequenceCalls;
     ASSERT_EQ( calls.size(), 1U );
     EXPECT_EQ( calls[0].Function, "OnDoorOpen" );

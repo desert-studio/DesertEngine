@@ -264,6 +264,10 @@ namespace Desert::Graphic::System
                          continue;
                      if ( !PrepareEmitter( gpu, *instance, range, entityId, worldPos, stepSeconds, stepSerial ) )
                          continue;
+                     const auto& rows             = instances->System->Emitters[k].Renderers;
+                     m_FrameEmitters.back().Drawn = std::ranges::any_of(
+                          rows, []( const Assets::Serialization::VFXRendererData& row )
+                          { return row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Sprite; } );
                  }
              } );
 

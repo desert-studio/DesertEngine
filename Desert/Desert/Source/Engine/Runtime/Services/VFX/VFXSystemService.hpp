@@ -32,6 +32,14 @@ namespace Desert::Runtime
 
         void Clear();
 
+        /// AN EDITOR'S WORKING COPY (UE: the Niagara System editor's transient system, played by its preview
+        /// component): @p system becomes what @p handle names - a generated handle that names no file - until
+        /// ReleaseWorkingCopy. Every publish is a new pointer, so whatever plays it starts over with the edit.
+        /// Refused when @p handle already names a system read from a file. Clear() keeps working copies: their
+        /// owner (the open document) releases them.
+        Common::BoolResultStr PublishWorkingCopy( const Assets::AssetHandle& handle, System system );
+        void                  ReleaseWorkingCopy( const Assets::AssetHandle& handle );
+
     private:
         void Request( const Assets::AssetHandle& handle );
         void Adopt( const Assets::AssetHandle& handle, const Assets::Asset<Assets::VFXSystemAsset>& asset );
@@ -40,5 +48,6 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::unordered_map<Assets::AssetHandle, System>              m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
+        std::unordered_map<Assets::AssetHandle, System>              m_WorkingCopies;
     };
 } // namespace Desert::Runtime

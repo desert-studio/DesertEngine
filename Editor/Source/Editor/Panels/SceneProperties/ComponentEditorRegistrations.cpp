@@ -499,7 +499,7 @@ namespace Desert::Editor
         e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
         e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>().Data; };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<C>();
             PropertyEditorBuilder::Draw( &c.Data, "DirectionalLightData", ctx.AssetMgr(), ctx.UIHelper,
@@ -633,8 +633,8 @@ namespace Desert::Editor
     }
 
     // VFX: transport first, then the reflected fields. Deactivate writes AutoActivate (the same field VFXWorld
-    // reads, so nothing new can drift out of sync) and Restart raises the component's one-shot flag that VFXWorld
-    // consumes next tick.
+    // reads, so nothing new can drift out of sync) and Restart is a command to the scene's VFXWorld (Restart),
+    // consumed next tick.
     static ComponentEditorEntry MakeVFXEntry()
     {
         using C = ::Desert::ECS::VFXComponent;
@@ -659,7 +659,9 @@ namespace Desert::Editor
                     c.Data.AutoActivate = !c.Data.AutoActivate;
                 ImGui::SameLine();
                 if ( ImGui::Button( ICON_MDI_RESTART "  Restart", ImVec2( -1.0f, 0.0f ) ) )
-                    c.RequestRestart = true;
+                    if ( scene != nullptr && en.HasComponent<::Desert::ECS::UUIDComponent>() )
+                        scene->GetVFXWorld().Restart(
+                             static_cast<uint64_t>( en.GetComponent<::Desert::ECS::UUIDComponent>().UUID ) );
                 ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
                      "Kill every live particle of the system and start it from scratch" );
                 ImGui::Spacing();

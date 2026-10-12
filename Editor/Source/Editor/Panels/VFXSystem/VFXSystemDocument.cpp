@@ -14,6 +14,9 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+
+#include <Common/Core/UUID.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -73,10 +76,6 @@ namespace Desert::Editor
             {
                 case S::VFXRendererKind::Sprite:
                     return "Sprite Renderer";
-                case S::VFXRendererKind::Ribbon:
-                    return "Ribbon Renderer";
-                case S::VFXRendererKind::Mesh:
-                    return "Mesh Renderer";
             }
             return "?";
         }
@@ -322,6 +321,11 @@ namespace Desert::Editor
     {
         // The history's entries point at m_Working, which dies with this window.
         CommandHistory::Get().DropFor( &m_Working );
+        // The preview (which names it) goes first, then the transient system.
+        m_Preview.reset();
+        if ( static_cast<uint64_t>( m_WorkingHandle ) != 0 )
+            if ( auto* systems = Runtime::ResourceRegistry::GetVFXSystemService() )
+                systems->ReleaseWorkingCopy( m_WorkingHandle );
     }
 
     bool VFXSystemDocument::IsSubjectAlive() const
@@ -434,10 +438,19 @@ namespace Desert::Editor
         // in progress may pass through values the commit would refuse), is handed over as a new system.
         if ( !m_Previewed || *m_Previewed != m_Working )
         {
-            if ( S::ValidateVFXSystemData( m_Working ) )
+            auto* systems = Runtime::ResourceRegistry::GetVFXSystemService();
+            if ( systems != nullptr && S::ValidateVFXSystemData( m_Working ) )
             {
-                m_Previewed = std::make_shared<const S::VFXSystemData>( m_Working );
-                m_Preview->SetVFXSystem( m_Previewed );
+                if ( static_cast<uint64_t>( m_WorkingHandle ) == 0 )
+                    m_WorkingHandle = Assets::AssetHandle( Common::UUID::Generate() );
+                auto next = std::make_shared<const S::VFXSystemData>( m_Working );
+                if ( auto published = systems->PublishWorkingCopy( m_WorkingHandle, next ); published )
+                {
+                    m_Previewed = std::move( next );
+                    m_Preview->SetVFXSystem( m_WorkingHandle );
+                }
+                else
+                    Report( published );
             }
         }
 
@@ -986,21 +999,9 @@ namespace Desert::Editor
         if ( !BeginProperties( "##renderer" ) )
             return;
         const S::VFXRendererData renderer = m_Working.Emitters[e].Renderers[r];
+        // One kind exists (S::VFXRendererKind): shown, not chosen.
         PropertyLabel( "Kind" );
-        ImGui::SetNextItemWidth( -1.0f );
-        if ( ImGui::BeginCombo( "##kind", RendererLabel( renderer.Kind ) ) )
-        {
-            for ( const auto kind :
-                  { S::VFXRendererKind::Sprite, S::VFXRendererKind::Ribbon, S::VFXRendererKind::Mesh } )
-                if ( ImGui::Selectable( RendererLabel( kind ), kind == renderer.Kind ) && kind != renderer.Kind )
-                    Defer( "Set renderer kind",
-                           [e, r, kind]( S::VFXSystemData& d ) -> Common::BoolResultStr
-                           {
-                               d.Emitters[e].Renderers[r].Kind = kind;
-                               return BOOLSUCCESS;
-                           } );
-            ImGui::EndCombo();
-        }
+        ImGui::TextUnformatted( RendererLabel( renderer.Kind ) );
         PropertyLabel( "Enabled" );
         bool on = renderer.Enabled;
         if ( ImGui::Checkbox( "##enabled", &on ) )

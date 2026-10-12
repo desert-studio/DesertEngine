@@ -51,11 +51,6 @@ namespace Desert::ECS
     struct AnimationComponent;
 }
 
-namespace Desert::Assets::Serialization
-{
-    struct VFXSystemData;
-}
-
 namespace Desert::Editor
 {
     // A LIVE asset preview: its own tiny scene (target + key light + procedural sky) rendered offscreen
@@ -332,12 +327,12 @@ namespace Desert::Editor
         void SetVolumeMaterial( const Assets::AssetHandle& material );
 
         // THE VFX SYSTEM EDITOR'S PREVIEW (UE: the Niagara System editor's preview component). The target carries
-        // a VFXComponent whose PreviewSystem is @p system - the document's working copy, not the saved asset - so
-        // the scene's own VFXWorld simulates it exactly as a level would. A new pointer is a new system: the
-        // effect starts over (an edit is seen at once). The first call frames the system's fixed bounds; later
-        // calls keep the camera. Null clears the pane. The caller makes the pane realtime (particles move).
-        void SetVFXSystem( std::shared_ptr<const Assets::Serialization::VFXSystemData> system );
-        // Every emitter of the previewed system starts over (VFXComponent::RequestRestart).
+        // a VFXComponent naming @p system - the document's working copy, published to the VFXSystemService under a
+        // generated handle - so the scene's own VFXWorld simulates it exactly as a level would; a new publish is a
+        // new system and the effect starts over. Framed once, on the system's fixed bounds; later calls keep the
+        // camera. A null handle clears the pane. The caller makes the pane realtime (particles move).
+        void SetVFXSystem( const Assets::AssetHandle& system );
+        // Every emitter of the previewed system starts over (VFXWorld::Restart).
         void RestartVFX();
 
         void Clear();

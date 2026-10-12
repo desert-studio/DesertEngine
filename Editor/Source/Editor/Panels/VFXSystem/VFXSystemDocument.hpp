@@ -58,7 +58,8 @@ namespace Desert::Editor
      * Save writes m_Working through VFXSystemAsset::Save, then has the held asset re-read its file.
      *
      * THE LIVE PREVIEW (UE's Niagara System editor viewport): a PreviewViewport whose target carries a
-     * VFXComponent playing m_Working itself (VFXComponent::PreviewSystem), simulated by the preview scene's own
+     * VFXComponent naming m_Working published as a transient system (VFXSystemService::PublishWorkingCopy under a
+     * generated handle), simulated by the preview scene's own
      * VFXWorld exactly as a level would. Every change of the working copy that validates is handed over as a new
      * system, so the effect starts over with the edit — what Niagara does on a property change. The window claims
      * a view slot from birth and holds it while the preview exists (ReleaseView gives it back).
@@ -196,8 +197,10 @@ namespace Desert::Editor
         bool                             m_PreviewLive   = false;
         bool                             m_DrewThisFrame = false;
         glm::uvec2                       m_RenderSize{ 0u, 0u };
-        // What the preview plays: the last valid working copy handed to it (a new pointer restarts the effect).
+        // What the preview plays: the last valid working copy, published to the VFXSystemService under
+        // m_WorkingHandle (a generated handle naming no file; a new publish restarts the effect).
         std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Previewed;
+        Assets::AssetHandle                                         m_WorkingHandle;
         std::optional<glm::vec2>                                    m_PendingOrbitDegrees;
         bool                  m_NameTyping = false;
     };

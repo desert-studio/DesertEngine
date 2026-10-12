@@ -56,6 +56,8 @@ namespace Desert::Runtime
 
     Common::ResultStr<VFXSystemService::System> VFXSystemService::Get( const Assets::AssetHandle& handle )
     {
+        if ( const auto copy = m_WorkingCopies.find( handle ); copy != m_WorkingCopies.end() )
+            return Common::MakeSuccess( copy->second );
         Request( handle );
         if ( const auto failed = m_Failed.find( handle ); failed != m_Failed.end() )
             return Common::MakeError<System>( failed->second );
@@ -63,6 +65,23 @@ namespace Desert::Runtime
         if ( found == m_Ready.end() )
             return Common::MakeSuccess( System{} );
         return Common::MakeSuccess( found->second );
+    }
+
+    Common::BoolResultStr VFXSystemService::PublishWorkingCopy( const Assets::AssetHandle& handle, System system )
+    {
+        if ( !system )
+            return Common::MakeFormattedError<bool>( "working copy {}: no system",
+                                                     static_cast<uint64_t>( handle ) );
+        if ( m_Ready.contains( handle ) || m_Requests.contains( handle ) || m_Failed.contains( handle ) )
+            return Common::MakeFormattedError<bool>( "working copy {}: the handle names a system read from a file",
+                                                     static_cast<uint64_t>( handle ) );
+        m_WorkingCopies[handle] = std::move( system );
+        return BOOLSUCCESS;
+    }
+
+    void VFXSystemService::ReleaseWorkingCopy( const Assets::AssetHandle& handle )
+    {
+        m_WorkingCopies.erase( handle );
     }
 
     void VFXSystemService::Clear()

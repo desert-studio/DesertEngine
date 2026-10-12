@@ -867,10 +867,10 @@ namespace Desert::Editor
             m_Target.RemoveComponent<ECS::VFXComponent>();
     }
 
-    void PreviewViewport::SetVFXSystem( std::shared_ptr<const Assets::Serialization::VFXSystemData> system )
+    void PreviewViewport::SetVFXSystem( const Assets::AssetHandle& system )
     {
         ++m_ContentRevision;
-        if ( !system )
+        if ( static_cast<uint64_t>( system ) == 0 )
         {
             Clear();
             return;
@@ -896,26 +896,30 @@ namespace Desert::Editor
             m_Target.AddComponent<ECS::VFXComponent>().Data.AutoActivate = true;
 
             // Framed on the system's fixed bounds (cm, UE FixedBounds): what the author said the effect fills.
-            const glm::vec3 half =
-                 glm::max( ( system->Bounds.Max - system->Bounds.Min ) * 0.5f, glm::vec3( 25.0f ) );
+            Assets::Serialization::VFXBounds bounds;
+            if ( const auto resolved = Runtime::ResourceRegistry::GetVFXSystemService()->Get( system );
+                 resolved.IsSuccess() && resolved.GetValue() )
+                bounds = resolved.GetValue()->Bounds;
+            const glm::vec3 half = glm::max( ( bounds.Max - bounds.Min ) * 0.5f, glm::vec3( 25.0f ) );
             m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             m_Fill            = Fill::Object;
             m_HasContent      = true;
             m_Framed          = true;
-            m_Focus           = ( system->Bounds.Max + system->Bounds.Min ) * 0.5f;
+            m_Focus              = ( bounds.Max + bounds.Min ) * 0.5f;
             m_FrameHalfExtent = half;
             m_FrameRadius     = RadiusOfHalfExtent( half );
             m_FrameIsRound    = false;
             ResetView();
         }
-        m_Target.GetComponent<ECS::VFXComponent>().PreviewSystem = std::move( system );
+        m_Target.GetComponent<ECS::VFXComponent>().Data.System = system;
     }
 
     void PreviewViewport::RestartVFX()
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::VFXComponent>() )
             return;
-        m_Target.GetComponent<ECS::VFXComponent>().RequestRestart = true;
+        m_Scene->GetVFXWorld().Restart(
+             static_cast<uint64_t>( m_Target.GetComponent<ECS::UUIDComponent>().UUID ) );
         ++m_ContentRevision;
     }
 

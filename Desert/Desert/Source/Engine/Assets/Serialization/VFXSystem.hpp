@@ -172,11 +172,11 @@ namespace Desert::Assets::Serialization
         World,
     };
 
+    // ONLY THE KINDS THE RENDERER DRAWS (UE: UNiagaraSpriteRendererProperties; ribbons and meshes join when their
+    // draw does). A file naming another kind does not read.
     enum class VFXRendererKind
     {
         Sprite,
-        Ribbon,
-        Mesh,
     };
 
     struct VFXRendererData
