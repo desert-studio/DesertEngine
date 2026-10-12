@@ -150,26 +150,13 @@ namespace Desert::ECS
                                  binding->Slots.push_back( inst.get() );
                              mesh.RuntimeSlots = std::move( binding );
 
-                             // One-shot seed, CONSUMED here: Lit-channel MaterialComponent params exist only
-                             // as a hand-off buffer (scripts that ran before this build + legacy scenes).
-                             // They land as slot-0 instance overrides once and the buffer is cleared — the
-                             // authored slots stay the single source of truth, nothing re-applies per frame,
-                             // and slot edits in the editor can never be silently shadowed. Live script
-                             // writes go straight to the instance (Scripting/MaterialBindings.cpp,
-                             // entity:setMaterialParam).
-                             if ( registry.has<MaterialComponent>( entity ) &&
-                                  !mesh.RuntimeMaterialInstances.empty() )
-                             {
-                                 auto& matc = registry.get<MaterialComponent>( entity );
-                                 if ( matc.ShaderName.empty() && !matc.Params.empty() )
-                                 {
-                                     auto& inst = mesh.RuntimeMaterialInstances[0];
-                                     for ( const auto& p : matc.Params )
-                                         inst->SetParamFromVec4( p.Name, p.Value );
-                                     matc.Params.clear();
-                                     matc.Textures.clear();
-                                 }
-                             }
+                             // The script's slot-0 overrides land on EVERY slot-0 instance built (UE: the
+                             // MID a mesh component keeps across material changes). The list is the
+                             // script's, not a hand-off buffer: nothing is consumed, so a rebuild after a
+                             // material invalidation shows the same values the script last wrote.
+                             if ( !mesh.RuntimeMaterialInstances.empty() && mesh.RuntimeMaterialInstances[0] )
+                                 for ( const auto& p : mesh.ScriptSlotParams )
+                                     mesh.RuntimeMaterialInstances[0]->SetParamFromVec4( p.Name, p.Value );
                          }
 
                          glm::mat4 worldTransform = transform.GetTransform();

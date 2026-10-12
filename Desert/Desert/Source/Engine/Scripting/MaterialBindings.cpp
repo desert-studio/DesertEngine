@@ -6,20 +6,32 @@ namespace Desert::Scripting
 {
     namespace
     {
-        void UpsertComponentParam( ECS::MaterialComponent& mc, const std::string& name, const glm::vec4& v )
+        void UpsertParam( std::vector<ECS::MaterialParamOverride>& params, const std::string& name,
+                          const glm::vec4& v )
         {
-            for ( auto& p : mc.Params )
+            for ( auto& p : params )
                 if ( p.Name == name )
                 {
                     p.Value = v;
                     return;
                 }
-            mc.Params.push_back( { name, v } );
+            params.push_back( { name, v } );
         }
 
-        // Lit path: writes go STRAIGHT to the slot-0 runtime MaterialInstance (live override; the authored slots
-        // stay the source of truth). Custom Shader Override path: the MaterialComponent params ARE the draw state.
-        // Before the first instance build the write is stashed on the component; MeshECSSystem applies it once.
+        // The Shader Override component, when the entity has one naming a shader: its Params are that draw.
+        ECS::MaterialComponent* ShaderOverrideOf( entt::registry& reg, entt::entity entity )
+        {
+            auto* mc = reg.try_get<ECS::MaterialComponent>( entity );
+            return mc != nullptr && !mc->ShaderName.empty() ? mc : nullptr;
+        }
+
+        // Two routes, one per thing the entity draws with (UE: UMeshComponent::SetScalar/VectorParameterValue-
+        // OnMaterials, MeshComponent.cpp:549-628, whose MID is created on demand):
+        //   * a Shader Override (MaterialComponent naming a shader) - the component's Params are that draw;
+        //   * a static mesh's slot 0 - the write joins the mesh's ScriptSlotParams and, when the slot-0 instance
+        //     exists, lands on it now. Before the instance is built (OnCreate runs first) the list alone holds it,
+        //     and MeshECSSystem applies the list to every slot-0 instance it builds.
+        // An entity with neither has no material to write, and the script is told so.
         int SetMaterialParam( lua_State* L )
         {
             const LuauEntityRef ref  = LuauBinder::CheckEntity( L, 1 );
@@ -31,19 +43,19 @@ namespace Desert::Scripting
                                static_cast<float>( luaL_optnumber( L, 6, 1.0 ) ) );
             auto&           reg = *ref.Registry;
 
-            if ( auto* mc = reg.try_get<ECS::MaterialComponent>( ref.Entity );
-                 mc != nullptr && !mc->ShaderName.empty() )
+            if ( auto* mc = ShaderOverrideOf( reg, ref.Entity ) )
             {
-                UpsertComponentParam( *mc, name, v );
+                UpsertParam( mc->Params, name, v );
                 return 0;
             }
-            if ( auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity );
-                 smc != nullptr && !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-            {
+            auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity );
+            if ( smc == nullptr )
+                luaL_error( L, "setMaterialParam('%s'): the entity has no static mesh and no Shader Override - "
+                               "there is no material to write",
+                            name.c_str() );
+            UpsertParam( smc->ScriptSlotParams, name, v );
+            if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
                 smc->RuntimeMaterialInstances[0]->SetParamFromVec4( name, v );
-                return 0;
-            }
-            UpsertComponentParam( reg.get_or_emplace<ECS::MaterialComponent>( ref.Entity ), name, v );
             return 0;
         }
 
@@ -54,61 +66,63 @@ namespace Desert::Scripting
             return 4;
         }
 
+        // The value a read sees is the one the write route above keeps: the override's Params, else the script's
+        // slot-0 list, else the slot-0 instance's own override (a material-instance asset's authored value).
         int GetMaterialParam( lua_State* L )
         {
             const LuauEntityRef ref  = LuauBinder::CheckEntity( L, 1 );
             const std::string   name = luaL_checkstring( L, 2 );
             auto&               reg  = *ref.Registry;
 
-            // Component channel first: custom-shader state and not-yet-consumed seeds live here.
-            if ( const auto* mc = reg.try_get<ECS::MaterialComponent>( ref.Entity ) )
+            if ( const auto* mc = ShaderOverrideOf( reg, ref.Entity ) )
+            {
                 for ( const auto& p : mc->Params )
                     if ( p.Name == name )
                         return PushVec4( L, p.Value );
-
-            // Lit path: the live override on the slot-0 instance.
-            if ( const auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity );
-                 smc != nullptr && !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
+                return PushVec4( L, glm::vec4( 0.0f ) );
+            }
+            if ( const auto* smc = reg.try_get<ECS::StaticMeshComponent>( ref.Entity ) )
             {
-                for ( const auto& [pname, prop] :
-                      smc->RuntimeMaterialInstances[0]->GetPropertySet().GetProperties() )
-                {
-                    if ( pname != name || !prop.bIsOverridden )
-                        continue;
-                    if ( const auto* f = std::get_if<float>( &prop.Value ) )
-                        return PushVec4( L, { *f, 0.0f, 0.0f, 0.0f } );
-                    if ( const auto* v2 = std::get_if<glm::vec2>( &prop.Value ) )
-                        return PushVec4( L, { v2->x, v2->y, 0.0f, 0.0f } );
-                    if ( const auto* v3 = std::get_if<glm::vec3>( &prop.Value ) )
-                        return PushVec4( L, { v3->x, v3->y, v3->z, 1.0f } );
-                    if ( const auto* v4 = std::get_if<glm::vec4>( &prop.Value ) )
-                        return PushVec4( L, *v4 );
-                }
+                for ( const auto& p : smc->ScriptSlotParams )
+                    if ( p.Name == name )
+                        return PushVec4( L, p.Value );
+                if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
+                    if ( const auto authored = smc->RuntimeMaterialInstances[0]->GetOverrideAsVec4( name ) )
+                        return PushVec4( L, *authored );
             }
             return PushVec4( L, glm::vec4( 0.0f ) );
         }
 
-        // Undo every script-set param: the component channel AND the slot-0 instance overrides.
+        // Undo every script-set param. On a static mesh the slot instances are DROPPED and rebuilt by MeshECSSystem
+        // next frame from the authored slots: resetting the live instance's overrides would also wipe a
+        // material-instance asset's own overrides, which the instance carries the same way.
         int ClearMaterialParams( lua_State* L )
         {
             const LuauEntityRef ref = LuauBinder::CheckEntity( L, 1 );
-            if ( auto* mc = ref.Registry->try_get<ECS::MaterialComponent>( ref.Entity ) )
+            if ( auto* mc = ShaderOverrideOf( *ref.Registry, ref.Entity ) )
             {
                 mc->Params.clear();
                 mc->Textures.clear();
             }
             if ( auto* smc = ref.Registry->try_get<ECS::StaticMeshComponent>( ref.Entity );
-                 smc != nullptr && !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-                smc->RuntimeMaterialInstances[0]->ResetOverrides();
+                 smc != nullptr && !smc->ScriptSlotParams.empty() )
+            {
+                smc->ScriptSlotParams.clear();
+                smc->RuntimeMaterialInstances.clear();
+            }
             return 0;
         }
 
-        // A surface shader by name ("" -> back to the lit slot materials); the editor's Shader Override routing.
+        // A surface shader by name; "" drops the Shader Override and the mesh draws its lit slot materials again
+        // (the override's Params belonged to that shader and go with it).
         int SetShader( lua_State* L )
         {
-            const LuauEntityRef ref = LuauBinder::CheckEntity( L, 1 );
-            ref.Registry->get_or_emplace<ECS::MaterialComponent>( ref.Entity ).ShaderName =
-                 luaL_checkstring( L, 2 );
+            const LuauEntityRef ref  = LuauBinder::CheckEntity( L, 1 );
+            const std::string   name = luaL_checkstring( L, 2 );
+            if ( name.empty() )
+                ref.Registry->remove<ECS::MaterialComponent>( ref.Entity );
+            else
+                ref.Registry->get_or_emplace<ECS::MaterialComponent>( ref.Entity ).ShaderName = name;
             return 0;
         }
 
