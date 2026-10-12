@@ -2,6 +2,7 @@
 #include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -23,6 +24,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <system_error>
 #include <format>
 #include <map>
 #include <optional>
@@ -163,18 +165,31 @@ namespace Desert::Editor
                             name, source.DroppedDegenerate, source.DroppedDuplicate, source.DetachedTriangles );
     }
 
-    std::optional<std::filesystem::path> RemoveBesideSourceFile( const std::filesystem::path& source )
+    Common::ResultStr<std::optional<std::filesystem::path>>
+    RemoveBesideSourceFile( const std::filesystem::path& source )
     {
+        using Removed                     = std::optional<std::filesystem::path>;
         const std::filesystem::path asset = CookPaths::MeshAsset( source );
-        // Asked before the removal: afterwards the file that answers it is gone.
-        const bool      edited = Assets::IsEditedImportedMesh( asset );
-        std::error_code ec;
-        if ( !std::filesystem::remove( asset, ec ) || !edited )
-            return std::nullopt;
+        std::error_code             ec;
+        if ( !std::filesystem::exists( asset, ec ) )
+            return Common::MakeSuccess( Removed{} );
+        // ANYTHING BUT THIS IMPORT'S OWN EDIT IS REFUSED BY PATH, never removed and never read (UE
+        // LinkerLoad.cpp:1537-1546: a package older than the oldest loadable version is a load error naming the
+        // file): a pre-AF4h beside-source mesh, or a file stating another identity than the import record.
+        if ( !Assets::IsEditedImportedMesh( asset ) )
+            return Common::MakeFormattedError<Removed>(
+                 "'{}' is beside its source and is not an edit of this import (a mesh from before the "
+                 "derived-data import, or a file with another identity); it is not read and not removed - move "
+                 "it aside to import '{}'",
+                 asset.generic_string(), source.generic_string() );
+        if ( !std::filesystem::remove( asset, ec ) )
+            return Common::MakeFormattedError<Removed>(
+                 "'{}' (the edited import of '{}') could not be removed: {}", asset.generic_string(),
+                 source.generic_string(), ec.message() );
         LOG_WARN( "[Import] re-importing '{}' OVERWROTE the modeling edits saved in '{}': the asset is the "
                   "source file's import again (the edit is gone; undo does not bring it back)",
                   source.generic_string(), asset.generic_string() );
-        return asset;
+        return Common::MakeSuccess( Removed{ asset } );
     }
 
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source )
@@ -267,9 +282,15 @@ namespace Desert::Editor
 
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )
     {
-        std::error_code ec;
-        return std::filesystem::exists( Common::Constants::Path::FullPath( cooked ), ec ) ||
-               ImportedMeshAssetIsFresh( source );
+        // A `.stmesh` with no source beside it is hand-authored: the file is the asset. One with a source is an
+        // import: available as its edit (P9b) or as a fresh DDC envelope, never as whatever else sits there.
+        const std::filesystem::path file = Common::Constants::Path::FullPath( cooked );
+        if ( !Common::Content::MeshSourceBeside( file ).has_value() )
+        {
+            std::error_code ec;
+            return std::filesystem::exists( file, ec );
+        }
+        return Assets::IsEditedImportedMesh( file ) || ImportedMeshAssetIsFresh( source );
     }
 
     Common::ResultStr<std::optional<std::filesystem::path>>
@@ -404,7 +425,8 @@ namespace Desert::Editor
             return Common::MakeError<MeshAssetWrite>( hash.GetError() );
         const uint64_t key = Assets::MeshSourceDerivedDataKey( hash.GetValue() );
 
-        (void)RemoveBesideSourceFile( source );
+        if ( const auto beside = RemoveBesideSourceFile( source ); !beside )
+            return Common::MakeError<MeshAssetWrite>( beside.GetError() );
 
         // THE IDENTITY FIRST (FIX8): the record beside the source is written by the first import and read by
         // every later one, so a re-import of changed bytes keeps the GUID every reference holds.

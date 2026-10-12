@@ -65,9 +65,10 @@ namespace Desert::Editor
     bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source );
 
     // THE GATE EVERY READER OF A STATIC MESH SOURCE NEEDS BEFORE TREATING IT AS "COOKED" (AF4h). @p cooked
-    // existing on disk covers a hand-authored `.stmesh` (no import involved, so nothing else applies) and a
-    // legacy beside-source file not yet overwritten by a re-import; @p source having a fresh DDC envelope
-    // covers every import since AF4h, which never writes @p cooked at all. `exists(cooked)` alone — what
+    // existing with no source beside it is a hand-authored `.stmesh` (no import involved, so nothing else
+    // applies); with a source it counts only as that import's edit (Assets::IsEditedImportedMesh) - any other
+    // file there is refused by the re-import, not read. @p source having a fresh DDC envelope covers every
+    // import since AF4h, which never writes @p cooked at all. `exists(cooked)` alone — what
     // every reader used to ask — answers "not cooked" for a freshly imported mesh forever, degrading it to
     // the generic type icon (or, for MeshDnD::ResolveOrImport, failing the drop outright) with nothing in
     // the log to say why.
@@ -103,11 +104,13 @@ namespace Desert::Editor
     // unreadable.
     [[nodiscard]] std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked );
 
-    // What a re-import does to the file at CookPaths::MeshAsset( @p source ): removes it. Either a legacy file
-    // from a build before AF4h (never read, removed silently) or an EDITED import (Assets::IsEditedImportedMesh,
-    // P9b) - UE's re-import replaces the asset's source model, and so does this one: the edit is lost, with a
-    // warning naming both files. Returns the edited file it removed; nullopt for none or a legacy file.
-    std::optional<std::filesystem::path> RemoveBesideSourceFile( const std::filesystem::path& source );
+    // What a re-import does to the file at CookPaths::MeshAsset( @p source ). An EDITED import
+    // (Assets::IsEditedImportedMesh, P9b) is removed - UE's re-import replaces the asset's source model, and so
+    // does this one: the edit is lost, with a warning naming both files - and returned. Any other file there (a
+    // pre-AF4h beside-source mesh, a file stating another identity) is an ERROR naming it, left untouched (UE
+    // LinkerLoad refuses a too-old package by name). nullopt when nothing is there.
+    Common::ResultStr<std::optional<std::filesystem::path>>
+    RemoveBesideSourceFile( const std::filesystem::path& source );
 
     enum class MeshAssetWrite
     {

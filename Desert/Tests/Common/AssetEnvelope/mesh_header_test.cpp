@@ -97,6 +97,18 @@ TEST( MeshBinaryHeader, AMeshNamingNoSkeletonHasNoSkeletonEdge )
 
 TEST( MeshBinaryHeader, AnOlderGenerationIsRefusedByVersionNamingTheMigrator )
 {
+    // A v1-2 mesh states no GUID: refused by version too, never passed over as "states no header".
+    for ( const uint32_t version : { 1u, 2u } )
+    {
+        std::string bytes = CurrentMesh( kSkeleton, kMeshFlagIsSkinned );
+        std::memcpy( bytes.data() + offsetof( MeshBinaryFileHeader, Version ), &version, 4 );
+        const fs::path file   = WriteFile( "mesh_header_old.skmesh", bytes );
+        const auto     header = ReadAssetHeaderIfStated( file, AssetHeaderReadContext{} );
+        ASSERT_FALSE( header ) << "a version " << version << " mesh was passed over or read";
+        EXPECT_NE( header.GetError().find( std::format( "version {}", version ) ), std::string::npos )
+             << header.GetError();
+        fs::remove( file );
+    }
     for ( const uint32_t version : { 3u, 4u } )
     {
         std::string bytes = CurrentMesh( kSkeleton, kMeshFlagIsSkinned );

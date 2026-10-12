@@ -320,6 +320,18 @@ namespace Desert::Assets
                                        header.GetValue().Asset.Kind == CC::ContentKind::Skybox );
     }
 
+    bool IsLegacyTextureIntentSidecar( const std::span<const std::byte> file )
+    {
+        for ( const std::byte b : file )
+        {
+            const char c = static_cast<char>( b );
+            if ( c == ' ' || c == '\t' || c == '\r' || c == '\n' )
+                continue;
+            return c == '{';
+        }
+        return false;
+    }
+
     std::vector<std::byte> SerializeTextureSettingsForKey( const TextureBuildSettings& settings )
     {
         // UE SerializeForKey: every field that shapes the output, in a fixed order, endian-stable.
@@ -483,6 +495,8 @@ namespace Desert::Assets
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeTextureSourceAsset( file ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
+        if ( IsLegacyTextureIntentSidecar( file ) )
+            return Common::MakeError<Out>( std::string( kLegacyTextureIntentSidecarRefusal ) );
         const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
         auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
         if ( !envelope.IsSuccess() )
