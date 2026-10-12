@@ -52,7 +52,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak"
+                                "Binding": "DataChannel.BreakDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -80,19 +80,19 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.Position"
+                                "Binding": "DataChannel.BreakDust.Position"
                             },
                             {
                                 "Name": "Direction",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.Velocity"
+                                "Binding": "DataChannel.BreakDust.Velocity"
                             },
                             {
                                 "Name": "Size",
                                 "Type": "Float",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.PieceCount"
+                                "Binding": "DataChannel.BreakDust.PieceCount"
                             }
                         ]
                     }
@@ -165,7 +165,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision"
+                                "Binding": "DataChannel.ImpactDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -193,19 +193,19 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Position"
+                                "Binding": "DataChannel.ImpactDust.Position"
                             },
                             {
                                 "Name": "Direction",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Normal"
+                                "Binding": "DataChannel.ImpactDust.Normal"
                             },
                             {
                                 "Name": "Filter",
                                 "Type": "Float",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Impulse"
+                                "Binding": "DataChannel.ImpactDust.Impulse"
                             },
                             {
                                 "Name": "FilterOp",
@@ -300,7 +300,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionRemoved"
+                                "Binding": "DataChannel.SettleDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -328,7 +328,7 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionRemoved.Position"
+                                "Binding": "DataChannel.SettleDust.Position"
                             }
                         ]
                     }

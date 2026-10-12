@@ -157,10 +157,6 @@ namespace
               "it fires a placed field entity into the destruction world (UE: AFieldSystemActor, which is "
               "never drawn); a field is an event acting on bodies, and hiding it must not change what a "
               "Sequencer event or a script breaks." },
-         Row{ "DestructionVFXEvents.hpp", Verdict::MustNot,
-              "DST-05: it writes the frame's destruction events into the VFX data channels (UE: Chaos break "
-              "events read by Niagara); a hidden destructible is still simulated and still breaks, and the "
-              "picture is the reading emitter's, whose own Visible decides whether it is drawn." },
          Row{ "HeightFogECSSystem.hpp", Verdict::Honours,
               "emits the frame's fog; the renderer keeps fog state across frames, so a hidden volume "
               "that is still collected stays on screen forever." },

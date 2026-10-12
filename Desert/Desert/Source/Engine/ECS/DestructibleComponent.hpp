@@ -69,31 +69,45 @@ namespace Desert::ECS
                   Units( "cm/s" ) )
         float SlowMovingVelocityThreshold = 1.0f;
 
-        // UE UGeometryCollectionComponent::OnChaosBreakEvent (GeometryCollectionComponent.h:1269): a piece of
-        // THIS destructible broke off. Destruction publishes the fact (DestructionEventQueue); the Gameplay
-        // Framework delivers it here (ComponentEventSystem) to whoever subscribed to this entity.
+        // UE UGeometryCollectionComponent::OnChaosBreakEvent / OnChaosPhysicsCollision / OnChaosRemovalEvent
+        // (GeometryCollectionComponent.h): news of THIS destructible. Destruction publishes the facts
+        // (DestructionEventQueue, gated by the Notify flags below); the Gameplay Framework delivers them here
+        // (ComponentEventSystem) and to the entity's scripts' functions of the same names (ScriptSystem). What
+        // answers them (dust, sound, score) is the game's.
         EVENT( Category( "Destructible" ),
-               Tooltip( "A piece broke off (UE OnChaosBreakEvent): its fracture node, its world centre of mass "
-                        "in cm and its velocity in cm/s." ) )
-        using OnBreak = void( int32_t node, glm::vec3 position, glm::vec3 velocity );
+               Tooltip( "A group of pieces broke off (UE OnChaosBreakEvent): its first fracture node, its world "
+                        "centre of mass in cm, its velocity in cm/s, its mass in kg and how many pieces." ) )
+        using OnBreak = void( int32_t node, glm::vec3 position, glm::vec3 velocity, float massKg,
+                              int32_t pieceCount );
 
-        PROPERTY(
-             DisplayName( "Notify Breaks" ), Category( "Events" ),
-             Tooltip( "Every group of pieces that breaks off is written into the scene's DestructionBreak VFX "
-                      "data channel (UE bNotifyBreaks): where, how fast, how heavy, how many pieces." ) )
+        EVENT(
+             Category( "Destructible" ),
+             Tooltip( "A contact on the pieces at or above Collision Event Min Impulse (UE "
+                      "OnChaosPhysicsCollision): the unit touched, the world contact point in cm, the normal out "
+                      "of the piece, the normal impulse in kg*cm/s, the piece's velocity in cm/s and mass in "
+                      "kg." ) )
+        using OnCollision = void( int32_t node, glm::vec3 position, glm::vec3 normal, float impulse,
+                                  glm::vec3 velocity, float massKg );
+
+        EVENT( Category( "Destructible" ),
+               Tooltip( "A piece left the simulation, asleep long enough or killed by a field (UE "
+                        "OnChaosRemovalEvent): its fracture node, its world centre of mass in cm, its mass in kg "
+                        "and how many pieces." ) )
+        using OnRemoved = void( int32_t node, glm::vec3 position, float massKg, int32_t pieceCount );
+
+        PROPERTY( DisplayName( "Notify Breaks" ), Category( "Events" ),
+                  Tooltip( "Every group of pieces that breaks off raises On Break for this entity's listeners "
+                           "and scripts (UE bNotifyBreaks). Off, breaks are nobody's news." ) )
         bool NotifyBreaks = false;
 
-        PROPERTY(
-             DisplayName( "Notify Collisions" ), Category( "Events" ),
-             Tooltip( "Every contact on the pieces at or above Collision Event Min Impulse is written into the "
-                      "DestructionCollision VFX data channel (UE bNotifyCollisions). Off, contacts are not "
-                      "even recorded." ) )
+        PROPERTY( DisplayName( "Notify Collisions" ), Category( "Events" ),
+                  Tooltip( "Every contact on the pieces at or above Collision Event Min Impulse raises On "
+                           "Collision (UE bNotifyCollisions). Off, contacts are not even recorded." ) )
         bool NotifyCollisions = false;
 
-        PROPERTY(
-             DisplayName( "Notify Removals" ), Category( "Events" ),
-             Tooltip( "Every piece leaving the simulation (asleep long enough, or a kill field) is written into "
-                      "the DestructionRemoved VFX data channel (UE bNotifyRemovals)." ) )
+        PROPERTY( DisplayName( "Notify Removals" ), Category( "Events" ),
+                  Tooltip( "Every piece leaving the simulation (asleep long enough, or a kill field) raises On "
+                           "Removed (UE bNotifyRemovals)." ) )
         bool NotifyRemovals = false;
 
         PROPERTY( DisplayName( "Collision Event Min Impulse" ), Category( "Events" ), Range( 0.0f, 10000000.0f ),

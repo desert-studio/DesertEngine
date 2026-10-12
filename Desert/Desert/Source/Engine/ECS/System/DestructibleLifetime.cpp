@@ -37,9 +37,9 @@ namespace Desert::ECS
             return;
         m_Registry->on_destroy<DestructibleComponent>().disconnect<&DestructibleLifetime::OnDestructibleDestroyed>(
              *this );
-        // The simulation that broke them is going: its breaks are no one's news any more.
+        // The simulation that made them is going: its events are no one's news any more.
         if ( auto* queue = m_Registry->try_ctx<DestructionEventQueue>() )
-            queue->Breaks.clear();
+            queue->Clear();
         m_Registry = nullptr;
         m_Refused.clear();
     }
@@ -47,12 +47,16 @@ namespace Desert::ECS
     void DestructibleLifetime::PublishEvents( entt::registry& registry ) const
     {
         auto& queue = registry.ctx_or_set<DestructionEventQueue>();
-        queue.Breaks.clear();
+        queue.Clear();
         ++queue.Publication;
-        std::unordered_map<Destruction::DestructibleHandle, entt::entity> objects;
+        std::unordered_map<Destruction::DestructibleHandle, DestructionEventTarget> targets;
         for ( auto entity : registry.view<DestructibleComponent>() )
-            objects[registry.get<DestructibleComponent>( entity ).RuntimeObject] = entity;
-        NameBreakEvents( m_World->GetEvents(), objects, queue.Breaks );
+        {
+            const DestructibleComponent& component = registry.get<DestructibleComponent>( entity );
+            targets[component.RuntimeObject]       = { entity, component.Data.NotifyBreaks,
+                                                       component.Data.NotifyCollisions, component.Data.NotifyRemovals };
+        }
+        NameDestructionEvents( m_World->GetEvents(), targets, queue );
     }
 
     void DestructibleLifetime::OnDestructibleDestroyed( entt::registry& registry, entt::entity entity )
@@ -147,7 +151,7 @@ namespace Desert::ECS
             desc.Settings.MaxSleepTime                = data.MaxSleepTime;
             desc.Settings.SlowMovingAsSleeping        = data.SlowMovingAsSleeping;
             desc.Settings.SlowMovingVelocityThreshold = data.SlowMovingVelocityThreshold;
-            // Collision events are recorded only for the objects that publish them (DestructionVFXEvents).
+            // Collision events are recorded only for the objects that publish them (DestructionEvents.hpp).
             desc.Settings.CollisionEvents          = data.NotifyCollisions;
             desc.Settings.CollisionEventMinImpulse = data.CollisionEventMinImpulse;
 

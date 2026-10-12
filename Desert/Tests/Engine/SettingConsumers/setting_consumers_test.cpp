@@ -909,11 +909,12 @@ namespace
          { "MaxSleepTime", kDestructibleSync },
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
-         // DST-05: the event flags are read where the events are published into the VFX data channels; the
-         // collision minimum (and the collision flag again, as the switch for recording) where the desc is built.
-         { "NotifyBreaks", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
-         { "NotifyCollisions", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
-         { "NotifyRemovals", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
+         // The event flags gate which of the world's events are published as the entity's news (PublishEvents);
+         // the collision minimum (and the collision flag again, as the switch for recording) where the desc is
+         // built.
+         { "NotifyBreaks", kDestructibleSync },
+         { "NotifyCollisions", kDestructibleSync },
+         { "NotifyRemovals", kDestructibleSync },
          { "CollisionEventMinImpulse", kDestructibleSync },
     };
     // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the

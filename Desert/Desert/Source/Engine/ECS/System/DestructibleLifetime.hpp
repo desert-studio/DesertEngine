@@ -50,9 +50,10 @@ namespace Desert::ECS
         /// Adds every destructible entity not simulated yet.
         void Sync( entt::registry& registry, const FractureLookup& lookup );
 
-        /// Replaces @p registry's DestructionEventQueue with the world's Break events since its last ClearEvents,
-        /// named by destructible entity (UE UGeometryCollectionComponent::DispatchBreakEvent). Run after the
-        /// physics step that broke them; the world's own Removed events stay its bookkeeping.
+        /// Replaces @p registry's DestructionEventQueue with the world's events since its last ClearEvents that
+        /// their entity's Notify flags ask for, named by destructible entity (UE UGeometryCollectionComponent::
+        /// DispatchBreakEvent / DispatchRemovalEvent / collision dispatch). Run after the physics step that
+        /// made them.
         void PublishEvents( entt::registry& registry ) const;
 
         /// After a physics step: every simulated destructible's SimulatedNodeWorld from its bodies (UE: the

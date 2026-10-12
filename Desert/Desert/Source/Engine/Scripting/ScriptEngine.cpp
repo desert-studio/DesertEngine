@@ -204,6 +204,13 @@ namespace Desert::Scripting
             LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
     }
 
+    void ScriptEngine::CallSlotFunctionWith( uint32_t entity, uint32_t slot, const char* function,
+                                             std::span<const Reflection::Value> arguments )
+    {
+        if ( Common::BoolResultStr r = m_Impl->CallSlot( entity, slot, function, arguments ); !r.IsSuccess() )
+            LOG_ERROR( "[Lua] {} error: {}", function, r.GetError() );
+    }
+
     void ScriptEngine::CallOverlap( uint32_t entity, uint32_t slot, const char* callback, entt::registry& registry,
                                     entt::entity other )
     {
