@@ -10,7 +10,11 @@ namespace Desert::Graphic
     {
         None    = 0,
         Static  = 1,
-        Dynamic = 2
+        Dynamic = 2,
+        // Written by the GPU only (a compute pass), never by the host: device-local, no CPU copy, created
+        // with storage usage beside its own (vertex) usage. The per-component morphed vertices
+        // (MeshRendererMorph.cpp, UE FMorphVertexBuffer) are the one producer.
+        GpuWritten = 3
     };
 
     // `enum class BindUsage { Bind, Unbind }` STOOD HERE AND EXISTED ONLY TO BE THE PARAMETER OF A

@@ -65,6 +65,20 @@ namespace Desert::Graphic::API::Vulkan
             m_MemoryAllocation = nullptr;
         }
 
+        if ( m_Usage == BufferUsage::GpuWritten )
+        {
+            // Device-local, filled by a compute pass (the morph update) and read as vertices: nothing to upload.
+            const VkBufferCreateInfo bufferInfo = CreateVertexBufferInfo(
+                 m_Size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                 VK_SHARING_MODE_EXCLUSIVE );
+            const auto allocation = allocator->RT_AllocateBuffer( "GpuWrittenVertexBuffer", bufferInfo,
+                                                                  VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
+            if ( !allocation.IsSuccess() )
+                return Common::MakeError<bool>( allocation.GetError() );
+            m_MemoryAllocation = allocation.GetValue();
+            return Common::MakeSuccess( true );
+        }
+
         if ( m_Usage == BufferUsage::Dynamic )
         {
             VkBufferCreateInfo bufferInfo =
@@ -135,9 +149,14 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            auto vertexBufferCreateInfo = CreateVertexBufferInfo(
-                 m_Size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                 VK_SHARING_MODE_EXCLUSIVE );
+            // STORAGE beside VERTEX: a static mesh's vertices are also what a compute pass reads them as - the
+            // morph update blends a skinned mesh's base vertices into a component's morphed copy
+            // (MeshRendererMorph.cpp, UE GPUMorphUpdateCS reading the base vertex buffer).
+            auto vertexBufferCreateInfo =
+                 CreateVertexBufferInfo( m_Size,
+                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                         VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "VertexBuffer", vertexBufferCreateInfo,
                                                               VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
@@ -176,7 +195,9 @@ namespace Desert::Graphic::API::Vulkan
     VulkanVertexBuffer::VulkanVertexBuffer( uint32_t size, BufferUsage usage /*= BufferUsage::Dynamic */ )
          : m_Size( size ), m_Usage( usage )
     {
-        m_StorageBuffer.Allocate( size );
+        // A GPU-written buffer has no host copy: nothing ever uploads to it.
+        if ( usage != BufferUsage::GpuWritten )
+            m_StorageBuffer.Allocate( size );
     }
 
     Common::BoolResultStr VulkanVertexBuffer::Release()

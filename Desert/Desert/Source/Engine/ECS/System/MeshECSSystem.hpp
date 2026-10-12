@@ -582,9 +582,20 @@ namespace Desert::ECS
                                       registry.get<TransformComponent>( current ).GetTransform() * worldTransform;
                          }
 
+                         // Morph weights blend before skinning (MeshRenderer::UpdateMorphTargets), only for a
+                         // mesh that has targets to blend.
+                         std::vector<float> morphWeights;
+                         uint64_t           morphRevision = 0;
+                         if ( skinnedMesh->GetMorphTargetCount() > 0 && registry.has<MorphComponent>( entity ) )
+                         {
+                             const auto& morph = registry.get<MorphComponent>( entity );
+                             morphWeights      = morph.GetWeights();
+                             morphRevision     = morph.GetRevision();
+                         }
+
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices,
-                              isSelected, mesh.CastShadows );
+                              std::move( morphWeights ), morphRevision, isSelected, mesh.CastShadows );
                      } );
             }
         }

@@ -21,15 +21,19 @@ namespace Desert::Graphic::Render
         Graphic::MaterialSlotBindingPtr MaterialSlot;
         glm::mat4                       Transform;
         std::vector<glm::mat4>          BoneMatrices;
+        // The entity's MorphComponent weights and revision; empty weights = no morph.
+        std::vector<float>              MorphWeights;
+        uint64_t                        MorphRevision = 0;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
-                                const std::vector<glm::mat4>& bones, bool outlined = false,
-                                bool castShadows = true )
+                                const std::vector<glm::mat4>& bones, std::vector<float> morphWeights,
+                                uint64_t morphRevision, bool outlined, bool castShadows )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
-               BoneMatrices( bones ), Outlined( outlined ), CastShadows( castShadows )
+               BoneMatrices( bones ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
+               Outlined( outlined ), CastShadows( castShadows )
         {
         }
 
@@ -39,10 +43,12 @@ namespace Desert::Graphic::Render
             // skips !CastShadows on SkinnedMeshRenderData), and a default here would silently re-enable
             // the shadow for every skinned mesh whose component turned it off.
             renderer.SubmitMesh( Mesh, MaterialSlot, Transform,
-                                 { .Entity       = Entity,
-                                   .BoneMatrices = BoneMatrices,
-                                   .Outlined     = Outlined,
-                                   .CastShadows  = CastShadows } );
+                                 { .Entity        = Entity,
+                                   .BoneMatrices  = BoneMatrices,
+                                   .MorphWeights  = MorphWeights,
+                                   .MorphRevision = MorphRevision,
+                                   .Outlined      = Outlined,
+                                   .CastShadows   = CastShadows } );
         }
     };
 } // namespace Desert::Graphic::Render

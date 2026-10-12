@@ -1362,6 +1362,42 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
+                                                                 RDG::ExternalBuffer&                 into )
+    {
+        const std::shared_ptr<VulkanVertexBuffer> vulkanBuffer =
+             std::dynamic_pointer_cast<VulkanVertexBuffer>( buffer );
+        if ( !vulkanBuffer )
+            return Common::MakeError( "ImportVertexBuffer: not a Vulkan vertex buffer" );
+        const VkBuffer handle = vulkanBuffer->GetVulkanBuffer();
+        if ( handle == VK_NULL_HANDLE || vulkanBuffer->GetSize() == 0 )
+            return Common::MakeError( "ImportVertexBuffer: the vertex buffer has not been built" );
+
+        // A rebuilt buffer (Invalidate) is a new VkBuffer that no graph has touched.
+        VulkanVertexBuffer::GraphRecord& record = vulkanBuffer->GetGraphRecord();
+        if ( record.Buffer != handle || !record.Physical )
+        {
+            record.Buffer   = handle;
+            record.Physical = VulkanRdgBuffer::Wrap( handle, vulkanBuffer->GetSize() );
+            record.State    = RDG::GetAccessState( RDG::Access::None );
+        }
+        into.Desc.Bytes                              = vulkanBuffer->GetSize();
+        into.Physical                                = record.Physical;
+        into.State                                   = record.State;
+        const std::weak_ptr<VulkanVertexBuffer> weak = vulkanBuffer;
+        into.RecordFinalState = [weak, handle]( const RDG::AccessState& state ) -> Common::BoolResultStr
+        {
+            const std::shared_ptr<VulkanVertexBuffer> target = weak.lock();
+            if ( !target )
+                return Common::MakeError( "the imported vertex buffer was destroyed before its graph finished" );
+            VulkanVertexBuffer::GraphRecord& record = target->GetGraphRecord();
+            if ( record.Buffer == handle )
+                record.State = state;
+            return Common::MakeSuccess( true );
+        };
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
     {
         if ( !IsRecording() )

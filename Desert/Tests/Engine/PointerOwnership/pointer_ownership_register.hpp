@@ -883,6 +883,10 @@ namespace Desert::Tests::PointerCensus
           "MeshRenderData", "Mesh", Guard::CallScoped,
           "a temporary aggregate consumed synchronously by MeshRenderer::SubmitMesh" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "MorphTwin", "Base", Guard::FrameScoped,
+          "rewritten by every MorphedMeshFor from the frame's own skinned draw, and read only by "
+          "UpdateMorphTargets of that frame to put a failed blend's draws back on it" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "StaticMeshRenderData", "Mesh", Guard::FrameScoped,
           "held by the ECS component, the primitive factory or MeshService for the whole frame" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",

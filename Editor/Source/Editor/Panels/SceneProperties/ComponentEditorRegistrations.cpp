@@ -2108,7 +2108,8 @@ namespace Desert::Editor
     }
 
     // Blendshape / morph-target editor: one slider per morph target of the entity's mesh (static or skinned).
-    // Names + count come from the mesh asset; the sliders write MorphComponent::Weights (index-aligned).
+    // Names + count come from the mesh asset; the sliders write the weights through MorphComponent::SetWeight
+    // (index-aligned), which moves the revision the renderer re-blends on.
     static ComponentEditorEntry MakeMorphEntry()
     {
         using MC = ::Desert::ECS::MorphComponent;
@@ -2142,8 +2143,12 @@ namespace Desert::Editor
             const auto& targets = meshAsset->GetMorphTargets();
 
             // Keep the component's arrays in step with the mesh's targets (the mesh may have been swapped).
-            if ( mc.Weights.size() != targets.size() )
-                mc.Weights.resize( targets.size(), 0.0f );
+            if ( mc.GetWeights().size() != targets.size() )
+            {
+                std::vector<float> weights = mc.GetWeights();
+                weights.resize( targets.size(), 0.0f );
+                mc.SetWeights( std::move( weights ) );
+            }
             mc.TargetNames.resize( targets.size() );
             for ( size_t i = 0; i < targets.size(); ++i )
                 mc.TargetNames[i] = targets[i].Name;
@@ -2153,11 +2158,15 @@ namespace Desert::Editor
             {
                 ImGui::PushID( static_cast<int>( i ) );
                 const char* name = mc.TargetNames[i].empty() ? "<unnamed>" : mc.TargetNames[i].c_str();
-                ImGui::SliderFloat( name, &mc.Weights[i], 0.0f, 1.0f );
+                float       weight = mc.GetWeight( i );
+                if ( ImGui::SliderFloat( name, &weight, 0.0f, 1.0f ) )
+                    mc.SetWeight( i, weight );
                 ImGui::PopID();
             }
             if ( ImGui::Button( "Reset All", ImVec2( -1.0f, 0.0f ) ) )
-                std::fill( mc.Weights.begin(), mc.Weights.end(), 0.0f );
+            {
+                mc.SetWeights( std::vector<float>( targets.size(), 0.0f ) );
+            }
         };
         return e;
     }
