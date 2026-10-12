@@ -27,8 +27,6 @@
 #include <functional>
 #include "UILift.hpp"
 #include "ClipInterpShift.hpp"
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>

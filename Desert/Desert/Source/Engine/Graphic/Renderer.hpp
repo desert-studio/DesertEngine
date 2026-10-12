@@ -59,9 +59,12 @@ namespace Desert::Graphic
         static Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                          RDG::ExternalBuffer&                 into );
         void                         EndDebugLabel();
-        // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
-        static void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                 const MaterialExecutor* materialExecutor );
+        // Vertexless draw in the pipeline's own topology (Lines for the debug lines, Triangles for a tool's
+        // translucent preview mesh): the vertex stage pulls each vertex from a storage buffer by gl_VertexIndex.
+        // @p lineWidth is the dynamic line width (clamped to 1 without the wideLines feature); a triangle
+        // pipeline rasterises no lines and ignores it.
+        static void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                  const MaterialExecutor* materialExecutor );
 
         // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
         // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer

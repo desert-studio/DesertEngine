@@ -53,8 +53,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                   RDG::ExternalBuffer&                 into ) override;
 
-        virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                  const MaterialExecutor* materialExecutor ) override;
+        virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                   const MaterialExecutor* materialExecutor ) override;
 
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,

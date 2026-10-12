@@ -290,16 +290,16 @@ namespace Desert::Editor::Commands
             std::string  m_OldName, m_NewName;
         };
 
-        // An edit of an entity's EditMesh (EditableMesh.hpp): the two meshes BY REFERENCE. They are immutable
-        // once set on a component - an edit builds a new one - so holding the old pointer IS the snapshot,
-        // with no copy and no serialization, and nothing can change it under the history.
-        class EditMeshCommand final : public ICommand
+        // An edit of an entity's editable mesh (EditableMesh.hpp), UE's FMeshReplacementChange: the two meshes BY
+        // REFERENCE. They are immutable once set on a component - an edit builds a new one - so holding the old
+        // pointer IS the snapshot, with no copy and no serialization, and nothing can change it under the history.
+        class MeshReplacementCommand final : public ICommand
         {
         public:
-            EditMeshCommand( const Common::UUID& entity, std::string label,
-                             std::shared_ptr<const Geometry::DynamicMesh3> before,
-                             std::shared_ptr<const Geometry::DynamicMesh3> after,
-                             std::unique_ptr<ICommand>                     alongside )
+            MeshReplacementCommand( const Common::UUID& entity, std::string label,
+                                    std::shared_ptr<const Geometry::DynamicMesh3> before,
+                                    std::shared_ptr<const Geometry::DynamicMesh3> after,
+                                    std::unique_ptr<ICommand>                     alongside )
                  : m_Entity( entity ), m_Label( std::move( label ) ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Alongside( std::move( alongside ) )
             {
@@ -446,8 +446,9 @@ namespace Desert::Editor::Commands
         // Groups sub-commands into ONE history entry (multi-selection operations). Undo runs the
         // sub-commands in reverse; a stale sub-command is skipped, not fatal.
         // The second half of a split (Plane Cut, Keep Both Halves): a new entity carrying `m_Mesh` BY REFERENCE,
-        // riding as the companion of the source's EditMeshCommand so the two are one step. The snapshot taken
-        // at undo restores the entity; its mesh is put back from the reference, not re-read from the snapshot.
+        // riding as the companion of the source's MeshReplacementCommand so the two are one step. The snapshot
+        // taken at undo restores the entity; its mesh is put back from the reference, not re-read from the
+        // snapshot.
         class SplitCopyCommand final : public ICommand
         {
         public:
@@ -896,7 +897,7 @@ namespace Desert::Editor::Commands
             const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
             if ( !smc.EditableMesh )
                 return Common::MakeFormattedError<WrittenStaticMesh>(
-                     "'{}' has no EditMesh to convert; it already draws {}", tag,
+                     "'{}' has no editable mesh to convert; it already draws {}", tag,
                      smc.MeshHandle.IsNull() ? std::string( "a primitive or nothing" )
                                              : std::string( "a mesh asset" ) );
 
@@ -1121,9 +1122,9 @@ namespace Desert::Editor::Commands
         tag = newName;
     }
 
-    void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::DynamicMesh3> before,
-                               std::unique_ptr<ICommand>                     alongside )
+    void RecordMeshChange( const Common::UUID& uuid, const std::string& label,
+                           std::shared_ptr<const Geometry::DynamicMesh3> before,
+                           std::unique_ptr<ICommand>                     alongside )
     {
         if ( !Ready() )
             return;
@@ -1134,16 +1135,16 @@ namespace Desert::Editor::Commands
              e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
-        CommandHistory::Get().PushEntityEdit( std::make_unique<EditMeshCommand>( uuid, label, std::move( before ),
-                                                                                 std::move( after ),
-                                                                                 std::move( alongside ) ),
+        CommandHistory::Get().PushEntityEdit( std::make_unique<MeshReplacementCommand>( uuid, label, std::move( before ),
+                                                                                        std::move( after ),
+                                                                                        std::move( alongside ) ),
                                               { uuid } );
     }
 
-    Common::ResultStr<Common::UUID> RecordEditMeshSplit( const Common::UUID& uuid, const std::string& label,
-                                                         std::shared_ptr<const Geometry::DynamicMesh3> before,
-                                                         std::shared_ptr<const Geometry::DynamicMesh3> otherHalf,
-                                                         std::unique_ptr<ICommand>                     alongside )
+    Common::ResultStr<Common::UUID> RecordMeshSplit( const Common::UUID& uuid, const std::string& label,
+                                                     std::shared_ptr<const Geometry::DynamicMesh3> before,
+                                                     std::shared_ptr<const Geometry::DynamicMesh3> otherHalf,
+                                                     std::unique_ptr<ICommand>                     alongside )
     {
         if ( !Ready() )
             return Common::MakeFormattedError<Common::UUID>( "{}: the scene commands are not bound to a scene",
@@ -1171,7 +1172,7 @@ namespace Desert::Editor::Commands
             return Common::MakeFormattedError<Common::UUID>( "{}: the other half could not be put on the copy: {}",
                                                              label, set.GetError() );
         }
-        RecordEditMeshChange(
+        RecordMeshChange(
              uuid, label, std::move( before ),
              std::make_unique<SplitCopyCommand>( copyId, std::move( otherHalf ), std::move( alongside ) ) );
         OnStructuralChange();

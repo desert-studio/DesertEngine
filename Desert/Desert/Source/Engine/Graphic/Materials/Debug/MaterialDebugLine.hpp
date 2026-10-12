@@ -12,8 +12,9 @@
 namespace Desert::Graphic
 {
     // World-space debug line list (AABB wireframes, gizmos, ...). Endpoints live in a storage buffer the
-    // "DebugLine" shader pulls by gl_VertexIndex; drawn via Renderer::SubmitLines on a Lines-topology
-    // pipeline. Feeds only the shared CameraUB + the Lines storage buffer.
+    // "DebugLine" shader pulls by gl_VertexIndex; drawn via Renderer::SubmitPulled on a Lines-topology
+    // pipeline - or a Triangles one, where every three vertices are a flat-coloured triangle (the Create Shape
+    // tool's translucent preview mesh). Feeds only the shared CameraUB + the Lines storage buffer.
     class MaterialDebugLine final : public Material
     {
     public:

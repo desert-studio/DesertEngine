@@ -167,7 +167,7 @@ namespace Desert::Geometry
         bool Append( const DynamicAttributeBase& Source, const DynamicMesh3::AppendInfo& Info ) override
         {
             int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
-            if ( NewMaxID * AttribDimension > m_AttribValues.Num() )
+            if ( static_cast<size_t>( NewMaxID * AttribDimension ) > m_AttribValues.Num() )
             {
                 m_AttribValues.SetNum( NewMaxID * AttribDimension );
             }

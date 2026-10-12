@@ -730,8 +730,6 @@ namespace
          "Desert Desert::Assets::s_Builder",          // MeshDerivedData.cpp, TextureSourceAsset.cpp
          "Desert Desert::Assets::s_BuilderMutex",     // MeshDerivedData.cpp, TextureSourceAsset.cpp
          "Desert Desert::ECS::Landscape",             // LandscapeCollision.cpp, LandscapeECSSystem.cpp
-         "Desert Desert::Geometry::CopyLayer",      // EditMeshTopologyOperations.cpp, EditMeshXformOperations.cpp
-         "Desert Desert::Geometry::WriteOverlay",   // DynamicMeshSerialization.cpp, EditMeshSerialization.cpp
          "Editor Desert::Editor::Lower",            // AssetReferencesScan.cpp, FuzzyMatch.cpp
          "Editor Desert::Editor::RelativeToAssets", // EditorPreferences.cpp, CloudTypePanel.cpp
          "Editor Desert::Editor::ToU32",            // SkyAtmosphereComponent.cpp, WorldPartitionPanel.cpp

@@ -1,12 +1,11 @@
 #pragma once
 
-// The element-selection algorithms, written once over a MESH VIEW so both cores run the very same code while
-// the bridge lives: EditMesh (EditMeshSelection.cpp, until P8b) and the ported core (DynamicMeshSelection.cpp,
-// through DynamicMeshElements). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
+// The element-selection algorithms, written over a MESH VIEW: the ported core reads them through
+// DynamicMeshElements (DynamicMeshSelection.cpp). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
 // Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours and
-// Attributes().GetPolyGroup. Included by exactly those two files.
+// Attributes().GetPolyGroup. Included by DynamicMeshSelection.cpp only.
 
-#include "Engine/Geometry/EditMeshSelection.hpp"
+#include "Engine/Geometry/ElementSelection.hpp"
 
 #include <glm/geometric.hpp>
 
@@ -74,110 +73,6 @@ namespace Desert::Geometry
                 }
             }
             return { best, bestT };
-        }
-
-        // A point is hidden when a triangle crosses its OWN line of sight in front of it. Not "farther along
-        // the cursor ray than the first surface": that compares the point's projection onto a ray it is not
-        // on, and an edge seen a few pixels inside its own face projects past that face. The slack is
-        // relative so the triangles the point lies on do not hide it, at any distance.
-        template <class Mesh>
-        bool Visible( const Mesh& mesh, const PickView& view, const glm::vec3& point )
-        {
-            const glm::vec3 toPoint = point - view.RayOrigin;
-            const float     dist    = glm::length( toPoint );
-            if ( dist <= 0.0f )
-                return true;
-            const glm::vec3 dir   = toPoint / dist;
-            const float     limit = dist - ( 1e-4f * dist + 1e-2f );
-            for ( const int t : mesh.TriangleIds() )
-            {
-                const auto& tri = mesh.GetTriangle( t );
-                float       hitT;
-                if ( RayTriangle( view.RayOrigin, dir, WorldPosition( mesh, view, tri[0] ),
-                                  WorldPosition( mesh, view, tri[1] ), WorldPosition( mesh, view, tri[2] ),
-                                  hitT ) &&
-                     hitT < limit )
-                    return false;
-            }
-            return true;
-        }
-
-        float SegmentDistance( const glm::vec2& p, const glm::vec2& a, const glm::vec2& b, float& outS )
-        {
-            const glm::vec2 ab  = b - a;
-            const float     len = glm::dot( ab, ab );
-            outS                = len > 0.0f ? std::clamp( glm::dot( p - a, ab ) / len, 0.0f, 1.0f ) : 0.0f;
-            return glm::length( p - ( a + outS * ab ) );
-        }
-
-        struct Candidate
-        {
-            ElementHit Hit;
-            glm::vec3  Point;
-        };
-
-        // Nearest to the cursor first (ties: nearer along the ray); the first one nothing hides wins. Only
-        // the candidates inside the tolerance pay for an occlusion cast.
-        template <class Mesh>
-        ElementHit FirstVisible( const Mesh& mesh, const PickView& view, std::vector<Candidate>& candidates )
-        {
-            std::sort( candidates.begin(), candidates.end(),
-                       []( const Candidate& l, const Candidate& r )
-                       {
-                           return l.Hit.PixelDistance != r.Hit.PixelDistance
-                                       ? l.Hit.PixelDistance < r.Hit.PixelDistance
-                                       : l.Hit.RayT < r.Hit.RayT;
-                       } );
-            for ( const Candidate& c : candidates )
-                if ( Visible( mesh, view, c.Point ) )
-                    return c.Hit;
-            return {};
-        }
-
-        template <class Mesh>
-        ElementHit PickVertex( const Mesh& mesh, const PickView& view )
-        {
-            std::vector<Candidate> candidates;
-            for ( const int v : mesh.VertexIds() )
-            {
-                const glm::vec3 w = WorldPosition( mesh, view, v );
-                glm::vec2       px;
-                if ( !ProjectToViewport( w, view.ViewProj, view.ViewportPos, view.ViewportSize, px ) )
-                    continue;
-                const float dist  = glm::length( px - view.Cursor );
-                const float depth = glm::dot( w - view.RayOrigin, view.RayDirection );
-                if ( dist <= view.TolerancePixels )
-                    candidates.push_back( { { v, depth, dist }, w } );
-            }
-            return FirstVisible( mesh, view, candidates );
-        }
-
-        template <class Mesh>
-        ElementHit PickEdge( const Mesh& mesh, const PickView& view )
-        {
-            std::vector<Candidate> candidates;
-            for ( const int e : mesh.EdgeIds() )
-            {
-                const auto&     ev = mesh.GetEdgeVertices( e );
-                const glm::vec3 a  = WorldPosition( mesh, view, ev[0] );
-                const glm::vec3 b  = WorldPosition( mesh, view, ev[1] );
-                const glm::vec4 ca = view.ViewProj * glm::vec4( a, 1.0f );
-                const glm::vec4 cb = view.ViewProj * glm::vec4( b, 1.0f );
-                glm::vec2       pa, pb;
-                if ( !ProjectToViewport( a, view.ViewProj, view.ViewportPos, view.ViewportSize, pa ) ||
-                     !ProjectToViewport( b, view.ViewProj, view.ViewportPos, view.ViewportSize, pb ) )
-                    continue;
-                float       s;
-                const float dist = SegmentDistance( view.Cursor, pa, pb, s );
-                if ( dist > view.TolerancePixels )
-                    continue;
-                // The screen parameter is not the edge's: undo the perspective divide to find the 3D point.
-                const float     sw    = ( s / cb.w ) / ( ( 1.0f - s ) / ca.w + s / cb.w );
-                const glm::vec3 point = a + sw * ( b - a );
-                const float     depth = glm::dot( point - view.RayOrigin, view.RayDirection );
-                candidates.push_back( { { e, depth, dist }, point } );
-            }
-            return FirstVisible( mesh, view, candidates );
         }
 
         // ── conversion steps: one mode up or down ────────────────────────────────────────────────────────
@@ -343,29 +238,6 @@ namespace Desert::Geometry
             const ElementSelection verts = ConvertSelectionT( mesh, selection, ElementMode::Vertex );
             return Mask( mesh.MaxVertexId(), verts.Ids() );
         }
-
-    template <class Mesh>
-    ElementHit PickElementT( const Mesh& mesh, ElementMode mode, const PickView& view )
-    {
-        switch ( mode )
-        {
-            case ElementMode::Triangle:
-            case ElementMode::PolyGroup:
-            {
-                const auto [triangle, rayT] = RayCast( mesh, view );
-                if ( triangle == InvalidId )
-                    return {};
-                const int id =
-                     mode == ElementMode::Triangle ? triangle : mesh.Attributes().GetPolyGroup( triangle );
-                return { id, rayT, 0.0f };
-            }
-            case ElementMode::Vertex:
-                return PickVertex( mesh, view );
-            case ElementMode::Edge:
-                return PickEdge( mesh, view );
-        }
-        return {};
-    }
     } // namespace
 
     template <class Mesh>

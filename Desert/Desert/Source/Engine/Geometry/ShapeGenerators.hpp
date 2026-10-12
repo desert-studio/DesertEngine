@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 
@@ -24,7 +24,7 @@ namespace Desert::Geometry
 {
     // THE ONE SOURCE OF PRIMITIVE GEOMETRY. Every shape the engine draws without an asset comes from here:
     // the scene's `Primitive` meshes (PrimitiveMeshFactory is a GPU cache over MakePrimitive), and the
-    // Modeling Create tool's shapes (ShapeToEditMesh). The pattern is UE's UAddPrimitiveTool: Box, Sphere,
+    // Modeling Create tool's shapes (ShapeToDynamicMesh). The pattern is UE's UAddPrimitiveTool: Box, Sphere,
     // Cylinder, Cone, Capsule, Pyramid, Stairs (Linear / Floating / Curved / Spiral), Torus, Arrow, Disc and
     // Rectangle, each with a polygroup mode and a pivot.
     //
@@ -39,7 +39,7 @@ namespace Desert::Geometry
     //   * +Y is up, the shape stands on its own axis as UE builds it, and ShapeOptions::Pivot says where
     //     Y = 0 falls (UE's pivot Base / Centre / Top, on the bounds);
     //   * every closed shape is ONE closed, two-manifold, outward-wound shell once its coincident corners
-    //     are welded (ShapeToEditMesh) - the ShapeGenerators suite checks that for every shape and mode.
+    //     are welded (ShapeToDynamicMesh) - the ShapeGenerators suite checks that for every shape and mode.
 
     // How triangles are gathered into polygroups: UE's EMakeMeshPolygroupMode, in UE's order.
     enum class ShapePolygroupMode
@@ -500,7 +500,7 @@ namespace Desert::Geometry
         }
 
         // UE's buffers as a ShapeMesh: one output vertex per distinct (vertex, UV element, normal element)
-        // corner, so UE's UV and normal seams stay seams after the weld in ShapeToEditMesh. Polygroup ids are
+        // corner, so UE's UV and normal seams stay seams after the weld in ShapeToDynamicMesh. Polygroup ids are
         // renumbered densely in order of first use (the partition is UE's; PerShape collapses it to one, as
         // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents follow +U, as the renderer's normal maps expect.
         inline ShapeMesh ToShapeMesh( const UEShapeBuffers& g, ShapePolygroupMode mode )
@@ -573,7 +573,7 @@ namespace Desert::Geometry
         // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Generators/GridBoxMeshGenerator.h:35-280
         // (FGridBoxMeshGenerator::Generate), adapted: UE's shared corner / edge / face vertex bookkeeping
         // (lines 55-165) only decides WHICH index a face grid point gets; here every face grid point is its
-        // own vertex at the same position, and the weld in ShapeToEditMesh joins the faces. UVs (with UE's
+        // own vertex at the same position, and the weld in ShapeToDynamicMesh joins the faces. UVs (with UE's
         // per-axis flips and aspect-ratio scale), normals, triangles and polygroups are UE's line for line.
         inline void GenerateGridBox( UEShapeBuffers& g, const glm::dvec3& extents, glm::ivec3 edgeVertices,
                                      bool polygroupPerQuad )
@@ -1718,7 +1718,7 @@ namespace Desert::Geometry
     // as a lattice of (column, row) points - column = step index along the flight, row = step-height units -
     // and each stair type is only a map from (side, column, row) to a position, as in UE. UE's FaceDesc /
     // NormalDesc / UVDesc tables are replaced by emitting each quad through this file's AddQuad, so a flat
-    // face gets its hard normal from its own winding and the weld in ShapeToEditMesh joins the shell; +Y is up
+    // face gets its hard normal from its own winding and the weld in ShapeToDynamicMesh joins the shell; +Y is up
     // and the flight climbs along +Z (UE: +Z up, +X forward); the side wall of a curved flight is smooth-shaded
     // with the radial normal, as UE's FCurvedStairGenerator::GenerateNormal gives it.
 
@@ -1972,31 +1972,33 @@ namespace Desert::Geometry
         return std::nullopt;
     }
 
-    // The shape as an EditMesh: coincident corners welded into one shell, hard edges and UV seams kept as
+    // The shape as an DynamicMesh3: coincident corners welded into one shell, hard edges and UV seams kept as
     // overlay seams, and ShapeMesh::Groups as the polygroups. REFUSED when the weld had to drop or detach
     // a triangle - a generator emitting a shape that does not weld into one clean shell is a defect in the
     // generator, and the Create tool must not hand the scene a mesh that disagrees with what it drew.
-    [[nodiscard]] inline Common::ResultStr<EditMesh> ShapeToEditMesh( const ShapeMesh& shape )
+    [[nodiscard]] inline Common::ResultStr<DynamicMesh3> ShapeToDynamicMesh( const ShapeMesh& shape )
     {
         if ( shape.Groups.size() != shape.Indices.size() )
-            return Common::MakeFormattedError<EditMesh>( "ShapeToEditMesh: {} triangles but {} polygroup entries",
-                                                         shape.Indices.size(), shape.Groups.size() );
+            return Common::MakeFormattedError<DynamicMesh3>( "ShapeToDynamicMesh: {} triangles but {} polygroup "
+                                                             "entries",
+                                                             shape.Indices.size(), shape.Groups.size() );
         RenderMeshData render;
         render.Vertices = shape.Vertices;
         render.Indices  = shape.Indices;
-        auto imported   = FromRenderMesh( render );
+        auto imported   = DynamicMeshFromRenderMesh( render );
         if ( !imported.IsSuccess() )
-            return Common::MakeFormattedError<EditMesh>( "ShapeToEditMesh: {}", imported.GetError() );
-        ImportedEditMesh result = imported.ExtractValue();
+            return Common::MakeFormattedError<DynamicMesh3>( "ShapeToDynamicMesh: {}", imported.GetError() );
+        ImportedDynamicMesh result = imported.ExtractValue();
         if ( result.DroppedDegenerate != 0 || result.DroppedDuplicate != 0 || result.DetachedTriangles != 0 )
-            return Common::MakeFormattedError<EditMesh>(
-                 "ShapeToEditMesh: the shape did not weld into one shell ({} degenerate, {} duplicate, {} "
+            return Common::MakeFormattedError<DynamicMesh3>(
+                 "ShapeToDynamicMesh: the shape did not weld into one shell ({} degenerate, {} duplicate, {} "
                  "detached of {} triangles)",
                  result.DroppedDegenerate, result.DroppedDuplicate, result.DetachedTriangles,
                  shape.Indices.size() );
-        // Nothing was dropped, so triangle k of the shape is triangle k of the fresh mesh.
+        // Nothing was dropped, so face k of the shape is TriangleOfFace[k] of the fresh mesh.
+        result.Mesh.EnableTriangleGroups();
         for ( size_t k = 0; k < shape.Groups.size(); ++k )
-            result.Mesh.Attributes().SetPolyGroup( static_cast<int>( k ), shape.Groups[k] );
+            result.Mesh.SetTriangleGroup( result.TriangleOfFace[k], shape.Groups[k] );
         return Common::MakeSuccess( std::move( result.Mesh ) );
     }
 } // namespace Desert::Geometry
