@@ -476,7 +476,7 @@ namespace Desert::Animation::Graph
                          implementation.Name, host.Name, layer.Interface, layer.Layer, parameter, host.Name ) );
             }
 
-            Layer     entry{ implementationId, implementation.Name, layer.Interface, layer.Layer, {}, {} };
+            Layer     entry{ implementationId, layer.Interface, layer.Layer, {}, {} };
             AnimGraph layerGraph = LayerGraphAsGraph( implementation, layer );
             if ( std::any_of( layer.Nodes.begin(), layer.Nodes.end(),
                               []( const PoseNode& node ) { return node.Machine.has_value(); } ) )

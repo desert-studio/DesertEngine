@@ -289,7 +289,6 @@ namespace Desert::Editor
             glm::vec2 Size;
             glm::vec2 ViewportPos;
             bool      IsHovered = false;
-            float     DpiScale  = 1.0f;
         };
 
         ViewportData m_ViewportData;

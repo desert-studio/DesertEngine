@@ -30,11 +30,6 @@ namespace Desert::Editor
         bool Opened = false;
         bool Leaf   = true;
 
-        // Lazily-resolved texture thumbnail handle (0 = none / not a registered texture). Cached so the
-        // grid doesn't re-resolve every frame; resolution is existing-only (browsing never cooks).
-        uint64_t ThumbnailHandle   = 0;
-        bool     ThumbnailResolved = false;
-
         DirectoryInformation( std::string path, bool isFile ) : AssetPath( std::move( path ) ), IsFile( isFile )
         {
         }

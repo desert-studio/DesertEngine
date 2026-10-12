@@ -12,11 +12,10 @@ namespace Desert::ShaderResources::ShaderLayout
 {
     struct ShaderFieldLayout
     {
-        Core::Formats::ShaderValueType FieldDataType;
-        std::string                    Name;
-        uint32_t                       Size;
-        uint32_t                       Offset;
-        uint32_t                       ArraySize = 1;
+        std::string Name;
+        uint32_t    Size;
+        uint32_t    Offset;
+        uint32_t    ArraySize = 1;
     };
 
     struct UniformBuffer

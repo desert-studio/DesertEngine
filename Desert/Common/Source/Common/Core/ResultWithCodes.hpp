@@ -208,16 +208,6 @@ namespace Common
             return m_IsSuccess;
         }
 
-        // For compatibility with existing code
-        const ErrorCodeType GetPrimaryErrorCode() const
-        {
-            if ( m_IsSuccess || GetErrorCodes().empty() )
-            {
-                return ErrorCodeType{};
-            }
-            return GetErrorCodes()[0];
-        }
-
     private:
         explicit ResultWithCodes( const Error& error ) : m_Outcome( error ), m_IsSuccess( false )
         {

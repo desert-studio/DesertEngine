@@ -107,9 +107,10 @@ namespace Desert::Graphic
             // buffers (DeferredLightingRenderer::UploadLights, Builder::QueueBufferUpload) and binds them as
             // block entries, so the PointLight / SpotLight storage properties stay unwritten and the route fill
             // leaves those slots to the pass. Only the counts the shader loops to are written here.
-            const uint32_t counts[3] = { 0u, pointCount, spotCount };
+            const ShaderProtocols::LightsMetadata counts{
+                 .DirectionLightsCount = 0U, .PointLightsCount = pointCount, .SpotLightsCount = spotCount };
             if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
-                meta->SetRawData( (std::byte*)counts, sizeof( counts ) );
+                meta->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
 
             UploadRegisteredProperties();
             // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here. ShadowUB,

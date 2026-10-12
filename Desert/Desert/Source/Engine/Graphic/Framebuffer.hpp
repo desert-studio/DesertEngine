@@ -82,7 +82,6 @@ namespace Desert::Graphic
     struct ExternalFramebuffer
     {
         std::vector<ExternalAttachment> ColorAttachments;
-        std::optional<ExternalAttachment> DepthAttachment;
     };
 
     struct FramebufferSpecification
