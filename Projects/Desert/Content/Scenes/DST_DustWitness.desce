@@ -125,22 +125,6 @@
                 "Restitution": 0.10000000149011612,
                 "CollisionProfile": "BlockAll"
             },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DestroyAfter.lua",
-                        "Props": [
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.25,
-                                "Bool": false,
-                                "Str": ""
-                            }
-                        ]
-                    }
-                ]
-            },
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
@@ -246,7 +230,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
-                "System": "VFX/DestructionDust.dfx",
+                "System": {
+                    "Guid": "a0f8d89f476e4abfb22847b902230cb7",
+                    "Path": "VFX/DestructionDust.dfx"
+                },
                 "AutoActivate": true
             }
         }

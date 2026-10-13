@@ -47,7 +47,19 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:ShapePoint",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0, 0, 0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -58,7 +70,61 @@
                                     "Min": [0.5, 0.0, 0.0, 0.0],
                                     "Max": [1.5, 0.0, 0.0, 0.0]
                                 }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [60, 0.0, 0.0, 0.0],
+                                    "Max": [120, 0.0, 0.0, 0.0]
+                                }
                             },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [15, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0, 1, 0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [15, 15, 0.0, 0.0],
+                                    "Max": [30, 30, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -68,7 +134,55 @@
                         ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0, 120, 0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [1.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
