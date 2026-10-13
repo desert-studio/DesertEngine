@@ -613,6 +613,7 @@ namespace Desert::Graphic
         {
             RDG::TextureRef    Color;
             RDG::TextureRef    Velocity;
+            RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    Depth;
             [[nodiscard]] bool IsValid() const
             {

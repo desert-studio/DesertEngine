@@ -51,7 +51,8 @@ namespace Desert::Graphic
                                                                    { "u_History", Kind::SampledTexture },
                                                                    { "u_HistoryOut", Kind::StorageTexture },
                                                                    { "u_Output", Kind::StorageTexture },
-                                                                   { "TemporalAABuffer", Kind::StorageBuffer } },
+                                                                   { "TemporalAABuffer", Kind::StorageBuffer },
+                                                                   { "u_ResponsiveAA", Kind::SampledTexture } },
                                             .PushConstantBytes = 0 } );
         return layout;
     }
@@ -121,6 +122,8 @@ namespace Desert::Graphic
             return missing( "Velocity" );
         if ( !inputs.Exposure.IsValid() )
             return missing( "Exposure" );
+        if ( !inputs.ResponsiveAA.IsValid() )
+            return missing( "ResponsiveAA" );
         if ( inputs.History.size() != 1 )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}",
@@ -150,8 +153,8 @@ namespace Desert::Graphic
              kShaderName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 // Every texture is read at texel centres or filtered inside the shader; the two linear samplers
-                 // are the unjitter of the current colour and the bilinear history fetch (Low / Medium).
+                 // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
+                 // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
                  pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
                       .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
@@ -165,7 +168,9 @@ namespace Desert::Graphic
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
                       .Storage( "u_HistoryOut", history.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_Output", output, RDG::Access::StorageWrite, 0 )
-                      .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead );
+                      .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead )
+                      .Sampled( "u_ResponsiveAA", inputs.ResponsiveAA, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
              },
              [this, quality, extent]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

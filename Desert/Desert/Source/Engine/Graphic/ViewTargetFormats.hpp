@@ -37,6 +37,12 @@ namespace Desert::Graphic::ViewTargetFormats
     // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant). A colour attachment of the
     // G-buffer AND of the scene target, because both hold passes that write the view's depth.
     inline constexpr ImageFormat kVelocity        = ImageFormat::RG16F;
+    // Responsive AA (UE: the stencil bit STENCIL_TEMPORAL_RESPONSIVE_AA_MASK a `bResponsiveAA` material writes): how
+    // much of each pixel a responsive translucent surface or particle covers, 0..1, blended like the colour it
+    // composites. The temporal resolve raises the current frame's weight to UE's 1/4 by it, so a surface that
+    // writes no velocity of its own leaves no trail. A colour attachment of the scene target only: nothing on the
+    // G-buffer is translucent. Our depth has no stencil, hence a target of its own.
+    inline constexpr ImageFormat kResponsiveAA    = ImageFormat::R8_UNORM;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,

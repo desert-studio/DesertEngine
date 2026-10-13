@@ -9,6 +9,8 @@ Shader "StaticMeshGlass"
 {
     Domain Surface
     BlendMode Translucent
+    // UE bResponsiveAA: the refracted scene behind the glass moves with no velocity of the glass's own.
+    ResponsiveAA
 
     // The glass's own row: what its surface reads and nothing else. Its colour is the tint the scene behind it is
     // seen through; its coverage is the refraction itself (the pass writes it opaque over the scene it bent).
