@@ -1022,8 +1022,9 @@ namespace Desert::Migration
                            auto fields = stated.value().to_object();
                            if ( !fields.has_value() )
                            {
-                               report.Refused.push_back( std::format( "{}: PostProcessVolume.Settings {} is not an object",
-                                                                      who, rfl::json::write( stated.value() ) ) );
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
                                return false;
                            }
                            rfl::Generic::Object settings = std::move( fields.value() );
@@ -1034,10 +1035,10 @@ namespace Desert::Migration
                                if ( !mode.has_value() || mode.value() < 0 ||
                                     mode.value() >= static_cast<int>( kFromGIMode.size() ) )
                                {
-                                   report.Refused.push_back(
-                                        std::format( "{}: PostProcessVolume.Settings.GlobalIllumination {} is not a GIMode "
-                                                     "(0 Off, 1 ScreenSpace, 2 RSM)",
-                                                     who, rfl::json::write( gi.value() ) ) );
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.GlobalIllumination {} is not a GIMode "
+                                        "(0 Off, 1 ScreenSpace, 2 RSM)",
+                                        who, rfl::json::write( gi.value() ) ) );
                                    return false;
                                }
                                DropKey( settings, "GlobalIllumination" );
@@ -1051,14 +1052,14 @@ namespace Desert::Migration
                                if ( !flag.has_value() )
                                {
                                    report.Refused.push_back(
-                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool", who,
-                                                     rfl::json::write( ssr.value() ) ) );
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( ssr.value() ) ) );
                                    return false;
                                }
                                DropKey( settings, "EnableSSR" );
                                settings["ReflectionsMethod"] = rfl::Generic( static_cast<int>(
                                     flag.value() ? ReflectionMethod::ScreenSpace : ReflectionMethod::Off ) );
-                               changed = true;
+                               changed                       = true;
                            }
                            if ( !changed )
                                return false;

@@ -431,9 +431,11 @@ namespace
 
         // A qualified spelling names one enum: its exact FQN wins over a short-name match elsewhere.
         for ( const auto& e : enums )
-            if ( e.fqn == t ) return &e;
+            if ( e.fqn == t )
+                return &e;
         for ( const auto& e : enums )
-            if ( e.shortName == t || e.shortName == tail ) return &e;
+            if ( e.shortName == t || e.shortName == tail )
+                return &e;
         return nullptr;
     }
 
@@ -1527,7 +1529,8 @@ static int RunTool( int argc, char** argv )
         else if ( arg == "--reflect" && left >= 3 )
         {
             const fs::path root = argv[i + 1];
-            reflect = ReflectRequest{ .Roots = { ReflectRoot{ root, root / argv[i + 2] } }, .Output = argv[i + 3] };
+            reflect =
+                 ReflectRequest{ .Roots = { ReflectRoot{ root, root / argv[i + 2] } }, .Output = argv[i + 3] };
             i += 3;
         }
         else if ( arg == "--reflect-root" && left >= 2 && reflect )
