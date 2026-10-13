@@ -96,7 +96,9 @@ namespace Desert::Assets
     ///      gain, and rotation/intensity/tint are applied where the cubes are SAMPLED. The look left the
     ///      signature with the same change, so one `.hdr` is one set of three files whatever its sliders
     ///      say; the bump makes that a stated miss rather than a hash that merely happened to move.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 4;
+    ///   5  the prefiltered cube's roughness ramp is UE's log ramp (Common/ReflectionCaptureMip.glslh), shared
+    ///      with the reflection captures; a v4 file's mips hold the linear ramp the lighting no longer reads.
+    inline constexpr uint32_t kEnvironmentBakeVersion = 5;
 
     /// Everything except the source file that the baked pixels depend on. See the header note.
     [[nodiscard]] uint64_t EnvironmentBakeSignature( BakedEnvironmentCube which, uint32_t faceSize,

@@ -18,6 +18,7 @@
 // composites front to back with UE's under-operator, so the most local capture wins where several overlap.
 
 #include <Common/ReflectionCaptureGpu.glslh>
+#include <Common/ReflectionCaptureMip.glslh>
 
 // UE r.ReflectionEnvironmentBeginMixingRoughness 0.1 / EndMixingRoughness 0.3 / LightmapMixLargestWeight 10000:
 // a mirror is not normalised (it must match SSR and planar reflections), a rough lobe fully is.
@@ -90,8 +91,9 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, float roughness, float indirectIrr
 	if (count == 0u)
 		return vec4(0.0);
 
-	// The capture's mip ramp is the sky's (ReflectionCaptureFilter: roughness = mip / (mips - 1)).
-	const float lod = roughness * float(textureQueryLevels(u_ReflectionCaptureCubes) - 1);
+	// The engine's one ramp (Common/ReflectionCaptureMip.glslh), the inverse of the one ReflectionCaptureFilter wrote.
+	const float lod = ComputeReflectionCaptureMipFromRoughness(roughness,
+	                                                           float(textureQueryLevels(u_ReflectionCaptureCubes) - 1));
 
 	vec3  radiance          = vec3(0.0);
 	float remaining         = 1.0;

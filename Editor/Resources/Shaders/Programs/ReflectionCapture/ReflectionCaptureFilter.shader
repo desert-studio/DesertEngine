@@ -4,9 +4,9 @@ Shader "ReflectionCaptureFilter"
     Compute
     {
         // ONE MIP OF ONE CAPTURE IN THE CAPTURE ARRAY: the capture's radiance cube GGX-prefiltered at this mip's
-        // roughness, the same convolution and the same roughness ramp (mip / (mips - 1)) as the sky's prefiltered
-        // cube (Programs/Compute/PrefilterEnvMap.shader, ComputeImages::ProccessForImageCubeMips), so a capture
-        // and the sky it blends into are read with one LOD rule (Common/ReflectionEnvironment.glslh).
+        // roughness, the same convolution and the same roughness ramp (Common/ReflectionCaptureMip.glslh, UE's
+        // ComputeReflectionCaptureRoughnessFromMip) as the sky's prefiltered cube (PrefilterEnvMap.shader), so a
+        // capture and the sky it blends into are read with one LOD rule.
         //
         // ALPHA IS THE CAPTURE'S AVERAGE BRIGHTNESS (UE: FReflectionCaptureData::AverageBrightness, computed from
         // the captured cube): the luminance of its mean radiance, read from the radiance cube's 1x1 mip. Stored in
@@ -24,9 +24,12 @@ Shader "ReflectionCaptureFilter"
 
         PushConstant PushConstants
         {
-        	float u_Roughness;
-        	uint  u_FirstLayer; // the capture's first layer: cube index * 6
+        	uint u_Mip;        // the mip this dispatch writes
+        	uint u_MaxMip;     // the array's last mip index
+        	uint u_FirstLayer; // the capture's first layer: cube index * 6
         };
+
+        #include <Common/ReflectionCaptureMip.glslh>
 
         float radicalInverse_VdC(uint bits)
         {
@@ -108,9 +111,10 @@ Shader "ReflectionCaptureFilter"
         	const ivec3 texel = ivec3(gl_GlobalInvocationID.xy, int(u_FirstLayer + gl_GlobalInvocationID.z));
         	const float brightness = AverageBrightness();
         	const vec3  N = CubeTexelDirection(gl_GlobalInvocationID, vec2(size));
+        	const float roughness = ComputeReflectionCaptureRoughnessFromMip(float(u_Mip), float(u_MaxMip));
 
-        	// Roughness 0 is the radiance itself (see PrefilterEnvMap: the GGX path is 0/0 there).
-        	if (u_Roughness <= Epsilon)
+        	// Roughness 0 is the radiance itself (see PrefilterEnvMap: the GGX path is 0/0 there); a limit guard.
+        	if (roughness <= Epsilon)
         	{
         		imageStore(u_Output, texel, vec4(textureLod(u_Radiance, N, 0.0).rgb, brightness));
         		return;
@@ -125,14 +129,14 @@ Shader "ReflectionCaptureFilter"
         	for (uint i = 0; i < NumSamples; i++)
         	{
         		vec2 u  = sampleHammersley(i);
-        		vec3 h  = sampleGGX(u.x, u.y, u_Roughness);
+        		vec3 h  = sampleGGX(u.x, u.y, roughness);
         		vec3 Lh = S * h.x + T * h.y + N * h.z;
         		vec3 Li = 2.0 * dot(N, Lh) * Lh - N;
         		float cosLi = dot(N, Li);
         		if (cosLi > 0.0)
         		{
         			float cosLh = max(dot(N, Lh), 0.0);
-        			float pdf = ndfGGX(cosLh, u_Roughness) * 0.25;
+        			float pdf = ndfGGX(cosLh, roughness) * 0.25;
         			float ws = 1.0 / (NumSamples * pdf);
         			float mipLevel = max(0.5 * log2(ws / wt) + 1.0, 0.0);
         			color  += textureLod(u_Radiance, Li, mipLevel).rgb * cosLi;

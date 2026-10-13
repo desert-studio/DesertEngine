@@ -9,11 +9,13 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <format>
 #include <span>
@@ -50,7 +52,8 @@ namespace Desert::Graphic
 
         struct FilterPush
         {
-            float    Roughness  = 0.0f;
+            uint32_t Mip        = 0u;
+            uint32_t MaxMip     = 0u;
             uint32_t FirstLayer = 0u;
         };
 
@@ -86,6 +89,12 @@ namespace Desert::Graphic
             return built.GetValue();
         }
     } // namespace
+
+    uint32_t ReflectionCaptureFaceSize()
+    {
+        return static_cast<uint32_t>( Common::Scalability::QualityState::Resolved().As<int>(
+             Common::Scalability::Parameter::ReflectionCaptureSize ) );
+    }
 
     std::vector<ReflectionCaptureEntry> GatherReflectionCaptures( const entt::registry& registry )
     {
@@ -154,12 +163,12 @@ namespace Desert::Graphic
         class Camera final : public Core::Camera
         {
         public:
-            void Aim( const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up )
+            void Aim( const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up, uint32_t faceSize )
             {
                 m_Position   = position;
                 m_ViewMatrix = glm::lookAt( position, position + forward, up );
                 SetFOV( 90.0f );
-                UpdateProjectionMatrix( kReflectionCaptureFaceSize, kReflectionCaptureFaceSize );
+                UpdateProjectionMatrix( faceSize, faceSize );
             }
         };
 
@@ -167,9 +176,7 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer( bool ownsCaptures ) : m_OwnsCaptures( ownsCaptures )
-    {
-    }
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer() = default;
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -193,12 +200,35 @@ namespace Desert::Graphic
                                                         uint64_t                               environment )
     {
         m_FacesRenderedThisFrame = false;
-        if ( !m_OwnsCaptures )
+
+        const uint32_t faceSize = ReflectionCaptureFaceSize();
+        if ( !std::has_single_bit( faceSize ) )
+        {
+            if ( faceSize != m_FaceSize )
+                LOG_ERROR( "[ReflectionCaptures] Reflections.CaptureSize {} is not a power of two: the scene's "
+                           "reflection captures are not rendered.",
+                           faceSize );
+            m_FaceSize = faceSize;
+            m_Captures.clear();
+            m_Captured.clear();
+            m_Done.clear();
+            m_Signature = 0;
+            m_Pending   = kNoCapture;
             return;
+        }
+        if ( faceSize != m_FaceSize )
+        {
+            // A new face size re-renders every capture at it (UE: r.ReflectionCaptureResolution recaptures).
+            m_FaceSize = faceSize;
+            for ( std::unique_ptr<FaceView>& face : m_Faces )
+                if ( face )
+                    face->Renderer->Resize( faceSize, faceSize );
+        }
 
         std::vector<ReflectionCaptureEntry> captures  = GatherReflectionCaptures( scene.GetRegistry() );
         uint64_t                            signature = 14695981039346656037ull;
         HashBytes( signature, &environment, sizeof( environment ) );
+        HashBytes( signature, &faceSize, sizeof( faceSize ) );
         for ( const ReflectionCaptureEntry& capture : captures )
         {
             const auto id = entt::to_integral( capture.Entity );
@@ -232,14 +262,13 @@ namespace Desert::Graphic
             if ( !m_Faces[f] )
             {
                 m_Faces[f]           = std::make_unique<FaceView>();
-                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>(
-                     ViewExtent{ kReflectionCaptureFaceSize, kReflectionCaptureFaceSize },
-                     kReflectionCaptureViewProfile );
+                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
+                                                                        kReflectionCaptureViewProfile );
                 m_Faces[f]->Renderer->Init();
-                m_Faces[f]->Renderer->Resize( kReflectionCaptureFaceSize, kReflectionCaptureFaceSize );
+                m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }
             FaceView& face = *m_Faces[f];
-            face.View.Aim( capture.CapturePosition, kFaceForward[f], kFaceUp[f] );
+            face.View.Aim( capture.CapturePosition, kFaceForward[f], kFaceUp[f], faceSize );
             if ( const auto begun = face.Renderer->BeginScene( scene, &face.View ); !begun )
             {
                 LOG_ERROR( "[ReflectionCaptures] capture {} face {}: the face view did not open: {}", m_Pending, f,
@@ -271,8 +300,10 @@ namespace Desert::Graphic
     }
 
     void ReflectionCaptureRenderer::AddCapturePasses( RDG::Builder& graph, FrameTextures& textures,
-                                                      RDG::TextureRef array, uint32_t cube, bool black )
+                                                      RDG::TextureRef array, uint32_t cube, uint32_t faceSize,
+                                                      bool black )
     {
+        const uint32_t mips = Core::Formats::MipChainLength( faceSize );
         // The six face views (or black, for the cubes of a fresh array nothing has captured yet).
         std::array<RDG::TextureRef, 6> faces;
         FacesBlock                     block{};
@@ -301,10 +332,9 @@ namespace Desert::Graphic
         graph.QueueBufferUpload( facesBuffer, std::as_bytes( std::span( &block, 1 ) ) );
 
         const RDG::TextureRef radiance =
-             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width  = kReflectionCaptureFaceSize,
-                                                                .Height = kReflectionCaptureFaceSize },
+             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = faceSize, .Height = faceSize },
                                                     .Format = kReflectionCaptureFormat,
-                                                    .Mips   = kReflectionCaptureMips,
+                                                    .Mips   = mips,
                                                     .Layers = 6,
                                                     .Dim    = RDG::TextureDim::Cube },
                                   "ReflectionCapture.Radiance" );
@@ -321,15 +351,14 @@ namespace Desert::Graphic
                  bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
                       .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );
              },
-             [pipeline = m_Assemble]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [pipeline = m_Assemble, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
-                                                                 GroupCount( kReflectionCaptureFaceSize ),
-                                                                 GroupCount( kReflectionCaptureFaceSize ), 6 );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( faceSize ),
+                                                                 GroupCount( faceSize ), 6 );
              } );
 
-        for ( uint32_t mip = 1; mip < kReflectionCaptureMips; ++mip )
+        for ( uint32_t mip = 1; mip < mips; ++mip )
             graph.AddPass(
                  std::format( "ReflectionCapture: Downsample {} mip {}", cube, mip ), RDG::PassFlags::Compute,
                  [&, mip]( RDG::PassBuilder& pass )
@@ -340,15 +369,15 @@ namespace Desert::Graphic
                                     RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
-                 [pipeline = m_Downsample, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     const uint32_t          size = std::max( 1u, kReflectionCaptureFaceSize >> mip );
+                     const uint32_t          size = std::max( 1u, faceSize >> mip );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( size ),
                                                                      GroupCount( size ), 6 );
                  } );
 
-        for ( uint32_t mip = 0; mip < kReflectionCaptureMips; ++mip )
+        for ( uint32_t mip = 0; mip < mips; ++mip )
             graph.AddPass(
                  std::format( "ReflectionCapture: Filter {} mip {}", cube, mip ), RDG::PassFlags::Compute,
                  [&, mip]( RDG::PassBuilder& pass )
@@ -360,74 +389,94 @@ namespace Desert::Graphic
                           .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
-                 [pipeline = m_Filter, mip, cube]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_Filter, mip, mips, cube,
+                  faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // The sky's ramp (ComputeImages::ProccessForImageCubeMips): roughness = mip / (mips - 1).
-                     const FilterPush  push{ static_cast<float>( mip ) /
-                                                 static_cast<float>( kReflectionCaptureMips - 1u ),
-                                            cube * 6u };
+                     // The shader derives the roughness from the mip: the engine's one ramp
+                     // (Common/ReflectionCaptureMip.glslh), the sky's too.
+                     const FilterPush  push{ mip, mips - 1u, cube * 6u };
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, sizeof( push ) );
-                     const uint32_t size = std::max( 1u, kReflectionCaptureFaceSize >> mip );
+                     const uint32_t size = std::max( 1u, faceSize >> mip );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( size ),
                                                                      GroupCount( size ), 6 );
                  } );
     }
 
-    void ReflectionCaptureRenderer::AddPasses( RDG::Builder& graph, FrameTextures& textures )
+    std::pair<RDG::TextureRef, bool>
+    ReflectionCaptureRenderer::AcquireArray( RDG::Builder& graph, FrameTextures& textures, SharedArray& array,
+                                             uint32_t cubes, uint32_t faceSize, std::string_view name )
+    {
+        if ( array.Built && array.Cubes == cubes && array.FaceSize == faceSize )
+            return { graph.RegisterExternal( array.Texture, name ), false };
+
+        if ( array.Built )
+            m_Retired.push_back( std::make_unique<RDG::ExternalTexture>( std::move( array.Texture ) ) );
+        array.Texture = RDG::ExternalTexture{};
+        const RDG::TextureRef created =
+             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = faceSize, .Height = faceSize },
+                                                    .Format = kReflectionCaptureFormat,
+                                                    .Mips   = Core::Formats::MipChainLength( faceSize ),
+                                                    .Layers = 6u * cubes,
+                                                    .Dim    = RDG::TextureDim::CubeArray },
+                                  name );
+        graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        array.Cubes    = cubes;
+        array.FaceSize = faceSize;
+        array.Built    = true;
+        // Every layer of a fresh array is written before anything reads it: black, until its capture lands.
+        for ( uint32_t cube = 0; cube < cubes; ++cube )
+            AddCapturePasses( graph, textures, created, cube, faceSize, true );
+        return { created, true };
+    }
+
+    void ReflectionCaptureRenderer::AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures )
     {
         if ( !EnsurePipelines() )
             return; // logged once by MakeCompute; the composite then reports its unbound inputs by name
 
-        // Arrays retired by a resize stay alive while the frames in flight may still sample them.
         constexpr size_t kRetiredKept = 3;
         if ( m_Retired.size() > kRetiredKept )
             m_Retired.erase( m_Retired.begin(), m_Retired.end() - kRetiredKept );
 
-        const uint32_t cubes =
-             std::max<uint32_t>( m_OwnsCaptures ? static_cast<uint32_t>( m_Captures.size() ) : 0u, 1u );
-        RDG::TextureRef array;
-        bool            fresh = false;
-        if ( !m_ArrayBuilt || m_ArrayCubes != cubes )
+        // The views that read no captures, and every view while the face size is refused: one black cube at the
+        // smallest legal face (a 1x1 cube is all the lighting can read from it).
+        const bool capturing = readsCaptures && std::has_single_bit( m_FaceSize );
+        if ( !capturing )
         {
-            if ( m_ArrayBuilt )
-                m_Retired.push_back( std::make_unique<RDG::ExternalTexture>( std::move( m_Array ) ) );
-            m_Array = RDG::ExternalTexture{};
-            array   = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width  = kReflectionCaptureFaceSize,
-                                                                         .Height = kReflectionCaptureFaceSize },
-                                                             .Format = kReflectionCaptureFormat,
-                                                             .Mips   = kReflectionCaptureMips,
-                                                             .Layers = 6u * cubes,
-                                                             .Dim    = RDG::TextureDim::CubeArray },
-                                           "ReflectionCaptures.Cubes" );
-            graph.Extract( array, m_Array, RDG::Access::SampledGraphics );
-            m_ArrayCubes = cubes;
-            m_ArrayBuilt = true;
-            fresh        = true;
+            const RDG::TextureRef black =
+                 AcquireArray( graph, textures, m_Black, 1u, 1u, "ReflectionCaptures.Black" ).first;
+            const std::vector<std::byte> list = PackReflectionCaptures( {}, {} );
+            const RDG::BufferRef         buffer =
+                 graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
+            graph.QueueBufferUpload( buffer, list );
+            textures.Transients.ReflectionCaptureCubes = black;
+            textures.Transients.ReflectionCaptures     = buffer;
+            return;
         }
-        else
-            array = graph.RegisterExternal( m_Array, "ReflectionCaptures.Cubes" );
 
-        // Every layer of a fresh array is written before anything reads it: black, until its capture lands.
-        if ( fresh )
-            for ( uint32_t cube = 0; cube < cubes; ++cube )
-                AddCapturePasses( graph, textures, array, cube, true );
+        const uint32_t cubes = std::max<uint32_t>( static_cast<uint32_t>( m_Captures.size() ), 1u );
+        const auto [array, created] =
+             AcquireArray( graph, textures, m_Cubes, cubes, m_FaceSize, "ReflectionCaptures.Cubes" );
+        if ( created )
+            std::fill( m_Captured.begin(), m_Captured.end(), false ); // a reshaped array holds nothing yet
 
+        // The first view that reads captures after this frame's face views records the capture into the array;
+        // the views after it read the array as that view's graph left it.
         if ( m_FacesRenderedThisFrame && m_Pending < m_Captures.size() )
         {
-            AddCapturePasses( graph, textures, array, m_Pending, false );
+            AddCapturePasses( graph, textures, array, m_Pending, m_FaceSize, false );
             m_Captured[m_Pending] = true;
             if ( m_PendingSettled >= kCaptureSettleFrames )
             {
                 m_Done[m_Pending] = true;
                 m_Pending         = kNoCapture;
             }
+            m_FacesRenderedThisFrame = false;
         }
-        m_FacesRenderedThisFrame = false;
 
-        const std::vector<std::byte> list =
-             m_OwnsCaptures ? PackReflectionCaptures( m_Captures, m_Captured ) : PackReflectionCaptures( {}, {} );
-        const RDG::BufferRef buffer =
+        const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, m_Captured );
+        const RDG::BufferRef         buffer =
              graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
         graph.QueueBufferUpload( buffer, list );
 

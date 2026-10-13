@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core
@@ -44,11 +46,12 @@ namespace Desert::Graphic
     };
     static_assert( sizeof( ReflectionCaptureGpu ) == 128, "ReflectionCaptureGpu must match the std430 struct" );
 
-    // THE CAPTURE CUBE'S FACE, for every capture of every scene: one cube array holds them all, and an array has
-    // one face size. UE's r.ReflectionCaptureResolution default (128); the mips are its whole chain, the last one
-    // 1x1 (the capture's average brightness is read from it - ReflectionCaptureFilter.shader).
-    inline constexpr uint32_t kReflectionCaptureFaceSize = 128u;
-    inline constexpr uint32_t kReflectionCaptureMips = Core::Formats::MipChainLength( kReflectionCaptureFaceSize );
+    // THE CAPTURE CUBE'S FACE, for every capture of the scene: one cube array holds them all, and an array has one
+    // face size. It is the Scalability parameter Reflections.CaptureSize (UE: r.ReflectionCaptureResolution, a
+    // project-wide power of two); the mips are its whole chain, the last one 1x1 (the capture's average
+    // brightness is read from it - ReflectionCaptureFilter.shader). A size that is not a power of two inside
+    // the parameter's range is refused by the renderer (logged, no captures), never rounded.
+    [[nodiscard]] uint32_t                      ReflectionCaptureFaceSize();
     inline constexpr Core::Formats::ImageFormat kReflectionCaptureFormat = Core::Formats::ImageFormat::RGBA16F;
 
     /// One capture of the scene, gathered from the registry (pure: no device; the order is the entity order, which
@@ -69,51 +72,70 @@ namespace Desert::Graphic
                             const std::vector<bool>&                   captured );
 
     /**
-     * @brief THE REFLECTION CAPTURES OF ONE VIEW (UE: FReflectionEnvironmentSceneData + the capture update).
+     * @brief THE REFLECTION CAPTURES OF ONE SCENE (UE: FReflectionEnvironmentSceneData + the capture update).
      *
-     * Every capture of the scene is rendered from its capture point into six 90-degree face views — complete
-     * SceneRenderers of this engine, so the cube holds the lit scene, the sky and its clouds exactly as a viewport
-     * draws them — resampled into a radiance cube, given its mip chain, GGX-prefiltered into the capture's layers
-     * of the view's cube array, and its average brightness stored in alpha. The lighting pass reads them through
-     * SceneViewInputs (Common/ReflectionEnvironment.glslh).
+     * Owned by the scene (Core::Scene), as UE's are by FScene: ONE set of captures, shared by every view of the
+     * scene - a second viewport on the same world reads the same cubes and costs no second capture.
      *
-     * WHEN A CAPTURE IS RENDERED: when it is new, moved or edited, when the set of captures changes, and when the
-     * view's sky environment is re-baked (a moved sun relights every capture) — UE's "recapture on change", never
-     * every frame. One capture per frame while any is pending, so a scene of many captures does not stall a frame.
+     * Every capture is rendered from its capture point into six 90-degree face views - complete SceneRenderers
+     * of this engine, so the cube holds the lit scene, the sky and its clouds exactly as a viewport draws them -
+     * resampled into a radiance cube, given its mip chain, GGX-prefiltered into the capture's layers of the
+     * scene's cube array (Common/ReflectionCaptureMip.glslh: the one roughness ramp), and its average brightness
+     * stored in alpha. The lighting pass reads them through SceneViewInputs (Common/ReflectionEnvironment.glslh).
      *
-     * A view whose profile does not own captures (previews, thumbnails, the face views themselves) still has one:
-     * the lighting shader declares the bindings, so it is handed an empty list and a one-cube black array.
+     * WHEN A CAPTURE IS RENDERED: when it is new, moved or edited, when the set of captures changes, when the
+     * face size changes, and when the scene's sky environment is re-baked (a moved sun relights every capture) -
+     * UE's "recapture on change", never every frame. One capture per frame while any is pending.
+     *
+     * A view whose profile does not read captures (previews, thumbnails, the face views themselves) is handed
+     * an empty list and the scene's one-cube black array: the lighting shader declares the bindings.
      */
     class ReflectionCaptureRenderer
     {
     public:
-        /// @p ownsCaptures: the view renders the scene's captures (ViewProfile::ReflectionCaptures).
-        explicit ReflectionCaptureRenderer( bool ownsCaptures );
+        ReflectionCaptureRenderer();
         ~ReflectionCaptureRenderer();
         ReflectionCaptureRenderer( const ReflectionCaptureRenderer& )            = delete;
         ReflectionCaptureRenderer& operator=( const ReflectionCaptureRenderer& ) = delete;
 
         /// The six face views of the capture under update, each one complete frame (open, record, render, close).
-        /// Called by the scene BEFORE the owning view opens its own frame: two renderers' frame brackets never
-        /// interleave (Core::Scene's view loop). @p record replays the scene's recorded draws into a face
-        /// renderer.
-        /// @p environment identifies the owning view's sky bake (a new bake recaptures everything).
+        /// Called by the scene ONCE per frame, BEFORE any of its views opens its own frame: two renderers' frame
+        /// brackets never interleave (Core::Scene's view loop). @p record replays the scene's recorded draws into
+        /// a face renderer. @p environment identifies the scene's sky bake as its views hold it (a new bake
+        /// recaptures everything).
         void RenderCaptureViews( const Core::Scene& scene, const std::function<void( SceneRenderer& )>& record,
                                  Common::Timestep timestep, Common::Timestep realTimestep,
                                  const ShaderProtocols::DirectionLight& dirLights, uint64_t environment );
 
-        /// In the owning view's graph, before any lit node: the passes that turn this frame's face views into the
-        /// capture's cube, then the array and the capture list published to @p textures (SceneViewInputs).
-        void AddPasses( RDG::Builder& graph, FrameTextures& textures );
+        /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
+        /// (SceneViewInputs). The first view that reads captures after a face-view frame also records the passes
+        /// that turn the face views into the capture's cube; the others register the array as it is.
+        /// @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the black array.
+        void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
 
     private:
         struct FaceView;
 
-        [[nodiscard]] bool EnsurePipelines();
-        void AddCapturePasses( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array, uint32_t cube,
-                               bool black );
+        // A cube array shared by the views' graphs: extracted when (re)created, registered every frame after.
+        struct SharedArray
+        {
+            RDG::ExternalTexture Texture;
+            uint32_t             Cubes    = 0;
+            uint32_t             FaceSize = 0;
+            bool                 Built    = false;
+        };
 
-        bool m_OwnsCaptures = false;
+        [[nodiscard]] bool EnsurePipelines();
+        // The array registered into @p graph, created (and every cube written black) when it does not exist or
+        // has another shape. Returns the ref and whether it was created in this graph.
+        [[nodiscard]] std::pair<RDG::TextureRef, bool> AcquireArray( RDG::Builder& graph, FrameTextures& textures,
+                                                                     SharedArray& array, uint32_t cubes,
+                                                                     uint32_t faceSize, std::string_view name );
+        void AddCapturePasses( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array, uint32_t cube,
+                               uint32_t faceSize, bool black );
+
+        // The face size the captures are rendered at (Reflections.CaptureSize when they were last gathered).
+        uint32_t m_FaceSize = 0;
 
         // The scene's captures as last gathered, and what has been written into the array (by cube index).
         std::vector<ReflectionCaptureEntry> m_Captures;
@@ -131,10 +153,9 @@ namespace Desert::Graphic
 
         std::array<std::unique_ptr<FaceView>, 6> m_Faces;
 
-        // The array: extracted when (re)created, registered every frame after. Retired arrays live one more frame.
-        RDG::ExternalTexture                               m_Array;
-        uint32_t                                           m_ArrayCubes = 0;
-        bool                                               m_ArrayBuilt = false;
+        SharedArray m_Cubes; // the scene's captures
+        SharedArray m_Black; // one black cube, for the views that read none
+        // Arrays retired by a reshape stay alive while the frames in flight may still sample them.
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Retired;
 
         std::shared_ptr<ComputePipeline> m_Assemble;

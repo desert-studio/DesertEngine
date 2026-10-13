@@ -53,8 +53,6 @@ namespace Desert::Graphic
         // this call is what Г11 was about and a claim about it should be readable from any run's log
         // rather than re-measured.
         const auto started = std::chrono::steady_clock::now();
-        if ( !m_ReflectionCaptures )
-            m_ReflectionCaptures = std::make_unique<ReflectionCaptureRenderer>( m_ViewProfile.ReflectionCaptures );
 
         const bool built = EnsureRendererResources();
 
@@ -719,6 +717,8 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+        // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
+        m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1097,8 +1097,8 @@ namespace Desert::Graphic
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
-        if ( m_ReflectionCaptures )
-            m_ReflectionCaptures->AddPasses( graph, textures );
+        if ( m_FrameReflectionCaptures )
+            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1324,7 +1324,8 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
-        m_FrameExtensions = nullptr;
+        m_FrameExtensions         = nullptr;
+        m_FrameReflectionCaptures = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1902,20 +1903,17 @@ namespace Desert::Graphic
         return overlay;
     }
 
-    void SceneRenderer::RenderReflectionCaptureViews( const Core::Scene&                           scene,
-                                                      const std::function<void( SceneRenderer& )>& record,
-                                                      const UpdateInfo&                            info )
+    bool SceneRenderer::ReadsReflectionCaptures() const
     {
-        if ( !m_ReflectionCaptures )
-            return;
-        // The view's sky bake identifies what the captures were lit by: a new bake (the sun moved, the sky
-        // changed) recaptures them.
-        uint64_t environment = 0;
+        return m_ViewProfile.ReflectionCaptures;
+    }
+
+    uint64_t SceneRenderer::GetEnvironmentIdentity()
+    {
         if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
-            environment = ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
-                          env->PreFilteredMap.Value.Generation;
-        m_ReflectionCaptures->RenderCaptureViews( scene, record, info.Timestep, info.RealTimestep, info.DirLights,
-                                                  environment );
+            return ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
+                   env->PreFilteredMap.Value.Generation;
+        return 0;
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const

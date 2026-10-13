@@ -68,6 +68,7 @@ vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 #ifndef AMBIENT_IBL_NO_SAMPLERS
 
 #include <Common/SkyLook.glslh>
+#include <Common/ReflectionCaptureMip.glslh>
 
 // The sampling half. `view` points from the surface toward the eye; `N` is the world-space shading
 // normal; `roughness` must already be clamped away from 0 by the caller (the GGX mip selection is linear
@@ -86,9 +87,11 @@ vec3 DesertAmbientIrradiance(vec3 worldDirection)
 
 vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
 {
-	const int levels = textureQueryLevels(u_EnvSpecularTex);
+	// The engine's one roughness -> mip ramp (Common/ReflectionCaptureMip.glslh), the inverse of PrefilterEnvMap's.
+	const float lod =
+	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(u_EnvSpecularTex) - 1));
 	return ApplySkyGain(
-	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), roughness * levels).rgb,
+	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
 	     skyLook.Gain.rgb);
 }
 
