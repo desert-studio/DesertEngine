@@ -2552,7 +2552,7 @@ namespace Desert::Editor
 
     Input::LocalPlayerInput* ViewportPanel::PlayedPlayerInput() const
     {
-        if ( m_Scene == nullptr || m_Scene->GetState() == Core::Scene::SceneState::Edit )
+        if ( m_Scene == nullptr || m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
             return nullptr;
         auto* scripts = m_Scene->FindSystem<ECS::ScriptSystem>();
         return scripts != nullptr ? &scripts->PlayerInput() : nullptr;
