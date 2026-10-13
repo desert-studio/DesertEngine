@@ -109,7 +109,7 @@ namespace Desert::Assets
         /// clusters into one and moved the size law, the body widths and the anisotropy's cover with the
         /// slider (FARWX-a2, five red CloudPlacementSpectrum tests). It is bought the way Unreal and Nubis buy
         /// it: the Coverage threshold on a continuous field, whose fill (CloudProceduralFillField) is what
-        /// stands between the bodies once the slider passes their spread (COVERAGE-FIELD).
+        /// stands between the bodies as the slider nears the bodies' footprint (COVERAGE-FIELD-2).
         constexpr float kClusterFootprintCells = 0.72f;
 
         /// How many lumps one cluster is built from. A COUNT AND NOT A CEILING ANY MORE, and the change is
@@ -1883,29 +1883,115 @@ namespace Desert::Assets
             return base;
         }
 
-        /// CloudProceduralFillField from the point's CloudShapeBase.
+        /// One plane wave of the fill presence: whole wave numbers across the region and a phase.
+        struct CloudFillPresenceWave
+        {
+            float Kx    = 0.0f;
+            float Kz    = 0.0f;
+            float Phase = 0.0f;
+        };
+
+        /// Enough waves for the sum to be normal to the eye of a uniform rank (the world weather's count).
+        constexpr uint32_t kCloudFillPresenceWaves = 96u;
+
+        /// THE FILL PRESENCE'S WAVES for species @p slot — drawn from its seed, one octave between
+        /// kCloudFillPresenceShortestCells and kCloudFillPresenceLongestCells of its cell, log-uniform in
+        /// wavelength, and rounded to whole wave numbers across the region (exactly periodic with it).
+        std::vector<CloudFillPresenceWave> CloudFillPresenceWaves( const CloudProceduralFieldParams& params,
+                                                                   uint32_t                          slot )
+        {
+            constexpr float kTau = 6.28318530718f;
+            constexpr float kPi  = 3.14159265359f;
+
+            const float    cellKm   = std::max( params.Species[slot].CellKm, 1e-3f );
+            const float    regionKm = std::max( params.RegionSizeKm, 1e-3f );
+            const float    lowest   = std::max( 1.0f, regionKm / ( kCloudFillPresenceLongestCells * cellKm ) );
+            const float    highest  = std::max( lowest, regionKm / ( kCloudFillPresenceShortestCells * cellKm ) );
+            const uint32_t seed     = HashCombine( CloudSpeciesSeed( params, slot ), 0xf111u );
+
+            std::vector<CloudFillPresenceWave> waves;
+            waves.reserve( kCloudFillPresenceWaves );
+            for ( uint32_t wave = 0; wave < kCloudFillPresenceWaves; ++wave )
+            {
+                const uint32_t waveSeed = HashCombine( seed, wave );
+                const float    wavenumber =
+                     lowest * std::pow( highest / lowest, HashUnit( HashCombine( waveSeed, 1u ) ) );
+                const float heading = kPi * HashUnit( HashCombine( waveSeed, 2u ) );
+                const float kx      = std::round( wavenumber * std::cos( heading ) );
+                const float kz      = std::round( wavenumber * std::sin( heading ) );
+                if ( kx == 0.0f && kz == 0.0f )
+                    continue;
+                waves.push_back( { kx, kz, kTau * HashUnit( HashCombine( waveSeed, 3u ) ) } );
+            }
+            return waves;
+        }
+
+        /// The presence at a region fraction from the slot's waves: Phi of their unit-variance sum.
+        float CloudFillPresenceAt( const std::vector<CloudFillPresenceWave>& waves, double fx, double fz )
+        {
+            constexpr double kTau = 6.283185307179586;
+            if ( waves.empty() )
+                return 1.0f;
+            double sum = 0.0;
+            for ( const CloudFillPresenceWave& wave : waves )
+                sum += std::cos(
+                     kTau * ( static_cast<double>( wave.Kx ) * fx + static_cast<double>( wave.Kz ) * fz ) +
+                     static_cast<double>( wave.Phase ) );
+            return static_cast<float>( NormalCdf( sum / std::sqrt( 0.5 * static_cast<double>( waves.size() ) ) ) );
+        }
+
+        /// CloudProceduralFillField from the column's presence (CloudProceduralFillPresence) and the point's
+        /// CloudShapeBase — the presence is read once per column by the bake.
         float CloudFillFieldOf( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec3& pointKm,
-                                const CloudShapeBase& base )
+                                float presence, const CloudShapeBase& base )
         {
             const Graphic::CloudTypeShape& type = params.Species[slot].Shape;
             if ( pointKm.y < type.BaseAltitudeKm || pointKm.y > type.TopAltitudeKm )
                 return 0.0f;
-            const float ceiling = 1.0f - CloudProceduralBodyStrengthSpread( params );
+            const float mask = kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( presence, 0.0f, 1.0f );
             const float noise =
                  kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( base.PerlinWorley, 0.0f, 1.0f );
-            return ceiling * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
+            return kCloudFillCeiling * mask * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
         }
 
         float CloudShapeNoiseOf( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec3& pointKm,
                                  const CloudShapeBase& base );
     } // namespace
 
+    float CloudProceduralFillPresence( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& pointXZKm )
+    {
+        if ( slot >= params.Species.size() )
+            return 0.0f;
+        // THE WAVES ARE DRAWN ONCE PER (seed, cell, region) AND PER THREAD, as CloudFarWeather's are: the
+        // preview and the census ask about many points of one species.
+        struct Drawn
+        {
+            uint32_t                           Seed     = 0u;
+            float                              CellKm   = -1.0f;
+            float                              RegionKm = -1.0f;
+            std::vector<CloudFillPresenceWave> Waves;
+        };
+        thread_local Drawn drawn;
+        const uint32_t     seed = CloudSpeciesSeed( params, slot );
+        if ( drawn.Seed != seed || drawn.CellKm != params.Species[slot].CellKm ||
+             drawn.RegionKm != params.RegionSizeKm )
+            drawn = Drawn{ seed, params.Species[slot].CellKm, params.RegionSizeKm,
+                           CloudFillPresenceWaves( params, slot ) };
+
+        const double region = static_cast<double>( std::max( params.RegionSizeKm, 1e-3f ) );
+        return CloudFillPresenceAt( drawn.Waves, static_cast<double>( pointXZKm.x ) / region,
+                                    static_cast<double>( pointXZKm.y ) / region );
+    }
+
     float CloudProceduralFillField( const CloudProceduralFieldParams& params, uint32_t slot,
                                     const glm::vec3& pointKm )
     {
         if ( slot >= params.Species.size() )
             return 0.0f;
-        return CloudFillFieldOf( params, slot, pointKm, CloudShapeBaseAt( params, slot, pointKm ) );
+        return CloudFillFieldOf( params, slot, pointKm,
+                                 CloudProceduralFillPresence( params, slot, glm::vec2( pointKm.x, pointKm.z ) ),
+                                 CloudShapeBaseAt( params, slot, pointKm ) );
     }
 
     float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
@@ -1970,6 +2056,7 @@ namespace Desert::Assets
             float    Strength   = 1.0f;
             float    InvDepth   = 0.0f;
             float    InvEdge    = 0.0f;
+            float    Prefilter  = 1.0f;
         };
 
         /// THE CLUSTERS' BODY DEPTHS (PROFILE-BODY), one per distinct ClusterKm of @p lumps in order of first
@@ -1992,6 +2079,7 @@ namespace Desert::Assets
             std::unordered_map<uint64_t, uint32_t> Index;
             std::vector<float>                     InvDepths;
             std::vector<float>                     InvEdges;
+            std::vector<float>                     Prefilters;
 
             [[nodiscard]] uint32_t Of( const glm::vec2& siteKm ) const
             {
@@ -2019,6 +2107,8 @@ namespace Desert::Assets
             sites.InvDepths.reserve( deepest.size() );
             sites.InvEdges.clear();
             sites.InvEdges.reserve( deepest.size() );
+            sites.Prefilters.clear();
+            sites.Prefilters.reserve( deepest.size() );
             for ( const float depth : deepest )
             {
                 sites.InvDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
@@ -2029,6 +2119,13 @@ namespace Desert::Assets
                 // erased it at a Coverage its strength passes and the sky's cover followed VolumeSideVoxels
                 // (0.16 of the sky at Coverage 0.6 on 128, 0.36 on 256; 0.11 at Coverage 0.35).
                 sites.InvEdges.push_back( 1.0f / std::max( kCloudBodyEdgeShare * depth, 1e-6f ) );
+                // A BODY THINNER THAN THE GRID CAN DRAW IS DISSOLVED, NOT STOOD UP WHOLE (COVERAGE-FIELD-2): its
+                // density is its share of the core's two-voxel floor — the voxel's average over the body, so
+                // the optical depth a ray sees through it is the body's and not a voxel-sized ball's. Under
+                // two voxels a body has no shape the grid can carry; at full density it read as "popcorn",
+                // round balls with a hard rim. Its footprint is untouched (the cut is still positive wherever
+                // its field passes the threshold), so the sky's cover does not move with it.
+                sites.Prefilters.push_back( std::clamp( depth * sites.InvDepths.back(), 0.0f, 1.0f ) );
             }
         }
 
@@ -2036,16 +2133,19 @@ namespace Desert::Assets
         /// joins the lumps of one cluster only (JOIN-PER-CLUSTER: a bridge between two clusters belonged to
         /// neither); each cluster's field is its strength times its profile — kCloudBodyPlateau of it over the
         /// edge depth, the rest through the whole body to the core (PROFILE-BODY) — times the altitude
-        /// density, and the clusters meet by `max`. The caller joins it with the fill field and thresholds the
-        /// result by Coverage once (COVERAGE-FIELD). @p candidates stay in the lumps' canonical order, which is
-        /// what makes the join's floating-point sum order-independent.
+        /// density, mapped by @p ofCluster (the field itself, or its Coverage cut dissolved by the cluster's
+        /// prefilter), and the clusters meet by `max`. The bake joins the bodies' cut with the fill field's cut
+        /// by `max` (COVERAGE-FIELD). @p candidates stay in the lumps' canonical order, which is what makes the
+        /// join's floating-point sum order-independent.
         ///
         /// THE CLOUD BASE IS A PLANE (CLOUD-SHAPE): @p belowBaseKm is the point's signed distance under the
         /// species' BaseAltitudeKm (positive below it), and each cluster's joined distance is intersected with
         /// that half-space AFTER the join and the silhouette noise, so neither rounds the floor. The bodies'
         /// base lumps are centred on the base for exactly this cut to leave a flat underside.
-        float CloudProceduralBodyField( const std::vector<CloudClusterCandidate>& candidates, float density,
-                                        float invBlend, float blendRadiusKm, float belowBaseKm )
+        template <class OfCluster>
+        float CloudProceduralBodyClusters( const std::vector<CloudClusterCandidate>& candidates, float density,
+                                           float invBlend, float blendRadiusKm, float belowBaseKm,
+                                           const OfCluster& ofCluster )
         {
             float field = 0.0f;
             for ( size_t k = 0; k < candidates.size(); ++k )
@@ -2076,21 +2176,47 @@ namespace Desert::Assets
                     continue;
                 const float core = std::clamp( -clusterJoined * candidates[k].InvDepth, 0.0f, 1.0f );
                 const float edge = std::clamp( -clusterJoined * candidates[k].InvEdge, 0.0f, 1.0f );
-                field            = std::max( field, candidates[k].Strength *
-                                                         ( kCloudBodyPlateau * edge + ( 1.0f - kCloudBodyPlateau ) * core ) *
-                                                         density );
+                field            = std::max(
+                     field,
+                     ofCluster( candidates[k].Strength *
+                                                ( kCloudBodyPlateau * edge + ( 1.0f - kCloudBodyPlateau ) * core ) * density,
+                                           candidates[k] ) );
             }
             return field;
+        }
+
+        /// The clusters' field itself (EvaluateCloudProceduralBodies).
+        float CloudProceduralBodyField( const std::vector<CloudClusterCandidate>& candidates, float density,
+                                        float invBlend, float blendRadiusKm, float belowBaseKm )
+        {
+            return CloudProceduralBodyClusters( candidates, density, invBlend, blendRadiusKm, belowBaseKm,
+                                                []( float field, const CloudClusterCandidate& )
+                                                { return field; } );
+        }
+
+        /// THE BODIES' CUT: each cluster's field thresholded by @p coverage (CloudProceduralCoverageRemap) and
+        /// dissolved by its prefilter, clusters met by `max` — the bake's voxel joins this with the fill's cut.
+        /// The remap is monotone, so with every prefilter one it is the remap of the clusters' `max`.
+        float CloudProceduralBodyCut( const std::vector<CloudClusterCandidate>& candidates, float density,
+                                      float invBlend, float blendRadiusKm, float belowBaseKm, float coverage )
+        {
+            return CloudProceduralBodyClusters(
+                 candidates, density, invBlend, blendRadiusKm, belowBaseKm,
+                 [coverage]( float field, const CloudClusterCandidate& cluster )
+                 { return CloudProceduralCoverageRemap( field, coverage ) * cluster.Prefilter; } );
         }
     } // namespace
 
     namespace
     {
-        /// The body field the bake builds at @p pointKm from every lump of @p lumps, and the noise read it was
-        /// built with — the one gather EvaluateCloudProceduralProfile and EvaluateCloudProceduralBodies share.
-        float CloudGatherBodyField( const CloudProceduralFieldParams& params, uint32_t slot,
-                                    const std::vector<CloudProceduralLump>& lumps, const glm::vec3& pointKm,
-                                    const CloudShapeBase& base )
+        /// The candidates the bake builds its body field from at @p pointKm out of every lump of @p lumps, moved
+        /// by the noise read @p base — the one gather EvaluateCloudProceduralProfile and
+        /// EvaluateCloudProceduralBodies share.
+        std::vector<CloudClusterCandidate> CloudGatherCandidates( const CloudProceduralFieldParams&       params,
+                                                                  uint32_t                                slot,
+                                                                  const std::vector<CloudProceduralLump>& lumps,
+                                                                  const glm::vec3&                        pointKm,
+                                                                  const CloudShapeBase&                   base )
         {
 
             // EVERY LUMP IT IS HANDED, where the bake asks the bin — the set differs, the voxel does not. A
@@ -2111,14 +2237,10 @@ namespace Desert::Assets
                 candidates.push_back( CloudClusterCandidate{
                      CloudModellingBlobDistanceKm( PrepareCloudModellingBlob( lump.Blob ), pointKm ) +
                           CloudProceduralShapeReachKm( lump.Blob ) * shape,
-                     lump.Blob.Weight, cluster, lump.Strength, sites.InvDepths[cluster],
-                     sites.InvEdges[cluster] } );
+                     lump.Blob.Weight, cluster, lump.Strength, sites.InvDepths[cluster], sites.InvEdges[cluster],
+                     sites.Prefilters[cluster] } );
             }
-
-            return CloudProceduralBodyField(
-                 candidates, CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
-                 1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
-                 params.Species[slot].Shape.BaseAltitudeKm - pointKm.y );
+            return candidates;
         }
     } // namespace
 
@@ -2128,9 +2250,15 @@ namespace Desert::Assets
         if ( slot >= params.Species.size() )
             return 0.0f;
         const CloudShapeBase base = CloudShapeBaseAt( params, slot, pointKm );
-        const float          body = CloudGatherBodyField( params, slot, lumps, pointKm, base );
-        return CloudProceduralCoverageRemap( std::max( body, CloudFillFieldOf( params, slot, pointKm, base ) ),
-                                             params.Coverage );
+        const float          body =
+             CloudProceduralBodyCut( CloudGatherCandidates( params, slot, lumps, pointKm, base ),
+                                     CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
+                                     1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
+                                     params.Species[slot].Shape.BaseAltitudeKm - pointKm.y, params.Coverage );
+        const float fill = CloudFillFieldOf(
+             params, slot, pointKm, CloudProceduralFillPresence( params, slot, glm::vec2( pointKm.x, pointKm.z ) ),
+             base );
+        return std::max( body, CloudProceduralCoverageRemap( fill, params.Coverage ) );
     }
 
     float EvaluateCloudProceduralBodies( const CloudProceduralFieldParams& params, uint32_t slot,
@@ -2138,7 +2266,11 @@ namespace Desert::Assets
     {
         if ( slot >= params.Species.size() )
             return 0.0f;
-        return CloudGatherBodyField( params, slot, lumps, pointKm, CloudShapeBaseAt( params, slot, pointKm ) );
+        return CloudProceduralBodyField(
+             CloudGatherCandidates( params, slot, lumps, pointKm, CloudShapeBaseAt( params, slot, pointKm ) ),
+             CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
+             1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
+             params.Species[slot].Shape.BaseAltitudeKm - pointKm.y );
     }
 
     size_t CountCloudProceduralBlobs( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm )
@@ -2320,6 +2452,8 @@ namespace Desert::Assets
                     float InvDepth = 0.0f;
                     /// 1 / the cluster's edge depth (kCloudBodyEdgeShare of its deepest lump, not floored).
                     float InvEdge = 0.0f;
+                    /// The cluster's prefilter (CloudClusterBodyDepths): its share of the two-voxel floor.
+                    float Prefilter = 1.0f;
                     /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
                     float ShapeReachKm = 0.0f;
                 };
@@ -2353,6 +2487,7 @@ namespace Desert::Assets
                     const uint32_t            site     = depthSites.Of( lump.ClusterKm );
                     const float               invDepth = depthSites.InvDepths[site];
                     const float               invEdge  = depthSites.InvEdges[site];
+                    const float               prefilter = depthSites.Prefilters[site];
                     // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
                     // reaches that much past its own ellipsoid (SHAPE-NOISE).
                     const float     shapeReachKm = CloudProceduralShapeReachKm( blob );
@@ -2382,7 +2517,7 @@ namespace Desert::Assets
 
                             placed.push_back( Placed{ PrepareCloudModellingBlob( shifted ), minKm, maxKm,
                                                       lump.Strength, clusterOf( site, wx, wz ), invDepth, invEdge,
-                                                      shapeReachKm } );
+                                                      prefilter, shapeReachKm } );
                         }
                     }
                 }
@@ -2398,8 +2533,11 @@ namespace Desert::Assets
                 // THE FILL FIELD'S CEILING AGAINST THE THRESHOLD (CloudProceduralFillField): under it, a column no
                 // body reaches is empty at this Coverage and the voxel loop skips it.
                 const Graphic::CloudTypeShape& type = params.Species[slot].Shape;
-                const bool                     fillReachable =
-                     1.0f - CloudProceduralBodyStrengthSpread( params ) > 1.0f - std::min( params.Coverage, 1.0f );
+                const bool fillReachable            = kCloudFillCeiling > 1.0f - std::min( params.Coverage, 1.0f );
+
+                // THE FILL PRESENCE'S WAVES, drawn once for the species; the presence is read once per column.
+                const std::vector<CloudFillPresenceWave> presenceWaves = CloudFillPresenceWaves( params, slot );
+                const double regionKm = static_cast<double>( std::max( params.RegionSizeKm, 1e-3f ) );
 
                 const float     invBin = 1.0f / grid.BinKm;
                 const glm::vec2 clipKm = grid.ClipMaxKm - grid.ClipMinKm;
@@ -2504,6 +2642,11 @@ namespace Desert::Assets
                                  if ( column.empty() && !fillReachable )
                                      continue;
 
+                                 // ONE PRESENCE PER COLUMN (COVERAGE-FIELD-2): the fill is column-coherent.
+                                 const float presence =
+                                      CloudFillPresenceAt( presenceWaves, static_cast<double>( worldX ) / regionKm,
+                                                           static_cast<double>( worldZ ) / regionKm );
+
                                  for ( uint32_t y = 0; y < height; ++y )
                                  {
                                      const float worldY =
@@ -2537,17 +2680,19 @@ namespace Desert::Assets
                                                        : CloudModellingBlobDistanceKm( item.Blob, point ) +
                                                               item.ShapeReachKm * shape,
                                                   item.Blob.Weight, item.Cluster, item.Strength, item.InvDepth,
-                                                  item.InvEdge } );
+                                                  item.InvEdge, item.Prefilter } );
                                          }
 
-                                         body = CloudProceduralBodyField(
+                                         body = CloudProceduralBodyCut(
                                               candidates, CloudProceduralAltitudeDensity( type, worldY ), invBlend,
-                                              params.BlendRadiusKm, type.BaseAltitudeKm - worldY );
+                                              params.BlendRadiusKm, type.BaseAltitudeKm - worldY,
+                                              params.Coverage );
                                      }
 
-                                     const float cut = CloudProceduralCoverageRemap(
-                                          std::max( body, CloudFillFieldOf( params, slot, point, base ) ),
-                                          params.Coverage );
+                                     const float cut = std::max(
+                                          body, CloudProceduralCoverageRemap(
+                                                     CloudFillFieldOf( params, slot, point, presence, base ),
+                                                     params.Coverage ) );
                                      if ( cut <= 0.0f )
                                          continue;
 

@@ -200,8 +200,8 @@ namespace Desert::Assets
     /// The spread is this over the contrast (CloudProceduralBodyStrengthSpread). 0.8, measured on the shipped
     /// congestus at W = 1 (KeptCover, 128 and 256 alike): the bodies carry the sky's cover from 0 to about
     /// 0.7 while the slider goes from 0 to 0.8 — Coverage 0.2 / 0.35 / 0.5 / 0.65 / 0.79 cover 0.20 / 0.37 /
-    /// 0.50 / 0.61 / 0.69 of the sky — and the fill field between them closes the deck over the last 0.2.
-    /// At 0.6 the fill came in at 0.65 and covered the whole sky by 0.7, with the bodies at a sixth of it.
+    /// 0.50 / 0.61 / 0.69 of the sky — and the fill field between them (kCloudFillCeiling) takes over from
+    /// Coverage 0.65 and closes the deck.
     inline constexpr float kCloudBodyStrengthSpread = 0.8f;
 
     /// The share of a body's deepest lump over which its field rises to kCloudBodyPlateau of its strength
@@ -218,9 +218,28 @@ namespace Desert::Assets
     /// two voxels peaked at three quarters of their strength and the cover at Coverage 0.2 was 0.12, not 0.2.
     inline constexpr float kCloudBodyPlateau = 0.95f;
 
-    /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling: the noise between the bodies never
-    /// falls below this inside the type's band, so Coverage 1 under W = 1 leaves no column empty.
+    /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling: the presence and the noise between
+    /// the bodies never fall below this inside the type's band, so Coverage 1 under W = 1 leaves no column
+    /// empty.
     inline constexpr float kCloudFillFloor = 0.15f;
+
+    /// THE FILL FIELD'S CEILING (COVERAGE-FIELD-2): the peak of the field between the bodies, where the
+    /// presence mask is one. Its OWN number, not the weakest body's peak (1 - spread): tied to the spread it
+    /// was 0.2, so the air between the bodies only began at Coverage 0.8 — after the bodies' Boolean
+    /// footprint had already saturated near 0.7 of the sky — and a weather W under 0.8 erased it entirely.
+    /// Because the presence is a uniform rank per column (CloudProceduralFillPresence), the fill alone covers
+    /// about `(ceiling - (1 - Coverage)) / ceiling` of the sky, linear in the slider, and 0.35 is where it
+    /// takes over as the bodies fall behind the slider. Measured (KeptCover, shipped congestus, W = 1, side
+    /// 128): Coverage 0.1/0.2/0.3/0.4/0.5/0.6/0.7/0.75/0.8/0.85/0.9/0.95/1 covers
+    /// 0.08/0.20/0.32/0.41/0.50/0.57/0.68/0.76/0.84/0.90/0.95/1.00/1.00; side 256 at 0.7/0.8: 0.67/0.83. At
+    /// 0.4 the sky ran 0.05-0.06 over the slider from 0.75 to 0.9.
+    inline constexpr float kCloudFillCeiling = 0.35f;
+
+    /// THE FILL PRESENCE'S WAVELENGTHS (COVERAGE-FIELD-2), in the species' cells: one octave of the 2D mask
+    /// between the bodies, from the silhouette noise's cell (kCloudShapeNoiseCellsPerCell of a cell) up to
+    /// a whole cell — the gaps between a cell's bodies, which is what the fill closes.
+    inline constexpr float kCloudFillPresenceShortestCells = 0.4f;
+    inline constexpr float kCloudFillPresenceLongestCells  = 1.0f;
 
     /// THE WEATHER MAP'S SHORE (CloudWeatherPresence, FIELD-GRAIN-b): the half-width of the step from busy
     /// to clear, in the weather's uniform rank, as a fraction of the smaller side. The shader's
@@ -850,8 +869,8 @@ namespace Desert::Assets
     glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
 
     /// The spread of the bodies' peaks below one (kCloudBodyStrengthSpread over the contrast), kept inside
-    /// [0.05, 0.8] so the bodies never all peak at one value and the fill field keeps a ceiling of at least
-    /// a fifth — Coverage 1 is a deck the eye sees, not one quantised away.
+    /// [0.05, 0.8] so the bodies never all peak at one value and the weakest still peaks at a fifth —
+    /// a body the eye sees, not one quantised away.
     inline float CloudProceduralBodyStrengthSpread( const CloudProceduralFieldParams& params )
     {
         const float contrast = params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f;
@@ -910,13 +929,23 @@ namespace Desert::Assets
         return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
     }
 
-    /// THE FILL FIELD (COVERAGE-FIELD), the noise between the bodies in the continuous field the Coverage
-    /// threshold cuts, at @p pointKm for species @p slot: the slot's low-frequency Perlin-Worley (the same
-    /// noise CloudProceduralShapeNoise shapes the silhouettes with, so the fill swells where the bodies
-    /// grow) lifted to kCloudFillFloor, times the altitude density, under a ceiling of
-    /// 1 - CloudProceduralBodyStrengthSpread — the weakest body's peak, so the slider meets the bodies before
-    /// the air between them. Zero outside the type's own band. A stratus deck is a type whose slab profile
-    /// makes this field the whole sky at Coverage 1.
+    /// THE FILL PRESENCE (COVERAGE-FIELD-2; the UE/Nubis weather map's coverage channel): a 2D mask over
+    /// the region, the same for every altitude of a column, as a UNIFORM RANK in [0, 1] — Phi of a
+    /// unit-variance sum of random-phase plane waves (the world weather's construction, CloudFarWeather),
+    /// whole wave numbers across the region so it repeats where the volume does. Uniform, so a threshold on
+    /// it keeps exactly that share of the columns: the fill's cover is linear in Coverage.
+    float CloudProceduralFillPresence( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& pointXZKm );
+
+    /// THE FILL FIELD (COVERAGE-FIELD), the field between the bodies in the continuous field the Coverage
+    /// threshold cuts, at @p pointKm for species @p slot: COLUMN-COHERENT (COVERAGE-FIELD-2) —
+    /// kCloudFillCeiling times the 2D presence (CloudProceduralFillPresence) lifted to kCloudFillFloor, times
+    /// the altitude density, eroded by the slot's low-frequency Perlin-Worley (the noise
+    /// CloudProceduralShapeNoise shapes the silhouettes with, lifted to kCloudFillFloor). The presence, not
+    /// the 3D noise, decides which columns carry cloud: a 3D noise's maximum over a column is near its
+    /// ceiling everywhere, so the fill came in as a step (0.69 -> 1.00 of the sky over Coverage 0.80..0.85).
+    /// Zero outside the type's own band. A stratus deck is a type whose slab profile makes this field the
+    /// whole sky at Coverage 1.
     float CloudProceduralFillField( const CloudProceduralFieldParams& params, uint32_t slot,
                                     const glm::vec3& pointKm );
 
@@ -993,7 +1022,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001eULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001fULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
