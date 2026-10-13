@@ -197,19 +197,26 @@ namespace Desert::Assets
     /// HOW FAR THE BODIES' PEAKS SPREAD BELOW ONE, at CoverageContrast 1 (COVERAGE-FIELD, owner 10-12): a
     /// body's field peaks at its strength `1 - spread * u`, u uniform per body, so the Coverage threshold
     /// 1 - Coverage meets the strongest bodies first and every body stands once Coverage passes the spread.
-    /// The spread is this over the contrast (CloudProceduralBodyStrengthSpread). 0.6: the bodies of one fill
-    /// cover about 0.63 of the sky (Boolean model), so the slider spends its first 0.6 on them and its last
-    /// 0.4 on the fill field between them — the sky's cover tracks Coverage at both ends.
-    inline constexpr float kCloudBodyStrengthSpread = 0.6f;
+    /// The spread is this over the contrast (CloudProceduralBodyStrengthSpread). 0.8, measured on the shipped
+    /// congestus at W = 1 (KeptCover, 128 and 256 alike): the bodies carry the sky's cover from 0 to about
+    /// 0.7 while the slider goes from 0 to 0.8 — Coverage 0.2 / 0.35 / 0.5 / 0.65 / 0.79 cover 0.20 / 0.37 /
+    /// 0.50 / 0.61 / 0.69 of the sky — and the fill field between them closes the deck over the last 0.2.
+    /// At 0.6 the fill came in at 0.65 and covered the whole sky by 0.7, with the bodies at a sixth of it.
+    inline constexpr float kCloudBodyStrengthSpread = 0.8f;
 
-    /// The share of a body's core depth over which its field rises to kCloudBodyPlateau of its strength
+    /// The share of a body's deepest lump over which its field rises to kCloudBodyPlateau of its strength
     /// (COVERAGE-FIELD): the edge of a body, so a body the threshold keeps is kept nearly whole, eroded only
-    /// along a soft rim, and the rest of the profile is the core gradient the lighting reads.
-    inline constexpr float kCloudBodyEdgeShare = 0.35f;
+    /// along a soft rim, and the rest of the profile is the core gradient the lighting reads. NOT floored at
+    /// the grid: a base lump is halved by the flat base and carved by the silhouette noise, so its deepest
+    /// voxel lies well inside half its depth, and a rim deeper than that never reaches the strength the
+    /// threshold reads. 0.15 is the measured share at which the cover follows Coverage (above).
+    inline constexpr float kCloudBodyEdgeShare = 0.15f;
 
     /// How much of a body's strength its edge carries; the remaining share rises through the whole body to
-    /// the core (the Dimensional Profile, PROFILE-BODY).
-    inline constexpr float kCloudBodyPlateau = 0.75f;
+    /// the core (the Dimensional Profile, PROFILE-BODY), whose depth IS floored at two voxels — so a body
+    /// thinner than that peaks at no less than this share of its strength. 0.95: at 0.75 the bodies under
+    /// two voxels peaked at three quarters of their strength and the cover at Coverage 0.2 was 0.12, not 0.2.
+    inline constexpr float kCloudBodyPlateau = 0.95f;
 
     /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling: the noise between the bodies never
     /// falls below this inside the type's band, so Coverage 1 under W = 1 leaves no column empty.
@@ -986,7 +993,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001dULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001eULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

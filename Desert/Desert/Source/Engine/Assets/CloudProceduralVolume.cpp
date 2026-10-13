@@ -2022,9 +2022,13 @@ namespace Desert::Assets
             for ( const float depth : deepest )
             {
                 sites.InvDepths.push_back( 1.0f / CloudProceduralBodyDepthKm( params, depth ) );
-                // THE EDGE IS FLOORED AS THE CORE IS, at two voxels: a rim thinner than the grid is a facet.
-                sites.InvEdges.push_back( 1.0f /
-                                          CloudProceduralBodyDepthKm( params, kCloudBodyEdgeShare * depth ) );
+                // THE EDGE IS THE BODY'S OWN, NOT THE GRID'S (COVERAGE-FIELD): the core keeps its two-voxel
+                // floor (the gradient the lighting reads), the edge does not. A floored edge deeper than what
+                // a body can reach — a base lump is halved by the flat base and carved by the silhouette
+                // noise — left every body thinner than two voxels short of its strength, so the threshold
+                // erased it at a Coverage its strength passes and the sky's cover followed VolumeSideVoxels
+                // (0.16 of the sky at Coverage 0.6 on 128, 0.36 on 256; 0.11 at Coverage 0.35).
+                sites.InvEdges.push_back( 1.0f / std::max( kCloudBodyEdgeShare * depth, 1e-6f ) );
             }
         }
 
@@ -2314,7 +2318,7 @@ namespace Desert::Assets
                     uint32_t Cluster = 0u;
                     /// 1 / the cluster's CloudProceduralBodyDepthKm (PROFILE-BODY).
                     float InvDepth = 0.0f;
-                    /// 1 / the cluster's edge depth (kCloudBodyEdgeShare of its body depth, floored likewise).
+                    /// 1 / the cluster's edge depth (kCloudBodyEdgeShare of its deepest lump, not floored).
                     float InvEdge = 0.0f;
                     /// CloudProceduralShapeReachKm of the lump (SHAPE-NOISE).
                     float ShapeReachKm = 0.0f;
