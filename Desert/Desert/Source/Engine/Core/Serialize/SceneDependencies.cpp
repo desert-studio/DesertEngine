@@ -51,10 +51,13 @@ namespace Desert::Core
 
     namespace
     {
-        void AddText( const Common::Json::Value& value, std::vector<std::string>& out )
+        // Only text that IS an asset GUID is a reference: a "Guid" key also names identities that are not assets
+        // (a landscape edit layer's id is a decimal 64-bit number), and the header reader refuses anything else.
+        void AddAssetGuid( const Common::Json::Value& value, std::vector<std::string>& out )
         {
             if ( const auto text = value.to_string(); text.has_value() && !text.value().empty() )
-                out.push_back( text.value() );
+                if ( const auto guid = Common::Content::AssetGuidFromText( text.value() ); guid.IsSuccess() && !guid.GetValue().IsNull() )
+                    out.push_back( text.value() );
         }
 
         void Collect( const Common::Json::Value& value, const std::filesystem::path& assetsRoot,
@@ -75,19 +78,19 @@ namespace Desert::Core
                                 if ( hk == "Dependencies" )
                                     if ( const auto list = hv.to_array(); list.has_value() )
                                         for ( const auto& element : list.value() )
-                                            AddText( element, out );
+                                            AddAssetGuid( element, out );
                         continue;
                     }
                     if ( key == "Guid" || key == "MeshGuid" )
                     {
-                        AddText( field, out );
+                        AddAssetGuid( field, out );
                         continue;
                     }
                     if ( key == "MaterialGuids" )
                     {
                         if ( const auto list = field.to_array(); list.has_value() )
                             for ( const auto& element : list.value() )
-                                AddText( element, out );
+                                AddAssetGuid( element, out );
                         continue;
                     }
                     if ( statesGuid && key == "Path" )
