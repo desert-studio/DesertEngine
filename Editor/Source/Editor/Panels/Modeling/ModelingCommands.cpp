@@ -21,6 +21,7 @@
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/CubeGridTool.hpp>
 #include <Editor/Panels/Modeling/ModelingPanel.hpp>
 #include <array>
@@ -558,8 +559,33 @@ namespace Desert::Editor
         modelingOnOff( "Modeling", "Pattern: Separate entities",
                        []( MS& ms, bool on ) { ms.XformPatternSeparate = on; } );
 
-        // UE's UVs palette: the four tools (each previews on the selected mesh; Accept / Cancel are the tool
-        // bar's, reached as "Accept and Start New" / "Cancel" above) and their closed choices.
+        // The viewport tool bar's buttons, for whichever tool is active (UE draws one overlay for every tool):
+        // Accept / Complete and Cancel go through the bar's own PressToolBar, so a refused Accept leaves the
+        // tool open exactly as the button does. The UV tools are committed only this way.
+        commands.push_back( { "Modeling", "Active tool: Accept", []
+                              {
+                                  MS&                          ms    = MS::Get();
+                                  const Tools::ActiveToolLabel label = Tools::LabelOf( ms.ActiveTool );
+                                  if ( label.Name == nullptr )
+                                      return PaletteCommandOutcome( false, "no modeling tool is active" );
+                                  Tools::PressToolBar( ms, label.HasCancel, /*finish*/ true, /*cancel*/ false );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Active tool: Cancel", []
+                              {
+                                  MS&                          ms    = MS::Get();
+                                  const Tools::ActiveToolLabel label = Tools::LabelOf( ms.ActiveTool );
+                                  if ( label.Name == nullptr )
+                                      return PaletteCommandOutcome( false, "no modeling tool is active" );
+                                  if ( !label.HasCancel )
+                                      return PaletteCommandOutcome(
+                                           false, std::format( "{} has no Cancel, only Complete", label.Name ) );
+                                  Tools::PressToolBar( ms, true, /*finish*/ false, /*cancel*/ true );
+                                  return PaletteCommandDone();
+                              } } );
+
+        // UE's UVs palette: the four tools (each previews on the selected mesh until "Active tool: Accept" /
+        // "Active tool: Cancel") and their closed choices.
         for ( const auto& [name, tool] :
               std::initializer_list<std::pair<const char*, MS::Tool>>{ { "AutoUV", MS::Tool::AutoUV },
                                                                        { "Project", MS::Tool::UVProject },

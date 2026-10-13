@@ -660,7 +660,7 @@ namespace Desert::Editor
                 }
                 ImGui::Separator();
                 ImGui::TextDisabled( "UV Transform" );
-                row( "Rotation##uv" );
+                row( "UV Rotation" );
                 ImGui::DragFloat( "##UVProjectUVRotation", &s.UVRotationDeg, 0.5f, -360.0f, 360.0f, "%.1f deg",
                                   ImGuiSliderFlags_AlwaysClamp );
                 row( "Scale U" );
