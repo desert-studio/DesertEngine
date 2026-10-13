@@ -34,6 +34,7 @@
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <functional>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -83,6 +84,7 @@ namespace Desert::Graphic
     }
     class FrameTextures;
     struct FrameValues;
+    class ReflectionCaptureRenderer;
 
     class SceneRenderer final
     {
@@ -205,6 +207,17 @@ namespace Desert::Graphic
         void OnUpdate( const UpdateInfo& sceneRenderInfo );
 
         [[nodiscard]] Common::BoolResultStr EndScene();
+
+        // THE REFLECTION CAPTURES' FACE VIEWS (ReflectionCaptures/ReflectionCaptureRenderer.hpp), rendered by the
+        // scene BEFORE this view opens its frame - each face view is a complete frame bracket of its own, and two
+        // brackets never interleave (Core::Scene's view loop). @p record replays the scene's recorded draws into a
+        // face view, as the scene does into this one. Nothing to do on a view whose profile owns no captures.
+        void RenderReflectionCaptureViews( const Core::Scene&                           scene,
+                                           const std::function<void( SceneRenderer& )>& record,
+                                           const UpdateInfo&                            info );
+        // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
+        // reflection capture resamples into its cube. Null before the targets exist.
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
@@ -546,6 +559,9 @@ namespace Desert::Graphic
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
         ViewProfile m_ViewProfile;
+        // The view's reflection captures: every view has one (the lighting pass always reads the bindings); only a
+        // profile with ReflectionCaptures renders the scene's (Init).
+        std::unique_ptr<ReflectionCaptureRenderer> m_ReflectionCaptures;
 
         // The last size a Resize() went past the view budget at, so the warning is logged once and not every
         // frame the panel keeps asking.

@@ -188,6 +188,10 @@ namespace Desert::Graphic
         // there is nothing for them to draw over.
         if ( !m_FrameExtensions || !m_TargetFramebuffer )
             return;
+        // A reflection capture's face view draws the game scene only: the editor's grid, gizmos and UI are not
+        // what a reflection shows.
+        if ( m_ViewProfile.SceneCapture )
+            return;
         m_FrameExtensions->ForEachAt(
              point,
              [&]( const ExtensionPass& extension )

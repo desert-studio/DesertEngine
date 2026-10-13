@@ -109,11 +109,25 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 // AmbientIBL takes, plus the pass's indirect bounce and occlusion. Both lighting passes build it here.
 #include <ShadingModels/ShadingModelContract.glslh>
 
+// THE REFLECTION CAPTURES (Common/ReflectionEnvironment.glslh): a pass that declares their two bindings defines
+// DESERT_REFLECTION_CAPTURES, and its ambient specular is the captures around the point, parallax-corrected and
+// normalised to the local diffuse ambient, over the sky's prefiltered radiance. A pass without them reads the sky.
+#ifdef DESERT_REFLECTION_CAPTURES
+#include <Common/ReflectionEnvironment.glslh>
+#endif
+
 DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
 {
 	DesertAmbient A;
 	A.Irradiance   = DesertAmbientIrradiance(S.N);
 	A.Prefiltered  = DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness);
+#ifdef DESERT_REFLECTION_CAPTURES
+	// UE's IndirectIrradiance for the normalisation: the local diffuse ambient (the sky's irradiance under the
+	// occlusion, plus the bounce), as luminance.
+	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
+	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.Roughness, A.Prefiltered,
+	                                            indirectIrradiance);
+#endif
 	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;

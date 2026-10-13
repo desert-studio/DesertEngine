@@ -42,13 +42,19 @@ namespace Desert::Graphic
         // `Shadows`. Only a level's viewport does: a preview or a thumbnail keeps its own small budget at
         // every level, because what it shows is one asset, not the world the level is about.
         bool ShadowsFollowQuality = false;
+        // The view renders the scene's reflection captures (ReflectionCaptures/ReflectionCaptureRenderer.hpp): a
+        // level's viewport does; a preview, a thumbnail and a capture's own face views read none.
+        bool ReflectionCaptures = false;
+        // The view IS a capture's face view: it draws the game scene only - no extension passes (the editor's
+        // grid, gizmos and UI are not part of what a reflection shows).
+        bool SceneCapture = false;
 
         bool operator==( const ViewProfile& ) const = default;
     };
 
     // A viewport of a level: every feature may be switched on by the scene, and its shadow budget is the
     // Shadows quality level's (kSceneShadowQuality until QualityState has published one — it is the High row).
-    inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true, true };
+    inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true, true, true };
 
     // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no RSM-GI.
     // Clouds stay ON: a cloud material's preview IS its clouds (RT1b: with them off, all 53 cloud-material
@@ -58,6 +64,10 @@ namespace Desert::Graphic
 
     // A one-shot capture (asset thumbnails, photogrammetry preview): the preview profile without the sun.
     inline constexpr ViewProfile kThumbnailViewProfile{ kNoShadowQuality, true, false, false };
+    // A reflection capture's face view: the preview's one 1024 cascade (a 128-texel face shows no finer shadow),
+    // its clouds, no SSR and no RSM-GI (UE captures without screen-space effects), no captures of its own.
+    inline constexpr ViewProfile kReflectionCaptureViewProfile{
+         kPreviewShadowQuality, true, false, false, false, false, true };
 
     // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the three Shadows rows of the Scalability table, in the units
     // ShadowQuality holds them (centimetres for the distance, like the table).

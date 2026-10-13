@@ -42,6 +42,8 @@
 #include <string_view>
 #include <vector>
 
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+
 namespace Desert::Graphic
 {
     void SceneRenderer::Init()
@@ -51,6 +53,8 @@ namespace Desert::Graphic
         // this call is what Г11 was about and a claim about it should be readable from any run's log
         // rather than re-measured.
         const auto started = std::chrono::steady_clock::now();
+        if ( !m_ReflectionCaptures )
+            m_ReflectionCaptures = std::make_unique<ReflectionCaptureRenderer>( m_ViewProfile.ReflectionCaptures );
 
         const bool built = EnsureRendererResources();
 
@@ -1092,6 +1096,9 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The reflection captures, before any lit node reads them (SceneViewInputs).
+        if ( m_ReflectionCaptures )
+            m_ReflectionCaptures->AddPasses( graph, textures );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1893,6 +1900,27 @@ namespace Desert::Graphic
              [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return populate->Record( context ); } );
         return overlay;
+    }
+
+    void SceneRenderer::RenderReflectionCaptureViews( const Core::Scene&                           scene,
+                                                      const std::function<void( SceneRenderer& )>& record,
+                                                      const UpdateInfo&                            info )
+    {
+        if ( !m_ReflectionCaptures )
+            return;
+        // The view's sky bake identifies what the captures were lit by: a new bake (the sun moved, the sky
+        // changed) recaptures them.
+        uint64_t environment = 0;
+        if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
+            environment = ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
+                          env->PreFilteredMap.Value.Generation;
+        m_ReflectionCaptures->RenderCaptureViews( scene, record, info.Timestep, info.RealTimestep, info.DirLights,
+                                                  environment );
+    }
+
+    std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
+    {
+        return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()

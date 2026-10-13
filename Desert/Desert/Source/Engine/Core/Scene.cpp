@@ -637,6 +637,17 @@ namespace Desert::Core
                 // way, which is why one renderer per scene never exposed it — and it is why the three
                 // phases were collapsed into this one function rather than left as an ordering rule for
                 // the next caller to get right.
+                // The view's reflection captures first: their face views are frames of their own, closed before
+                // this view's opens, fed the same recorded draws.
+                view.Renderer->RenderReflectionCaptureViews(
+                     *this,
+                     [this]( Graphic::SceneRenderer& face )
+                     {
+                         for ( const auto& buffer : m_SystemCommandBuffers )
+                             buffer->ExecuteAll( face );
+                     },
+                     sceneRendererInfo );
+
                 if ( auto begun = view.Renderer->BeginScene( *this, view.Camera.get() ); !begun )
                 {
                     firstError = begun.GetError();

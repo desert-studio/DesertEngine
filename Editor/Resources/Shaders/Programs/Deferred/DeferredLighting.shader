@@ -81,6 +81,17 @@ Shader "DeferredLighting"
 
         // The ambient model itself, shared verbatim with StaticMeshLit / StaticMeshLit_Instanced /
         // SkinnedMeshLit. Included after the three bindings above because it names them.
+        // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
+        // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
+        // Slots 22 and 23: the first free ones in this layout.
+        #define DESERT_REFLECTION_CAPTURES
+        #include <Common/ReflectionCaptureGpu.glslh>
+        ReadBuffer(22) ReflectionCapturesUB
+        {
+            uvec4                u_ReflectionCaptureHeader; // x = capture count
+            ReflectionCaptureGpu u_ReflectionCaptures[];
+        };
+        Uniform(23) samplerCubeArray u_ReflectionCaptureCubes;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
