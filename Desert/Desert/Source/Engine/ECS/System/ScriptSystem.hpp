@@ -5,6 +5,7 @@
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <UI/UIDataStore.hpp>
@@ -39,6 +40,12 @@ namespace Desert::ECS
             // Don't leave a dangling on_destroy listener pointing at this (freed) system.
             if ( m_HookedRegistry )
                 m_HookedRegistry->on_destroy<ScriptComponent>().disconnect( this );
+        }
+
+        /// The local player of this world (UE ULocalPlayer): the viewport the world is played in feeds its keys.
+        [[nodiscard]] Input::LocalPlayerInput& PlayerInput()
+        {
+            return m_Engine.PlayerInput();
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
@@ -77,7 +84,9 @@ namespace Desert::ECS
             // ESCAPE TOGGLES the cursor free/captured (edge-detected) — so you can always free it to click
             // Stop / the UI. (Left Alt is avoided: on Windows it grabs the window's system menu and is
             // unreliable in GLFW.) Captured = smooth unbounded look.
-            const bool toggleDown = Input::Keyboard::IsKeyPressed( Common::KeyCode::Escape );
+            // The player's key state, as every gameplay key: Escape typed into a text field is not this toggle.
+            const bool toggleDown =
+                 m_Engine.PlayerInput().IsKeyDown( Input::InputKey::Of( Common::KeyCode::Escape ) );
             if ( toggleDown && !m_AltPrev )
                 m_LookSuspended = !m_LookSuspended;
             m_AltPrev = toggleDown;

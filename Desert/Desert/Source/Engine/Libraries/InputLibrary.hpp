@@ -10,10 +10,11 @@
 
 namespace Desert::Libraries
 {
-    /// Keyboard/mouse state and the local player's Enhanced Input for gameplay code — UE's input functions of
+    /// The local player's keys, mouse and Enhanced Input for gameplay code — UE's input functions of
     /// APlayerController (IsInputKeyDown, WasInputKeyJustPressed, GetInputMouseDelta). Keys are named ("W", "5",
-    /// "Space", "Shift", "Left", ...). The frame state (edges, mouse delta, the cursor request) is advanced by the
-    /// game loop: NewFrame before gameplay runs, ConsumeCursorLockRequest after.
+    /// "Space", "Shift", "Left", ...) and read from the player's key state (LocalPlayerInput), which only the
+    /// viewport in focus feeds. The mouse delta and the cursor request are advanced by the game loop: NewFrame
+    /// before gameplay runs, ConsumeCursorLockRequest after.
     struct InputLibrary
     {
         REFLECT( ScriptName( "Input" ) )
@@ -82,7 +83,8 @@ namespace Desert::Libraries
         static void RebindKey( const std::string& context, const std::string& action,
                                const std::string& defaultKey, const std::string& key );
 
-        /// Advances the frame: key edges for WasPressed, and the mouse delta the host computed (capture aware).
+        /// Advances the frame: the mouse delta the host computed (capture aware). The keys and their edges are
+        /// the local player's (LocalPlayerInput::Tick latches them), not this library's.
         static void NewFrame( glm::vec2 mouseDelta );
 
         /// nullopt when no gameplay code touched the cursor since the last call; true = lock, false = show.

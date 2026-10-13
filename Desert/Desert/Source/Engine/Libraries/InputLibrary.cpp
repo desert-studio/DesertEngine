@@ -1,7 +1,6 @@
 #include <Engine/Libraries/InputLibrary.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
-#include <Engine/Core/Input.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Input/EnhancedInputSubsystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
@@ -10,7 +9,6 @@
 #include <format>
 
 #include <unordered_map>
-#include <vector>
 
 namespace Desert::Libraries
 {
@@ -49,31 +47,10 @@ namespace Desert::Libraries
             return it == kNamed.end() ? std::nullopt : std::optional<K>( it->second );
         }
 
-        // The keys WasPressed edge-tracks: KeyFromName's whole coverage.
-        const std::vector<Common::KeyCode>& TrackedKeys()
-        {
-            static const std::vector<Common::KeyCode> keys = []
-            {
-                using K = Common::KeyCode;
-                std::vector<K> v;
-                for ( int c = 'A'; c <= 'Z'; ++c )
-                    v.push_back( static_cast<K>( c ) );
-                for ( int c = '0'; c <= '9'; ++c )
-                    v.push_back( static_cast<K>( c ) );
-                for ( K k : { K::Space, K::LeftShift, K::LeftControl, K::LeftAlt, K::Tab, K::Enter, K::Escape,
-                              K::Left, K::Right, K::Up, K::Down } )
-                    v.push_back( k );
-                return v;
-            }();
-            return keys;
-        }
-
         struct FrameState
         {
-            std::unordered_map<int, bool> KeyDownPrev;
-            std::unordered_map<int, bool> KeyEdge;
-            glm::vec2                     MouseDelta{ 0.0f };
-            std::optional<bool>           CursorLockRequest;
+            glm::vec2           MouseDelta{ 0.0f };
+            std::optional<bool> CursorLockRequest;
         };
 
         FrameState& State()
@@ -117,19 +94,20 @@ namespace Desert::Libraries
         }
     } // namespace
 
+    // The keys are the local player's (LocalPlayerInput's key state, fed by the viewport in focus), never the
+    // window's: a key typed into a text field elsewhere is not down for gameplay.
     bool InputLibrary::IsKeyDown( const std::string& key )
     {
-        const auto code = KeyFromName( key );
-        return code.has_value() && Input::Keyboard::IsKeyPressed( *code );
+        const auto               code  = KeyFromName( key );
+        Input::LocalPlayerInput* input = code.has_value() ? PlayerInput( "isKeyDown" ) : nullptr;
+        return input != nullptr && input->IsKeyDown( Input::InputKey::Of( *code ) );
     }
 
     bool InputLibrary::WasPressed( const std::string& key )
     {
-        const auto code = KeyFromName( key );
-        if ( !code )
-            return false;
-        const auto it = State().KeyEdge.find( static_cast<int>( *code ) );
-        return it != State().KeyEdge.end() && it->second;
+        const auto               code  = KeyFromName( key );
+        Input::LocalPlayerInput* input = code.has_value() ? PlayerInput( "wasPressed" ) : nullptr;
+        return input != nullptr && input->WasKeyPressed( Input::InputKey::Of( *code ) );
     }
 
     glm::vec2 InputLibrary::MouseDelta()
@@ -154,7 +132,8 @@ namespace Desert::Libraries
             which = Common::MouseButton::Right;
         else if ( button == "middle" )
             which = Common::MouseButton::Middle;
-        return Input::Mouse::Get().IsMouseButtonPressed( which );
+        Input::LocalPlayerInput* input = PlayerInput( "isMouseDown" );
+        return input != nullptr && input->IsKeyDown( Input::InputKey::Of( which ) );
     }
 
     glm::vec3 InputLibrary::ActionValue( const std::string& action )
@@ -229,15 +208,7 @@ namespace Desert::Libraries
 
     void InputLibrary::NewFrame( glm::vec2 mouseDelta )
     {
-        FrameState& state = State();
-        state.MouseDelta  = mouseDelta;
-        for ( Common::KeyCode key : TrackedKeys() )
-        {
-            const int  code         = static_cast<int>( key );
-            const bool down         = Input::Keyboard::IsKeyPressed( key );
-            state.KeyEdge[code]     = down && !state.KeyDownPrev[code];
-            state.KeyDownPrev[code] = down;
-        }
+        State().MouseDelta = mouseDelta;
     }
 
     std::optional<bool> InputLibrary::ConsumeCursorLockRequest()

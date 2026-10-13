@@ -574,7 +574,8 @@ namespace Desert::Editor
                         return Control::Response::Failure(
                              request.Id, std::format( "no open panel named '{}' was drawn in the last frame.",
                                                       request.Panel ) );
-                    if ( request.InputKind != "key" &&
+                    if ( request.InputKind != "key" && request.InputKind != "keydown" &&
+                         request.InputKind != "keyup" &&
                          ( request.Value[0] < 0.0f || request.Value[1] < 0.0f ||
                            request.Value[0] >= window->Size.x || request.Value[1] >= window->Size.y ) )
                         return Control::Response::Failure(
