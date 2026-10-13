@@ -17,14 +17,23 @@ Shader "ParticleSort"
         // places the barrier between two writes of the key buffer.
         LocalSize(512, 1, 1);
 
-        #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
         #include <Common/ParticleSortKey.glslh>
+        #include <Common/ParticleDrawLayout.glslh>
 
-        Buffer(0) Particles
+        // The emitter's attribute columns and where its stack put Position (Common/ParticleDrawLayout.glslh): the
+        // depth is the drawn position's, read from the one store the sprite draw reads it from.
+        ReadBuffer(0) AttributeFloats
         {
-            Particle u_Particles[];
+            float u_DrawFloats[];
         };
+
+        ReadBuffer(5) DrawLayout
+        {
+            ParticleDrawLayout u_DrawLayout;
+        };
+
+        #include <Common/ParticleDrawRead.glslh>
 
         Buffer(1) AliveList
         {
@@ -90,7 +99,8 @@ Shader "ParticleSort"
                 if ( t < alive )
                 {
                     uint  index = u_Alive[u_Range.x + t];
-                    float depth = dot( u_Particles[index].PosSize.xyz - u_ViewOrigin.xyz, u_ViewForward.xyz );
+                    float depth = dot( ParticleWorldPosition( ParticleLocalIndex( index ) ) - u_ViewOrigin.xyz,
+                                       u_ViewForward.xyz );
                     key         = uvec2( ParticleSortKey( depth ), index );
                 }
                 u_Keys[keyBase + t] = key;

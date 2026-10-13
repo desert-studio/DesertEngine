@@ -1913,6 +1913,23 @@ namespace
         return 0u;
     }
 
+    // The declared size of a storage block that is ONE struct (no runtime array), read from the compiled SPIR-V.
+    uint32_t StorageBlockSize( const std::filesystem::path& shaderFile, ShaderStage stage,
+                               shaderc_shader_kind kind, uint32_t binding, const std::string& cell = {} )
+    {
+        const auto spirv = CompileStage( StageSource( shaderFile, stage, cell ), shaderFile, kind );
+        if ( spirv.empty() )
+            return 0u;
+
+        spirv_cross::Compiler              compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+        for ( const auto& resource : resources.storage_buffers )
+            if ( compiler.get_decoration( resource.id, spv::DecorationBinding ) == binding )
+                return static_cast<uint32_t>(
+                     compiler.get_declared_struct_size( compiler.get_type( resource.base_type_id ) ) );
+        return 0u;
+    }
+
     // The declared workgroup size of a compute stage, as the compiled module states it. Zeroes when the
     // stage did not compile, which every caller treats as a failure rather than as a size.
     std::array<uint32_t, 3> ComputeLocalSize( const std::filesystem::path& shaderFile )
@@ -1942,34 +1959,41 @@ namespace
 
 TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheEngineAllocates )
 {
-    // THE RELATION, stated against BOTH readers of the storage because the engine writes only one of the
-    // two numbers it needs to be right about. ParticleRenderer allocates MaxParticles * kParticleStride
-    // and zeroes exactly that many bytes; the simulation writes element i at i * (its own stride) and the
-    // draw reads element i at i * (its own stride). Any one of the three moving alone is a frame in which
-    // particles are read from bytes nobody wrote — and the shipped symptom of that is an emitter that
-    // looks mistuned, not an error.
-    const uint32_t simulate  = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
-                                                   ShaderStage::Compute, shaderc_compute_shader, 0 );
-    // The draw is the ParticleSprite.Forward cell of a sprite template (Mesh/Surface/Vertex_ParticleSprite.glslh
-    // reads the state at binding 9); the default template is the one every emitter falls back to.
-    const uint32_t billboard =
-         StorageArrayStride( ShaderPath( "Particles/ParticleSpriteDefault.shader" ), ShaderStage::Vertex,
-                             shaderc_vertex_shader, 9, kParticleSpriteCell );
+    // THE RELATION, stated against BOTH users of the pool slots because the engine writes only one of the numbers
+    // it needs to be right about. ParticleWorldGpu allocates capacity * kParticleSlotStride; the simulation and
+    // the compact index slot i at i * (their own stride). Any one of the three moving alone is a pool whose alive
+    // flags are read from bytes nobody wrote - particles that never die, or never live.
+    const uint32_t simulate = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
+                                                  ShaderStage::Compute, shaderc_compute_shader, 0 );
+    const uint32_t compact  = StorageArrayStride( ShaderPath( "Particles/ParticleCompact.shader" ),
+                                                  ShaderStage::Compute, shaderc_compute_shader, 0 );
+    EXPECT_EQ( simulate, Desert::Graphic::System::kParticleSlotStride )
+         << "the simulation indexes the pool slots by " << simulate << " bytes and ParticleWorldGpu allocates "
+         << Desert::Graphic::System::kParticleSlotStride << " per particle";
+    EXPECT_EQ( compact, Desert::Graphic::System::kParticleSlotStride )
+         << "the compact indexes the pool slots by " << compact << " bytes and ParticleWorldGpu allocates "
+         << Desert::Graphic::System::kParticleSlotStride << " per particle";
+    EXPECT_EQ( simulate, compact ) << "the two pool stages read one storage with two layouts";
 
-    EXPECT_GT( simulate, 0u ) << "ParticleSimulate declares no storage block at slot 0";
-    EXPECT_GT( billboard, 0u ) << "the ParticleSprite vertex path declares no storage block at slot 9";
-
-    EXPECT_EQ( simulate, Desert::Graphic::System::kParticleStride )
-         << "the simulation indexes the state by " << simulate << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-    EXPECT_EQ( billboard, Desert::Graphic::System::kParticleStride )
-         << "the billboard draw indexes the state by " << billboard << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-
-    // ...and therefore each other. Stated separately, because the two equalities above would both hold in
-    // a world where the constant was edited to follow ONE of the shaders and this line is what names the
-    // pair that actually shares the bytes.
-    EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
+    // VFX-SPRITE-DRAW: the sprite draw (the ParticleSprite.Forward cell, Mesh/Surface/Vertex_ParticleSprite.glslh)
+    // and the sort read the particle where the simulation wrote it - the emitter's float columns, one float per
+    // component - through the emitter's draw layout, uploaded by ParticleWorldGpu at kParticleDrawLayoutSize.
+    const auto     sprite = ShaderPath( "Particles/ParticleSpriteDefault.shader" );
+    const auto     sort   = ShaderPath( "Particles/ParticleSort.shader" );
+    const uint32_t spriteFloat =
+         StorageArrayStride( sprite, ShaderStage::Vertex, shaderc_vertex_shader, 9, kParticleSpriteCell );
+    const uint32_t sortFloat = StorageArrayStride( sort, ShaderStage::Compute, shaderc_compute_shader, 0 );
+    EXPECT_EQ( spriteFloat, 4u ) << "the sprite vertex path no longer reads the attribute columns at slot 9";
+    EXPECT_EQ( sortFloat, 4u ) << "the sort no longer reads the attribute columns at slot 0";
+    const uint32_t spriteLayout =
+         StorageBlockSize( sprite, ShaderStage::Vertex, shaderc_vertex_shader, 11, kParticleSpriteCell );
+    const uint32_t sortLayout = StorageBlockSize( sort, ShaderStage::Compute, shaderc_compute_shader, 5 );
+    EXPECT_EQ( spriteLayout, Desert::Graphic::System::kParticleDrawLayoutSize )
+         << "the sprite vertex path reads a " << spriteLayout << "-byte draw layout and ParticleWorldGpu uploads "
+         << Desert::Graphic::System::kParticleDrawLayoutSize;
+    EXPECT_EQ( sortLayout, Desert::Graphic::System::kParticleDrawLayoutSize )
+         << "the sort reads a " << sortLayout << "-byte draw layout and ParticleWorldGpu uploads "
+         << Desert::Graphic::System::kParticleDrawLayoutSize;
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStepTableIsIndexedByTheStrideTheEngineUploads )
@@ -2033,8 +2057,8 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
 
 // VFX-10c, ported into the stack by VFX-HOST: a bound channel Size scales the particle's base size - the upload
 // packs it into the record's Scalars.y (1 when unbound), InitializeSpriteSize multiplies the size by it and keeps
-// the product as InitialSpriteSize, which SizeOverLife scales every step. struct Particle no longer carries the
-// channel values: five 16-byte members (PosSize, Color, VelLife, Age, Ids), 80 B.
+// the product as InitialSpriteSize, which SizeOverLife scales every step. The pool slot carries none of it
+// (VFX-SPRITE-DRAW: id + alive flag, 8 B); the size is the SpriteSize attribute the sprite draw reads.
 TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 {
     const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
@@ -2048,9 +2072,9 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
     EXPECT_NE( simulate.find( "none.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
          << "a particle not from a channel no longer gets size scale 1";
     const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "uvec4 Ids;" ), std::string::npos ) << "struct Particle lost the id it carries";
-    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 80u )
-         << "struct Particle is five 16-byte members (PosSize, Color, VelLife, Age, Ids)";
+    EXPECT_NE( state.find( "uint Id;" ), std::string::npos ) << "the pool slot lost the id it carries";
+    EXPECT_EQ( Desert::Graphic::System::kParticleSlotStride, 8u )
+         << "the pool slot is the id and the alive flag, none of the particle's data";
     const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
                                          "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
     EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )
@@ -2059,25 +2083,35 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
-    // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size
-    // pass it — which was exactly the state Д26 left behind, one copy having gained a meaning for Age.yzw
-    // that the other did not know about. Sizes are what a stride can see; MEANING is not, and the only
-    // way to assert it is that there is one text.
+    // WHY THE EQUALITIES ABOVE ARE NOT ENOUGH. Two independent declarations that happen to be the same size
+    // pass them — which was exactly the state Д26 left behind. Sizes are what a stride can see; MEANING is not,
+    // and the only way to assert it is that there is one text: the pool slot for the two stages that keep the
+    // pool, the draw layout and its readers for the two that read the particle.
     //
-    // Membership rather than absence of the word `struct`, because what must hold is that both stages
-    // COMPILE the shared header — a second declaration alongside it would not even build.
-    const auto simulate = CollectShaderIncludes(
-         StageSource( ShaderPath( "Particles/ParticleSimulate.shader" ), ShaderStage::Compute ),
-         ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    const auto billboard =
-         CollectShaderIncludes( StageSource( ShaderPath( "Particles/ParticleSpriteDefault.shader" ),
-                                             ShaderStage::Vertex, kParticleSpriteCell ),
-                                ShaderPath( "Particles/ParticleSpriteDefault.shader" ) );
+    // VFX-SPRITE-DRAW, the relation that broke: the sprite draw read a per-step COPY of the drawn attributes
+    // (the 80-byte `struct Particle`) instead of the stack's columns. Its closure must not hold the pool slot at
+    // all - a renderer reads the particle where the simulation wrote it (UE: the sprite vertex factory over the
+    // emitter's data buffer), never through a second record.
+    const auto closure = [&]( const char* shader, ShaderStage stage, const std::string& cell = {} )
+    { return CollectShaderIncludes( StageSource( ShaderPath( shader ), stage, cell ), ShaderPath( shader ) ); };
+    const auto simulate = closure( "Particles/ParticleSimulate.shader", ShaderStage::Compute );
+    const auto compact  = closure( "Particles/ParticleCompact.shader", ShaderStage::Compute );
+    const auto sort     = closure( "Particles/ParticleSort.shader", ShaderStage::Compute );
+    const auto sprite =
+         closure( "Particles/ParticleSpriteDefault.shader", ShaderStage::Vertex, kParticleSpriteCell );
 
     EXPECT_TRUE( ClosureNames( simulate, "ParticleState.glslh" ) )
-         << "the simulation declares the particle layout itself again";
-    EXPECT_TRUE( ClosureNames( billboard, "ParticleState.glslh" ) )
-         << "the billboard draw declares the particle layout itself again";
+         << "the simulation declares the pool slot itself again";
+    EXPECT_TRUE( ClosureNames( compact, "ParticleState.glslh" ) )
+         << "the compact declares the pool slot itself again";
+    EXPECT_TRUE( ClosureNames( sprite, "ParticleDrawRead.glslh" ) )
+         << "the sprite draw no longer reads the particle through the emitter's draw layout";
+    EXPECT_TRUE( ClosureNames( sort, "ParticleDrawRead.glslh" ) )
+         << "the sort no longer reads the particle through the emitter's draw layout";
+    EXPECT_FALSE( ClosureNames( sprite, "ParticleState.glslh" ) )
+         << "the sprite draw reads a pool record again instead of the stack's attribute columns";
+    EXPECT_FALSE( ClosureNames( sort, "ParticleState.glslh" ) )
+         << "the sort reads a pool record again instead of the stack's attribute columns";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )

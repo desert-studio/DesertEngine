@@ -147,10 +147,10 @@ namespace Desert::Graphic::System
         // This view's imports of the scene's pool.
         struct ViewPool
         {
-            RDG::ExternalBuffer ParticlesImport;
+            RDG::ExternalBuffer SlotsImport;
             RDG::ExternalBuffer FreeImport;
             RDG::ExternalBuffer AliveImport;
-            RDG::BufferRef      ParticlesRef;
+            RDG::BufferRef      SlotsRef;
             RDG::BufferRef      FreeRef;
             RDG::BufferRef      AliveRef;
             bool                Declared = false;
@@ -169,10 +169,13 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         ArgsImport;
             RDG::ExternalBuffer         ChannelImport; // Spawn from Channel particles, read by Spawn+Update
             RDG::BufferRef              ChannelRef;
-            RDG::ExternalBuffer         FloatsImport; // the emitter's stack: attribute columns, parameters, curves
+            // The emitter's stack: attribute columns (also read by the sort and the draw), parameters, curves.
+            RDG::ExternalBuffer         FloatsImport;
             RDG::ExternalBuffer         IntsImport;
             RDG::ExternalBuffer         ParamsImport;
             RDG::ExternalBuffer         CurvesImport;
+            RDG::ExternalBuffer         DrawLayoutImport; // where the sort and the draw read the drawn attributes
+            RDG::BufferRef              DrawLayoutRef;
             RDG::BufferRef              FloatsRef;
             RDG::BufferRef              IntsRef;
             RDG::BufferRef              ParamsRef;

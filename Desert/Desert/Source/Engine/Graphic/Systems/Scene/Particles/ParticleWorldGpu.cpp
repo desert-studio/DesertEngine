@@ -32,25 +32,49 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // The attributes the host draws from, each with the one type it reads it as
-        // (Generated/VFXEmitterStack.glslh).
+        // THE ONE TABLE of the attributes a renderer reads (UE: the sprite renderer's attribute bindings), each
+        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xy). The
+        // sprite vertex path and the sort read them out of the emitter's columns through
+        // Common/ParticleDrawRead.glslh.
         struct DrawnAttribute
         {
             std::string_view  Name;
-            std::string_view  Define;
             VFX::VFXValueType Type;
+            uint32_t          Lane;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
-             { "Position", "VFX_ATTR_POSITION", VFX::VFXValueType::Vec3 },
-             { "SpriteSize", "VFX_ATTR_SPRITESIZE", VFX::VFXValueType::Vec2 },
-             { "Color", "VFX_ATTR_COLOR", VFX::VFXValueType::Vec4 },
-             { "Age", "VFX_ATTR_AGE", VFX::VFXValueType::Float },
-             { "Lifetime", "VFX_ATTR_LIFETIME", VFX::VFXValueType::Float },
-             { "Velocity", "VFX_ATTR_VELOCITY", VFX::VFXValueType::Vec3 },
+             { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
+             { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
+             { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
         };
 
+        // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
+        // refused by name (drawn at its default), never read as the wrong number of components.
+        ParticleDrawLayoutGpu DrawColumnsOf( const VFX::VFXCompiledEmitter& compiled, const uint32_t entityId,
+                                             const std::string& emitter )
+        {
+            ParticleDrawLayoutGpu columns;
+            for ( const DrawnAttribute& drawn : kDrawnAttributes )
+            {
+                const auto* a = compiled.Layout.Find( drawn.Name );
+                if ( a == nullptr )
+                    continue;
+                if ( a->Type != drawn.Type )
+                {
+                    LOG_ERROR(
+                         "[VFX] entity {} emitter '{}' draws {} at its default: the stack declares it {}, the "
+                         "sprite renderer reads {}",
+                         entityId, emitter, drawn.Name, VFX::GlslTypeName( a->Type ),
+                         VFX::GlslTypeName( drawn.Type ) );
+                    continue;
+                }
+                ( drawn.Lane < 4 ? columns.Columns0 : columns.Columns1 )[drawn.Lane % 4] = a->FloatStart;
+            }
+            return columns;
+        }
+
         // The bytes Generated/VFXEmitterStack.glslh becomes for one compiled stack: its Particle block, then where
-        // the host finds each attribute it draws from.
+        // the host finds the Position it places a newborn by.
         Common::ResultStr<std::string> StackHostSource( const VFX::VFXCompiledEmitter& compiled )
         {
             const auto parsed = Core::Preprocess::DShaderParser::Parse( compiled.ShaderText );
@@ -58,9 +82,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError<std::string>( parsed.GetError() );
             std::string source = parsed.GetValue().Meta.ParticleSource;
             source += '\n';
-            for ( const DrawnAttribute& drawn : kDrawnAttributes )
-                if ( const auto* a = compiled.Layout.Find( drawn.Name ); a != nullptr && a->Type == drawn.Type )
-                    source += std::format( "#define {} {}u\n", drawn.Define, a->FloatStart );
+            if ( const auto* a = compiled.Layout.Find( "Position" );
+                 a != nullptr && a->Type == VFX::VFXValueType::Vec3 )
+                source += std::format( "#define VFX_ATTR_POSITION {}u\n", a->FloatStart );
             return Common::MakeSuccess( std::move( source ) );
         }
 
@@ -93,7 +117,7 @@ namespace Desert::Graphic::System
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
         return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.AttributeFloats &&
-               e.AttributeInts && e.Params && e.Curves;
+               e.AttributeInts && e.Params && e.Curves && e.DrawLayout;
     }
 
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
@@ -170,23 +194,26 @@ namespace Desert::Graphic::System
              "VFXStackParams", static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ), 8 );
         gpu.Curves = ShaderResources::StorageBuffer::Create(
              "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
+        gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name );
+        gpu.DrawLayout =
+             ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
     }
 
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
     {
-        if ( particles <= m_Pool.Capacity && m_Pool.Particles )
+        if ( particles <= m_Pool.Capacity && m_Pool.Slots )
             return true;
         // Grown to at least double, so a scene adding emitters one by one recreates the pool a logarithmic number
         // of times. The contents are not carried over: every emitter restarts (compact 0 resets its range).
         const uint32_t capacity = std::max( particles, m_Pool.Capacity * 2u );
         m_Pool                  = {};
-        m_Pool.Particles = ShaderResources::StorageBuffer::Create( "ParticlePool", capacity * kParticleStride, 1,
-                                                                   /*persistent=*/true );
+        m_Pool.Slots = ShaderResources::StorageBuffer::Create( "ParticleSlots", capacity * kParticleSlotStride, 1,
+                                                               /*persistent=*/true );
         m_Pool.FreeList  = ShaderResources::StorageBuffer::Create( "ParticleFreeList", capacity * 4u, 2, true );
         // Two alive lists per range (ping-pong halves): a compact reads the half the previous compact wrote.
         m_Pool.AliveList = ShaderResources::StorageBuffer::Create( "ParticleAliveList", capacity * 8u, 2, true );
-        if ( !m_Pool.Particles || !m_Pool.FreeList || !m_Pool.AliveList )
+        if ( !m_Pool.Slots || !m_Pool.FreeList || !m_Pool.AliveList )
         {
             LOG_ERROR( "[Particles] the scene's pool of {} particles could not be created: no emitter runs",
                        capacity );
@@ -364,6 +391,18 @@ namespace Desert::Graphic::System
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its counters did not upload: {}", entityId,
                        counted.GetError() );
+            return false;
+        }
+
+        // Where this tick's draw finds the particles: the compiled columns, the range they are strided by, and the
+        // emitter position a Local emitter's particles are drawn around (the one the simulation placed them by).
+        ParticleDrawLayoutGpu layout = gpu.DrawColumns;
+        layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
+        layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
+        if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
+        {
+            LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
+                       drawn.GetError() );
             return false;
         }
 
