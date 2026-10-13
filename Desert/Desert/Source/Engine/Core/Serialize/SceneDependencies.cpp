@@ -56,7 +56,8 @@ namespace Desert::Core
         void AddAssetGuid( const Common::Json::Value& value, std::vector<std::string>& out )
         {
             if ( const auto text = value.to_string(); text.has_value() && !text.value().empty() )
-                if ( const auto guid = Common::Content::AssetGuidFromText( text.value() ); guid.IsSuccess() && !guid.GetValue().IsNull() )
+                if ( const auto guid = Common::Content::AssetGuidFromText( text.value() );
+                     guid.IsSuccess() && !guid.GetValue().IsNull() )
                     out.push_back( text.value() );
         }
 
