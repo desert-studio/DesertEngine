@@ -2,6 +2,7 @@
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
 namespace Desert::Assets
@@ -19,14 +20,14 @@ namespace Desert::Assets
         // form DERIVED from it (UE: FStaticMeshRenderData from the source models via the DDC). The DDC answers
         // with the MeshBinary container, built on a miss where a builder is registered (the editor). A file
         // that is not a mesh asset is refused there by name; there is no second reader for the old cook.
-        const auto raw = LoadMeshPlatformData( m_Metadata.Filepath );
+        const auto raw = LoadMeshPlatformDataKeyed( m_Metadata.Filepath );
         if ( !raw )
             return Common::MakeError( raw.GetError() );
 
         // ONE READER, ONE FORM: the render data is the binary container, decoded in one place that is
         // testable without a filesystem.
         const auto dataReflected =
-             Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );
+             Serialization::ReadMeshAssetData( raw.GetValue().Bytes, m_Metadata.Filepath.string() );
         if ( !dataReflected )
         {
             return Common::MakeError( dataReflected.GetError() );
@@ -130,6 +131,15 @@ namespace Desert::Assets
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
         m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
+        // THE MESH'S DISTANCE FIELD, derived from exactly this render data (its key is the render key's): a
+        // DDC hit, or built here where the editor registered the builder. A mesh that has one but cannot read
+        // it fails to load by name rather than drawing with a hole in every distance-field trace.
+        auto field = LoadMeshDistanceField( m_Metadata.Filepath, raw.GetValue().Key, [this]
+                                            { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes ); } );
+        if ( !field )
+            return Common::MakeError( field.GetError() );
+        m_DistanceField = field.ExtractValue();
+
         m_IsReadyForUse = true;
         return BOOLSUCCESS;
     }
@@ -144,6 +154,7 @@ namespace Desert::Assets
         // two omissions together did to a reload; either one alone was harmless, which is why neither was
         // noticed.
         m_MaterialAssetHandles.clear();
+        m_DistanceField.reset();
 
         m_Vertices.shrink_to_fit();
         m_Indices.shrink_to_fit();

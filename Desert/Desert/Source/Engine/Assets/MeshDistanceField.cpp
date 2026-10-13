@@ -1,0 +1,287 @@
+#include <Engine/Assets/MeshDistanceField.hpp>
+
+#include <algorithm>
+#include <bit>
+#include <cstring>
+#include <format>
+#include <mutex>
+
+namespace Desert::Assets
+{
+    namespace
+    {
+        constexpr char kDfMagic[8] = { 'D', 'E', 'S', 'T', 'M', 'S', 'D', 'F' };
+
+        std::mutex               s_DfBuilderMutex;
+        MeshDistanceFieldBuilder s_DfBuilder;
+
+        // Little-endian fixed-width writer/reader: the container is read on the platform that did not write it.
+        void DfPutBytes( std::string& out, const void* data, const size_t size )
+        {
+            out.append( static_cast<const char*>( data ), size );
+        }
+        void DfPutU32( std::string& out, const uint32_t v )
+        {
+            const uint8_t b[4] = { static_cast<uint8_t>( v ), static_cast<uint8_t>( v >> 8 ),
+                                   static_cast<uint8_t>( v >> 16 ), static_cast<uint8_t>( v >> 24 ) };
+            DfPutBytes( out, b, 4 );
+        }
+        void DfPutF32( std::string& out, const float v )
+        {
+            DfPutU32( out, std::bit_cast<uint32_t>( v ) );
+        }
+
+        class DfReader
+        {
+        public:
+            explicit DfReader( const std::string_view bytes ) : m_Bytes( bytes )
+            {
+            }
+            bool U32( uint32_t& v )
+            {
+                if ( m_Bytes.size() - m_At < 4 )
+                    return false;
+                const auto* p = reinterpret_cast<const uint8_t*>( m_Bytes.data() + m_At );
+                v             = static_cast<uint32_t>( p[0] ) | ( static_cast<uint32_t>( p[1] ) << 8 ) |
+                    ( static_cast<uint32_t>( p[2] ) << 16 ) | ( static_cast<uint32_t>( p[3] ) << 24 );
+                m_At += 4;
+                return true;
+            }
+            bool F32( float& v )
+            {
+                uint32_t u = 0;
+                if ( !U32( u ) )
+                    return false;
+                v = std::bit_cast<float>( u );
+                return true;
+            }
+            bool Raw( void* out, const size_t size )
+            {
+                if ( m_Bytes.size() - m_At < size )
+                    return false;
+                std::memcpy( out, m_Bytes.data() + m_At, size );
+                m_At += size;
+                return true;
+            }
+            [[nodiscard]] size_t Remaining() const
+            {
+                return m_Bytes.size() - m_At;
+            }
+
+        private:
+            std::string_view m_Bytes;
+            size_t           m_At = 0;
+        };
+    } // namespace
+
+    uint32_t MeshDistanceFieldData::TotalBrickCount() const
+    {
+        uint32_t total = 0;
+        for ( const auto& mip : Mips )
+            total += mip.BrickCount();
+        return total;
+    }
+
+    glm::vec3 MeshDistanceFieldData::VolumePositionExtent() const
+    {
+        return ( LocalSpaceMeshBounds.Max - LocalSpaceMeshBounds.Min ) * 0.5f * LocalToVolumeScale();
+    }
+
+    float MeshDistanceFieldData::LocalToVolumeScale() const
+    {
+        const glm::vec3 extent  = ( LocalSpaceMeshBounds.Max - LocalSpaceMeshBounds.Min ) * 0.5f;
+        const float     largest = std::max( { extent.x, extent.y, extent.z } );
+        return largest > 0.0f ? 1.0f / largest : 0.0f;
+    }
+
+    MeshDistanceFieldBuildInput MeshDistanceFieldInputOf( const std::vector<Vertex>&  vertices,
+                                                          const std::vector<Index>&   indices,
+                                                          const std::vector<Submesh>& submeshes )
+    {
+        // LOD0 of every submesh (UE builds the field from LOD0's render data). A submesh's LOD0 is its own index
+        // range when it carries no LOD chain, and LODs[0] when it does. Vertices are copied per submesh because
+        // two submeshes may share a vertex range under different transforms.
+        MeshDistanceFieldBuildInput input;
+        for ( const auto& sm : submeshes )
+        {
+            const uint32_t indexOffset = sm.LODs.empty() ? sm.IndexOffset : sm.LODs.front().IndexOffset;
+            const uint32_t indexCount  = sm.LODs.empty() ? sm.IndexCount : sm.LODs.front().IndexCount;
+            // Index records are triangles: IndexOffset/IndexCount count indices, three per record.
+            const uint32_t firstTri = indexOffset / 3;
+            const uint32_t triCount = indexCount / 3;
+            const uint32_t base     = static_cast<uint32_t>( input.Positions.size() );
+            const uint32_t vBegin   = sm.VertexOffset;
+            const uint32_t vEnd =
+                 std::min<uint32_t>( sm.VertexOffset + sm.VertexCount, static_cast<uint32_t>( vertices.size() ) );
+            for ( uint32_t v = vBegin; v < vEnd; ++v )
+                input.Positions.push_back( glm::vec3( sm.Transform * glm::vec4( vertices[v].Position, 1.0f ) ) );
+            for ( uint32_t t = firstTri; t < firstTri + triCount && t < indices.size(); ++t )
+            {
+                const Index& tri = indices[t];
+                // Indices are relative to the submesh's vertex range.
+                const uint32_t a = tri.V1, b = tri.V2, c = tri.V3;
+                if ( a >= vEnd - vBegin || b >= vEnd - vBegin || c >= vEnd - vBegin )
+                    continue;
+                input.Indices.push_back( base + a );
+                input.Indices.push_back( base + b );
+                input.Indices.push_back( base + c );
+            }
+        }
+        return input;
+    }
+
+    std::string EncodeMeshDistanceField( const MeshDistanceFieldData& data )
+    {
+        std::string out;
+        DfPutBytes( out, kDfMagic, sizeof( kDfMagic ) );
+        DfPutU32( out, kMeshDistanceFieldFormatVersion );
+        DfPutU32( out, kDistanceFieldNumMips );
+        for ( int i = 0; i < 3; ++i )
+            DfPutF32( out, data.LocalSpaceMeshBounds.Min[i] );
+        for ( int i = 0; i < 3; ++i )
+            DfPutF32( out, data.LocalSpaceMeshBounds.Max[i] );
+        for ( const auto& mip : data.Mips )
+        {
+            for ( int i = 0; i < 3; ++i )
+                DfPutU32( out, mip.IndirectionDimensions[i] );
+            DfPutU32( out, mip.BrickCount() );
+            DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.x );
+            DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.y );
+            for ( int i = 0; i < 3; ++i )
+                DfPutF32( out, mip.VolumeToVirtualUVScale[i] );
+            for ( int i = 0; i < 3; ++i )
+                DfPutF32( out, mip.VolumeToVirtualUVAdd[i] );
+            for ( const uint32_t entry : mip.IndirectionTable )
+                DfPutU32( out, entry );
+            DfPutBytes( out, mip.BrickData.data(), mip.BrickData.size() );
+        }
+        return out;
+    }
+
+    Common::ResultStr<MeshDistanceFieldData> DecodeMeshDistanceField( const std::string_view bytes )
+    {
+        DfReader reader( bytes );
+        char   magic[8]{};
+        if ( !reader.Raw( magic, sizeof( magic ) ) || std::memcmp( magic, kDfMagic, sizeof( kDfMagic ) ) != 0 )
+            return Common::MakeError<MeshDistanceFieldData>( "not a mesh distance field (magic is not DESTMSDF)" );
+        uint32_t version = 0, mipCount = 0;
+        if ( !reader.U32( version ) || version != kMeshDistanceFieldFormatVersion )
+            return Common::MakeFormattedError<MeshDistanceFieldData>(
+                 "mesh distance field version {} is not the supported {}", version,
+                 kMeshDistanceFieldFormatVersion );
+        if ( !reader.U32( mipCount ) || mipCount != kDistanceFieldNumMips )
+            return Common::MakeFormattedError<MeshDistanceFieldData>(
+                 "mesh distance field states {} mips, the format has {}", mipCount, kDistanceFieldNumMips );
+        MeshDistanceFieldData data;
+        bool                  ok = true;
+        for ( int i = 0; i < 3; ++i )
+            ok = ok && reader.F32( data.LocalSpaceMeshBounds.Min[i] );
+        for ( int i = 0; i < 3; ++i )
+            ok = ok && reader.F32( data.LocalSpaceMeshBounds.Max[i] );
+        for ( uint32_t m = 0; ok && m < kDistanceFieldNumMips; ++m )
+        {
+            auto&    mip    = data.Mips[m];
+            uint32_t bricks = 0;
+            for ( int i = 0; i < 3; ++i )
+                ok = ok && reader.U32( mip.IndirectionDimensions[i] );
+            ok = ok && reader.U32( bricks ) && reader.F32( mip.DistanceFieldToVolumeScaleBias.x ) &&
+                 reader.F32( mip.DistanceFieldToVolumeScaleBias.y );
+            for ( int i = 0; i < 3; ++i )
+                ok = ok && reader.F32( mip.VolumeToVirtualUVScale[i] );
+            for ( int i = 0; i < 3; ++i )
+                ok = ok && reader.F32( mip.VolumeToVirtualUVAdd[i] );
+            if ( !ok )
+                break;
+            const uint64_t cells = static_cast<uint64_t>( mip.IndirectionDimensions.x ) *
+                                   mip.IndirectionDimensions.y * mip.IndirectionDimensions.z;
+            const uint64_t brickBytes = static_cast<uint64_t>( bricks ) * kDistanceFieldBrickVoxels;
+            if ( cells * 4 + brickBytes > reader.Remaining() )
+                return Common::MakeFormattedError<MeshDistanceFieldData>(
+                     "mesh distance field mip {} states {} cells and {} bricks, more than the {} bytes left", m,
+                     cells, bricks, reader.Remaining() );
+            mip.IndirectionTable.resize( cells );
+            for ( auto& entry : mip.IndirectionTable )
+            {
+                ok = ok && reader.U32( entry );
+                if ( ok && entry != kDistanceFieldInvalidBrick && entry >= bricks )
+                    return Common::MakeFormattedError<MeshDistanceFieldData>(
+                         "mesh distance field mip {} names brick {} of {}", m, entry, bricks );
+            }
+            mip.BrickData.resize( brickBytes );
+            ok = ok && reader.Raw( mip.BrickData.data(), mip.BrickData.size() );
+        }
+        if ( !ok )
+            return Common::MakeError<MeshDistanceFieldData>( "mesh distance field is truncated" );
+        if ( reader.Remaining() != 0 )
+            return Common::MakeFormattedError<MeshDistanceFieldData>( "mesh distance field has {} trailing bytes",
+                                                                      reader.Remaining() );
+        return Common::MakeSuccess( std::move( data ) );
+    }
+
+    uint64_t MeshDistanceFieldDerivedDataKey( const uint64_t                        renderDataKey,
+                                              const MeshDistanceFieldBuildSettings& settings )
+    {
+        std::string image;
+        DfPutU32( image, kMeshDistanceFieldBuilderVersion );
+        DfPutU32( image, kMeshDistanceFieldFormatVersion );
+        DfPutF32( image, settings.VoxelDensity );
+        DfPutU32( image, settings.MaxPerMeshResolution );
+        DfPutF32( image, settings.ResolutionScale );
+        return Common::DDC::MakeKey( kMeshDistanceFieldDeriver, renderDataKey, image.data(), image.size() );
+    }
+
+    void SetMeshDistanceFieldBuilder( MeshDistanceFieldBuilder builder )
+    {
+        const std::lock_guard<std::mutex> lock( s_DfBuilderMutex );
+        s_DfBuilder = std::move( builder );
+    }
+
+    Common::ResultStr<std::string> BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input )
+    {
+        auto built = BuildMeshDistanceField( input, MeshDistanceFieldBuildSettings{} );
+        if ( !built.IsSuccess() )
+            return Common::MakeError<std::string>( built.GetError() );
+        return Common::MakeSuccess( EncodeMeshDistanceField( built.GetValue() ) );
+    }
+
+    Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
+    LoadMeshDistanceField( const std::filesystem::path& asset, const uint64_t renderDataKey,
+                           const std::function<MeshDistanceFieldBuildInput()>& input )
+    {
+        using Result       = std::shared_ptr<const MeshDistanceFieldData>;
+        const uint64_t key = MeshDistanceFieldDerivedDataKey( renderDataKey, MeshDistanceFieldBuildSettings{} );
+        MeshDistanceFieldBuilder builder;
+        {
+            const std::lock_guard<std::mutex> lock( s_DfBuilderMutex );
+            builder = s_DfBuilder;
+        }
+        std::string bytes;
+        if ( !builder )
+        {
+            auto hit = Common::DDC::Get( kMeshDistanceFieldDeriver, key );
+            if ( !hit.has_value() )
+                return Common::MakeFormattedError<Result>(
+                     "mesh asset '{}' has no distance field under DDC key {:016x} ({}), and this build cannot "
+                     "derive it: the package was cooked without it",
+                     asset.string(), key,
+                     Common::DDC::RelativePath( kMeshDistanceFieldDeriver, key ).generic_string() );
+            bytes = std::move( *hit );
+        }
+        else
+        {
+            auto derived = Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
+                                                    [&builder, &input] { return builder( input() ); } );
+            if ( !derived.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "mesh asset '{}': distance field: {}", asset.string(),
+                                                           derived.GetError() );
+            bytes = derived.ExtractValue();
+        }
+        auto decoded = DecodeMeshDistanceField( bytes );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeFormattedError<Result>(
+                 "mesh asset '{}': cached distance field {:016x} is corrupt: {}", asset.string(), key,
+                 decoded.GetError() );
+        return Common::MakeSuccess<Result>(
+             std::make_shared<const MeshDistanceFieldData>( decoded.ExtractValue() ) );
+    }
+} // namespace Desert::Assets

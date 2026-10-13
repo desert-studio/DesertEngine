@@ -479,6 +479,62 @@ namespace Desert::Graphic
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
     }
+
+    void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
+                                                         const RDG::TextureRef target )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const auto  it           = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        const Core::Camera* camera = m_SceneInfo.ActiveCamera;
+        if ( meshRenderer == nullptr || camera == nullptr || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
+                       meshRenderer == nullptr ? "no MeshSystem"
+                       : camera == nullptr     ? "no active camera"
+                                               : "the frame has no post input" );
+            return;
+        }
+        if ( !m_GlobalDistanceField )
+        {
+            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
+            if ( const auto initialized = field->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceField = std::move( field );
+        }
+
+        // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
+        // off-screen too (a trace leaves the frustum).
+        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        for ( const auto& draw : meshRenderer->GetStaticQueue() )
+            if ( draw.Mesh != nullptr && draw.Mesh->GetDistanceField() )
+                objects.push_back( { draw.Mesh->GetDistanceField(), draw.Transform } );
+        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+            if ( ism.Mesh != nullptr && ism.Mesh->GetDistanceField() && ism.Transforms )
+                for ( const glm::mat4& world : *ism.Transforms )
+                    objects.push_back( { ism.Mesh->GetDistanceField(), world } );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        const auto frame = m_GlobalDistanceField->AddUpdatePasses( graph, import, camera->GetPosition(), objects );
+        if ( !frame )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", frame.GetError() );
+            return;
+        }
+        const glm::mat4 inverseViewProjection =
+             glm::inverse( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, frame.GetValue(), target,
+                                                                         EngineClearColor(), inverseViewProjection );
+             !drawn )
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
+    }
 #endif // DESERT_DEV_INSTRUMENTS
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,

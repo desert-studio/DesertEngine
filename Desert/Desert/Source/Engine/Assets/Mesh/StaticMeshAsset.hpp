@@ -6,6 +6,8 @@
 
 namespace Desert::Assets
 {
+    struct MeshDistanceFieldData;
+
     class StaticMeshAsset final : public MeshAsset
     {
     public:
@@ -54,6 +56,12 @@ namespace Desert::Assets
             return m_IsReadyForUse;
         }
 
+        // The mesh's signed distance field (MeshDistanceField.hpp), loaded with the render data.
+        [[nodiscard]] const std::shared_ptr<const MeshDistanceFieldData>& GetDistanceField() const
+        {
+            return m_DistanceField;
+        }
+
     private:
         std::vector<Vertex>       m_Vertices;
         std::vector<Index>        m_Indices;
@@ -61,6 +69,7 @@ namespace Desert::Assets
         std::vector<MorphTarget>  m_MorphTargets;
         std::vector<MeshVertexStreams> m_VertexStreams;
         std::vector<Common::UUID> m_MaterialAssetHandles;
+        std::shared_ptr<const MeshDistanceFieldData> m_DistanceField;
 
         bool m_IsReadyForUse = false;
     };

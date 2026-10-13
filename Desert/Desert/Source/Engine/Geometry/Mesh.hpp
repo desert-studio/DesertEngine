@@ -9,8 +9,14 @@
 
 #include <Common/Core/ResultWithCodes.hpp>
 
+#include <memory>
 #include <optional>
 #include <unordered_map>
+
+namespace Desert::Assets
+{
+    struct MeshDistanceFieldData;
+} // namespace Desert::Assets
 
 namespace Desert
 {
@@ -65,6 +71,18 @@ namespace Desert
         }
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
+
+        // The mesh's signed distance field (Assets::MeshDistanceFieldData), shared with the asset it was loaded
+        // with; null for a mesh that has none (skinned, procedural). What the GPU scene's distance-field atlas
+        // uploads (Graphic/DistanceField), keyed by this pointer.
+        [[nodiscard]] const std::shared_ptr<const Assets::MeshDistanceFieldData>& GetDistanceField() const
+        {
+            return m_DistanceField;
+        }
+        void SetDistanceField( std::shared_ptr<const Assets::MeshDistanceFieldData> field )
+        {
+            m_DistanceField = std::move( field );
+        }
 
         // THE GPU BUFFERS ARE THE RENDERER'S COPY OF THE CPU GEOMETRY, BUILT WHERE A RENDERER EXISTS. A mesh
         // whose data was set or edited without a device (headless, server, tests, a game-thread write) only
@@ -121,5 +139,6 @@ namespace Desert
         std::shared_ptr<Graphic::IndexBuffer>   m_IndexBuffer;
         std::vector<std::vector<TriangleCache>> m_TriangleCache;
         std::vector<Submesh>                    m_Submeshes;
+        std::shared_ptr<const Assets::MeshDistanceFieldData> m_DistanceField;
     };
 } // namespace Desert
