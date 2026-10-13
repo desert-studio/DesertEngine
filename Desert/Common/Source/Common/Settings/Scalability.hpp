@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 
 #include <array>
 #include <cstddef>
@@ -82,9 +83,8 @@ namespace Common::Scalability
     // data file gives it levels - a group slider that moves nothing is a dead setting.
     //
     // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
-    // feature the engine does not have yet (TAA quality, ray-traced shadows/reflections/GI, upscaler sharpening,
-    // texture streaming). The loader validates it like any row, Resolve passes it through (range + catalog), but
-    // nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
+    // feature the engine does not have yet (TAA quality, texture streaming). The loader validates it like any row,
+    // Resolve passes it through (range + catalog), but nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
     // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
     // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
     enum class Parameter : int
@@ -109,13 +109,18 @@ namespace Common::Scalability
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
+        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
+        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
+        // not a request, and the resolution never lands on an unimplemented method.
+        GlobalIlluminationMethod, // Values: GIMethod
+        ReflectionsMethod,        // Values: ReflectionMethod
+        ShadowsMethod,            // Values: ShadowMethod
         // ---- placeholders (Reader = nullopt) ----
-        TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
-        TextureStreamingPoolMiB,      // Textures: resident texture budget
-        ShadowRayTracing,             // Shadows: RayTracingMode
-        GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
-        ReflectionRayTracing,         // Reflections: RayTracingMode
-        TemporalAAQuality,            // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
+        TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
+        TextureStreamingPoolMiB, // Textures: resident texture budget
+        TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
                                       // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,            // ResolutionScale: percent
         Count
@@ -137,7 +142,6 @@ namespace Common::Scalability
         Upscalers,
         RenderScale,
         AnisotropyLevels,
-        RayTracingModes,
     };
 
     // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range

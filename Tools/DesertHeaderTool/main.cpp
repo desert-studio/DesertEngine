@@ -94,6 +94,7 @@ namespace
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
         bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
+        std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
     };
 
     struct Field
@@ -489,6 +490,8 @@ namespace
                 m.saveGame = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "Refuse", 0 ) == 0 )
+                m.refuse = ExtractStringLiteral( tok );
             else if ( tok == "Length" )
                 m.isLength = true;
         }
@@ -1100,6 +1103,7 @@ namespace
         flag( "preview", m.preview );
         flag( "saveGame", m.saveGame );
         text( "editCondition", m.editCondition );
+        text( "refuse", m.refuse );
         return b.Build();
     }
 

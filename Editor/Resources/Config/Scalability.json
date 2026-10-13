@@ -138,75 +138,75 @@
                 "Shadows.Cascades": 2,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 8000,
-                "Shadows.RayTracing": "None"
+                "Shadows.Method": "CascadedMaps"
             },
             "Medium": {
                 "Shadows.Cascades": 3,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 10000,
-                "Shadows.RayTracing": "None"
+                "Shadows.Method": "CascadedMaps"
             },
             "High": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
-                "Shadows.RayTracing": "None"
+                "Shadows.Method": "VirtualMaps"
             },
             "Epic": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 20000,
-                "Shadows.RayTracing": "None"
+                "Shadows.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 30000,
-                "Shadows.RayTracing": "None"
+                "Shadows.Method": "Stochastic"
             }
         },
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.Samples": 8,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "ScreenSpace"
             },
             "Medium": {
                 "GlobalIllumination.Samples": 16,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "ReflectiveShadowMaps"
             },
             "High": {
                 "GlobalIllumination.Samples": 32,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "HardwareTraced"
             },
             "Epic": {
                 "GlobalIllumination.Samples": 48,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "GlobalIllumination.Samples": 64,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "PathTraced"
             }
         },
         "Reflections": {
             "Low": {
                 "Reflections.MaxSteps": 12,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "ScreenSpace"
             },
             "Medium": {
                 "Reflections.MaxSteps": 20,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "ScreenSpace"
             },
             "High": {
                 "Reflections.MaxSteps": 32,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "HardwareTraced"
             },
             "Epic": {
                 "Reflections.MaxSteps": 48,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 64,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "PathTraced"
             }
         },
         "PostProcess": {

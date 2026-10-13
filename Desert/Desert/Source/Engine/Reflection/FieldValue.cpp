@@ -1,5 +1,6 @@
 #include <Engine/Reflection/FieldValue.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <format>
@@ -197,6 +198,24 @@ namespace Desert::Reflection
              std::format( "{} is {}: it has no Value form", Where( field ), FieldTypeName( field.Type ) ) );
     }
 
+    std::string RefusalOf( const FieldInfo& field, std::int64_t value )
+    {
+        if ( field.Type == FieldType::Enum && !field.EnumValues.empty() &&
+             std::none_of( field.EnumValues.begin(), field.EnumValues.end(),
+                           [value]( const EnumValue& e ) { return e.Value == value; } ) )
+            return std::format( "{} has no enumerator {}", Where( field ), value );
+        if ( field.Meta.Refuse == nullptr )
+            return {};
+        const std::string_view reason = field.Meta.Refuse( value );
+        if ( reason.empty() )
+            return {};
+        if ( field.Type == FieldType::Enum )
+            for ( const EnumValue& e : field.EnumValues )
+                if ( e.Value == value )
+                    return std::format( "{} {}: {}", Where( field ), e.Name, reason );
+        return std::format( "{} {}: {}", Where( field ), value, reason );
+    }
+
     Common::BoolResultStr WriteField( const FieldInfo& field, void* object, const Value& value )
     {
         if ( field.Meta.ReadOnly )
@@ -211,15 +230,26 @@ namespace Desert::Reflection
                                                          FieldTypeName( field.Type ),
                                                          FieldTypeName( value.Type() ) ) );
 
+        const auto admitted = [&]( std::int64_t stored ) -> Common::BoolResultStr
+        {
+            if ( std::string refusal = RefusalOf( field, stored ); !refusal.empty() )
+                return Common::MakeError<bool>( std::move( refusal ) );
+            return Common::MakeSuccess( true );
+        };
+
         char* at = static_cast<char*>( object ) + field.Offset;
         switch ( field.Type )
         {
             case FieldType::Bool:
+                if ( auto ok = admitted( *value.Get<bool>() ? 1 : 0 ); !ok )
+                    return ok;
                 Store<bool>( at, *value.Get<bool>() );
                 return Common::MakeSuccess( true );
             case FieldType::Int:
                 return StoreSigned( field, at, *value.Get<std::int64_t>() );
             case FieldType::Enum:
+                if ( auto ok = admitted( value.Get<Value::EnumBits>()->Bits ); !ok )
+                    return ok;
                 return StoreSigned( field, at, value.Get<Value::EnumBits>()->Bits );
             case FieldType::UInt:
                 return StoreUnsigned( field, at, *value.Get<std::uint64_t>() );

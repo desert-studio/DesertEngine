@@ -261,7 +261,9 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );
     EXPECT_EQ( v.Post.SSRMaxDistance, 2500.0f );
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );
-    EXPECT_EQ( v.Post.GlobalIllumination, Core::GIMode::RSM );
+    // GIMode 2 (RSM) lifted at v36 and re-stated as the method at v52; EnableSSR true as the screen-space method.
+    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIMethod::ReflectiveShadowMaps );
+    EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionMethod::ScreenSpace );
     EXPECT_TRUE( v.Post.EnableBloom );
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
