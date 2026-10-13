@@ -9,7 +9,9 @@
 // surface and not the volume. The sign is a crossing-parity vote along the three lattice axes: a sample is inside
 // along an axis when an odd number of surfaces lies on BOTH sides of it on that axis line, and inside overall when
 // two of the three axes agree - which keeps an open sheet (a facade without a back, a ground plane) from turning
-// the half-space behind it negative, the case UE's backface quarter guards against.
+// the half-space behind it negative, the case UE's backface quarter guards against. A TWO-SIDED triangle (its
+// section's material is two-sided: foliage cards, leaves, awnings) never votes, as UE's IsHitTwoSided never counts
+// a backface: it bounds no volume, so the samples around it carry the distance to its surface and stay outside.
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <algorithm>
@@ -119,6 +121,8 @@ namespace Desert::Assets
         {
             std::vector<glm::dvec3> Positions;
             std::vector<glm::uvec3> Triangles;
+            // Per triangle: 1 = its material is two-sided, so it takes no part in the inside/outside vote.
+            std::vector<uint8_t> TwoSided;
         };
 
         double TriangleDistance( const SdfMesh& mesh, const int t, const glm::dvec3& p )
@@ -205,9 +209,12 @@ namespace Desert::Assets
             const int nu = lattice.N[u], nv = lattice.N[v], na = lattice.N[axis];
             // crossings[(row) * (na + 1) + slot]: slot s counts crossings between lattice points s-1 and s.
             std::vector<uint16_t> crossings( static_cast<size_t>( nu ) * nv * ( na + 1 ), 0 );
-            for ( const glm::uvec3& tri : mesh.Triangles )
+            for ( size_t t = 0; t < mesh.Triangles.size(); ++t )
             {
-                const glm::dvec3 p[3] = { mesh.Positions[tri.x], mesh.Positions[tri.y], mesh.Positions[tri.z] };
+                if ( mesh.TwoSided[t] != 0 )
+                    continue;
+                const glm::uvec3& tri  = mesh.Triangles[t];
+                const glm::dvec3  p[3] = { mesh.Positions[tri.x], mesh.Positions[tri.y], mesh.Positions[tri.z] };
                 const double     lu   = std::min( { p[0][u], p[1][u], p[2][u] } );
                 const double     hu   = std::max( { p[0][u], p[1][u], p[2][u] } );
                 const double     lv   = std::min( { p[0][v], p[1][v], p[2][v] } );
@@ -276,6 +283,10 @@ namespace Desert::Assets
         if ( input.Indices.size() % 3 != 0 )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
                  "distance field: {} indices are not whole triangles", input.Indices.size() );
+        if ( input.TriangleTwoSided.size() != input.Indices.size() / 3 )
+            return Common::MakeFormattedError<MeshDistanceFieldData>(
+                 "distance field: {} two-sided flags for {} triangles", input.TriangleTwoSided.size(),
+                 input.Indices.size() / 3 );
         if ( !( settings.VoxelDensity > 0.0f ) || settings.MaxPerMeshResolution < kDistanceFieldUniqueBrickSize ||
              !( settings.ResolutionScale > 0.0f ) )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
@@ -295,6 +306,7 @@ namespace Desert::Assets
                      "distance field: triangle {} names vertex {} of {}", i / 3,
                      std::max( { tri.x, tri.y, tri.z } ), mesh.Positions.size() );
             mesh.Triangles.push_back( tri );
+            mesh.TwoSided.push_back( input.TriangleTwoSided[i / 3] );
         }
 
         MeshDistanceFieldData out;

@@ -94,16 +94,21 @@ namespace Desert::Assets
         return largest > 0.0f ? 1.0f / largest : 0.0f;
     }
 
-    MeshDistanceFieldBuildInput MeshDistanceFieldInputOf( const std::vector<Vertex>&  vertices,
+    Common::ResultStr<MeshDistanceFieldBuildInput> MeshDistanceFieldInputOf( const std::vector<Vertex>&  vertices,
                                                           const std::vector<Index>&   indices,
-                                                          const std::vector<Submesh>& submeshes )
+                                                          const std::vector<Submesh>& submeshes,
+                                                          const std::vector<uint8_t>& submeshTwoSided )
     {
         // LOD0 of every submesh (UE builds the field from LOD0's render data). A submesh's LOD0 is its own index
         // range when it carries no LOD chain, and LODs[0] when it does. Vertices are copied per submesh because
         // two submeshes may share a vertex range under different transforms.
+        if ( submeshTwoSided.size() != submeshes.size() )
+            return Common::MakeFormattedError<MeshDistanceFieldBuildInput>(
+                 "distance field: {} two-sided flags for {} submeshes", submeshTwoSided.size(), submeshes.size() );
         MeshDistanceFieldBuildInput input;
-        for ( const auto& sm : submeshes )
+        for ( size_t s = 0; s < submeshes.size(); ++s )
         {
+            const Submesh& sm = submeshes[s];
             const uint32_t indexOffset = sm.LODs.empty() ? sm.IndexOffset : sm.LODs.front().IndexOffset;
             const uint32_t indexCount  = sm.LODs.empty() ? sm.IndexCount : sm.LODs.front().IndexCount;
             // Index records are triangles: IndexOffset/IndexCount count indices, three per record.
@@ -125,9 +130,10 @@ namespace Desert::Assets
                 input.Indices.push_back( base + a );
                 input.Indices.push_back( base + b );
                 input.Indices.push_back( base + c );
+                input.TriangleTwoSided.push_back( submeshTwoSided[s] != 0 ? 1 : 0 );
             }
         }
-        return input;
+        return Common::MakeSuccess( std::move( input ) );
     }
 
     std::string EncodeMeshDistanceField( const MeshDistanceFieldData& data )
@@ -219,7 +225,8 @@ namespace Desert::Assets
     }
 
     uint64_t MeshDistanceFieldDerivedDataKey( const uint64_t                        renderDataKey,
-                                              const MeshDistanceFieldBuildSettings& settings )
+                                              const MeshDistanceFieldBuildSettings& settings,
+                                              const std::vector<uint8_t>&           submeshTwoSided )
     {
         std::string image;
         DfPutU32( image, kMeshDistanceFieldBuilderVersion );
@@ -227,6 +234,11 @@ namespace Desert::Assets
         DfPutF32( image, settings.VoxelDensity );
         DfPutU32( image, settings.MaxPerMeshResolution );
         DfPutF32( image, settings.ResolutionScale );
+        // The materials' sidedness shapes the sign (UE keys the field on each section's bTwoSided): turning a
+        // material two-sided re-derives every mesh drawing it, with no change to the mesh's render data.
+        DfPutU32( image, static_cast<uint32_t>( submeshTwoSided.size() ) );
+        for ( const uint8_t twoSided : submeshTwoSided )
+            DfPutU32( image, twoSided != 0 ? 1u : 0u );
         return Common::DDC::MakeKey( kMeshDistanceFieldDeriver, renderDataKey, image.data(), image.size() );
     }
 
@@ -246,10 +258,12 @@ namespace Desert::Assets
 
     Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
     LoadMeshDistanceField( const std::filesystem::path& asset, const uint64_t renderDataKey,
-                           const std::function<MeshDistanceFieldBuildInput()>& input )
+                           const std::vector<uint8_t>&                         submeshTwoSided,
+                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input )
     {
-        using Result       = std::shared_ptr<const MeshDistanceFieldData>;
-        const uint64_t key = MeshDistanceFieldDerivedDataKey( renderDataKey, MeshDistanceFieldBuildSettings{} );
+        using Result = std::shared_ptr<const MeshDistanceFieldData>;
+        const uint64_t key =
+             MeshDistanceFieldDerivedDataKey( renderDataKey, MeshDistanceFieldBuildSettings{}, submeshTwoSided );
         MeshDistanceFieldBuilder builder;
         {
             const std::lock_guard<std::mutex> lock( s_DfBuilderMutex );
@@ -270,7 +284,13 @@ namespace Desert::Assets
         else
         {
             auto derived = Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
-                                                    [&builder, &input] { return builder( input() ); } );
+                                                    [&builder, &input]() -> Common::ResultStr<std::string>
+                                                    {
+                                                        auto in = input();
+                                                        if ( !in.IsSuccess() )
+                                                            return Common::MakeError<std::string>( in.GetError() );
+                                                        return builder( in.GetValue() );
+                                                    } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': distance field: {}", asset.string(),
                                                            derived.GetError() );

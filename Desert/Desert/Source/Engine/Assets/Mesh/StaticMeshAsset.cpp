@@ -3,6 +3,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
 namespace Desert::Assets
@@ -67,6 +68,7 @@ namespace Desert::Assets
         // reload — so a reload whose whole purpose is to pick up an edited file would silently keep the
         // old bindings, and the vector would grow by N on every cycle.
         m_MaterialAssetHandles.clear();
+        m_MaterialGuids.clear();
 
         m_Vertices.reserve( data.StaticVertices.size() );
         m_Indices.reserve( data.Indices.size() );
@@ -118,6 +120,7 @@ namespace Desert::Assets
                 submesh.BakedLODs.push_back( std::move( tris ) );
             }
 
+            m_MaterialGuids.push_back( s.MaterialGuid );
             m_MaterialAssetHandles.emplace_back(
                  s.MaterialGuid.IsNull() ? Common::UUID::Null()
                                          : Common::UUID( static_cast<uint64_t>(
@@ -131,14 +134,10 @@ namespace Desert::Assets
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
         m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
-        // THE MESH'S DISTANCE FIELD, derived from exactly this render data (its key is the render key's): a
-        // DDC hit, or built here where the editor registered the builder. A mesh that has one but cannot read
-        // it fails to load by name rather than drawing with a hole in every distance-field trace.
-        auto field = LoadMeshDistanceField( m_Metadata.Filepath, raw.GetValue().Key, [this]
-                                            { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes ); } );
-        if ( !field )
-            return Common::MakeError( field.GetError() );
-        m_DistanceField = field.ExtractValue();
+        // The distance field is keyed on this render data; ResolveDependencies derives it once the materials load.
+        m_RenderDataKey = raw.GetValue().Key;
+        m_DistanceField.reset();
+        m_DependenciesResolved = false;
 
         m_IsReadyForUse = true;
         return BOOLSUCCESS;
@@ -155,6 +154,9 @@ namespace Desert::Assets
         // noticed.
         m_MaterialAssetHandles.clear();
         m_DistanceField.reset();
+        m_MaterialGuids.clear();
+        m_MaterialGuids.shrink_to_fit();
+        m_DependenciesResolved = false;
 
         m_Vertices.shrink_to_fit();
         m_Indices.shrink_to_fit();
@@ -168,6 +170,47 @@ namespace Desert::Assets
         // parse, so an emptied asset that still reports "ready" is one nobody will ever reload.
         m_IsReadyForUse = false;
         return BOOLSUCCESS;
+    }
+
+    void StaticMeshAsset::ResolveDependencies( AssetManager& manager )
+    {
+        m_DistanceField.reset();
+        // An unread shell has no render data yet; AssetBase::EnsureLoaded runs this again after the read.
+        if ( !m_IsReadyForUse )
+            return;
+        m_DependenciesResolved = true;
+
+        // EVERY SUBMESH'S MATERIAL SIDEDNESS, the field's second input. A slot naming no material draws the
+        // engine's Default Surface (MeshECSSystem::DefaultInstance), a one-sided template.
+        std::vector<uint8_t> twoSided( m_MaterialGuids.size(), 0 );
+        for ( size_t i = 0; i < m_MaterialGuids.size(); ++i )
+        {
+            if ( m_MaterialGuids[i].IsNull() )
+                continue;
+            const auto sided = ResolveMaterialTwoSided( manager, m_MaterialGuids[i] );
+            if ( !sided )
+            {
+                LOG_ERROR( "StaticMeshAsset '{}': submesh {} has no distance field material sidedness ({}); the "
+                           "mesh is left out of every distance-field trace",
+                           m_Metadata.Filepath.string(), i, sided.GetError() );
+                return;
+            }
+            twoSided[i] = sided.GetValue() ? 1 : 0;
+        }
+
+        // THE MESH'S DISTANCE FIELD, derived from exactly this render data and these materials: a DDC hit, or
+        // built here where the editor registered the builder. One that cannot be had is an error naming the mesh,
+        // never a field guessed from a different input.
+        auto field = LoadMeshDistanceField( m_Metadata.Filepath, m_RenderDataKey, twoSided, [this, &twoSided]
+                                            { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes,
+                                                                               twoSided ); } );
+        if ( !field )
+        {
+            LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
+                       m_Metadata.Filepath.string(), field.GetError() );
+            return;
+        }
+        m_DistanceField = field.ExtractValue();
     }
 
 } // namespace Desert::Assets

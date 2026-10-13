@@ -222,7 +222,17 @@ namespace Desert::Runtime
             ready = false;
         }
         if ( !entry.Asset->IsSkinned() )
+        {
+            // A static mesh read by the async loader was never resolved (Load, not EnsureLoaded): its distance
+            // field waits on its materials, which only the manager can load. IsSkinned() is false, and only
+            // StaticMeshAsset answers it so.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto& staticMesh = static_cast<Assets::StaticMeshAsset&>( *entry.Asset );
+            if ( ready && !staticMesh.AreDependenciesResolved() )
+                if ( const auto manager = m_AssetManager.lock() )
+                    staticMesh.ResolveDependencies( *manager );
             return ready;
+        }
 
         // THE RIG IS NAMED BY THE REGISTRY, NOT FOUND BY A SEARCH. The mesh row's Rig tag is the signature
         // its header states and the skeleton row states the same one, so the rig is requested beside the

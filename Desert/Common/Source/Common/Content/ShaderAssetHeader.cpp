@@ -217,6 +217,13 @@ namespace Common::Content
                 inImport                = true;
                 continue;
             }
+            // A Surface setting is a line of its own, matched without case as DShaderParser matches it.
+            if ( line.size() == 8 && std::ranges::equal( line, std::string_view( "twosided" ), []( char a, char b )
+                                                         { return std::tolower( static_cast<unsigned char>( a ) ) == b; } ) )
+            {
+                manifest.TwoSided = true;
+                continue;
+            }
             if ( const auto role = word( "Role" ) )
             {
                 if ( !manifest.Role.empty() )

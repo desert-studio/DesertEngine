@@ -94,10 +94,15 @@ namespace Desert::Assets
     {
         std::vector<glm::vec3> Positions;
         std::vector<uint32_t>  Indices; // three per triangle
+        // One per triangle: 1 = the triangle's material is two-sided (UE FSignedDistanceFieldBuildSectionData::
+        // bTwoSided), so it bounds no volume and takes no part in the sign - the field around it is the
+        // distance to its surface, never a false interior behind a leaf card.
+        std::vector<uint8_t> TriangleTwoSided;
     };
-    [[nodiscard]] MeshDistanceFieldBuildInput MeshDistanceFieldInputOf( const std::vector<Vertex>&  vertices,
-                                                                        const std::vector<Index>&   indices,
-                                                                        const std::vector<Submesh>& submeshes );
+    // @p submeshTwoSided: one flag per submesh, its material's resolved two-sidedness (ResolveMaterialTwoSided).
+    [[nodiscard]] Common::ResultStr<MeshDistanceFieldBuildInput>
+    MeshDistanceFieldInputOf( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
+                              const std::vector<Submesh>& submeshes, const std::vector<uint8_t>& submeshTwoSided );
 
     // The builder (MeshDistanceFieldBuild.cpp). Deterministic for the same input and settings.
     [[nodiscard]] Common::ResultStr<MeshDistanceFieldData>
@@ -114,11 +119,13 @@ namespace Desert::Assets
     // different bytes for the same input).
     inline constexpr Common::DDC::Deriver kMeshDistanceFieldDeriver{
          "MeshDistanceField", ".msdf", { 0x6E1D4B2A93C750F8ULL, 0xB47A0C3E5D9F2816ULL } };
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 1;
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 2; // 2: two-sided triangles do not vote
 
-    // Render-data key (MeshAssetDerivedDataKey) + settings + builder version -> this bucket's key.
+    // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
+    // sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshDistanceFieldDerivedDataKey( uint64_t                              renderDataKey,
-                                                            const MeshDistanceFieldBuildSettings& settings );
+                                                            const MeshDistanceFieldBuildSettings& settings,
+                                                            const std::vector<uint8_t>&           submeshTwoSided );
 
     // Where a builder is registered (the editor: SetMeshDistanceFieldBuilder at startup), a miss builds and Puts;
     // a packaged game registers none, and a miss there is an error naming the asset and the key.
@@ -132,5 +139,6 @@ namespace Desert::Assets
     // DDC hit, or build (single-flight per key) and Put. @p input is called only on a miss.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
     LoadMeshDistanceField( const std::filesystem::path& asset, uint64_t renderDataKey,
-                           const std::function<MeshDistanceFieldBuildInput()>& input );
+                           const std::vector<uint8_t>&                                            submeshTwoSided,
+                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input );
 } // namespace Desert::Assets
