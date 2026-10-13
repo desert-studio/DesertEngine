@@ -19,7 +19,10 @@ namespace Desert::Graphic::ShaderProtocols
         float     Radius;    // 28
         float     MinRadius; // 32
         int32_t   Falloff;   // 36  (LightFalloff)
-        float     _pad0 = 0.0f;
+        // The light's first row in the view's local shadow table (LocalShadowViewPayload; a point light's six
+        // faces are that row and the five after it), or kNoLocalShadowView. Written by
+        // MeshRenderer::UpdateLocalShadows, never by the light system.
+        int32_t   ShadowView = -1;   // 40
         float     _pad1 = 0.0f; // -> 48
     };
 

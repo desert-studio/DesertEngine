@@ -53,6 +53,9 @@ namespace Desert::Graphic
         // two cubes (invalid when the scene has no baked sky) and the renderer's split-sum BRDF LUT. Never read
         // directly: a pass takes SceneViewInputsOf, which states the neutral texture for each one that is absent.
         std::array<RDG::TextureRef, kSceneViewShadowCascades> ShadowCascades;
+        // The view's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: the renderer owns
+        // it and keeps cached tiles in it across frames). Invalid while no light of the view has cast a shadow.
+        RDG::TextureRef                                       LocalShadowAtlas;
         RDG::TextureRef                                       EnvIrradiance;
         RDG::TextureRef                                       EnvSpecular;
         RDG::TextureRef                                       BrdfLut;
@@ -95,6 +98,9 @@ namespace Desert::Graphic
         RDG::TextureRef                                       EnvSpecular; // prefiltered cube, or System.BlackCube
         RDG::TextureRef                                       BrdfLut;     // split-sum LUT, or System.Black
         RDG::TextureRef                                       CloudShadowMap; // CloudShadowMapOrWhite
+        // The point/spot shadow atlas, or System.White (depth 1 everywhere = "no occluder"; no light then names a
+        // view of it, so it is never read).
+        RDG::TextureRef LocalShadowAtlas;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -107,7 +113,8 @@ namespace Desert::Graphic
             };
             for ( const RDG::TextureRef map : ShadowMaps )
                 add( map );
-            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap } )
+            for ( const RDG::TextureRef ref :
+                  { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, LocalShadowAtlas } )
                 add( ref );
             return refs;
         }
@@ -121,6 +128,7 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
     inline constexpr std::string_view kSceneViewCloudShadowMapName = "u_CloudShadowMap";
+    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -132,6 +140,7 @@ namespace Desert::Graphic
         inputs.EnvSpecular    = t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube;
         inputs.BrdfLut        = t.BrdfLut.IsValid() ? t.BrdfLut : refs.System.Black;
         inputs.CloudShadowMap = CloudShadowMapOrWhite( refs );
+        inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         return inputs;
     }
 
@@ -176,6 +185,8 @@ namespace Desert::Graphic
             bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLutName, inputs.BrdfLut, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewCloudShadowMapName, inputs.CloudShadowMap, RDG::SamplerDesc::LinearRepeat() );
+            // Read with texelFetch (Mesh/LocalLightShadow.glslh filters by hand inside each tile).
+            bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, RDG::SamplerDesc::PointClamp() );
         }
 
         template <typename Samples>
@@ -185,7 +196,8 @@ namespace Desert::Graphic
                 if ( samples( name ) )
                     return true;
             return samples( kSceneViewEnvIrradianceName ) || samples( kSceneViewEnvSpecularName ) ||
-                   samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName );
+                   samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName ) ||
+                   samples( kSceneViewLocalShadowAtlasName );
         }
     } // namespace SceneViewDetail
 

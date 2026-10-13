@@ -126,6 +126,10 @@ namespace Desert::Graphic
         {
             const std::vector<SystemRasterPass> cascades = mesh->ShadowCascadePasses();
             AddSystemRasters( graph, textures, cascades, true );
+            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
+            // light and casters stood still keeps last frame's depth (it has no pass at all).
+            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            AddSystemRasters( graph, textures, local, false );
         }
     }
 
