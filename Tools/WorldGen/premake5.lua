@@ -28,6 +28,7 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp", -- RefusalOf: the serializer's one admission rule for enum values
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp", -- FieldTypeName, called by FieldValue
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
