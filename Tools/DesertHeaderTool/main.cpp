@@ -10,6 +10,7 @@
 //   DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]
 //                    [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]
 //                               [--reflect-root <source-root> <scan-subdir>]...
+//                               [--reflect-enums <scan-dir>]...
 //                               [--reflect-components <output-file>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
@@ -23,6 +24,9 @@
 //     --reflect-components <output-file>  after --reflect: the COMPONENT(...) block list.
 //     --reflect-root <source-root> <scan-subdir>  after --reflect: one more tree scanned into the SAME set
 //                    (a library the engine links whose headers carry reflected types, e.g. DesertUI).
+//     --reflect-enums <scan-dir>  after --reflect: a tree read for ENUM definitions only (no reflected types),
+//                    so a reflected field may be typed with an enum declared there (Common/Settings: the
+//                    render methods). Without it such a field is classified Struct and never serialized.
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
@@ -425,8 +429,11 @@ namespace
         std::string tail = t;
         if ( auto pos = t.rfind( "::" ); pos != std::string::npos ) tail = t.substr( pos + 2 );
 
+        // A qualified spelling names one enum: its exact FQN wins over a short-name match elsewhere.
         for ( const auto& e : enums )
-            if ( e.fqn == t || e.shortName == t || e.shortName == tail ) return &e;
+            if ( e.fqn == t ) return &e;
+        for ( const auto& e : enums )
+            if ( e.shortName == t || e.shortName == tail ) return &e;
         return nullptr;
     }
 
@@ -1309,6 +1316,8 @@ namespace
         // types (--reflect-root): DesertUI's UI/Args since UI-FW-4. All of them land in ONE generated set,
         // each type in the module its header's place in the repository names.
         std::vector<ReflectRoot> Roots;
+        // Trees read for enum definitions only (--reflect-enums): pass 1 below, never pass 2.
+        std::vector<fs::path> EnumRoots;
         fs::path Output; // the module list; the per-module files are written beside it
         // The force-link function the module list defines. The engine's is ForceLinkGeneratedReflection; a second
         // generated set linked into the same image (a test fixture's) names its own (--reflect-anchor).
@@ -1379,6 +1388,20 @@ namespace
         std::vector<EnumDef> enums;
         for ( const auto& [h, root] : headers )
             CollectEnums( StripComments( ReadFile( h ) ), enums );
+        for ( const fs::path& enumRoot : request.EnumRoots )
+        {
+            if ( !fs::exists( enumRoot ) )
+            {
+                std::cerr << "[DesertHeaderTool] enum root does not exist: " << enumRoot << "\n";
+                return 1;
+            }
+            for ( const auto& entry : fs::recursive_directory_iterator( enumRoot ) )
+            {
+                const auto ext = entry.path().extension().string();
+                if ( entry.is_regular_file() && ( ext == ".hpp" || ext == ".h" ) )
+                    CollectEnums( StripComments( ReadFile( entry.path() ) ), enums );
+            }
+        }
 
         // Pass 2: reflected types, resolving enum field types against the collected enums.
         std::vector<ReflectedType>  types;
@@ -1504,7 +1527,7 @@ static int RunTool( int argc, char** argv )
         else if ( arg == "--reflect" && left >= 3 )
         {
             const fs::path root = argv[i + 1];
-            reflect             = ReflectRequest{ { ReflectRoot{ root, root / argv[i + 2] } }, argv[i + 3] };
+            reflect = ReflectRequest{ .Roots = { ReflectRoot{ root, root / argv[i + 2] } }, .Output = argv[i + 3] };
             i += 3;
         }
         else if ( arg == "--reflect-root" && left >= 2 && reflect )
@@ -1513,6 +1536,8 @@ static int RunTool( int argc, char** argv )
             reflect->Roots.push_back( ReflectRoot{ root, root / argv[i + 2] } );
             i += 2;
         }
+        else if ( arg == "--reflect-enums" && left >= 1 && reflect )
+            reflect->EnumRoots.emplace_back( argv[++i] );
         else if ( arg == "--reflect-anchor" && left >= 1 && reflect )
             reflect->Anchor = argv[++i];
         else if ( arg == "--reflect-components" && left >= 1 && reflect )
@@ -1534,6 +1559,7 @@ static int RunTool( int argc, char** argv )
         std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]\n"
                      "       [--reflect <source-root> <scan-subdir> <output> [--reflect-anchor <Name>]\n"
                      "                  [--reflect-root <source-root> <scan-subdir>]...\n"
+                     "                  [--reflect-enums <scan-dir>]...\n"
                      "                  [--reflect-components <output>]]\n"
                      "       [--check <include-root>]... [--context <include-root>]...\n"
                      "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";

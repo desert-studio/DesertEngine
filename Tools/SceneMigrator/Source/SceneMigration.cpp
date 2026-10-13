@@ -3191,7 +3191,13 @@ namespace Desert::Migration
             if ( guid.IsNull() )
                 guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
                                           : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
-            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            Common::Content::TextAssetHeaderSerialized header =
+                 Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            // What the file stated it depends on stays stated: only the v50 -> v51 step (SCENE-DEPS) gathers the
+            // list, and it runs once, so a restated header without it would empty every later migration's list.
+            if ( stated )
+                header.Dependencies = stated->Dependencies;
+            return header;
         }
     } // namespace
 
