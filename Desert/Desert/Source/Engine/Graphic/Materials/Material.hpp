@@ -21,6 +21,11 @@ namespace Desert::Graphic
         // textures; null means @p shaderName's own.
         explicit Material( std::string&& debugName, std::string&& shaderName,
                            const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
+        // Over @p shader itself rather than the program registered under a name: a permutation
+        // (ShaderService::AcquireVariant) is not registered, and its bindings are its own - a define may compile
+        // a binding out, and a material built from the base program would fill a slot the permutation lacks.
+        explicit Material( std::string&& debugName, const std::shared_ptr<Shader>& shader,
+                           const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
         virtual ~Material() = default;
 
