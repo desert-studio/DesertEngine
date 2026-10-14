@@ -33,8 +33,8 @@ namespace Desert::Graphic::System
      * receivers' matrix with the light's constant depth bias folded in (Graphic::CasterViewProj), so a caster
      * that projects with it is biased like every mesh caster without knowing the bias exists. `bias` is the
      * same cascade's CascadeCasterBias: its DepthBias is the one already in `cascadeViewProj`; its SlopeBias /
-     * SlopeClamp are the slope term the caster's depth stage adds (Mesh/Surface/Pass_ShadowDepth.glslh for the
-     * mesh cells, Programs/Terrain/TerrainShadow.shader for the terrain).
+     * SlopeClamp are the slope term the caster's VERTEX stage adds (Common/ShadowCasterBias.glslh: the mesh
+     * cells' vertex headers, Programs/Terrain/TerrainVertex.glslh for the terrain).
      */
     class IShadowCaster
     {

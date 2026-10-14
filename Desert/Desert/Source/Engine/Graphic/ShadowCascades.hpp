@@ -203,9 +203,11 @@ namespace Desert::Graphic
 
     // One cascade's bias as the CASTER applies it (the receiver applies none; its normal offset is separate).
     //   DepthBias  - added to the caster's [0,1] depth: carried by the caster matrix (CasterViewProj).
-    //   SlopeBias  - multiplies the caster's depth gradient per shadow-map texel (Pass_ShadowDepth.glslh), so
-    //                SlopeBias * gradient = slope centimetres * tan(angle) in that depth's units.
-    //   SlopeClamp - the gradient at kShadowMaxSlope, where the slope term stops.
+    //   SlopeBias  - [0,1] depth per unit of tan(angle between the caster's vertex normal and the light): the
+    //                caster's VERTEX stage adds SlopeBias * min(tan, SlopeClamp) to its clip depth
+    //                (Common/ShadowCasterBias.glslh, as UE's ShadowDepthVertexShader.usf), so the slope term is
+    //                slope centimetres * tan(angle) in that depth's units and no fragment writes a depth.
+    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope.
     struct CascadeCasterBias
     {
         float DepthBias  = 0.0f;
@@ -222,8 +224,8 @@ namespace Desert::Graphic
         const float relativeTexel = fit.WorldPerTexel / nearestWorldPerTexel;
         const float scale = 1.0f + ( relativeTexel - 1.0f ) * std::clamp( settings.Distribution, 0.0f, 1.0f );
         return { .DepthBias  = settings.BiasCm * scale / fit.DepthRange,
-                 .SlopeBias  = settings.SlopeBiasCm * scale / fit.WorldPerTexel,
-                 .SlopeClamp = kShadowMaxSlope * fit.WorldPerTexel / fit.DepthRange };
+                 .SlopeBias  = settings.SlopeBiasCm * scale / fit.DepthRange,
+                 .SlopeClamp = kShadowMaxSlope };
     }
 
     // The matrix a CASTER draws a cascade with: the receivers' matrix with its depth pushed back by the

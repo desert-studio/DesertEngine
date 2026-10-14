@@ -159,7 +159,7 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 
 	// NO CONSTANT DEPTH BIAS HERE. The caster wrote its depth already pushed back by the light's bias in world
 	// centimetres (Graphic::CascadeCasterBias: constant through the caster matrix, slope in
-	// Mesh/Surface/Pass_ShadowDepth.glslh), as UE does in ShadowDepthVertexShader.usf. A bias in this
+	// the caster's vertex stage, Common/ShadowCasterBias.glslh), as UE does in ShadowDepthVertexShader.usf. A bias in this
 	// cascade's NDC depth was a world length of bias * 4R - 26 cm in cascade 0, 10 m in cascade 3.
 	float currentDepth = ndc.z;
 
