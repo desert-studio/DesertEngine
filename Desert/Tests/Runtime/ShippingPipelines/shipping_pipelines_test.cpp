@@ -440,6 +440,14 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp",
                "\"ShadowPipelineSkinned\"", Verdict::Shipped, "" },
 
+             // ── reflection captures (REFL-CAPTURE) ──────────────────────────────────────────────────
+             { "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.cpp",
+               "std::string( name )", Verdict::Shipped,
+               "ReflectionCaptureAssemble, ReflectionCaptureDownsample and ReflectionCaptureFilter from one "
+               "helper "
+               "(MakeCompute): a scene with a ReflectionCaptureComponent captures and filters its cubes in a "
+               "player" },
+
              // ── the Jump Flood outline ──────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp",
                "debugName", Verdict::Shipped,

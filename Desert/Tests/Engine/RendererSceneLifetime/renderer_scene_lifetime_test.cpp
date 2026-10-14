@@ -198,15 +198,17 @@ TEST( RendererSceneLifetime, RebindWaitsForTheDeviceBeforeItReleasesAnything )
 // cannot draw over the next one. Red if a renderer-side copy (the prefix) comes back or the bracket breaks.
 TEST( RendererSceneLifetime, TheRendererReadsExtensionPassesFromTheSceneItIsHanded )
 {
-    const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+    std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
     EXPECT_EQ( source.find( "\"External:\"" ), std::string::npos ) << "a renderer-side external-pass key is back";
+    // Spaces dropped: clang-format aligns a run of assignments, which must not read as a broken bracket.
+    std::erase( source, ' ' );
     const std::size_t begin = source.find( "SceneRenderer::BeginScene(" );
     const std::size_t end   = source.find( "SceneRenderer::EndScene()" );
     ASSERT_NE( begin, std::string::npos );
     ASSERT_NE( end, std::string::npos );
-    EXPECT_NE( source.find( "m_FrameExtensions = &scene.GetExtensionPasses();", begin ), std::string::npos )
+    EXPECT_NE( source.find( "m_FrameExtensions=&scene.GetExtensionPasses();", begin ), std::string::npos )
          << "BeginScene no longer takes the scene's extension passes";
-    EXPECT_NE( source.find( "m_FrameExtensions = nullptr;", end ), std::string::npos )
+    EXPECT_NE( source.find( "m_FrameExtensions=nullptr;", end ), std::string::npos )
          << "EndScene no longer lets go of the scene's extension passes";
 }
 

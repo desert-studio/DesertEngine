@@ -6,7 +6,7 @@
             "SCNE": 52,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["12c000f03c2926c56c6dbbd7e2620fb4"]
     },
     "SceneName": "MainMenu",
     "Entities": [

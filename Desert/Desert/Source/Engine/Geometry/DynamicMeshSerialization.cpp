@@ -417,7 +417,11 @@ namespace Desert::Geometry
                                           "UV layer " + std::to_string( layer ), 2, scratch ) ) )
                 return fail( *e );
 
-        if ( !mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) )
+        // Permissive, as UE checks a mesh it is about to process: bowtie vertices and neighbours wound against
+        // each other are legal DynamicMesh3 topology that art meshes carry (Bistro's street lights, Vespa) and the
+        // writer stores as they are; what this check refuses is a structure the rebuild got inconsistent.
+        if ( !mesh.CheckValidity( DynamicMesh3::ValidityOptions::Permissive(),
+                                  ValidityCheckFailMode::ReturnOnly ) )
         {
             // Name the part that fails: a layer when one does, the triangles and vertices otherwise.
             constexpr auto kQuiet = ValidityCheckFailMode::ReturnOnly;

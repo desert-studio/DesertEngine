@@ -104,9 +104,12 @@ namespace Desert::Core
                                          { Collect( element, assetsRoot, out ); } );
                     break;
                 case Common::Json::Kind::String:
-                    if ( auto guid = StatedPathGuid( node.AsString().GetValue(), assetsRoot ) )
+                {
+                    const auto text = node.AsString(); // the node's kind is String: this answers
+                    if ( auto guid = StatedPathGuid( text.GetValue(), assetsRoot ) )
                         out.push_back( std::move( *guid ) );
                     break;
+                }
                 default:
                     break;
             }

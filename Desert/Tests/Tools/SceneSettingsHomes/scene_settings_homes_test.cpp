@@ -221,11 +221,14 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
 
     auto scene        = Parse( kSceneV32 );
     const auto all          = Reflection::SerializeReflected( *type, &stated );
-    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur): no Settings block ever stated them, so
-    // the step has no key for them. A field added to the grade must be added to the step or named here.
-    constexpr std::array<std::string_view, 7> kBornAfterTheStep = {
+    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods): no Settings
+    // block ever stated them, so the step has no key for them (the methods replace GlobalIllumination/EnableSSR,
+    // which the step moves and SCNE 53 converts). A field added to the grade must be added to the step or named
+    // here.
+    constexpr std::array<std::string_view, 12> kBornAfterTheStep = {
          "DepthOfFieldFocalDistance", "DepthOfFieldFstop", "DepthOfFieldSensorWidth", "DepthOfFieldMaxBokehSize",
-         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS" };
+         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS",     "GlobalIlluminationMethod",
+         "ReflectionsMethod",         "ShadowsMethod",     "ContactShadows",          "DistanceFieldShadows" };
     for ( const std::string_view key : kBornAfterTheStep )
         ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
     rfl::Generic::Object block;

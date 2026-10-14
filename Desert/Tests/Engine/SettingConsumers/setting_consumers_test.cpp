@@ -612,12 +612,29 @@ namespace
          // An EDITOR-ONLY visualisation flag, deliberately: it draws the radius gizmo and reaches no
          // shader at all, so the gizmo renderer is the honest consumer to name.
          { "ShowRadius", kLightGizmo },
+         // SHADOW-LOCAL: the light system hands all four to the local shadow atlas as LocalLightShadowSettings.
+         { "CastShadows", kPointLight },
+         { "ShadowBias", kPointLight },
+         { "ShadowSlopeBias", kPointLight },
+         { "ShadowResolutionScale", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
-         { "Color", kSpotLight },          { "Intensity", kSpotLight },      { "Range", kSpotLight },
-         { "InnerConeAngle", kSpotLight }, { "OuterConeAngle", kSpotLight }, { "Falloff", kSpotLight },
+         { "Color", kSpotLight },           { "Intensity", kSpotLight },
+         { "Range", kSpotLight },           { "InnerConeAngle", kSpotLight },
+         { "OuterConeAngle", kSpotLight },  { "Falloff", kSpotLight },
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
+         { "CastShadows", kSpotLight },     { "ShadowBias", kSpotLight },
+         { "ShadowSlopeBias", kSpotLight }, { "ShadowResolutionScale", kSpotLight },
+    };
+
+    // REFL-CAPTURE: every field is packed by ReflectionCaptureRenderer's gather into the capture's GPU row.
+    constexpr const char* kReflectionCaptures =
+         "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.cpp";
+    constexpr Row kReflectionCaptureRows[] = {
+         { "Shape", kReflectionCaptures },         { "InfluenceRadius", kReflectionCaptures },
+         { "BoxExtent", kReflectionCaptures },     { "BoxTransitionDistance", kReflectionCaptures },
+         { "CaptureOffset", kReflectionCaptures }, { "Brightness", kReflectionCaptures },
     };
 
     // The placed system and its activation are read where its emitters are planned (VFXWorld::Tick).
@@ -1173,6 +1190,7 @@ namespace
          { "PointLightData", "PointLightComponent", nullptr, CENSUS_ROWS( kPointLightRows ) },
          { "SpotLightData", "SpotLightComponent", nullptr, CENSUS_ROWS( kSpotLightRows ) },
          { "VFXComponentData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
+         { "ReflectionCaptureData", "ReflectionCaptureComponent", nullptr, CENSUS_ROWS( kReflectionCaptureRows ) },
          // The one component whose reflected type IS the component: there is no `Data` member to hop
          // through, so it anchors on its own name.
          { "SkyboxComponent", nullptr, nullptr, CENSUS_ROWS( kSkyboxRows ) },
@@ -1236,6 +1254,18 @@ namespace
     };
 
 #undef CENSUS_ROWS
+
+    // SCRIPT VALUE TYPES (SCR-PORT): structs a script library function returns, reflected so a language can
+    // read them (ReflectedStruct<T>). No component holds one and no Details panel shows one, so they have no
+    // setting to consume; the language binder reads every field generically.
+    constexpr std::string_view kScriptValueTypes[] = { "HitResult", "WorldRay", "LanguageInfo" };
+
+    // A SCRIPT LIBRARY (SCR-PORT: Engine/Libraries) is reflected for its FUNCTIONS and exposes no field, so
+    // there is nothing for a consumer table to name.
+    bool IsFunctionLibrary( const TypeInfo& type )
+    {
+        return type.Fields.empty() && !type.Functions.empty();
+    }
 
     // ------------------------------------------------------------------------------------------------
     // KNOWN DEBT. Every setting that is exposed and read by NOTHING, one line each, by name.
@@ -1349,8 +1379,15 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
 {
     const auto& all = ReflectionRegistry::Get().All();
 
+    std::size_t outside = 0;
     for ( const auto& [name, info] : all )
     {
+        if ( IsFunctionLibrary( info ) ||
+             std::ranges::find( kScriptValueTypes, std::string_view( name ) ) != std::end( kScriptValueTypes ) )
+        {
+            ++outside;
+            continue;
+        }
         const bool covered = std::any_of( std::begin( kCensus ), std::end( kCensus ),
                                           [&name]( const Census& c ) { return name == c.Type; } );
         EXPECT_TRUE( covered ) << name
@@ -1364,7 +1401,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
 
     // The count is pinned as well as the membership, because the two fail differently: a type that loses
     // its REFLECT() drops out of `all` silently, and only the number says so.
-    EXPECT_EQ( all.size(), std::size( kCensus ) );
+    for ( const std::string_view name : kScriptValueTypes )
+        EXPECT_NE( ReflectionRegistry::Get().Find( std::string( name ) ), nullptr )
+             << name << " is listed as a script value type but is no longer reflected";
+    EXPECT_EQ( all.size(), std::size( kCensus ) + outside );
     // 37 -> 38 with Ю13's UIStyleData, -> 39 with Ю12's UIOverlayData and UIOverlayTriggerData. Each row
     // is in kCensus above and every field of each is WIRED, so the number moved because the register did,
     // which is the only reason this literal may ever be edited. NEITHER BRANCH'S NUMBER IS RIGHT ALONE:
@@ -1433,7 +1473,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 66 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
     // -> 67 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
     // -> 69 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
-    EXPECT_EQ( all.size(), 69u );
+    // -> 90 on int/b16: REFL-CAPTURE's ReflectionCaptureData (kReflectionCaptureRows) and SCR-PORT's 17 function
+    // libraries and 3 script value types (outside the census, above). Read off the run.
+    EXPECT_EQ( all.size(), 90u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

@@ -251,10 +251,16 @@ TEST( SceneViewCost, TheEcsIsWalkedOnceAndOnlyTheGpuPassesAreMultiplied )
          << "the per-view GPU loop lost its profile scope; the ECS/GPU split is no longer measurable.";
     EXPECT_LT( ecs, viewLoop ) << "the ECS pass must finish before any view records.";
 
-    // The recorded command buffers are REPLAYED per view (ExecuteAll does not consume the arena), so this
-    // call belongs inside the loop and there must be exactly one of it.
-    EXPECT_EQ( CountOf( code, "buffer->ExecuteAll(" ), 1u );
-    EXPECT_LT( viewLoop, code.find( "buffer->ExecuteAll(" ) )
+    // The recorded command buffers are REPLAYED per view (ExecuteAll does not consume the arena): once inside
+    // the view loop, and once more for the scene's reflection-capture faces (REFL-CAPTURE), which are frames
+    // of their own fed the same recorded draws, closed before any view opens. Nowhere else.
+    EXPECT_EQ( CountOf( code, "buffer->ExecuteAll(" ), 2u );
+    const auto captures = code.find( "RenderCaptureViews(" );
+    ASSERT_NE( captures, std::string::npos );
+    EXPECT_LT( captures, code.find( "buffer->ExecuteAll(" ) )
+         << "the first replay must be the reflection-capture faces' (the lambda handed to RenderCaptureViews)";
+    EXPECT_LT( code.find( "buffer->ExecuteAll(" ), viewLoop ) << "the capture faces render before any view opens";
+    EXPECT_LT( viewLoop, code.rfind( "buffer->ExecuteAll(" ) )
          << "the draw replay must be inside the per-view loop, or only one view gets the frame's draws.";
 
     // ONE VIEW'S FRAME IS ONE CONTIGUOUS SEQUENCE, and this is the assertion that costs the most to
