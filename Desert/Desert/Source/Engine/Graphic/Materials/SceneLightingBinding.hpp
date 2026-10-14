@@ -133,11 +133,13 @@ namespace Desert::Graphic
     /// view-projections, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3. No depth
     /// bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
     /// tan(SourceAngle / 2) and CascadeDepthRange each cascade's depth span: the soft shadow's penumbra
-    /// (Mesh/CascadedShadow.glslh).
+    /// (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
+    /// (Common/ContactShadow.glslh).
     inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
                                  bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
-                                 float sourceTanHalf, bool lightingDebug )
+                                 float sourceTanHalf, bool lightingDebug,
+                                 const SceneResources::ContactShadowSettings& contact )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
             return;
@@ -159,6 +161,7 @@ namespace Desert::Graphic
         data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
         data.CascadeTexelWorld = cascadeWorldPerTexel;
         data.CascadeDepthRange = cascadeDepthRange;
+        SceneResources::PackContactShadow( data, contact );
 
         if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

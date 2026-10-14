@@ -387,6 +387,9 @@ namespace Desert::Graphic
         inputs.GBufferB        = gbuffer[1];
         inputs.GBufferShadingWord = gbuffer[2];
         inputs.GBufferDepth       = textures.Depth( m_GBuffer, "GBuffer" );
+        // The opaque depth is final here: the forward meshes and the glass added after this node march it for
+        // their contact shadows (SceneViewInputs::SceneDepth). They draw on the scene target, not the G-buffer.
+        textures.Transients.SceneDepth = inputs.GBufferDepth;
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
@@ -403,6 +406,8 @@ namespace Desert::Graphic
             shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
             shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
         }
+        // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
+        shadow.Contact                       = GetContactShadowSettings( frame, true );
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
@@ -422,16 +427,6 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
-        // Contact shadows (Common/ContactShadow.glslh): the march's view and the sun's length. The projection's
-        // [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
-        const DeferredContactShadowInput contact{
-             .JitteredViewProjection = frame.JitteredViewProjection,
-             .Steps                  = m_ContactShadowSteps,
-             .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
-             .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
-             .SunLength              = m_SunContactShadowLength,
-             .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace };
-
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
         // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
@@ -449,7 +444,7 @@ namespace Desert::Graphic
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
-                                         cloudShadow, environment, contact );
+                                         cloudShadow, environment, frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },

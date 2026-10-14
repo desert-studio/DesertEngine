@@ -99,7 +99,7 @@ DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, ve
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
         light.Shadow = PointLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, light.L, source.contactShadowLength,
+                       ContactShadowFactor(worldPosition, N, light.L, source.contactShadowLength,
                                            source.contactShadowInWorld != 0);
     return light;
 }
@@ -110,7 +110,7 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
         light.Shadow = SpotLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, light.L, source.contactShadowLength,
+                       ContactShadowFactor(worldPosition, N, light.L, source.contactShadowLength,
                                            source.contactShadowInWorld != 0);
     return light;
 }

@@ -9,6 +9,7 @@
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -504,6 +505,14 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+
+        /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
+        /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
+        /// @p hasOpaqueDepth says whether the pass has the opaque scene depth to march: the deferred path's
+        /// G-buffer depth does; the forward path draws its opaque surfaces with no prepass, so its passes get
+        /// Steps = 0 (no march) - there is nothing in front of them for the ray to hit.
+        [[nodiscard]] SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
+                                                                                      bool hasOpaqueDepth ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is

@@ -412,8 +412,9 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 4 x vec4. Spelt out so a silently added member is visible as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 4u * 16u;
+    // 4 x mat4 + 6 x vec4 (the last two: the contact shadows). Spelt out so a silently added member is visible
+    // as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 6u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )

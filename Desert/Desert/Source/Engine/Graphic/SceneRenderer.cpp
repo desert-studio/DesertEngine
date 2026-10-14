@@ -1986,6 +1986,18 @@ namespace Desert::Graphic
                                  heroClouds ); // a profile without clouds never allocates their targets
     }
 
+    SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
+                                                                                   bool hasOpaqueDepth ) const
+    {
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        return SceneResources::ContactShadowSettings{
+             .Steps           = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .TanHalfFovY     = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
+             .DitherFrame     = static_cast<uint32_t>( frame.FrameIndex % 8u ),
+             .SunLength       = m_SunContactShadowLength,
+             .SunInWorldSpace = m_SunContactShadowLengthInWorldSpace };
+    }
+
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const
     {
         CloudShadowInput cloudShadow;

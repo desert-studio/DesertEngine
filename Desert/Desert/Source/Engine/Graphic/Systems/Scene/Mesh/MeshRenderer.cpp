@@ -453,6 +453,13 @@ namespace Desert::Graphic::System
         // records, so it is final by the time any mesh pass runs — in both render paths.
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
 
+        // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
+        // and the glass march the opaque scene depth (u_SceneDepth): the deferred path has it (the G-buffer
+        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        if ( view != nullptr )
+            frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
+                 *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
+
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
         // and ApplyTo binds them by name only into a template that does.

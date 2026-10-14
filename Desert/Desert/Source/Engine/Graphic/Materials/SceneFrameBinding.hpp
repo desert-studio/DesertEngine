@@ -71,6 +71,8 @@ namespace Desert::Graphic
         glm::vec4 CascadeDepthRange{ 1.0f }; // MeshRenderer::GetCascadeDepthRange
         float     SunSourceTanHalf = 0.0f;   // MeshRenderer::GetSunSourceTanHalf
         bool      ShadowsEnabled  = true;
+        // The view's contact shadows (SceneResources::ContactShadowSettings), packed into the same ShadowUB.
+        SceneResources::ContactShadowSettings ContactShadow{};
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;
         bool      LightingDebug   = false;

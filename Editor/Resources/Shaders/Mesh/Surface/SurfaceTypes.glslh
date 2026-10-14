@@ -94,12 +94,18 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 
 // Depth Fade (UE's DepthFade expression, "soft particles"): @p opacity scaled by how far the scene behind the pixel
 // is, over @p fadeDistance CENTIMETRES — 0 where the pixel touches the scene, @p opacity at fadeDistance or more.
-// Only the ParticleSprite cell reads the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both stages
-// of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
-// and returns the opacity unchanged, as UE's DepthFade does outside translucency.
-#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+// Only the ParticleSprite cell fades by the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both
+// stages of that cell); a mesh cell returns the opacity unchanged, as UE's DepthFade does outside translucency.
+//
+// THE SCENE DEPTH, declared here once for every fragment stage that reads it: the particle sprites (Depth Fade) and
+// the Forward cells (opaque and translucent), whose contact shadows march it (Common/ContactShadow.glslh; bound as
+// SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && \
+     ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
 layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#endif
 
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
     const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
