@@ -529,9 +529,9 @@ namespace Desert::Editor
         params.BlendRadiusKm     = std::max( 0.02f * latticeKm, 1e-3f );
         params.ResolvableChordKm = Graphic::CloudFinestResolvableChordKm( 256.0f );
 
-        // EVERY CELL ALIVE, because the preview is about the SHAPE of one cloud and not about how many
-        // there are. Coverage is a layer setting and it has its own slider in the Details panel.
-        params.Coverage = 1.0f;
+        // THE BODIES ALONE (EvaluateCloudProceduralBodies), because the preview is about the SHAPE of one cloud
+        // and not about how much of the sky is cloud: Coverage is a layer setting with its own slider in the
+        // Details panel, and the type places the same bodies at every Coverage.
 
         Assets::CloudProceduralSpecies species;
         species.Shape      = s;
@@ -542,7 +542,7 @@ namespace Desert::Editor
         const glm::vec2 origin( 0.0f, 0.0f );
 
         const std::vector<Assets::CloudProceduralLump> lumps =
-             Assets::GenerateCloudProceduralLumps( params, 0u, origin, Assets::CloudProceduralLumpSet::KeptCells );
+             Assets::GenerateCloudProceduralLumps( params, 0u, origin );
         std::vector<Assets::CloudModellingBlob> blobs;
         blobs.reserve( lumps.size() );
         for ( const Assets::CloudProceduralLump& lump : lumps )
@@ -580,9 +580,9 @@ namespace Desert::Editor
             const float fraction   = ( static_cast<float>( i ) + 0.5f ) / static_cast<float>( kPreviewSamples );
             const float altitudeKm = bottomKm + fraction * spanKm;
 
-            m_ProfileCore[i] = Assets::EvaluateCloudProceduralProfile(
+            m_ProfileCore[i] = Assets::EvaluateCloudProceduralBodies(
                  params, 0u, lumps, glm::vec3( tallest.x, altitudeKm, tallest.z ) );
-            m_ProfileEdge[i] = Assets::EvaluateCloudProceduralProfile(
+            m_ProfileEdge[i] = Assets::EvaluateCloudProceduralBodies(
                  params, 0u, lumps, glm::vec3( tallest.x + widest, altitudeKm, tallest.z ) );
         }
 
