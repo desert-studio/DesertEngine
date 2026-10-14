@@ -35,6 +35,18 @@ namespace Common
         int RepeatCount;
     };
 
+    // The key went up (GLFW_RELEASE). Routed to the same focused node its press was, so whoever keeps a key
+    // state (the player, UE UPlayerInput::KeyStateMap) sees both halves of the key from one source.
+    class KeyReleasedEvent : public KeyEvent
+    {
+    public:
+        DESERT_ROUTED_EVENT( KeyReleasedEvent, KeyReleased, Focus )
+
+        explicit KeyReleasedEvent( KeyCode keycode ) : KeyEvent( keycode )
+        {
+        }
+    };
+
     // A text-input event: the Unicode codepoint produced by a key press, already resolved for the keyboard
     // layout / modifiers (GLFW char callback). Use this for text fields, NOT KeyPressed (which is raw keys).
     class KeyTypedEvent

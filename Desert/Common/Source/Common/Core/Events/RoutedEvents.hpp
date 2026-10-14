@@ -16,9 +16,9 @@ namespace Common
         static constexpr std::size_t Count = sizeof...( Events );
     };
 
-    using RoutedEvents =
-         EventTypeList<KeyPressedEvent, KeyTypedEvent, MouseMovedEvent, MouseScrolledEvent,
-                       MouseButtonPressedEvent, EventWindowFileDrop, EventWindowResize, EventWindowClose>;
+    using RoutedEvents = EventTypeList<KeyPressedEvent, KeyReleasedEvent, KeyTypedEvent, MouseMovedEvent,
+                                       MouseScrolledEvent, MouseButtonPressedEvent, MouseButtonReleasedEvent,
+                                       EventWindowFileDrop, EventWindowResize, EventWindowClose>;
 
     namespace EventDetail
     {

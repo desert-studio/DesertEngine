@@ -33,6 +33,11 @@
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
 
+namespace Desert::Input
+{
+    class LocalPlayerInput;
+}
+
 namespace Desert::Editor
 {
     struct PlacedNodeMesh; // one node of a split source (Import/NodeActors.hpp)
@@ -208,7 +213,9 @@ namespace Desert::Editor
                                                                  const ActorDrop::Target& target );
 
         bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
+        bool OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e );
         bool OnKeyPressed( Common::KeyPressedEvent& e );
+        bool OnKeyReleased( Common::KeyReleasedEvent& e );
 
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
@@ -309,6 +316,15 @@ namespace Desert::Editor
         // button must not also pick the object behind it).
         CameraPilot m_Pilot;
         bool        m_PilotOverlayHovered = false;
+
+        // THE PLAYED WORLD'S INPUT (UE: the PIE viewport hands its key events to the PlayerController). While
+        // this viewport's scene is played, the keys and buttons it receives — only the focused viewport
+        // receives keys — go to that world's local player and not to the editing shortcuts. nullptr when the
+        // scene is not being played.
+        [[nodiscard]] Input::LocalPlayerInput* PlayedPlayerInput() const;
+        // A key or button went down into the player through this viewport: when the viewport loses focus,
+        // its releases will go elsewhere, so the player's held keys are flushed (UE FlushPressedKeys).
+        bool m_PlayerHoldsKeys = false;
 
         // WHAT THIS ONE VIEWPORT IS DOING — not what the user has chosen to see. 2D UI-editing mode
         // (toolbar "2D") hides the grid and the orientation triad so a screen-space canvas reads like a UI

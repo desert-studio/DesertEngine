@@ -213,6 +213,13 @@ namespace Desert::Platform::Windows
                                             data.Events->Route( event );
                                         break;
                                     }
+                                    case GLFW_RELEASE:
+                                    {
+                                        Common::KeyReleasedEvent event( (Common::KeyCode)key );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
+                                        break;
+                                    }
                                 }
                             } );
 
@@ -245,13 +252,14 @@ namespace Desert::Platform::Windows
                                                     data.Events->Route( event );
                                                 break;
                                             }
-                                                /* case GLFW_RELEASE:
-                                                 {
-                                                     Common::MouseButtonReleasedEvent event( button );
-                                                     if ( data.Events != nullptr )
-                    data.Events->Route( event );
-                                                     break;
-                                                 }*/
+                                            case GLFW_RELEASE:
+                                            {
+                                                Common::MouseButtonReleasedEvent event(
+                                                     (Common::MouseButton)button );
+                                                if ( data.Events != nullptr )
+                                                    data.Events->Route( event );
+                                                break;
+                                            }
                                         }
                                     } );
 

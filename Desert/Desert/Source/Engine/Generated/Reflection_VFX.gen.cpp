@@ -4,6 +4,18 @@
 // clang-format off
 // NOLINTBEGIN
 
+#include <Engine/Reflection/TypeRegistrar.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Engine/Reflection/FunctionThunk.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include <Engine/VFX/VFXLibrary.hpp>
 
 namespace Desert::Reflection::Generated
 {
@@ -11,6 +23,18 @@ void RegisterReflection_VFX();
 
 void RegisterReflection_VFX()
 {
+    using namespace ::Desert::Reflection;
+    {
+        using T = ::Desert::VFX::VFXLibrary;
+        TypeBuilder( "VFXLibrary", sizeof( T ) )
+            .ScriptName( "VFX" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
+                    .Function( ::Desert::Reflection::MakeFunction<&T::UseChannel>( "UseChannel", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Registers the data channel asset of that name (as a script names IA_Jump) on the played scene; false (logged) when it cannot.", .ScriptName = "useChannel", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::WriteChannel>( "WriteChannel", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "entries", "const std::vector<Reflection::Value::Map>&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Appends one entry per record for this frame; true when every field was written.", .ScriptName = "writeChannel", .ScriptMethod = false } ) )
+#endif
+            .WithDefault<T>()
+            .Register();
+    }
 }
 } // namespace Desert::Reflection::Generated
 // NOLINTEND

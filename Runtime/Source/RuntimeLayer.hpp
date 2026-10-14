@@ -10,6 +10,7 @@
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Input/InputKey.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
@@ -72,6 +73,9 @@ namespace Desert::Player
         bool                                OnMouseScrolled( Common::MouseScrolledEvent& scroll );
         bool                                OnKeyTyped( Common::KeyTypedEvent& typed );
         bool                                OnKeyPressed( Common::KeyPressedEvent& key );
+        bool                                OnKeyReleased( Common::KeyReleasedEvent& key );
+        bool                                OnMouseButtonPressed( Common::MouseButtonPressedEvent& button );
+        bool                                OnMouseButtonReleased( Common::MouseButtonReleasedEvent& button );
         /// The frame is out. It counts presented frames in every build; in a development build it is also
         /// the half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
         void OnFramePresented() override;
@@ -81,6 +85,8 @@ namespace Desert::Player
         // half of Core::LevelTravel -- run only from its TickTravel at the head of OnUpdate, between frames.
         // A refusal before teardown leaves the running level untouched.
         Common::BoolResultStr LoadSceneInternal( const std::string& path );
+        // A key or mouse button of the game's window, into the local player's key state.
+        void InputPlayerKey( const Input::InputKey& key, bool pressed );
 
     private:
         std::string          m_ScenePathOverride;
