@@ -1846,14 +1846,22 @@ namespace Desert::ECS
             return Common::AssetHandle::PathForStableKey( ScriptKey );
         }
 
-        // Editor-exposed properties (from the script's `Properties` table): per-entity values, edited in
-        // Details and serialized. Written into the script env before it runs (so the script reads them).
+        // The values this entity OVERRIDES of the properties its script declares (Scripting::ScriptSchema): set in
+        // Details, serialized, written into the script env before it runs and every frame after. A property not
+        // listed runs on the script's own default — a new default in the script reaches every entity that never
+        // overrode it, the way a UE instance holds only its delta from the class default.
         std::vector<Scripting::ScriptProperty> Properties;
 
         bool Started = false; // transient: OnStart already called for this instance
         // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read
         // from the file each time the slot loads; ScriptSystem reads those properties back after the script ran.
         std::vector<std::string> SaveGameProperties;
+        // Transient: why this slot is not running as written in the play world — its load error, else its last
+        // OnUpdate error (ScriptEngine::SlotError); empty while it runs clean. Details shows it on the slot.
+        std::string RuntimeError;
+        // Transient: CallInEditor functions (Scripting::ScriptSchema::EditorFunctions) Details asked to run while
+        // this slot plays; ScriptSystem calls each once on the running script in its next update.
+        std::vector<std::string> PendingEditorCalls;
     };
 
     // One entity can run MANY scripts (EnTT allows only one component of a type per entity, so multiple

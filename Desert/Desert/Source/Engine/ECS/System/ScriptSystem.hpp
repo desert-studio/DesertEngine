@@ -145,8 +145,10 @@ namespace Desert::ECS
                         {
                             LOG_ERROR( "[Script] failed to load '{}' (from '{}'): {}", file, script.ScriptKey,
                                        loaded.GetError() );
+                            script.RuntimeError = loaded.GetError();
                             continue;
                         }
+                        script.RuntimeError.clear();
                         // The SaveGame names come from the file the slot just loaded (a hot-reload re-reads them).
                         auto saveGame = Scripting::ReadScriptSaveGameProperties( file );
                         if ( !saveGame )
@@ -164,6 +166,14 @@ namespace Desert::ECS
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
                     m_Engine.ApplyProperties( id, slot, script.Properties );
                     m_Engine.CallUpdate( id, slot, ts.GetSeconds() );
+                    // Re-fetched: the script may have reshaped the component pool `script` points into.
+                    if ( registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&
+                         slot < registry.get<ScriptComponent>( entity ).Scripts.size() )
+                    {
+                        const std::string* error = m_Engine.SlotError( id, slot );
+                        registry.get<ScriptComponent>( entity ).Scripts[slot].RuntimeError =
+                             error != nullptr ? *error : std::string();
+                    }
 
                     // A script may destroy its OWN entity (`self:destroy()`), and then `sc` refers to storage
                     // EnTT has already given back. This loop used to carry on regardless: it read the next
@@ -208,6 +218,24 @@ namespace Desert::ECS
                             if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
                                 m_Engine.CallSlotFunction( id, slot, call.Function.c_str(), call.EventName );
                     sc.PendingSequenceCalls.clear();
+                }
+
+                // CallInEditor buttons pressed in Details while this world plays: on the RUNNING slot, so the
+                // function sees the script's live state (UE calls a CallInEditor function on the PIE actor).
+                // Re-fetched per slot: a called function may reshape the pool or destroy the entity.
+                for ( uint32_t slot = 0; registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&
+                                         slot < registry.get<ScriptComponent>( entity ).Scripts.size();
+                      ++slot )
+                {
+                    std::vector<std::string>& pending =
+                         registry.get<ScriptComponent>( entity ).Scripts[slot].PendingEditorCalls;
+                    if ( pending.empty() )
+                        continue;
+                    std::vector<std::string> calls;
+                    calls.swap( pending );
+                    for ( const std::string& function : calls )
+                        if ( Common::BoolResultStr const r = m_Engine.CallFunction( id, slot, function ); !r )
+                            LOG_ERROR( "[Script] {} (CallInEditor): {}", function, r.GetError() );
                 }
             }
 

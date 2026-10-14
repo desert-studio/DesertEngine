@@ -2,30 +2,61 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace Desert::Scripting
 {
-    // A single editor-exposed script variable. Declared by a script via its global `Properties` table; the
-    // editor reads the schema (names/types/defaults), the user can override per entity, and the values are
-    // written back into the script's environment before it runs. POD only (NO sol/Lua types) so this can
-    // live in ScriptComponent / Components.hpp without leaking the scripting backend.
+    // THE KINDS OF A SCRIPT PROPERTY — what a script declares in its `Properties` table (Property.Float(5, {...}),
+    // Property.Entity(), ... or a plain boolean / number / string literal) and what Details draws a widget for.
+    // The numbers are stored in scenes: append, never renumber.
     enum class PropertyType
     {
-        Number = 0,
+        Number = 0, // a Luau number (Property.Float, or a number literal)
         Bool   = 1,
-        String = 2
+        String = 2,
+        Int    = 3, // Property.Int: a whole number (Number holds it)
+        Color  = 4, // Property.Color: linear RGB in Vec, a Luau vector in the script
+        Vector = 5, // Property.Vector: Vec (centimetres for a position), a Luau vector in the script
+        Asset  = 6, // Property.Asset: Ref holds the asset's handle (0 = none); the script reads the handle,
+                    // which it can hand to any asset field (mesh.Mesh = Properties.Crate)
+        Entity = 7, // Property.Entity: Ref holds the referenced entity's UUID (0 = none); the script reads
+                    // the entity object, or nil
+        Enum  = 8,  // Property.Enum: Str holds the enumerator's name; the script reads that name
+        Array = 9,  // Property.Array: Items, each of ElementType
     };
 
-    struct ScriptProperty
+    // ONE VALUE of a script property — a scalar (an Array's element is one of these). POD only (NO Luau types),
+    // so it can live in ScriptComponent / Components.hpp without leaking the scripting backend.
+    struct ScriptValue
     {
-        std::string  Name;
-        PropertyType Type   = PropertyType::Number;
-        double       Number = 0.0;
-        bool         Bool   = false;
-        std::string  Str;
+        PropertyType          Type   = PropertyType::Number;
+        double                Number = 0.0;   // Number, Int
+        bool                  Bool   = false; // Bool
+        std::string           Str;            // String, Enum (enumerator name)
+        std::array<double, 3> Vec{};          // Color (linear RGB), Vector
+        std::uint64_t         Ref = 0;        // Asset: its handle; Entity: its UUID; 0 = none
+
+        bool operator==( const ScriptValue& ) const = default;
     };
+
+    // A single editor-exposed script variable's VALUE on one entity. The script declares the schema (names, kinds,
+    // defaults, metadata: ScriptSchema.hpp); a slot holds only the values the user OVERRODE in Details — like a UE
+    // instance's delta from its class default — so a script's new default reaches every entity that never touched
+    // the property. The values are written into the script's environment before it runs.
+    struct ScriptProperty : ScriptValue
+    {
+        std::string              Name;
+        PropertyType             ElementType = PropertyType::Number; // Array only: the kind of every item
+        std::vector<ScriptValue> Items;                              // Array only
+
+        bool operator==( const ScriptProperty& ) const = default;
+    };
+
+    // The spelling of a kind in a diagnostic and in a save game ("Number", "Color", ...).
+    [[nodiscard]] const char* PropertyTypeName( PropertyType type );
 
     // The names a script marks SaveGame - UE's SaveGame flag on a Blueprint variable. Declared in the script
     // beside its `Properties` table, by name:

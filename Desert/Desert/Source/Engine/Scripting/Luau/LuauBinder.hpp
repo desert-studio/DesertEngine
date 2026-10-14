@@ -6,6 +6,7 @@
 #include <Engine/Reflection/Value.hpp>
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -38,6 +39,10 @@ namespace Desert::Scripting::LuauBinder
 
     /// Pushes `entity` as an entity object (nil when null or destroyed).
     void PushEntity( lua_State* L, entt::registry& registry, entt::entity entity );
+
+    /// Pushes an asset handle the way an AssetHandle field reads (tagged light userdata carrying the id), so a
+    /// script can hand it to any asset field.
+    void PushAssetHandle( lua_State* L, std::uint64_t handle );
 
     /// Pushes `binding` as an object: tagged userdata owning a copy of the binding (destroyed by the VM).
     void PushObject( lua_State* L, const LuauBinding& binding );

@@ -63,7 +63,7 @@ namespace Desert::Editor::ContentBrowserUtils
     // quote, and no std::system (which is not thread-safe). Waits, as the shell call did; `open` returns at once.
     namespace
     {
-        void SpawnOpen( std::vector<std::string> args )
+        bool SpawnOpen( std::vector<std::string> args )
         {
             std::vector<char*> argv;
             argv.reserve( args.size() + 1 );
@@ -71,11 +71,11 @@ namespace Desert::Editor::ContentBrowserUtils
                 argv.push_back( a.data() );
             argv.push_back( nullptr );
             pid_t pid = 0;
-            if ( posix_spawnp( &pid, argv[0], nullptr, nullptr, argv.data(), *_NSGetEnviron() ) == 0 )
-            {
-                int status = 0;
-                waitpid( pid, &status, 0 );
-            }
+            if ( posix_spawnp( &pid, argv[0], nullptr, nullptr, argv.data(), *_NSGetEnviron() ) != 0 )
+                return false;
+            int status = 0;
+            waitpid( pid, &status, 0 );
+            return WIFEXITED( status ) && WEXITSTATUS( status ) == 0;
         }
     } // namespace
 #endif
@@ -93,6 +93,28 @@ namespace Desert::Editor::ContentBrowserUtils
 #else
         (void)path;
 #endif
+    }
+
+    bool ShellOpenInCodeEditor( const std::string& path, int line )
+    {
+        // VS Code's URL (`vscode://file/<absolute path>:<line>`) opens the file AT THE LINE whether the editor is
+        // running or not, with no PATH to depend on — an editor launched from the Finder or the Start menu does
+        // not have VS Code's `code` CLI on its PATH. Without VS Code the OS's default editor opens the file.
+        std::error_code             ec;
+        const std::filesystem::path absolute = std::filesystem::absolute( path, ec );
+        const std::string           url =
+             std::format( "vscode://file/{}:{}", absolute.generic_string(), std::max( line, 1 ) );
+#if defined( DESERT_PLATFORM_WINDOWS )
+        const std::wstring wide( url.begin(), url.end() );
+        if ( reinterpret_cast<INT_PTR>(
+                  ShellExecuteW( nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL ) ) > 32 )
+            return true;
+#elif defined( DESERT_PLATFORM_MACOS )
+        if ( SpawnOpen( { "open", url } ) )
+            return true;
+#endif
+        ShellOpenDefault( path );
+        return false;
     }
 
     void ShellRevealInExplorer( const std::string& path )
