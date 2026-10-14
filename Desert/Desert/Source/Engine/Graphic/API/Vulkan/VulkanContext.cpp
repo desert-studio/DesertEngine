@@ -174,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
         // vk-bootstrap dlopen a second copy.
         //
         // API VERSION: 1.3 is what the engine is written against and what the instance advertises; the
-        // instance itself only has to be 1.1 (kMinimumDeviceApiVersion). A device older than 1.3 is still
+        // instance itself only has to be kMinimumDeviceApiVersion (1.2). A device older than 1.3 is still
         // driven at its own version — VMA and routing use min(device, 1.3), see DeviceCaps.
         vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
         builder.set_app_name( "Desert Engine" )
