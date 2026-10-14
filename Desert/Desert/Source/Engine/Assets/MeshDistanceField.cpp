@@ -439,7 +439,20 @@ namespace Desert::Assets
                     ++q.Running;
                 }
                 auto shared = std::make_shared<DfQueuedWork>( std::move( next ) );
-                Common::JobSystem::Get().Submit( [shared] { DfRun( std::move( *shared ) ); } );
+                if ( Common::JobSystem::Get().Submit( [shared] { DfRun( std::move( *shared ) ); } ) )
+                    continue;
+                // The pool was shut down ahead of this queue's exit hook (it drains what it holds, then refuses
+                // more): the work never runs, so it is not running - otherwise DfQuiesce waits for it forever
+                // and the process never exits. Nothing more can start; the waiting work is dropped with it.
+                {
+                    const std::lock_guard<std::mutex> lock( q.Mutex );
+                    --q.Running;
+                    q.Exiting = true;
+                    q.Cancelled += 1 + static_cast<uint32_t>( q.Waiting.size() );
+                    q.Waiting.clear();
+                }
+                q.Idle.notify_all();
+                return;
             }
         }
 

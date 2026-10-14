@@ -140,7 +140,9 @@ namespace Common
         JobSystem& operator=( const JobSystem& ) = delete;
 
         // Fire-and-forget. Closures <= InlineJob::kInlineSize bytes enqueue with ZERO heap allocations.
-        void Submit( InlineJob job );
+        // False when the pool is shutting down and the job was dropped unrun: a caller that counts its jobs in
+        // flight (and waits for them) must take this one back.
+        bool Submit( InlineJob job );
 
         // Submit with a result: returns a std::future for the callable's return value.
         template <typename F>
