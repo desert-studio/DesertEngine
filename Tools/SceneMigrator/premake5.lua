@@ -114,7 +114,7 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }
 
-    dependson { "Desert" }
+    DesertModuleLibs.DependOnCodegen()
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",

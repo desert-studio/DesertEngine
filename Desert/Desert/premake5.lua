@@ -1,11 +1,56 @@
--- The engine's module table (ENG-MODULES P0): validated here, at generation time, so a dependency on an
--- unknown or later-listed module (a cycle) fails `premake5` with the row named; the header tool reads the
--- same file to register reflected types per module, and the ModuleBoundary suite to report crossings.
-local kModuleTable = _MAIN_SCRIPT_DIR .. "/BuildScripts/DesertModules.lua"
-DesertModules = dofile(kModuleTable)
-DesertModules.Validate()
+-- THE ENGINE'S LEGACY LIBRARY, AS ONE STATIC LIBRARY PER MODULE (BUILD-MOD2). BuildScripts/DesertModuleLibs.lua
+-- reads the module table (BuildScripts/DesertModules.lua) and places every file under its LegacyRoot with the
+-- table's own Placement rows; this file defines one library per module that got files, all through
+-- EngineModuleLibrary below, so pch, unity, defines, include directories, warnings and /bigobj are the same for
+-- every one. Only the files, the module's Deps and the one codegen prebuild differ.
+DesertModuleLibs.SetPrebuiltLibraries(deps.DesertSpecific.Libraries)
 
-project "Desert"
+-- The vendored single-file third-party sources, compiled into the library of the module that uses them.
+local kVendoredSources = {
+    -- vk-bootstrap v1.3.290 (MIT, ThirdParty/vk-bootstrap/LICENSE.txt): instance, physical-device selection and
+    -- logical-device creation. Vendored as its three source files, like VMA.
+    RenderCore = {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/vk-bootstrap/VkBootstrap.cpp",
+    },
+    ImageCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp" },
+    TextCore  = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp" },
+    Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
+}
+for name in pairs(kVendoredSources) do
+    if not DesertModuleLibs.LegacyFiles()[name] then
+        error("Desert/Desert/premake5.lua: vendored sources assigned to '" .. name .. "', which builds no library", 0)
+    end
+end
+
+-- Reflection codegen (UHT-style), THE ONE COMMAND LINE: DesertHeaderTool regenerates
+-- Source/Engine/Generated/Reflection.gen.cpp (the module list) and Reflection_<Module>.gen.cpp (each module's
+-- types, compiled by that module's library) from REFLECT()/PROPERTY() annotations. The same run verifies every
+-- routed-event handler of the engine and Common (misspelt, non-public or outside the event tree fails the build
+-- at file:line) and emits the DESERT_SUBSYSTEM lists of the application (Engine) and of every world (World,
+-- owned by Scene). It runs once, as the prebuild of DesertModuleLibs.CodegenLib().
+local kHeaderToolCommand =
+    DesertPlatform.BuiltToolPath("DesertHeaderTool")
+        .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+        .. ' --modules "' .. DesertModuleLibs.TableFile .. '"'
+        .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
+        .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+        -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
+        -- registers them (Reflection_DesertUI.gen.cpp, which its Placement row gives to DesertUI's legacy library). --reflect-root extends the
+        -- --reflect request above, so it must follow that request's three operands.
+        .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
+        .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
+        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
+        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+        .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
+        .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
+        .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
+        .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
+
+local function EngineModuleLibrary(module, legacyFiles)
+    project(DesertModules.LegacyLibName(module.Name))
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
@@ -13,48 +58,26 @@ project "Desert"
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
 
-    -- Reflection codegen (UHT-style): run DesertHeaderTool before compiling so
-    -- Source/Engine/Generated/Reflection.gen.cpp (the module list) and Reflection_<Module>.gen.cpp (each
-    -- module's types) are regenerated from REFLECT()/PROPERTY() annotations. The generated files are picked
-    -- up by the Source/Engine/**.cpp glob below.
-    dependson { "DesertHeaderTool" }
-    -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
-    -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
-    -- application (Engine) and of every world (World, owned by Scene).
-    prebuildcommands {
-        DesertPlatform.BuiltToolPath("DesertHeaderTool")
-            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
-            .. ' --modules "' .. kModuleTable .. '"'
-            .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
-            -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
-            -- registers them (Reflection_DesertUI.gen.cpp, compiled here). --reflect-root extends the
-            -- --reflect request above, so it must follow that request's three operands.
-            .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
-            .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
-            .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
-            .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
-    }
+    if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then
+        dependson { "DesertHeaderTool" }
+        prebuildcommands { kHeaderToolCommand }
+    else
+        DesertModuleLibs.DependOnCodegen()
+    end
 
-    files { 
-        "Source/pch.cpp",
-        "Source/pch.hpp",
-        "Source/Engine/**.cpp", 
-        "Source/Engine/**.hpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
-        -- vk-bootstrap v1.3.290 (MIT, ThirdParty/vk-bootstrap/LICENSE.txt): instance, physical-device
-        -- selection and logical-device creation. Vendored as its three source files, like VMA above.
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/vk-bootstrap/VkBootstrap.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
-    }
+    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
+    for _, file in ipairs(legacyFiles) do
+        local target = commonFiles
+        if file:find("^Platform/Windows/") then
+            target = windowsFiles
+        elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
+            target = macFiles
+        end
+        table.insert(target, "Source/" .. file)
+    end
+    files(commonFiles)
+    files(kVendoredSources[module.Name] or {})
 
     includedirs {
         "Source/",
@@ -80,25 +103,25 @@ project "Desert"
         -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
     }
-    
+
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
-    end
-    
+end
+
     for name, path in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
         externalincludedirs { path }
-    end
+end
 
     -- NO "ImGui" HERE, AND THAT IS THE POINT OF Desert/Tests/Engine/ImGuiBoundary. Dear ImGui is the
     -- EDITOR's interface toolkit: the integration layer lives in Editor/Source/Editor/ImGuiIntegration/
     -- and the Editor links the library itself. While this line said "ImGui", every binary that linked the
     -- engine — the packaged Runtime included — carried a toolkit it never draws a pixel with.
+    -- The libraries of the module's direct Deps (DesertModules.lua), then the third-party projects. Sibling
+    -- PROJECTS only: a static library's `links` of a project is a build-order reference, not a copy.
+    for _, dep in ipairs(module.Deps) do
+        links(DesertModuleLibs.LibrariesOf(DesertModules.Find(dep)))
+end
     links {
-        -- The UI framework and the recorded half of 2D drawing (UI-FW-4): libraries the engine is built ON, so
-        -- they come before Common, which they use in turn.
-        "DesertUI",
-        "Render2DCore",
-        "Common",
         "Jolt",
         -- Luau (BuildScripts/ThirdParty/Luau.lua): Engine/Scripting/Luau. Dependants before what they use.
         "LuauCodeGen",
@@ -114,22 +137,13 @@ project "Desert"
         "Dav1d",
         "Opus",
     }
-    
+
     for _, define in ipairs(deps.Common.Defines) do
         defines { define }
-    end
+end
 
-    filter "configurations:Debug"
-        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Debug) do
-            links { path }
-        end
-
-    -- `or Shipping`: the shipping build links the SAME third-party flavour Release does. There is no
-    -- third set of prebuilt libraries and inventing one would mean pinning Vulkan and reflect-cpp twice.
-    filter "configurations:Release or Shipping"
-        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Release) do
-            links { path }
-        end
+    -- NO PREBUILT ARCHIVE HERE (Vulkan, shaderc, reflect-cpp): DesertModuleLibs.Link() gives them to the
+    -- executables, because lib.exe would copy each one into every module library that named it.
 
     filter "configurations:Debug"
         defines { "DESERT_CONFIG_DEBUG" }
@@ -144,17 +158,18 @@ project "Desert"
         -- component-registry translation units (one template instantiation per reflected type) blow
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
-        files {
-            "Source/Platform/Windows/**.cpp",
-            "Source/Platform/Windows/**.hpp",
-        }
+        files(windowsFiles)
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }
-        files {
-            "Source/Platform/MacOS/**.cpp",
-            "Source/Platform/MacOS/**.hpp",
-            "Source/Platform/MacOS/**.mm",
-        }
+        files(macFiles)
 
     filter {}
+end
+
+for _, module in ipairs(DesertModules.Modules) do
+    local legacyFiles = DesertModuleLibs.LegacyFiles()[module.Name]
+    if legacyFiles then
+        EngineModuleLibrary(module, legacyFiles)
+    end
+end

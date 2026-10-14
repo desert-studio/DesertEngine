@@ -99,9 +99,10 @@ project "EditorCore"
 
     -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
     -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
-    -- Desert too, though a static library links nothing: the editor sources compile against what the
+    -- The engine's codegen too, though a static library links nothing: the editor sources compile against what the
     -- engine's prebuild generates, an order the executable used to get from its `links` and a library does not.
-    dependson { "DesertHeaderTool", "Desert" }
+    dependson { "DesertHeaderTool" }
+    DesertModuleLibs.DependOnCodegen()
     prebuildcommands {
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
@@ -154,9 +155,6 @@ project "Editor"
 
     links{
         "EditorCore", -- every editor source but this entry point (project above); first, so gmake resolves it before what it uses
-        "Desert",
-        "DesertUI",
-        "Render2DCore",
         "GLFW",
         "Optick",
         "MeshOptimizer",
@@ -177,6 +175,8 @@ project "Editor"
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }
+    -- The engine, one library per module (BuildScripts/DesertModuleLibs.lua), after what uses it.
+    DesertModuleLibs.Link()
     -- ALL of EditorCore, not what Sandbox.cpp happens to reach: the component editors register from static
     -- initialisers nothing references (BuildScripts/Platform.lua, LinkWholeArchive).
     DesertPlatform.LinkWholeArchive( "EditorCore" )
