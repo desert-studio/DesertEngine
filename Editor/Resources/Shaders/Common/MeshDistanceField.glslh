@@ -93,14 +93,21 @@ float DistanceToNearestSurfaceForObject(uint objectIndex, vec3 worldPosition, fl
     const vec4 r1 = u_DFObjects[base + 1u];
     const vec4 r2 = u_DFObjects[base + 2u];
     const vec4 extentScale = u_DFObjects[base + 3u];
-    const uint assetIndex  = floatBitsToUint(u_DFObjects[base + 4u].x);
+    const vec4 assetAxes   = u_DFObjects[base + 4u];
+    const uint assetIndex  = floatBitsToUint(assetAxes.x);
     const vec4 world4 = vec4(worldPosition, 1.0);
     const vec3 volumePosition = vec3(dot(r0, world4), dot(r1, world4), dot(r2, world4));
     const vec3 extent = extentScale.xyz;
     const float volumeToWorld = extentScale.w;
 
+    // THE BOX DISTANCE IS EXACT, EACH AXIS AT ITS OWN SCALE. UE scales it by the smallest axis' scale like the
+    // mesh distance, which under a wall made of a cube scaled (0.2, 6, 6) reads a point 1 m past the wall's end
+    // as 20 cm away: the field extrudes every non-uniformly scaled object along its long axes, and the global
+    // field shows walls running on toward the camera. Under a rotation and a per-axis scale (no shear) the box
+    // is an oriented box in world space, so the per-axis world offset of the clamp is the true distance.
+    // Inside the box the mesh distance keeps the conservative smallest scale, as in UE.
     const vec3  clampedVolume = clamp(volumePosition, -extent, extent);
-    const vec3  toBox = (abs(volumePosition) - extent) * volumeToWorld;
+    const vec3  toBox = (abs(volumePosition) - extent) * assetAxes.yzw;
     const float distanceToBox = length(max(vec3(0.0), toBox)) + min(0.0, max(toBox.x, max(toBox.y, toBox.z)));
     float distance = maxDistance;
     if (distanceToBox < maxDistance)

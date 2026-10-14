@@ -278,13 +278,16 @@ namespace Desert::Graphic::DistanceField
             // The smallest axis scale keeps the world distance conservative under a non-uniform scale (UE
             // VolumeToWorldScale uses the minimum scale as well).
             const glm::mat3 linear( p.Object->World );
-            const float     minScale =
-                 std::min( { glm::length( linear[0] ), glm::length( linear[1] ), glm::length( linear[2] ) } );
+            const glm::vec3 axisScale( glm::length( linear[0] ), glm::length( linear[1] ),
+                                       glm::length( linear[2] ) );
+            const float     minScale = std::min( { axisScale.x, axisScale.y, axisScale.z } );
             objectData.push_back( rows[0] );
             objectData.push_back( rows[1] );
             objectData.push_back( rows[2] );
             objectData.push_back( glm::vec4( field.VolumePositionExtent(), minScale / localToVolume ) );
-            objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), 0.0f, 0.0f, 0.0f ) );
+            // Each volume axis' own scale: the box distance (MeshDistanceField.glslh) is exact, not the
+            // smallest's.
+            objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
         }
 
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).

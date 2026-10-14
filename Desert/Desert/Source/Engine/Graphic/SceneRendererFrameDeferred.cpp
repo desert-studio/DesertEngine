@@ -481,7 +481,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
-                                                         const RDG::TextureRef target )
+                                                         const ViewFrame& frame, const RDG::TextureRef target )
     {
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
@@ -489,13 +489,10 @@ namespace Desert::Graphic
             return;
         const auto  it           = m_RenderSystems.find( "MeshSystem" );
         auto* const meshRenderer = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
-        const Core::Camera* camera = m_SceneInfo.ActiveCamera;
-        if ( meshRenderer == nullptr || camera == nullptr || !target.IsValid() )
+        if ( meshRenderer == nullptr || !target.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
-                       meshRenderer == nullptr ? "no MeshSystem"
-                       : camera == nullptr     ? "no active camera"
-                                               : "the frame has no post input" );
+                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
             return;
         }
         if ( !m_GlobalDistanceField )
@@ -522,16 +519,17 @@ namespace Desert::Graphic
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
-        const auto frame = m_GlobalDistanceField->AddUpdatePasses( graph, import, camera->GetPosition(), objects );
-        if ( !frame )
+        // The view's matrices, unjittered (ViewFrame, as every overlay reads them; SceneRenderer.hpp: a pass that
+        // reads a matrix or a camera position takes the ViewFrame) - not m_SceneInfo.ActiveCamera's, which framed
+        // the field from a different camera than the frame it is drawn over.
+        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects );
+        if ( !field )
         {
-            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", frame.GetError() );
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", field.GetError() );
             return;
         }
-        const glm::mat4 inverseViewProjection =
-             glm::inverse( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
-        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, frame.GetValue(), target,
-                                                                         EngineClearColor(), inverseViewProjection );
+        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass(
+                  graph, field.GetValue(), target, EngineClearColor(), frame.InvViewProjection );
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
     }

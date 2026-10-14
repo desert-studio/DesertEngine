@@ -17,7 +17,8 @@ const int DF_ATLAS_BRICKS_Y = 64;
 const int DF_ASSET_MIP_STRIDE = 3;
 const int DF_ASSET_STRIDE     = 1 + DF_ASSET_MIP_STRIDE * DF_NUM_MIPS;
 // Per object in the object buffer (vec4s): world -> volume (three affine rows), the volume extent with the
-// volume -> world distance scale, the asset index.
+// volume -> world distance scale (the smallest axis'), the asset index with each volume axis' own volume -> world
+// scale (the box distance, exact under a non-uniform scale).
 const int DF_OBJECT_STRIDE = 5;
 
 // The global distance field (UE GlobalDistanceField.cpp: four clipmaps of 128^3, Lumen's 25 m first extent

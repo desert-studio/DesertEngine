@@ -69,8 +69,15 @@ struct GlobalDistanceFieldHit
     int   Steps;
 };
 
-// Sphere trace from @p origin along the unit @p direction until a surface (distance below a tenth of the
-// level's voxel), @p maxT, @p maxSteps, or the ray leaves the coarsest clipmap.
+// Sphere trace from @p origin along the unit @p direction until a surface, @p maxT, @p maxSteps, or the ray leaves
+// the coarsest clipmap.
+//
+// THE SURFACE IS EXPANDED BY UP TO HALF A VOXEL (UE RayTraceGlobalDistanceField: ExpandSurfaceDistance =
+// ClipmapVoxelExtent, ramped in over 2x that much ray time, bExpandSurfaceUsingRayTimeInsteadOfMaxDistance; no
+// coverage pages here, so UE's CoveredExpandSurfaceScale 1). A surface thinner than a voxel - a 20 cm floor in
+// 39 cm voxels, its two neighbouring voxel centres both outside it - never reconstructs to a negative distance,
+// so a test against a fixed small threshold sees through it; the expansion catches it. The ramp keeps a ray that
+// starts on a surface from hitting itself.
 GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
                                                 vec4 levels[GDF_NUM_CLIPMAPS])
 {
@@ -89,10 +96,12 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         const float voxel    = levels[level].w;
         const float distance = SampleGlobalDistanceFieldLevel(level, p, voxel);
         result.Steps = step + 1;
-        if (distance < voxel * 0.1)
+        const float expandDistance = 0.5 * voxel;
+        const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
+        if (distance < expand)
         {
             result.Hit   = true;
-            result.T     = t;
+            result.T     = max(t + distance - expand, 0.0);
             result.Level = level;
             return result;
         }

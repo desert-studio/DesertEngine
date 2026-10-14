@@ -711,7 +711,8 @@ namespace Desert::Graphic
         // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, Deferred only): brings the
         // view's global distance field up to this frame's camera and static meshes, then draws "Debug: Global
         // Distance Field" over @p target.
-        void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
+        void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                              RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
