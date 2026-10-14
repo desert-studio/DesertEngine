@@ -85,7 +85,7 @@ namespace Desert::Graphic::System
             m_ResolvePipeline = resolvePipeline.GetValue();
 
             m_Material        = std::make_unique<MaterialGIResolve>();
-            m_ResolveMaterial = std::make_unique<MaterialSSRResolve>( SSRResolveVariant::Fullscreen );
+            m_ResolveMaterial = std::make_unique<MaterialSSRResolve>();
             return BOOLSUCCESS;
         }
 

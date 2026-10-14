@@ -34,6 +34,7 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
+        RDG::TextureRef SSR; // SSR's resolved reflection (rgb, a = coverage), or System.Black (the environment's)
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -153,6 +154,8 @@ namespace Desert::Graphic::System
                            kSampler )
                  .Sampled( "u_GI", inputs.GI, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
+                 .Sampled( "u_SSR", inputs.SSR, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
                  .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );

@@ -28,6 +28,8 @@ namespace Desert::Graphic
         uint32_t         Count                = 0;
         bool             Enabled              = true;
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
+        glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
+        float            SourceTanHalf        = 0.0f;
     };
 
     // CloudShadowInput — the cloud layer's shadow, a SECOND independent occluder of the same sun — used
@@ -120,25 +122,23 @@ namespace Desert::Graphic
             FlushFieldFilledUniformBuffers();
         }
 
-        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowMap0..3 are graph textures, bound by
+        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowCascades are a graph texture, bound by
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {
-            struct ShadowUBData
-            {
-                glm::mat4 LightViewProj[4];
-                glm::vec4 Params; // x reserved (0: the casters carry the bias), y = enabled, z = debug mode, w =
-                                  // cascade count
-                glm::vec4 DebugParams;
-                glm::vec4 CascadeTexelWorld;
-            } data;
+            // THE ONE MIRROR of the block (SceneResources::ShadowUBData, asserted against the GLSL by
+            // Desert/Tests/Engine/SceneFrameBinding); a private copy here had to be kept in step by hand.
+            constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
+            SceneResources::ShadowUBData data{};
 
-            const uint32_t n = shadow.Count < 4u ? shadow.Count : 4u;
-            for ( uint32_t i = 0; i < 4u; ++i )
+            const uint32_t n = shadow.Count < kCascades ? shadow.Count : kCascades;
+            for ( uint32_t i = 0; i < kCascades; ++i )
                 data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
-            data.Params = glm::vec4( 0.0f, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
+            data.Params =
+                 glm::vec4( shadow.SourceTanHalf, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
             data.DebugParams       = glm::vec4( 0.0f );
             data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
+            data.CascadeDepthRange = shadow.CascadeDepthRange;
 
             if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

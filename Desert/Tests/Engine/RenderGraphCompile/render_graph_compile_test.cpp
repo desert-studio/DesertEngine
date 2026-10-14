@@ -2337,7 +2337,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
          // target - the sky CLEARS it, the meshes then the terrain LOAD over it - then the outline silhouette
          // mask (cleared).
-         "system[mesh->ShadowCascadePasses()]",
+         "system[mesh->ShadowCascadePasses(maps)]",
          "rasters[cascades,true]",
          // SHADOW-LOCAL: the point/spot shadow views of the local-light atlas, LOADING it: each clears and
          // draws only its own stale tile.
@@ -2354,6 +2354,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
          "Deferred: SSAO",
+         "Deferred: SSR",
+         "Deferred: SSRResolve",
          "Deferred: RSM",
          "Deferred: GIResolve",
          "Deferred: GITemporal",
@@ -2361,9 +2363,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Generic",
          "Deferred: Skinned",
          "Deferred: SceneCopy",
-         "Deferred: SSR",
-         "Deferred: SSRResolve",
-         "Deferred: SSRComposite",
          "Deferred: Water",
          "Deferred: Glass",
          "Scene: DepthResolve",
@@ -2529,14 +2528,14 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // their block, not refs captured from the setup. GBUF1: the third G-buffer input is the depth the positions
     // are reconstructed from. TAA1: the trace's inverse view-projection is a CPU-filled graph uniform buffer
     // (SSRTraceUB) bound by the trace block - the ViewFrame's one copy of the inverse, never recomputed.
-    declares( "AddFrameSSR",
-              { "PassFlags::Compute", "DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy,traceUniforms)",
-                "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection)",
-                "LoadTarget(pass,target,loads)",
-                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
-                "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
-                "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)",
-                "RecordResolve(context,prevViewProj,invViewProj,readable)", "RecordComposite(context,index)" } );
+    declares( "AddFrameSSR", { "PassFlags::Compute",
+                               "DeclareTraceBindings(pass,trace,traceRay,tiles,inputs,velocity,sceneHistory,hzb,"
+                               "traceUniforms)",
+                               "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection,"
+                               "frame.JitteredViewProjection)",
+                               "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
+                               "ssr.DeclareResolveBindings(pass,trace,traceRay,tiles,history,inputs,velocity)",
+                               "RecordResolve(context,viewProj,prevViewProj,invViewProj,readable,index)" } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )
@@ -3211,14 +3210,12 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     std::erase_if( glass, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
     EXPECT_EQ( glass.find( "kShadowMapNames" ), std::string::npos );
 
-    // The scene/view inputs every lit pass binds (SceneViewInputsOf): a cascade that exists this frame is its
-    // graph texture, the rest read the white system texture (no shadow). Always-white would light every pixel as
-    // unshadowed.
+    // The scene/view inputs every lit pass binds (SceneViewInputsOf): the view's cascade array, layer c = cascade
+    // c. ImportSceneViewTextures always provides one (a cleared one-texel array without cascades): the shader's
+    // sampler2DArray takes no 2D stand-in such as the white system texture.
     std::string view = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
     std::erase_if( view, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
-    EXPECT_NE(
-         view.find( "inputs.ShadowMaps[c]=t.ShadowCascades[c].IsValid()?t.ShadowCascades[c]:refs.System.White;" ),
-         std::string::npos );
+    EXPECT_NE( view.find( "inputs.ShadowCascades=t.ShadowCascades;" ), std::string::npos );
 }
 
 // THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
@@ -3779,12 +3776,10 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
-         { "SceneRendererFrameDeferred.cpp",
-           "view.ShadowCascades[c]=textures.Import(mesh->GetCascadeShadowImage(c)," },
+         { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },
          { "SceneRendererFrameAtmosphere.cpp",
            "textures.Transients.CloudShadowMap=textures.Import(clouds->GetShadowMap(),\"Clouds.ShadowMap\");" },
-         { "FrameGraphRefs.hpp",
-           "inputs.ShadowMaps[c]=t.ShadowCascades[c].IsValid()?t.ShadowCascades[c]:refs.System.White;" },
+         { "FrameGraphRefs.hpp", "inputs.ShadowCascades=t.ShadowCascades;" },
          { "FrameGraphRefs.hpp", "inputs.CloudShadowMap=CloudShadowMapOrWhite(refs);" } };
     for ( const auto& [file, needle] : declared )
         EXPECT_NE( source( file ).find( needle ), std::string::npos ) << file << " does not declare " << needle;
@@ -5120,8 +5115,7 @@ namespace
     Desert::Graphic::SceneViewInputs DistinctSceneViewInputs()
     {
         Desert::Graphic::SceneViewInputs view;
-        for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
-            view.ShadowMaps[c] = TextureRef{ 10 + c };
+        view.ShadowCascades = TextureRef{ 10 };
         view.EnvIrradiance  = TextureRef{ 20 };
         view.EnvSpecular    = TextureRef{ 21 };
         view.BrdfLut        = TextureRef{ 22 };
@@ -5160,22 +5154,19 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     EXPECT_TRUE( glassValid.IsSuccess() ) << glassValid.GetError();
     EXPECT_EQ( glassBlock.Block.Entries.size(), 5u ); // the scene copy + irradiance, specular, BRDF LUT, cloud map
     for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
-        EXPECT_EQ( entry.ShaderName.rfind( "u_ShadowMap", 0 ), std::string::npos ) << entry.ShaderName;
+        EXPECT_NE( entry.ShaderName, Desert::Graphic::kSceneViewShadowCascadesName ) << entry.ShaderName;
 
     ShaderBindingLayout lit{ "StaticMeshLit", SceneViewSlotsWithoutCascades(), 0 };
-    for ( const std::string_view name : Desert::Graphic::kSceneViewShadowMapNames )
-        lit.Slots.push_back( { std::string( name ), ShaderResourceKind::SampledTexture } );
+    lit.Slots.push_back(
+         { std::string( Desert::Graphic::kSceneViewShadowCascadesName ), ShaderResourceKind::SampledTexture } );
     CollectedBlock litBlock;
     litBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( lit );
     Desert::Graphic::BindSceneViewInputs( litBlock, view, lit );
     const Common::BoolResultStr litValid = ValidatePassBindings( litBlock.Block );
     EXPECT_TRUE( litValid.IsSuccess() ) << litValid.GetError();
-    ASSERT_EQ( litBlock.Block.Entries.size(), 8u );
-    for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
-    {
-        EXPECT_EQ( litBlock.Block.Entries[c].ShaderName, Desert::Graphic::kSceneViewShadowMapNames[c] );
-        EXPECT_EQ( litBlock.Block.Entries[c].Index, 10 + c );
-    }
+    ASSERT_EQ( litBlock.Block.Entries.size(), 5u );
+    EXPECT_EQ( litBlock.Block.Entries[0].ShaderName, Desert::Graphic::kSceneViewShadowCascadesName );
+    EXPECT_EQ( litBlock.Block.Entries[0].Index, 10u );
 
     // A G-buffer program samples no scene/view input: nothing is declared for it.
     const ShaderBindingLayout gbuffer{

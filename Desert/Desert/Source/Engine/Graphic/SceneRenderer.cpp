@@ -790,6 +790,7 @@ namespace Desert::Graphic
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
+        m_SSRRaysPerPixel = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
 
@@ -1107,7 +1108,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
-        ImportSceneViewTextures( textures );
+        ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
@@ -1199,6 +1200,18 @@ namespace Desert::Graphic
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
 
+            // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
+            // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
+            // history, which this frame's scene copy below refills.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            System::SSRRenderer* const ssr =
+                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
+                           EnsureSSRResources()
+                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                      : nullptr;
+            const FrameSSR ssrFrame =
+                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+
             RDG::TextureRef giAccum;
 
             if ( m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::ReflectiveShadowMaps &&
@@ -1214,18 +1227,20 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, frame );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
+                               lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
-
-            // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
-            if ( m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
-                 sceneCopy.IsValid() && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
+            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
+            // serves this frame's refraction and next frame's reflections.
+            std::function<void()> stampHistory;
+            if ( ssrFrame.SceneHistory.IsValid() )
+                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
+                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
@@ -1456,9 +1471,19 @@ namespace Desert::Graphic
 
         RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer );
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        if ( !ssrSys->Initialize() )
+        if ( const Common::BoolResultStr initialized = ssrSys->Initialize(); !initialized )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable." );
+            LOG_WARN( "[SceneRenderer] SSR system unavailable: {}", initialized.GetError() );
+            m_SSRResourcesFailed = true;
+            return false;
+        }
+        // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
+        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
@@ -1761,10 +1786,10 @@ namespace Desert::Graphic
         return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeImage( uint32_t cascade )
+    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->GetCascadeShadowImage( cascade );
+             ->GetCascadeCacheImage( cascade );
     }
 
     uint32_t SceneRenderer::GetShadowCascadeCount()

@@ -66,10 +66,17 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // Screen-space reflections and RSM global illumination.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
+    // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
+    // by 4 cm at 50 m, too coarse to re-aim a mirror's ray from a neighbour), w = log2 of its pdf.
+    inline constexpr ImageFormat kSSRTraceRay = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
+    // The closest-depth hierarchy (HZBRenderer): one 32-bit float per texel, the reversed-Z device depth exactly
+    // as the depth attachment stores it (a 16-bit depth would quantise the far half of the scene into a few
+    // hundred values).
+    inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
     // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
@@ -86,7 +93,10 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
                                                                                    std::nullopt, kRSMEmissive };
 
-    // MeshRenderer::SetupShadowPass, one of each per cascade.
-    inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;
-    inline constexpr ImageFormat kShadowDepth = ImageFormat::DEPTH24STENCIL8;
+    // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
+    // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,
+    // MeshRenderer::SetupShadowPass) and the local lights' atlas (MeshRenderer::UpdateLocalShadows). It used to be
+    // an R32F colour copy of the depth next to a D24S8 attachment: twice the bandwidth for the same number, and a
+    // 24-bit depth test under a 32-bit sampled value. The receivers read this image itself.
+    inline constexpr ImageFormat kShadowDepth = ImageFormat::DEPTH32F;
 } // namespace Desert::Graphic::ViewTargetFormats

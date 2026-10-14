@@ -83,8 +83,8 @@ Shader "DeferredLighting"
         // SkinnedMeshLit. Included after the three bindings above because it names them.
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
-        // SET 1, bindings 0 and 1. Set 0 has no room for two: 0-23 are taken in this layout (22 and 23 are the
-        // local shadow atlas and its views), 24 is the only spare, 25-27 are the reserved scene-read range
+        // SET 1, bindings 0 and 1, so the set-0 table (pinned by name in ShaderCacheKey) keeps its free slots for the
+        // passes that come next. 25-27 are the reserved scene-read range
         // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
@@ -98,6 +98,10 @@ Shader "DeferredLighting"
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
         Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
+        // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
+        // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
+        // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.
+        Uniform(24) sampler2D u_SSR;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -116,7 +120,7 @@ Shader "DeferredLighting"
         	vec4 u_LightDir;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
-        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
+        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         };
 
@@ -194,18 +198,16 @@ Shader "DeferredLighting"
         	return indirect / float(SAMPLES);
         }
 
-        // The cascaded shadow's five bindings, at slots free in THIS layout. The text that reads them is
+        // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
-        Uniform(5) sampler2D u_ShadowMap0;
-        Uniform(13) sampler2D u_ShadowMap1;
-        Uniform(14) sampler2D u_ShadowMap2;
-        Uniform(15) sampler2D u_ShadowMap3;
+        Uniform(5) sampler2DArray u_ShadowCascades; // one layer per cascade
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
-        	vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+        	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
         	vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
         	vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
+        	vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
         };
 
         #include <Mesh/CascadedShadow.glslh>
@@ -230,8 +232,8 @@ Shader "DeferredLighting"
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
         #include <Mesh/LocalLightShadowView.glslh>
-        Uniform(22) sampler2D u_LocalShadowAtlas;
-        ReadBuffer(23) LocalShadowViewsUB
+        Uniform(13) sampler2D u_LocalShadowAtlas; // 13/14: freed by the cascade array
+        ReadBuffer(14) LocalShadowViewsUB
         {
         	LocalShadowView localShadowViews[];
         };
@@ -398,8 +400,13 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, DesertSampleAmbient(surface, indirect, ao),
-        	                                                 surface, payload);
+        	// The specular radiance along the reflection is the traced one where SSR answered, the reflection
+        	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
+        	// captures, then the split-sum Fresnel of both together).
+        	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	if (u_CameraPos.w > 0.5)
+        		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
+        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.

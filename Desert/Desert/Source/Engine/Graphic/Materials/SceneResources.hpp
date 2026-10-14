@@ -28,9 +28,9 @@ namespace Desert::Graphic::SceneResources
     // writes exactly the groups the layout names. A data-driven template that samples the shadow map gets
     // the cascades because it declares them — not because someone wrote a C++ class for it.
 
-    // How many shadow cascades the ShadowUB block carries, and therefore how many cascade maps a lit draw
-    // binds. ONE number for the whole chain: SceneFrameBinding::CascadeMaps and the renderer's cascade count
-    // are defined from it.
+    // How many shadow cascades the ShadowUB block carries, and therefore how many layers the cascade array a
+    // lit draw binds may hold. ONE number for the whole chain: SceneFrameBinding::CascadeViewProj and the
+    // renderer's cascade count are defined from it.
     inline constexpr uint32_t kMaxCascades = 4;
 
     // The C++ half of the `ShadowUB` block every lit surface declares. PUBLIC because the other half is
@@ -39,14 +39,14 @@ namespace Desert::Graphic::SceneResources
     struct ShadowUBData
     {
         glm::mat4 LightViewProj[kMaxCascades];
-        glm::vec4 Params;            // x = bias, y = enabled, z = debug mode, w = cascade count
+        glm::vec4 Params; // x = tan(sun source angle / 2), y = enabled, z = debug mode, w = cascade count
         glm::vec4 DebugParams;       // x = show normals, y = lighting debug
         glm::vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel
+        glm::vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (the PCSS penumbra)
     };
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";
-    inline constexpr const char* kShadowMapNames[kMaxCascades] = { "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2",
-                                                                   "u_ShadowMap3" };
+    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // sampler2DArray, layer c
     inline constexpr const char* kEnvIrradianceName            = "u_EnvIrradianceTex";
     inline constexpr const char* kEnvSpecularName              = "u_EnvSpecularTex";
     inline constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";
@@ -87,8 +87,7 @@ namespace Desert::Graphic::SceneResources
                  { kObjectMotionsName, SceneRead::ObjectMotion },
                  { kObjectBonesName, SceneRead::ObjectBones },
             };
-            for ( const char* map : kShadowMapNames )
-                t.push_back( { map, SceneRead::Shadow } );
+            t.push_back( { kShadowMapName, SceneRead::Shadow } );
             return t;
         }();
         return table;

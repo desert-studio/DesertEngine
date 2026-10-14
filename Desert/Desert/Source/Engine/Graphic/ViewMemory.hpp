@@ -371,7 +371,8 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SceneRenderer.cpp", F::kSSRTrace, width, height } );
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
             add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
@@ -395,11 +396,11 @@ namespace Desert::Graphic
             // MeshRenderer::SetupShadowPass — see ShadowAttachmentBytes.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };
             ViewTarget     depth{ "ShadowCascades.Depth", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
-            color.ScalesWithView = depth.ScalesWithView = false;
-            add( color );
+            ViewTarget     cache{ "ShadowCascades.StaticCache", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
+            depth.ScalesWithView = cache.ScalesWithView = false;
             add( depth );
+            add( cache );
         }
         return rows;
     }

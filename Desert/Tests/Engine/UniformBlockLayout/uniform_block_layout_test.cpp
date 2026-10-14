@@ -69,11 +69,13 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
 {
     using T = Desert::Graphic::System::SSRRenderer::TraceUniforms;
     ExpectTwin( "SSR.shader", "SSRTraceUB",
-                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } }, sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 64u );
+                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 128u );
 }
 
-TEST( UniformBlockLayout, SSRResolveUBIsTheResolveMaterialsStructInBothVariants )
+TEST( UniformBlockLayout, SSRResolveUBIsTheGIResolveMaterialsStruct )
 {
     using T                      = Desert::Graphic::MaterialSSRResolve::SSRResolveUBData;
     const std::vector<Twin> twin = {
@@ -81,10 +83,22 @@ TEST( UniformBlockLayout, SSRResolveUBIsTheResolveMaterialsStructInBothVariants 
          { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
          { "u_Params", offsetof( T, Params ) },
     };
-    // SSRResolve.shader is GI's temporal pass (GIResolveRenderer::RecordTemporal), SSRResolveTiled.shader SSR's.
+    // SSRResolve.shader is GI's temporal pass (GIResolveRenderer::RecordTemporal).
     ExpectTwin( "SSRResolve.shader", "SSRResolveUB", twin, sizeof( T ) );
-    ExpectTwin( "SSRResolveTiled.shader", "SSRResolveUB", twin, sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 144u );
+}
+
+TEST( UniformBlockLayout, SSRReflectionResolveUBIsTheSSRResolveMaterialsStruct )
+{
+    using T = Desert::Graphic::MaterialSSRReflectionResolve::SSRReflectionResolveUBData;
+    // SSRResolveTiled.shader is SSR's resolve (SSRRenderer::RecordResolve): its own block, not GI's.
+    ExpectTwin( "SSRResolveTiled.shader", "SSRReflectionResolveUB",
+                { { "u_ViewProjection", offsetof( T, ViewProjection ) },
+                  { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },
+                  { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "u_Params", offsetof( T, Params ) } },
+                sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 208u );
 }
 
 TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )

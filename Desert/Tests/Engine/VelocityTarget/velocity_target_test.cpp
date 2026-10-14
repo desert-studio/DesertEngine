@@ -1014,7 +1014,6 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
          { "HeightFogApply", E / "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
          { "CloudComposite", E / "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
          { "DeferredLighting", E / "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
-         { "SSRComposite", E / "Deferred/SSRRenderer.hpp" },                  // reflection composite
          { "DebugLine", E / "Mesh/MeshRendererDebug.cpp" },                   // debug lines
          { "OverdrawResolve", E / "Mesh/MeshRendererDebug.cpp" },             // debug view
          { "ParticleSpriteDefault", E / "Particles/ParticleRenderer.cpp" },   // translucent particles

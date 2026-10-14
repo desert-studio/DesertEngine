@@ -1283,7 +1283,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     // And the two the deferred composite owns, named individually because they are the ones a reader is
     // most likely to put back "so the G-buffer can shade the ambient". It cannot: it writes attributes and
     // Deferred/DeferredLighting.shader shades them, on its own material with its own layout.
-    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_ShadowMap0
+    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_ShadowCascades
          << "the G-buffer pass declares a cascade map; it shades nothing and samples none";
     EXPECT_FALSE( HasBinding( gbuffer, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_EnvIrradianceTex
          << "the G-buffer pass declares the irradiance cube; the ambient lives in the deferred composite";
@@ -1475,14 +1475,11 @@ TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // DirectionLightsUB
 
-    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by
+    // The two cascade bindings. Since SURF1f a graph surface's forward cell is lit by
     // Mesh/Surface/Pass_Forward.glslh, so these are the mesh forward layout's numbers (StandardSurface's), not a
     // shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowMap0
-    EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap1
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowCascades
 
     // The graph's own textures start at kGraphTextureBinding (24) and count upward, so none of the slots
     // above can be taken by a Properties block however many textures an artist adds. Distinctness is the

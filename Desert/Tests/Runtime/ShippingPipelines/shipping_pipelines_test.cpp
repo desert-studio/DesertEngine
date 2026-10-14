@@ -506,7 +506,7 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRResolveTiled\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRComposite\"",
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp", "\"HZB\"",
                Verdict::Shipped, "" },
 
              // ── post processing ─────────────────────────────────────────────────────────────────────

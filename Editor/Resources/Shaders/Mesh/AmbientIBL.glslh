@@ -65,6 +65,17 @@ vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 	return ibl * ao + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
 }
 
+// THE CHAIN OF REFLECTION SOURCES, for one specular lobe: a traced source (screen-space reflections today; the
+// hardware ray continued into the TLAS where the screen trace ran out, later) answers a share of the lobe -
+// traced.a, its coverage, with traced.rgb the radiance of what it hit - and the reflection environment (the captures,
+// then the sky: Common/ReflectionEnvironment.glslh) answers the remainder. A traced source never darkens a lobe it
+// could not answer, and every source after it only fills what is left.
+vec3 DesertComposeTracedReflection(vec4 traced, vec3 environment)
+{
+	// = traced.rgb * traced.a + environment * (1 - traced.a); written so it also compiles as C++ (the algebra half).
+	return mix(environment, vec3(traced), traced.w);
+}
+
 #ifndef AMBIENT_IBL_NO_SAMPLERS
 
 #include <Common/SkyLook.glslh>

@@ -91,11 +91,11 @@ namespace
       "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.Method": "PathTraced" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.CaptureSize": 64, "Reflections.Method": "ScreenSpace" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.CaptureSize": 128, "Reflections.Method": "ScreenSpace" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.Method": "HardwareTraced" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.Method": "HardwareTraced" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 256, "Reflections.Method": "PathTraced" }
+      "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },
+      "Medium":    { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },
+      "High":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 2, "Reflections.Method": "HardwareTraced" },
+      "Epic":      { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 4, "Reflections.Method": "HardwareTraced" },
+      "Cinematic": { "Reflections.MaxSteps": 96, "Reflections.CaptureSize": 256, "Reflections.RaysPerPixel": 8, "Reflections.Method": "PathTraced" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
@@ -693,7 +693,7 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
     // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
-    constexpr ParameterValue kOldSSRSteps  = 32;
+    constexpr ParameterValue kOldSSRSteps  = 48; // HZB traversal iterations since SSR2 (was 32 linear march steps)
     constexpr ParameterValue kOldSSAOTaps  = 16;
     constexpr ParameterValue kOldGITaps    = 32;
     constexpr ParameterValue kOldBloomMips = 6;
