@@ -88,6 +88,9 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
+        virtual void          SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
+        virtual void          ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                           uint32_t height, const glm::vec4& color, float depth ) override;
 
         virtual void ResizeWindowEvent( uint32_t width, uint32_t height ) override;
         virtual void WaitDeviceIdle() override;

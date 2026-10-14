@@ -395,11 +395,11 @@ namespace Desert::Graphic
             // MeshRenderer::SetupShadowPass — see ShadowAttachmentBytes.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };
             ViewTarget     depth{ "ShadowCascades.Depth", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
-            color.ScalesWithView = depth.ScalesWithView = false;
-            add( color );
+            ViewTarget     cache{ "ShadowCascades.StaticCache", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
+            depth.ScalesWithView = cache.ScalesWithView = false;
             add( depth );
+            add( cache );
         }
         return rows;
     }

@@ -984,6 +984,16 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
         }
 
+        // The point and spot lights' shadow views, the same boundary: tiles of the atlas allocated (and the atlas
+        // itself, on the first light that casts), each light's ShadowView written into its payload, and the views
+        // whose cached depth is stale marked for this frame's graph (MeshRenderer::LocalShadowPasses).
+        {
+            DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                 ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
+                                       m_SpotLightShadows );
+        }
+
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
         // small graph, ending with the morphed vertices in vertex-input state for every pass of the view graph.
         {
@@ -1339,6 +1349,8 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
+        m_PointLightShadows.clear();
+        m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
 
@@ -1964,14 +1976,18 @@ namespace Desert::Graphic
              ->GetColorAttachmentImage();
     }
 
-    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight )
+    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                                       const LocalLightShadowSettings&           shadow )
     {
         m_PointLight.PointLights.push_back( pointLight );
+        m_PointLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight )
+    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                                      const LocalLightShadowSettings&          shadow )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
+        m_SpotLightShadows.push_back( shadow );
     }
 
     void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )

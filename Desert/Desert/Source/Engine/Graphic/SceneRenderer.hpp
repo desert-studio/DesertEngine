@@ -11,6 +11,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -486,14 +487,18 @@ namespace Desert::Graphic
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
         // away on the first view, and the second view then got a moved-from light.
-        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight );
+        // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
+        // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
+        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                            const LocalLightShadowSettings&           shadow );
 
         const auto& GetPointLights() const
         {
             return m_PointLight;
         }
 
-        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight );
+        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                           const LocalLightShadowSettings&          shadow );
 
         const auto& GetSpotLights() const
         {
@@ -801,6 +806,9 @@ namespace Desert::Graphic
         ShaderProtocols::DirectionLight m_DirectionLights;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
+        // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
+        std::vector<LocalLightShadowSettings> m_PointLightShadows;
+        std::vector<LocalLightShadowSettings> m_SpotLightShadows;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;

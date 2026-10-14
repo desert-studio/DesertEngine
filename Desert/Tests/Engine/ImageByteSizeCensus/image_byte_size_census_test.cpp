@@ -472,13 +472,10 @@ namespace
           "RGBA32F and 8 MiB as BC6H, and a figure quoted from a constant would have gone on saying "
           "128" },
         { "Desert/Desert/Source/Engine/Graphic/ShadowCascades.hpp",
-          "CalculateImageSize( side, side, ViewTargetFormats::kShadowColor )", Sizes::OneImage, Blocks::Correct,
-          "one cascade's COLOUR attachment in the shadow budget; the cascade count multiplies around it "
-          "because each cascade is its own framebuffer, not a layer of one image" },
-        { "Desert/Desert/Source/Engine/Graphic/ShadowCascades.hpp",
           "CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth )", Sizes::OneImage, Blocks::Correct,
-          "one cascade's DEPTH attachment in the shadow budget; same shape as the colour row, and the "
-          "two together are what ViewMemory's two shadow rows must add up to" },
+          "one D32F depth image of a cascade in the shadow budget; the cascade count and the images per "
+          "cascade (the map and its static cache) multiply around it, because each is its own framebuffer, "
+          "not a layer of one image - what ViewMemory's two shadow rows must add up to" },
         { "Desert/Desert/Source/Engine/Graphic/SkyRules.hpp",
           "CalculateCubeImageSize( faceSize, mips, kSkyEnvCubeFormat )", Sizes::EveryLayer, Blocks::Correct,
           "what one IBL cube costs to COMPUTE, for the bake's cost report. THIS is the line that used "

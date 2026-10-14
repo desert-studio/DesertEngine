@@ -91,7 +91,8 @@ namespace Desert::Graphic
 
         // A light-view caster's slope depth bias (Graphic::CascadeCasterBias::SlopeBias / SlopeClamp): the push
         // field `ShadowSlope`, read by a caster whose one material serves every cascade and so cannot carry it
-        // in a uniform block (Programs/Terrain/TerrainShadow.shader). A cell without the field refuses.
+        // in a uniform block (the vertex stage of Programs/Terrain/TerrainShadow.shader). A cell without the
+        // field refuses.
         void SetShadowSlopeBias( float slopeBias, float slopeClamp );
 
         // The SKINNED vertex path's two inputs — the vertex factory's, not the surface's, so they live here

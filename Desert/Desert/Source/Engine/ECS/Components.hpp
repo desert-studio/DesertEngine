@@ -945,6 +945,16 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
         bool CastShadows = true;
 
+        // THE SUN'S ANGULAR DIAMETER (UE: UDirectionalLightComponent::LightSourceAngle, the same default). It is
+        // what makes a shadow soft: the penumbra grows by tan(angle / 2) per centimetre between the occluder and
+        // the receiver, so a shadow is contact-sharp where the caster meets the ground and widens with distance
+        // (the cascades' PCSS, Mesh/CascadedShadow.glslh).
+        PROPERTY( DisplayName( "Source Angle" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 10.0f ),
+                  Units( "deg" ),
+                  Tooltip( "Angular diameter of the sun in degrees. Larger = softer shadows away from their "
+                           "casters; 0 = hard shadows everywhere." ) )
+        float SourceAngle = 0.5357f;
+
         // THE CASTER'S DEPTH BIAS, IN WORLD CENTIMETRES (UE: ULightComponent::ShadowBias / ShadowSlopeBias,
         // UDirectionalLightComponent::ShadowCascadeBiasDistribution). Applied where the caster writes its
         // depth (MeshRenderer::FitShadowCascades -> the caster matrix and CameraUB.ShadowSlopeBias), never
@@ -1015,6 +1025,32 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Radius" ), Category( "Light" ) )
         bool ShowRadius = false;
+
+        // THE POINT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
     };
 
     struct PointLightComponent
@@ -1051,6 +1087,32 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Cone" ), Category( "Light" ) )
         bool ShowCone = false;
+
+        // THE SPOT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
     };
 
     struct SpotLightComponent

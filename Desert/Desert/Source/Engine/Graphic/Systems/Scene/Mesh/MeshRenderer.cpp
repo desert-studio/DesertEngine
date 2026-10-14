@@ -419,8 +419,10 @@ namespace Desert::Graphic::System
         // frame ever wrote.
         frame.CascadeCount = GetValidCascadeCount();
         for ( uint32_t c = 0; c < frame.CascadeCount; ++c )
-            frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetColorAttachmentImage().get() : nullptr;
+            frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetDepthAttachmentImage().get() : nullptr;
         frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
+        frame.CascadeDepthRange = m_CascadeDepthRange;
+        frame.SunSourceTanHalf  = GetSunSourceTanHalf();
         frame.ShadowsEnabled    = m_ShadowsEnabled;
         frame.ShadowDebugMode   = m_ShadowDebugMode;
         frame.ShowNormals       = m_ShowNormals;

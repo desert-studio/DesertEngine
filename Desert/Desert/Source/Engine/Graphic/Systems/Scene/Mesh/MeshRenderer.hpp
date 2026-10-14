@@ -31,6 +31,9 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
+#include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 
@@ -39,6 +42,7 @@
 
 #include <functional>
 #include <memory>
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -323,8 +327,59 @@ namespace Desert::Graphic::System
         // The silhouette mask (always produced and cleared, so the Jump Flood outline has a fresh input every
         // frame; outline visibility is JumpFloodOutlineRenderer's).
         [[nodiscard]] SystemRasterPass SilhouettePass();
-        // One depth-only pass per cascade, cascade 0 first; each clears its own cascade target.
-        [[nodiscard]] std::vector<SystemRasterPass> ShadowCascadePasses();
+        // THE SUN'S CASCADES FOR THIS FRAME, in the order SceneRenderer::AddFrameShadowDepths adds them (UE: the
+        // cached shadow maps of a directional light). Per cascade:
+        //   StaticPasses  - only when its static casters' cache is stale: clears the cache and draws them;
+        //   Copies        - the cache into the sampled map, when the map must be rebuilt this frame;
+        //   MovablePasses - LOADS the map and draws the movable casters (skinned, swaying foliage, the terrain).
+        // A cascade whose matrix and casters stood still and that holds no movable caster has no work at all: its
+        // map is last frame's.
+        struct CascadeCacheCopy
+        {
+            std::shared_ptr<Image2D> From;
+            std::shared_ptr<Image2D> To;
+            std::string              Name;
+        };
+        struct ShadowCascadeFrame
+        {
+            std::vector<SystemRasterPass> StaticPasses;
+            std::vector<CascadeCacheCopy> Copies;
+            std::vector<SystemRasterPass> MovablePasses;
+        };
+        [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses();
+        // One depth-only pass per local shadow view whose cached depth is stale this frame, each into its own
+        // tile of the atlas (it clears the tile, never the atlas). SceneRenderer::AddFrameShadowDepths adds them
+        // after the cascades, LOADING the atlas.
+        [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
+
+        // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index: 0..kMaxCascades-1 are the sun's cascades, the
+        // rest the point and spot lights' views (LocalShadows.hpp). The per-view caster state below
+        // (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by it, so one caster walk
+        // (BuildShadowCascadeDraws) serves a cascade and a cube face alike.
+        // After those, one view per cascade for its MOVABLE layer: drawn in a pass of its own, possibly in the
+        // same frame as the cascade's static layer, so it needs caster materials (light-matrix UBO, instance and
+        // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
+        static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
+        static constexpr uint32_t kMaxShadowViews         = kCascadeMovableViewBase + kMaxShadowCascades;
+
+        // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
+        // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
+        // first one), writes its ShadowView into its payload, fills the view table GetLocalShadowRows hands the
+        // composite, and marks the views whose cached depth is stale — a view is redrawn only when its light,
+        // its tile or a caster in its reach changed (UE: cached shadow maps of a stationary light).
+        void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
+                                 const std::vector<LocalLightShadowSettings>&     pointShadows,
+                                 std::vector<ShaderProtocols::SpotLightPayload>&  spots,
+                                 const std::vector<LocalLightShadowSettings>&     spotShadows );
+        [[nodiscard]] const std::vector<LocalShadowViewPayload>& GetLocalShadowRows() const
+        {
+            return m_LocalShadowRows;
+        }
+        // The atlas's depth image (R32F), or null while no light of this view has cast a shadow.
+        [[nodiscard]] std::shared_ptr<Image2D> GetLocalShadowAtlasImage() const
+        {
+            return m_LocalAtlasFB ? m_LocalAtlasFB->GetDepthAttachmentImage() : nullptr;
+        }
 #if DESERT_DEV_INSTRUMENTS
         // The bounding-box lines over the lit scene, depth-tested.
         [[nodiscard]] SystemRasterPass DebugLinesPass();
@@ -521,7 +576,7 @@ namespace Desert::Graphic::System
         {
             if ( cascade >= m_Shadow.CascadeCount || !m_CascadeFB[cascade] )
                 return nullptr;
-            return m_CascadeFB[cascade]->GetColorAttachmentImage();
+            return m_CascadeFB[cascade]->GetDepthAttachmentImage();
         }
 
         // HOW MANY CASCADES THIS RENDERER ACTUALLY HAS — not the ceiling. It was `static constexpr`, and
@@ -564,6 +619,7 @@ namespace Desert::Graphic::System
             m_ShadowBias      = shadows.Bias;
             m_ShadowDebugMode = debugMode;
             m_SplitLambda     = shadows.CascadeSplitLambda;
+            m_SunSourceAngle  = shadows.SourceAngleDegrees;
         }
         bool AreShadowsEnabled() const
         {
@@ -585,6 +641,15 @@ namespace Desert::Graphic::System
             m_ShadowCasters.push_back( std::move( caster ) );
         }
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
+        // Per cascade, the world length the [0,1] light depth spans (CascadeFit::DepthRange): what turns a depth
+        // difference in the map into centimetres for the soft shadow's penumbra (Mesh/CascadedShadow.glslh).
+        const glm::vec4& GetCascadeDepthRange() const
+        {
+            return m_CascadeDepthRange;
+        }
+        // tan of half the sun's angular diameter (DirectionalLightData::SourceAngle): penumbra width per
+        // centimetre between occluder and receiver.
+        [[nodiscard]] float GetSunSourceTanHalf() const;
 
         // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
         // `lightingDebug` are BRANCHES IN THE Lit SHADER, so they travel with the program and cost no
@@ -631,7 +696,29 @@ namespace Desert::Graphic::System
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
         // per-object data-driven materials (v3 slots + overrides)
         void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
-        void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+        // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
+        // its cache and its MOVABLE ones over the copied cache, every frame.
+        enum class ShadowCasterLayer : uint8_t
+        {
+            All,
+            Static,  // static, generic and still instanced meshes
+            Movable, // skinned meshes and swaying foliage
+        };
+        // The casters of shadow view @p cascade (a cascade, or a local view: kMaxShadowViews) into @p list.
+        void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list,
+                                      ShadowCasterLayer layer = ShadowCasterLayer::All );
+        // The cache decision of each cascade for this frame (UpdateCascades, after the fit): whether its static
+        // layer is redrawn, whether it holds a movable caster, whether its map is rebuilt.
+        void PlanCascadeCache();
+        // A hash of the static casters cascade @p cascade's caster box reaches (what they draw and where), and
+        // whether a movable caster reaches it: the cache key of the cascade's static layer.
+        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable ) const;
+        // The caster materials of shadow view @p view, made on its first use. False when the caster
+        // pipeline does not exist (a renderer with no shadow budget).
+        bool EnsureShadowViewMaterials( uint32_t view );
+        // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
+        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -778,8 +865,25 @@ namespace Desert::Graphic::System
         // frame by UpdateCascades().
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         std::shared_ptr<Shader>           m_ShadowShader;
-        std::unique_ptr<MaterialShadow>   m_ShadowMaterial[kMaxCascades];
+        std::unique_ptr<MaterialShadow>           m_ShadowMaterial[kMaxShadowViews];
         std::shared_ptr<Framebuffer>      m_CascadeFB[kMaxCascades];
+        // The cache of each cascade's static casters (depth only, the map's format): drawn when its key changes,
+        // copied into m_CascadeFB[c] whenever the map is rebuilt.
+        std::shared_ptr<Framebuffer> m_CascadeStaticFB[kMaxCascades];
+        struct CascadeCacheState
+        {
+            std::optional<uint64_t> StaticKey; // the key the cache was drawn with; nullopt = never drawn
+            bool                    RedrawStatic = false; // this frame: the static layer is drawn
+            bool                    Rebuild      = false; // this frame: the map is the cache copied (+ movable)
+            bool                    Movable      = false; // this frame: a movable caster reaches the cascade
+            bool MapHasMovable = false; // the map holds movable depth from the frame it was built
+        };
+        // The instance snapshots the static layers' keys were taken over, held one frame longer than the queue
+        // holds them: a snapshot is immutable and is replaced when its instances change, so its address is its
+        // revision only while no new snapshot can be allocated at that address — which holding it guarantees.
+        std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_CascadeKeySnapshots;
+        CascadeCacheState                                          m_CascadeCache[kMaxCascades];
+        MeshRendererDetail::MeshDrawList                           m_CascadeMovableDraws[kMaxCascades];
         std::vector<std::weak_ptr<IShadowCaster>> m_ShadowCasters; // non-mesh casters, AddShadowCaster
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
@@ -787,7 +891,7 @@ namespace Desert::Graphic::System
         // instanced draw per cascade. Optional — null if the Instanced.ShadowDepth cell is missing.
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
-        std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxCascades];
+        std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxShadowViews];
 
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
         // walked the static queue by name and a character cast nothing. One material per cascade, exactly
@@ -795,7 +899,7 @@ namespace Desert::Graphic::System
         // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
-        std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxCascades];
+        std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxShadowViews];
 
         // THE BUDGET, copied from the owning SceneRenderer in Initialize() and never written again. Held
         // by value rather than read through m_SceneRenderer on every use, because the three numbers decide
@@ -823,15 +927,52 @@ namespace Desert::Graphic::System
         // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
         // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
         glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
+        glm::vec4                         m_CascadeDepthRange       = glm::vec4( 1.0f );
         // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
         // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
-        glm::mat4 m_CascadeCasterVP[kMaxCascades] = { glm::mat4( 1.0f ), glm::mat4( 1.0f ), glm::mat4( 1.0f ),
-                                                      glm::mat4( 1.0f ) };
-        CascadeCasterBias                 m_CascadeCasterBias[kMaxCascades]{};
+        // Indexed by SHADOW VIEW (kMaxShadowViews): the cascades first, then the local views, whose matrices
+        // UpdateLocalShadows writes and whose bias is zero (a local view's bias is the receiver's, in texels).
+        std::array<glm::mat4, kMaxShadowViews>                      m_CascadeCasterVP = IdentityShadowViews();
+        CascadeCasterBias                                           m_CascadeCasterBias[kMaxShadowViews]{};
+        [[nodiscard]] static std::array<glm::mat4, kMaxShadowViews> IdentityShadowViews()
+        {
+            std::array<glm::mat4, kMaxShadowViews> views;
+            views.fill( glm::mat4( 1.0f ) );
+            return views;
+        }
+
+        // THE LOCAL LIGHTS' SHADOW STATE. The atlas (D32F depth only, the cascades' format so the caster
+        // pipelines serve it) is created on the first light that casts and lives as long as the renderer; its
+        // tiles are handed out by m_LocalAtlas and kept by a light across frames.
+        struct LocalShadowLight
+        {
+            uint32_t                                 TileSize  = 0;
+            uint32_t                                 ViewCount = 0; // 6 for a point light, 1 for a spot
+            std::array<AtlasTile, kPointShadowFaces> Tiles{};
+            // What the tiles hold: the light's views and its casters when they were drawn. nullopt = never
+            // drawn, or drawn with a caster that moves by itself (redrawn every frame).
+            std::optional<uint64_t> Signature;
+            uint64_t                LastFrame = 0;
+        };
+        std::unordered_map<uint64_t, LocalShadowLight> m_LocalLights; // key: SourceId * 2 + (spot ? 1 : 0)
+        ShadowAtlasAllocator                           m_LocalAtlas;
+        std::shared_ptr<Framebuffer>                   m_LocalAtlasFB;
+        uint64_t                                       m_LocalFrame = 0;
+        // This frame's table (one row per view, in view order) and the views it redraws.
+        std::vector<LocalShadowViewPayload> m_LocalShadowRows;
+        struct LocalShadowRedraw
+        {
+            uint32_t  View = 0; // shadow view index (kMaxCascades + row)
+            AtlasTile Tile;
+        };
+        std::vector<LocalShadowRedraw>    m_LocalRedraws;
+        MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;
         int                               m_ShadowDebugMode = 0;     // ShadowDebugMode (Off/ShadowFactor/Cascades)
         float                             m_SplitLambda     = 0.6f;  // cascade split uniform<->log blend
+        float                             m_SunSourceAngle  = 0.5357f; // degrees, ViewShadowSettings
 
         // Debug visualization (Scene Settings -> Debug)
         bool m_ShowNormals   = false; // per-pixel normal color (Lit shader branch)

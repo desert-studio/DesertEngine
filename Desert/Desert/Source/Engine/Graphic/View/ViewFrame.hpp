@@ -189,8 +189,8 @@ namespace Desert::Graphic
         float MaterialMipBias = 0.0f;
 
         // LIGHT VIEWS ONLY (a shadow cascade's caster pass, Graphic::WriteLightCamera): the slope term of the
-        // caster's depth bias, Graphic::CascadeCasterBias::SlopeBias / ::SlopeClamp, which
-        // Mesh/Surface/Pass_ShadowDepth.glslh adds to the depth it writes. 0 for every other view.
+        // caster's depth bias, Graphic::CascadeCasterBias::SlopeBias / ::SlopeClamp, which the caster's vertex
+        // stage adds to its clip depth (Common/ShadowCasterBias.glslh). 0 for every other view.
         float ShadowSlopeBias  = 0.0f;
         float ShadowSlopeClamp = 0.0f;
 

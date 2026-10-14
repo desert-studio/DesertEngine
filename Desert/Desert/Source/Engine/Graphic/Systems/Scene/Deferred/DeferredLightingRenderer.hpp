@@ -11,6 +11,7 @@
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 
 #include <glm/glm.hpp>
 
@@ -44,7 +45,12 @@ namespace Desert::Graphic::System
     {
         RDG::BufferRef Point;
         RDG::BufferRef Spot;
+        // The local shadow views the lights' ShadowView indices name ("Upload: Lights.ShadowViews").
+        RDG::BufferRef ShadowViews;
     };
+
+    // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
+    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
@@ -87,9 +93,10 @@ namespace Desert::Graphic::System
         // GRAPH BUILD (before the Composite node): the lights as two graph buffers, each uploaded by the graph's
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the shader loops
         // 0..count, the counts being the material's LightsMetadata.
-        static DeferredCompositeLights UploadLights( RDG::Builder&                      graph,
-                                                     const ShaderProtocols::PointLight& points,
-                                                     const ShaderProtocols::SpotLight&  spots )
+        static DeferredCompositeLights UploadLights( RDG::Builder&                              graph,
+                                                     const ShaderProtocols::PointLight&         points,
+                                                     const ShaderProtocols::SpotLight&          spots,
+                                                     const std::vector<LocalShadowViewPayload>& shadowViews )
         {
             const auto upload = [&graph]( const auto& lights, std::string_view name )
             {
@@ -98,7 +105,8 @@ namespace Desert::Graphic::System
                 graph.QueueBufferUpload( buffer, bytes );
                 return buffer;
             };
-            return { upload( points.PointLights, "Lights.Point" ), upload( spots.SpotLights, "Lights.Spot" ) };
+            return { upload( points.PointLights, "Lights.Point" ), upload( spots.SpotLights, "Lights.Spot" ),
+                     upload( shadowViews, "Lights.ShadowViews" ) };
         }
 
         // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
@@ -149,7 +157,8 @@ namespace Desert::Graphic::System
                  .Sampled( "u_SSR", inputs.SSR, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearClamp() )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead );
+                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
+                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }

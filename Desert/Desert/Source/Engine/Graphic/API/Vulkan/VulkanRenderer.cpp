@@ -1440,6 +1440,54 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
     }
 
+    void VulkanRendererAPI::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
+    {
+        if ( !IsRecording() || width == 0 || height == 0 )
+            return;
+        // The engine's convention (SetViewportAndScissor): negative height, origin at the rectangle's bottom.
+        const VkViewport viewport{ static_cast<float>( x ),
+                                   static_cast<float>( y ) + static_cast<float>( height ),
+                                   static_cast<float>( width ),
+                                   -static_cast<float>( height ),
+                                   0.0f,
+                                   1.0f };
+        const VkRect2D   scissor{ { x, y }, { width, height } };
+        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
+        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+    }
+
+    void VulkanRendererAPI::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                         uint32_t height, const glm::vec4& color, float depth )
+    {
+        if ( !IsRecording() || width == 0 || height == 0 )
+            return;
+        const auto&                    formats = framebuffer.GetSpecification().Attachments.Attachments;
+        std::vector<VkClearAttachment> attachments;
+        attachments.reserve( formats.size() );
+        uint32_t colorIndex = 0;
+        for ( const auto& attachment : formats )
+        {
+            if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+            {
+                VkClearAttachment clear{};
+                // Asked of the format, as ClearAttachments does: a stencil aspect only where the format has one.
+                clear.aspectMask              = GetImageVulkanAspect( attachment.Format );
+                clear.clearValue.depthStencil = { depth, 0 };
+                attachments.push_back( clear );
+                continue;
+            }
+            VkClearAttachment clear{};
+            clear.aspectMask       = VK_IMAGE_ASPECT_COLOR_BIT;
+            clear.colorAttachment  = colorIndex++;
+            clear.clearValue.color = { { color.r, color.g, color.b, color.a } };
+            attachments.push_back( clear );
+        }
+        const VkClearRect rect{
+             .rect = { .offset = { x, y }, .extent = { width, height } }, .baseArrayLayer = 0, .layerCount = 1 };
+        vkCmdClearAttachments( m_CurrentCommandBuffer, static_cast<uint32_t>( attachments.size() ),
+                               attachments.data(), 1, &rect );
+    }
+
     // Same shape as VulkanContext::OnResize: the RendererAPI interface requires it and the Vulkan backend
     // has nothing to do here, because SceneRenderer::OnResize already drives the swapchain and every
     // framebuffer directly a few lines after it calls this.
