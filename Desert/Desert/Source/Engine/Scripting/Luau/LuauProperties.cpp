@@ -351,7 +351,8 @@ namespace Desert::Scripting::LuauProperties
                 line = lua_isnumber( thread, -1 ) ? lua_tointeger( thread, -1 ) : 0;
                 lua_pop( thread, 2 );
             }
-            return line > 0 ? std::format( "{}:{}: {}", script, line, message ) : std::format( "{}: {}", script, message );
+            return line > 0 ? std::format( "{}:{}: {}", script, line, message )
+                            : std::format( "{}: {}", script, message );
         }
 
         const luaL_Reg kModule[] = {
@@ -434,15 +435,13 @@ namespace Desert::Scripting::LuauProperties
             else
             {
                 const int         kind = lua_type( thread, -1 );
-                const std::string want = kind == LUA_TBOOLEAN  ? std::format( "Property.Bool( {} )",
-                                                                            lua_toboolean( thread, -1 ) != 0 )
-                                         : kind == LUA_TNUMBER ? std::format( "Property.Float( {} ) or "
-                                                                              "Property.Int( {} )",
-                                                                              lua_tonumber( thread, -1 ),
-                                                                              lua_tonumber( thread, -1 ) )
-                                         : kind == LUA_TSTRING
-                                              ? std::format( "Property.String( \"{}\" )", lua_tostring( thread, -1 ) )
-                                              : std::string( "Property.Float(...), Property.Entity(...), ..." );
+                const std::string want =
+                     kind == LUA_TBOOLEAN  ? std::format( "Property.Bool( {} )", lua_toboolean( thread, -1 ) != 0 )
+                     : kind == LUA_TNUMBER ? std::format( "Property.Float( {} ) or "
+                                                          "Property.Int( {} )",
+                                                          lua_tonumber( thread, -1 ), lua_tonumber( thread, -1 ) )
+                     : kind == LUA_TSTRING ? std::format( "Property.String( \"{}\" )", lua_tostring( thread, -1 ) )
+                                           : std::string( "Property.Float(...), Property.Entity(...), ..." );
                 const std::string type = luaL_typename( thread, -1 );
                 lua_pop( thread, 3 );
                 return Common::MakeError<Decls>( Located( thread, script,
@@ -477,8 +476,9 @@ namespace Desert::Scripting::LuauProperties
                 lua_pop( thread, 1 );
                 return Common::MakeError<Decls>( Located(
                      thread, script,
-                     std::format( "Properties.{}: editCondition names '{}', which is no Bool property of this script",
-                                  decl.Name, gate ) ) );
+                     std::format(
+                          "Properties.{}: editCondition names '{}', which is no Bool property of this script",
+                          decl.Name, gate ) ) );
             }
         }
 

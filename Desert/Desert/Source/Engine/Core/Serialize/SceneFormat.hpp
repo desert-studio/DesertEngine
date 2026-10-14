@@ -88,10 +88,10 @@ namespace Desert::Core
     // v52 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
     // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
     // MigrateSceneDependenciesV51ToV52).
-    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is GlobalIlluminationMethod
-    // and EnableSSR is ReflectionsMethod, on the method ladders of Common/Settings/RenderMethods.hpp
-    // (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53).
-    // v54 (SCR-DETAILS): a script slot's Props are only the values that differ from the script's declared defaults
+    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is
+    // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
+    // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
+    // script slot's Props are only the values that differ from the script's declared defaults
     // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
     inline constexpr int kSceneVersion = 54;
 

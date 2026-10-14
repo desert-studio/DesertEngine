@@ -26,5 +26,6 @@ namespace Desert::Editor
     //   * its CallInEditor functions as buttons.
     // Every edit is one undo step in the edit world; in a played world it reaches the running script on its
     // next frame (ScriptSystem re-applies the slot's values every frame).
-    void DrawScriptComponent( ECS::Entity& entity, ::Desert::Core::Scene* scene, const ComponentEditContext& context );
+    void DrawScriptComponent( ECS::Entity& entity, ::Desert::Core::Scene* scene,
+                              const ComponentEditContext& context );
 } // namespace Desert::Editor

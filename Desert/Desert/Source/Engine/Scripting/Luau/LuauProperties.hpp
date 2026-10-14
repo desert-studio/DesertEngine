@@ -32,7 +32,7 @@ namespace Desert::Scripting::LuauProperties
     /// unset entity, a table for an array). Every entry is a `Property.*` declaration — the ONE form a script
     /// declares an editable value in; a plain literal (`Speed = 5`) is refused as `<script>:<line>: ...`, with
     /// the line of the `Properties` table, saying which declaration it wants.
-    [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State* thread,
+    [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State*       thread,
                                                                              std::string_view script );
 
     /// What a value needs from the world it is pushed into: the entity a UUID names.

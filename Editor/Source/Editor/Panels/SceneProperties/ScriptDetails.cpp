@@ -656,7 +656,7 @@ namespace Desert::Editor
             ECS::ScriptSlot&            Slot;
             const ScriptSchema&         Schema;
             const EditTarget&           Target;
-            ::Desert::Core::Scene*                Scene;
+            ::Desert::Core::Scene*      Scene;
             const ComponentEditContext& Context;
         };
 
@@ -1154,7 +1154,8 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void DrawScriptComponent( ECS::Entity& entity, ::Desert::Core::Scene* scene, const ComponentEditContext& context )
+    void DrawScriptComponent( ECS::Entity& entity, ::Desert::Core::Scene* scene,
+                              const ComponentEditContext& context )
     {
         auto&            component = entity.GetComponent<ECS::ScriptComponent>();
         const bool       playing   = std::any_of( component.Scripts.begin(), component.Scripts.end(),

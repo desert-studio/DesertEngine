@@ -111,7 +111,8 @@ namespace Desert::Editor::ContentBrowserUtils
                   ShellExecuteW( nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL ) ) > 32 )
             return true;
 #elif defined( DESERT_PLATFORM_MACOS )
-        if ( SpawnOpen( { "open", std::format( "vscode://file/{}:{}", absolute.generic_string(), std::max( line, 1 ) ) } ) )
+        if ( SpawnOpen( { "open", std::format( "vscode://file/{}:{}", absolute.generic_string(),
+                                               std::max( line, 1 ) ) } ) )
             return true;
 #endif
         ShellOpenDefault( path );

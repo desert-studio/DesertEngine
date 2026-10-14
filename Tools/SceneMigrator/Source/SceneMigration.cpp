@@ -1089,7 +1089,7 @@ namespace Desert::Migration
         // A literal default a script declares: what `Name = Property.<Kind>( <literal>` states.
         struct DeclaredDefault
         {
-            Scripting::PropertyType Type = Scripting::PropertyType::Number;
+            Scripting::PropertyType Type   = Scripting::PropertyType::Number;
             double                  Number = 0.0;
             bool                    Bool   = false;
             std::string             Str;
@@ -1146,9 +1146,10 @@ namespace Desert::Migration
             {
                 const std::string name = ( *it )[1];
                 const std::string kind = ( *it )[2];
-                const std::string rest = body.substr( static_cast<std::size_t>( it->position( 0 ) + it->length( 0 ) ) );
-                std::smatch       literal;
-                DeclaredDefault   value;
+                const std::string rest =
+                     body.substr( static_cast<std::size_t>( it->position( 0 ) + it->length( 0 ) ) );
+                std::smatch     literal;
+                DeclaredDefault value;
                 if ( ( kind == "Float" || kind == "Int" ) && std::regex_search( rest, literal, kNumber ) )
                 {
                     value.Type   = kind == "Int" ? Scripting::PropertyType::Int : Scripting::PropertyType::Number;
@@ -1179,14 +1180,14 @@ namespace Desert::Migration
                                                         const std::filesystem::path&     assetsRoot )
     {
         using Scripting::PropertyType;
-        ScriptDefaultsReport                                          report;
-        std::map<std::string, std::optional<ScriptDefaults>>         read; // by script key, read once
+        ScriptDefaultsReport                                 report;
+        std::map<std::string, std::optional<ScriptDefaults>> read; // by script key, read once
         const auto defaultsOf = [&]( const std::string& key ) -> const std::optional<ScriptDefaults>&
         {
             auto found = read.find( key );
             if ( found != read.end() )
                 return found->second;
-            constexpr std::string_view kMount = "assets:";
+            constexpr std::string_view    kMount = "assets:";
             std::optional<ScriptDefaults> defaults;
             if ( key.starts_with( kMount ) )
             {
@@ -1256,12 +1257,13 @@ namespace Desert::Migration
                                       std::format( "{}: a property of {} is not an object", who, script ) );
                                  return false;
                              }
-                             rfl::Generic::Object prop = std::move( propFields.value() );
+                             rfl::Generic::Object prop      = std::move( propFields.value() );
                              const auto           nameValue = prop.get( "Name" );
                              const auto           typeValue = prop.get( "Type" );
                              const std::string    name =
                                   nameValue.has_value() ? nameValue.value().to_string().value_or( "" ) : "";
-                             const int type = typeValue.has_value() ? typeValue.value().to_int().value_or( -1 ) : -1;
+                             const int type =
+                                  typeValue.has_value() ? typeValue.value().to_int().value_or( -1 ) : -1;
                              const auto keep = [&]( const std::string& why )
                              {
                                  report.Kept.push_back( std::format( "{} > {}.{}: {}", who, script, name, why ) );

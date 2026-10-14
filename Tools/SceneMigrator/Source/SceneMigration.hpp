@@ -554,10 +554,10 @@ namespace Desert::Migration
     // What MigrateScriptDefaultsV53ToV54 did to one file.
     struct ScriptDefaultsReport
     {
-        std::size_t              Dropped  = 0; // stated values equal to their script's default, gone
-        std::size_t              Retyped  = 0; // Number values the script declares Int, re-stated Int
-        std::vector<std::string> Kept;         // values kept with the reason (no literal default, no script, ...)
-        std::vector<std::string> Refused;      // a Script block or slot that is not the declared shape
+        std::size_t              Dropped = 0; // stated values equal to their script's default, gone
+        std::size_t              Retyped = 0; // Number values the script declares Int, re-stated Int
+        std::vector<std::string> Kept;        // values kept with the reason (no literal default, no script, ...)
+        std::vector<std::string> Refused;     // a Script block or slot that is not the declared shape
     };
 
     // Drops every script property value equal to the default its script declares, under the rule
@@ -848,8 +848,8 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised ||
-                   ScriptDefaultsRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
+                   RenderMethodsRaised || ScriptDefaultsRaised;
         }
     };
 
