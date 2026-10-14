@@ -120,6 +120,10 @@ namespace Common::Scalability
         // slider moves them with MeshLOD. 100 at High/Epic/Cinematic: the authored look, unchanged.
         FoliageCullDistancePercent, // both ends of a foliage type's CullDistance fade. 25..100
         FoliageDensityPercent,      // share of a foliage field's instances drawn at all. 25..100
+        // UE fx.Niagara.GlobalSpawnCountScale under sg.EffectsQuality: the share of every emitter's authored rate
+        // and burst counts spawned (VFX::SpawnState::Step via VFXWorld::SetSpawnCountScale). Gameplay channel
+        // spawns are not scaled. 100 at High/Epic/Cinematic.
+        ParticleSpawnPercent, // 25..100
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         ShadowRayTracing,             // Shadows: RayTracingMode

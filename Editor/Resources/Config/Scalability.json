@@ -108,27 +108,32 @@
             "Low": {
                 "Effects.CloudLightSamples": 16,
                 "Effects.CloudShadowMapPercent": 50,
-                "Effects.CloudStopTransmittancePerMille": 50
+                "Effects.CloudStopTransmittancePerMille": 50,
+                "Effects.ParticleSpawnPercent": 50
             },
             "Medium": {
                 "Effects.CloudLightSamples": 64,
                 "Effects.CloudShadowMapPercent": 50,
-                "Effects.CloudStopTransmittancePerMille": 0
+                "Effects.CloudStopTransmittancePerMille": 0,
+                "Effects.ParticleSpawnPercent": 75
             },
             "High": {
                 "Effects.CloudLightSamples": 64,
                 "Effects.CloudShadowMapPercent": 100,
-                "Effects.CloudStopTransmittancePerMille": 0
+                "Effects.CloudStopTransmittancePerMille": 0,
+                "Effects.ParticleSpawnPercent": 100
             },
             "Epic": {
                 "Effects.CloudLightSamples": 64,
                 "Effects.CloudShadowMapPercent": 100,
-                "Effects.CloudStopTransmittancePerMille": 0
+                "Effects.CloudStopTransmittancePerMille": 0,
+                "Effects.ParticleSpawnPercent": 100
             },
             "Cinematic": {
                 "Effects.CloudLightSamples": 64,
                 "Effects.CloudShadowMapPercent": 100,
-                "Effects.CloudStopTransmittancePerMille": 0
+                "Effects.CloudStopTransmittancePerMille": 0,
+                "Effects.ParticleSpawnPercent": 100
             }
         },
         "Textures": {

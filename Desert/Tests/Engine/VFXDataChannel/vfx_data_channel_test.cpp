@@ -103,7 +103,7 @@ TEST( VFXDataChannel, WrittenEntriesBecomeSpawnRequestsWithTheirPayload )
     WriteImpact( channels, glm::vec3( 0.0f, 200.0f, 0.0f ), 1.0f );
 
     VFX::EmitterInstance instance;
-    VFX::PlanEmitterSteps( instance, ChannelPlan( Module( 4, 16 ) ), 2, kStep, channels, glm::vec3( 0.0f ) );
+    VFX::PlanEmitterSteps( instance, ChannelPlan( Module( 4, 16 ) ), 2, kStep, 1.0, channels, glm::vec3( 0.0f ) );
 
     ASSERT_EQ( instance.ChannelSpawns.size(), 2u );
     EXPECT_EQ( instance.ChannelSpawns[0].Count, 4u );
@@ -162,7 +162,7 @@ TEST( VFXDataChannel, ThePerFrameLimitCountsTheOverflow )
 
     VFX::EmitterInstance instance;
     const auto           plan = ChannelPlan( Module( 3, 2 ) );
-    VFX::PlanEmitterSteps( instance, plan, 1, kStep, channels, glm::vec3( 0.0f ) );
+    VFX::PlanEmitterSteps( instance, plan, 1, kStep, 1.0, channels, glm::vec3( 0.0f ) );
     EXPECT_EQ( instance.ChannelSpawns.size(), 2u );
     EXPECT_EQ( instance.Steps[0].ChannelCount, 6u );
     EXPECT_EQ( instance.ChannelReport.Spawned, 2u );
@@ -170,7 +170,7 @@ TEST( VFXDataChannel, ThePerFrameLimitCountsTheOverflow )
     EXPECT_EQ( instance.ChannelOverflowTotal, 3u );
 
     // A tick that runs no step spawns nothing and counts every passing entry.
-    VFX::PlanEmitterSteps( instance, plan, 0, kStep, channels, glm::vec3( 0.0f ) );
+    VFX::PlanEmitterSteps( instance, plan, 0, kStep, 1.0, channels, glm::vec3( 0.0f ) );
     EXPECT_TRUE( instance.ChannelSpawns.empty() );
     EXPECT_EQ( instance.ChannelReport.Overflow, 5u );
     EXPECT_EQ( instance.ChannelOverflowTotal, 8u );

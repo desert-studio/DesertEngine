@@ -77,7 +77,8 @@ namespace Desert::VFX
     }
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
-                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm )
+                           const double stepSeconds, const double spawnCountScale, const VFXDataChannels& channels,
+                           const glm::vec3& emitterCm )
     {
         instance.Steps.clear();
         instance.ChannelSpawns.clear();
@@ -102,7 +103,7 @@ namespace Desert::VFX
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {
-            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds ) };
+            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds, spawnCountScale ) };
             if ( s == 0 )
             {
                 step.ChannelFirst = 0;
@@ -156,7 +157,8 @@ namespace Desert::VFX
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::vec3 emitterCm =
                       transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
-                 PlanEmitterSteps( instance, plan, m_Plan.StepCount, stepSeconds, m_Channels, emitterCm );
+                 PlanEmitterSteps( instance, plan, m_Plan.StepCount, stepSeconds, m_SpawnCountScale, m_Channels,
+                                   emitterCm );
              } );
 
         // A VFXComponent plays its system's enabled emitters, instance (entity, emitter index) each. Not
@@ -251,8 +253,8 @@ namespace Desert::VFX
                      }
                      EmitterInstance& instance =
                           Visit( key, MakeEmitterSeed( system->Seed, uuid, index ), restart );
-                     PlanEmitterSteps( instance, plan.GetValue(), m_Plan.StepCount, stepSeconds, m_Channels,
-                                       emitterCm );
+                     PlanEmitterSteps( instance, plan.GetValue(), m_Plan.StepCount, stepSeconds, m_SpawnCountScale,
+                                       m_Channels, emitterCm );
                      instance.Stack    = compiled.Stack;
                      instance.Params   = std::move( params.GetValue() );
                      instance.Curves   = compiled.Curves.Floats;

@@ -163,7 +163,7 @@ TEST( VFXComponent, TheWorldPlansEachEmitterOfThePlayedSystem )
         VFX::EmitterInstance reference;
         VFX::VFXDataChannels noChannels;
         VFX::PlanEmitterSteps( reference, own.GetValue(), plan.StepCount,
-                               world.GetClock().GetSettings().StepSeconds, noChannels, glm::vec3( 0.0f ) );
+                               world.GetClock().GetSettings().StepSeconds, 1.0, noChannels, glm::vec3( 0.0f ) );
         ASSERT_EQ( instance->Steps.size(), reference.Steps.size() );
         std::uint64_t born = 0;
         for ( std::size_t s = 0; s < reference.Steps.size(); ++s )

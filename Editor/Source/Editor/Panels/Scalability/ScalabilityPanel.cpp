@@ -348,5 +348,16 @@ namespace Desert::Editor
                                  "each foliage type's CullDistance fade in; Density Percent draws that share\n"
                                  "of every field (shadows follow)." );
         }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Particles" ) )
+        {
+            const SC::ParameterSpec& spec  = SC::SpecOf( SC::Parameter::ParticleSpawnPercent );
+            int                      value = Requested( SC::Parameter::ParticleSpawnPercent );
+            if ( ImGui::SliderInt( std::string( spec.Key ).c_str(), &value, spec.Min, spec.Max ) )
+                SC::QualityState::SetOverride( SC::Parameter::ParticleSpawnPercent,
+                                               static_cast<SC::ParameterValue>( value ) );
+            ImGui::TextDisabled( "100 spawns every emitter's authored rate and bursts; lower spawns that share.\n"
+                                 "Gameplay data-channel spawns are never scaled." );
+        }
     }
 } // namespace Desert::Editor

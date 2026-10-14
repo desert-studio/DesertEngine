@@ -41,6 +41,12 @@ namespace Desert::Graphic::QualityBoot
             if ( filterChanged || anisoChanged )
                 Renderer::GetInstance().RecreateImageSamplers();
         }
+
+        // The effects spawn share is per machine too; each scene's VFXWorld picks it up on its next tick.
+        void PushEffectsState( const Common::Scalability::ResolvedQuality& resolved, void* /*user*/ )
+        {
+            RenderConfig::ParticleSpawnPercent.store( resolved.As<int>( Parameter::ParticleSpawnPercent ) );
+        }
     } // namespace
 
     Common::BoolResultStr Start( const std::filesystem::path& machineJson )
@@ -80,6 +86,7 @@ namespace Desert::Graphic::QualityBoot
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
+        Common::Scalability::QualityState::Subscribe( &PushEffectsState, nullptr );
         if ( const auto& recommended = machine.Recommended; start.FromRecommended && recommended.has_value() )
         {
             LOG_INFO(
@@ -89,6 +96,7 @@ namespace Desert::Graphic::QualityBoot
             Common::Scalability::QualityState::ApplyRecommended( start.Selection.Levels );
         }
         PushSamplerState( Common::Scalability::QualityState::Resolved(), nullptr );
+        PushEffectsState( Common::Scalability::QualityState::Resolved(), nullptr );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::QualityBoot

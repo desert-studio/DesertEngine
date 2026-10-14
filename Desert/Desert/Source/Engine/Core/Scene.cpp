@@ -1,6 +1,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -527,6 +528,7 @@ namespace Desert::Core
         {
             DESERT_PROFILE_SCOPE( "VFX World" );
             const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
+            m_VFXWorld.SetSpawnCountScale( Graphic::RenderConfig::ParticleSpawnPercent.load() / 100.0 );
             m_VFXWorld.Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
         }
 

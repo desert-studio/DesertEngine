@@ -77,6 +77,9 @@ namespace Desert::VFX
         SpawnAccumulator RateCarry;
 
         /// The births of the next fixed step of @p stepSeconds: the step covers [Age, Age + stepSeconds).
-        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds );
+        /// @p spawnCountScale is the quality's share of the authored spawns (UE fx.Niagara.GlobalSpawnCountScale,
+        /// Effects.ParticleSpawnPercent / 100): it scales the rate and each burst's count, 1 is the authored
+        /// count.
+        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds, double spawnCountScale );
     };
 } // namespace Desert::VFX

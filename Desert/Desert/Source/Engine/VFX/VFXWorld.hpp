@@ -72,9 +72,11 @@ namespace Desert::VFX
     /// One instance's steps for a tick of @p stepCount fixed steps: the plan's rate and bursts per step, and -
     /// when the plan holds engine:SpawnFromChannel - this frame's entries of its channel in @p channels gathered
     /// for an emitter at @p emitterCm, all joining the first step (none runs: they count as Overflow). Ids are
-    /// reserved for every spawn, channel spawns included.
+    /// reserved for every spawn, channel spawns included. @p spawnCountScale scales the rate and bursts
+    /// (SpawnState::Step); channel spawns are gameplay events and are never scaled.
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
-                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
+                           double stepSeconds, double spawnCountScale, const VFXDataChannels& channels,
+                           const glm::vec3& emitterCm );
 
     // THE EFFECTS WORLD OF ONE SCENE (plan 02 §3.3-1): owns the effects clock and the per-instance
     // administration, and is ticked once per scene update — not once per view. Simulation is a function
@@ -130,6 +132,17 @@ namespace Desert::VFX
         // the gameplay delta in Play, zero while paused. Consumes ParticleEmitterComponent::RequestRestart and
         // the data channels' entries written since the last tick.
         void Tick( entt::registry& registry, double seconds );
+
+        // The quality's share of the authored rate and bursts (Effects.ParticleSpawnPercent / 100), read by every
+        // emitter's spawn plan from the next Tick on. Channel spawns are not scaled.
+        void SetSpawnCountScale( double scale )
+        {
+            m_SpawnCountScale = scale;
+        }
+        [[nodiscard]] double GetSpawnCountScale() const
+        {
+            return m_SpawnCountScale;
+        }
 
         // DesiredAge: the next ticks replay to `age` (a backwards seek resets every instance first).
         void SeekTo( double age )
@@ -207,6 +220,7 @@ namespace Desert::VFX
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
+        double                                             m_SpawnCountScale = 1.0; // SetSpawnCountScale
         std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash> m_Emitters;
         VFXSystemLookup                                                 m_SystemLookup;
         std::unordered_set<EmitterKey, EmitterKeyHash>                  m_Reported;

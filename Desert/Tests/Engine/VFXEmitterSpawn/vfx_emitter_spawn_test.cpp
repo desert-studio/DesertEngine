@@ -72,14 +72,15 @@ namespace
         return plan.IsSuccess() ? std::string{} : plan.GetError();
     }
 
-    // The births of each of @p steps steps.
-    std::vector<std::uint32_t> Births( const VFX::VFXSpawnPlan& plan, int steps, double step = kStep )
+    // The births of each of @p steps steps, at the quality's spawn share @p scale (1 = authored).
+    std::vector<std::uint32_t> Births( const VFX::VFXSpawnPlan& plan, int steps, double step = kStep,
+                                       double scale = 1.0 )
     {
         VFX::SpawnState            state;
         std::vector<std::uint32_t> born;
         born.reserve( static_cast<std::size_t>( steps ) );
         for ( int s = 0; s < steps; ++s )
-            born.push_back( state.Step( plan, step ) );
+            born.push_back( state.Step( plan, step, scale ) );
         return born;
     }
 
@@ -114,6 +115,23 @@ TEST( VFXEmitterSpawn, RatesAddAndADisabledModuleBearsNothing )
     const auto plan                                   = Plan( system );
     EXPECT_DOUBLE_EQ( plan.Rate, 125.0 );
     EXPECT_EQ( Sum( Births( plan, 61 ) ), 127u ); // floor(61 / 60 * 125) = floor(127.08)
+}
+
+// Effects.ParticleSpawnPercent (UE fx.Niagara.GlobalSpawnCountScale): Low's 50 halves the rate's births and
+// each burst's count; 100 is the authored count. Red if Step ignores the scale.
+TEST( VFXEmitterSpawn, TheSpawnCountScaleScalesTheRateAndEveryBurst )
+{
+    const auto rate = Plan( System( { Rate( 120.0f ) } ) );
+    EXPECT_EQ( Sum( Births( rate, 600, kStep, 1.0 ) ), 1200u );
+    EXPECT_EQ( Sum( Births( rate, 600, kStep, 0.5 ) ), 600u );
+    EXPECT_EQ( Sum( Births( rate, 600, kStep, 0.75 ) ), 900u );
+
+    S::VFXEmitterLifecycle life;
+    life.LoopDuration = 0.5f;
+    const auto burst  = Plan( System( { Burst( 8, 0.26f ) }, life ) );
+    EXPECT_EQ( Sum( Births( burst, 120, kStep, 1.0 ) ), 32u ); // four loops of 8
+    EXPECT_EQ( Sum( Births( burst, 120, kStep, 0.5 ) ), 16u ); // four loops of 4
+    EXPECT_EQ( Sum( Births( burst, 120, kStep, 0.25 ) ), 8u ); // four loops of 2
 }
 
 TEST( VFXEmitterSpawn, ABurstFiresOncePerLoopInTheStepThatHoldsItsTime )

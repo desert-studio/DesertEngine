@@ -38,6 +38,10 @@ namespace Desert::Graphic
         // Resolved anisotropy level (1/2/4/8/16), already one of CapabilityCatalog::AnisotropyLevels — the
         // resolver narrowed it to the device, so sampler creation uses it as is.
         static inline std::atomic<int> AnisotropyLevel{ 8 };
+        // Resolved Effects.ParticleSpawnPercent (25..100): every scene's VFXWorld reads it before its Tick
+        // (Scene::OnUpdate -> VFXWorld::SetSpawnCountScale). Global like the sampler state, because the quality
+        // is per machine while the effects world is per scene.
+        static inline std::atomic<int> ParticleSpawnPercent{ 100 };
 
         // Device supports line widths > 1 (VkPhysicalDeviceFeatures.wideLines). MoltenVK does NOT —
         // setting a wider line then is a validation error, so the debug-line paths clamp to 1.0.

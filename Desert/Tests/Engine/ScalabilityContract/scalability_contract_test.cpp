@@ -65,11 +65,11 @@ namespace
       "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 }
     },
     "Effects": {
-      "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50 },
-      "Medium":    { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 0 },
-      "High":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 },
-      "Epic":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 },
-      "Cinematic": { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 }
+      "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50, "Effects.ParticleSpawnPercent": 50 },
+      "Medium":    { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 0, "Effects.ParticleSpawnPercent": 75 },
+      "High":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0, "Effects.ParticleSpawnPercent": 100 },
+      "Epic":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0, "Effects.ParticleSpawnPercent": 100 },
+      "Cinematic": { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0, "Effects.ParticleSpawnPercent": 100 }
     },
     "Textures": {
       "Low":       { "Textures.MipBias": 100 },
@@ -550,6 +550,19 @@ TEST( ScalabilityContract, TheViewDistanceLevelChangesWhatTheFoliageLoopReads )
          Desert::Graphic::FoliageQualityFor( Resolve( s, Table(), c ) );
     EXPECT_FLOAT_EQ( dense.Density, 0.3f );
     EXPECT_FLOAT_EQ( dense.CullDistanceScale, 1.0f );
+}
+
+// Effects.ParticleSpawnPercent is the share VFX::SpawnState::Step spawns (VFXEmitterSpawn test pins the Step
+// side): High and above keep the authored count, Low halves it.
+TEST( ScalabilityContract, TheEffectsLevelChangesTheParticleSpawnShare )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( Resolve( AllAt( level ), Table(), c ).As<int>( Parameter::ParticleSpawnPercent ), 100 );
+    QualitySelection low                                   = AllAt( Level::Epic );
+    low.Levels[static_cast<std::size_t>( Group::Effects )] = Level::Low;
+    EXPECT_EQ( Resolve( low, Table(), c ).As<int>( Parameter::ParticleSpawnPercent ), 50 );
+    EXPECT_EQ( SpecOf( Parameter::ParticleSpawnPercent ).Owner, Group::Effects );
 }
 
 TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingElse )
