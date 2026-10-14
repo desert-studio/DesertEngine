@@ -82,34 +82,6 @@ namespace Desert::Graphic::DistanceField
         return offset;
     }
 
-    std::optional<uint32_t> RangeAllocator::Allocate( const uint32_t count, const uint32_t limit )
-    {
-        for ( auto it = m_Free.begin(); it != m_Free.end() && it->first + count <= limit; ++it )
-        {
-            if ( it->second < count )
-                continue;
-            const uint32_t offset = it->first;
-            const uint32_t left   = it->second - count;
-            m_Free.erase( it );
-            if ( left > 0 )
-                m_Free.emplace( offset + count, left );
-            return offset;
-        }
-        if ( static_cast<uint64_t>( m_End ) + count > limit )
-            return std::nullopt;
-        const uint32_t offset = m_End;
-        m_End += count;
-        return offset;
-    }
-
-    uint32_t RangeAllocator::Used() const
-    {
-        uint32_t freeSlots = 0;
-        for ( const auto& [offset, count] : m_Free )
-            freeSlots += count;
-        return m_End - freeSlots;
-    }
-
     void RangeAllocator::Free( const uint32_t offset, const uint32_t count )
     {
         if ( count == 0 )
@@ -139,6 +111,34 @@ namespace Desert::Graphic::DistanceField
         }
     }
 
+    void BrickAllocator::Reset( const uint32_t capacity )
+    {
+        m_Capacity = capacity;
+        m_Next     = 0;
+        m_Free.clear();
+    }
+
+    std::optional<std::vector<uint32_t>> BrickAllocator::Allocate( const uint32_t count )
+    {
+        if ( count > Available() )
+            return std::nullopt;
+        std::vector<uint32_t> slots;
+        slots.reserve( count );
+        while ( slots.size() < count && !m_Free.empty() )
+        {
+            slots.push_back( m_Free.back() );
+            m_Free.pop_back();
+        }
+        while ( slots.size() < count )
+            slots.push_back( m_Next++ );
+        return slots;
+    }
+
+    void BrickAllocator::Free( const std::vector<uint32_t>& slots )
+    {
+        m_Free.insert( m_Free.end(), slots.begin(), slots.end() );
+    }
+
     DistanceFieldSceneData::DistanceFieldSceneData()  = default;
     DistanceFieldSceneData::~DistanceFieldSceneData() = default;
 
@@ -148,7 +148,6 @@ namespace Desert::Graphic::DistanceField
             return false;
         // Everything resident lived in the old atlas: drop it all, the next frame acquires again.
         m_Resident.clear();
-        m_BrickSlots       = {};
         m_IndirectionSlots = {};
         m_AssetSlots       = {};
         m_AssetData.clear();
@@ -160,6 +159,7 @@ namespace Desert::Graphic::DistanceField
              std::clamp<uint64_t>( static_cast<uint64_t>( poolMiB ) * 1024u * 1024u / kDfBytesPerSlice, 1u,
                                    kDfMaxAtlasDepthTexel / kDfBrick );
         m_CapacityBricks = static_cast<uint32_t>( slices ) * kDfBricksPerSlice;
+        m_BrickSlots.Reset( m_CapacityBricks );
         return true;
     }
 
@@ -205,7 +205,7 @@ namespace Desert::Graphic::DistanceField
         // THE COARSE MIP IS ALWAYS RESIDENT: room is made for it by evicting finer mips of any other field.
         const uint32_t coarseBricks = field->Mips[Assets::kDistanceFieldNumMips - 1].BrickCount();
         bool           added        = AddMip( resident, *field );
-        while ( !added && EvictFartherThan( -1.0f, coarseBricks, nullptr ) )
+        if ( !added && MakeRoom( -1.0f, coarseBricks, nullptr ) )
             added = AddMip( resident, *field );
         if ( !added )
         {
@@ -226,13 +226,12 @@ namespace Desert::Graphic::DistanceField
         const uint32_t                        r      = resident.NumMips;
         const uint32_t                        source = Assets::kDistanceFieldNumMips - 1 - r;
         const Assets::SparseDistanceFieldMip& mip    = field.Mips[source];
-        const auto                            bricks = m_BrickSlots.Allocate( mip.BrickCount(), m_CapacityBricks );
+        auto                                  bricks = m_BrickSlots.Allocate( mip.BrickCount() );
         if ( !bricks )
             return false;
 
         ResidentMip& slot      = resident.Mips[r];
-        slot.BrickOffset       = *bricks;
-        slot.BrickCount        = mip.BrickCount();
+        slot.Bricks            = std::move( *bricks );
         slot.IndirectionCount  = static_cast<uint32_t>( mip.IndirectionTable.size() );
         slot.IndirectionOffset = m_IndirectionSlots.Allocate( slot.IndirectionCount );
         if ( m_Indirection.size() < m_IndirectionSlots.End() )
@@ -241,7 +240,7 @@ namespace Desert::Graphic::DistanceField
         {
             const uint32_t local = mip.IndirectionTable[i];
             m_Indirection[slot.IndirectionOffset + i] =
-                 local == Assets::kDistanceFieldInvalidBrick ? local : slot.BrickOffset + local;
+                 local == Assets::kDistanceFieldInvalidBrick ? local : slot.Bricks[local];
         }
         // UE FDFAssetData: the volume -> indirection transform is the virtual UV one scaled by the grid.
         glm::vec4*      record = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
@@ -255,8 +254,8 @@ namespace Desert::Graphic::DistanceField
         rows[2] = glm::vec4( scale.z, add );
 
         const std::shared_ptr<const Assets::MeshDistanceFieldData> held = resident.Field.lock();
-        for ( uint32_t b = 0; b < slot.BrickCount; ++b )
-            m_Pending.push_back( { slot.BrickOffset + b, held, source, b } );
+        for ( uint32_t b = 0; b < slot.Bricks.size(); ++b )
+            m_Pending.push_back( { slot.Bricks[b], held, source, b } );
         // The bricks are written by FlushUploads before any pass of this frame reads the record.
         ++resident.NumMips;
         record[0] = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
@@ -272,9 +271,12 @@ namespace Desert::Graphic::DistanceField
         std::fill_n( m_Indirection.begin() + slot.IndirectionOffset, slot.IndirectionCount,
                      Assets::kDistanceFieldInvalidBrick );
         m_IndirectionSlots.Free( slot.IndirectionOffset, slot.IndirectionCount );
-        m_BrickSlots.Free( slot.BrickOffset, slot.BrickCount );
-        std::erase_if( m_Pending, [&slot]( const PendingBrick& p )
-                       { return p.Slot >= slot.BrickOffset && p.Slot < slot.BrickOffset + slot.BrickCount; } );
+        m_BrickSlots.Free( slot.Bricks );
+        // The mip's bricks not yet written: by the field and mip they would come from.
+        const Assets::MeshDistanceFieldData* field  = resident.Field.lock().get();
+        const uint32_t                       source = Assets::kDistanceFieldNumMips - 1 - r;
+        std::erase_if( m_Pending, [field, source]( const PendingBrick& p )
+                       { return p.Field.get() == field && p.Mip == source; } );
         resident.Mips[r] = {};
     }
 
@@ -285,28 +287,27 @@ namespace Desert::Graphic::DistanceField
         m_AssetSlots.Free( resident.AssetIndex, 1 );
     }
 
-    bool DistanceFieldSceneData::EvictFartherThan( const float distance, const uint32_t bricks,
-                                                   const Resident* except )
+    bool DistanceFieldSceneData::MakeRoom( const float distance, const uint32_t bricks, const Resident* except )
     {
+        if ( m_BrickSlots.Available() >= bricks )
+            return true;
         std::vector<Resident*> holders;
+        uint64_t               droppable = 0;
         for ( auto& [key, resident] : m_Resident )
             if ( &resident != except && resident.NumMips > 1 && resident.Distance > distance )
+            {
                 holders.push_back( &resident );
+                for ( uint32_t r = 1; r < resident.NumMips; ++r )
+                    droppable += resident.Mips[r].Bricks.size();
+            }
+        if ( m_BrickSlots.Available() + droppable < bricks )
+            return false;
         std::sort( holders.begin(), holders.end(),
                    []( const Resident* a, const Resident* b ) { return a->Distance > b->Distance; } );
-        uint32_t freed = 0;
         for ( Resident* holder : holders )
-        {
-            while ( holder->NumMips > 1 && freed < bricks )
-            {
-                freed += holder->Mips[holder->NumMips - 1].BrickCount;
+            while ( holder->NumMips > 1 && m_BrickSlots.Available() < bricks )
                 DropMip( *holder );
-            }
-            if ( freed >= bricks )
-                break;
-        }
-        // Freed slots need not be contiguous: the caller retries the allocation.
-        return freed > 0;
+        return m_BrickSlots.Available() >= bricks;
     }
 
     void DistanceFieldSceneData::Stream()
@@ -337,7 +338,7 @@ namespace Desert::Graphic::DistanceField
                 continue;
             }
             bool added = AddMip( *resident, *field );
-            while ( !added && EvictFartherThan( resident->Distance, bricks, resident ) )
+            if ( !added && MakeRoom( resident->Distance, bricks, resident ) )
                 added = AddMip( *resident, *field );
             if ( !added )
             {
@@ -357,7 +358,7 @@ namespace Desert::Graphic::DistanceField
         m_Stats.UploadedBricks = m_UploadedThisFrame;
         for ( const auto& [key, resident] : m_Resident )
         {
-            m_Stats.CoarseBricks += resident.Mips[0].BrickCount;
+            m_Stats.CoarseBricks += static_cast<uint32_t>( resident.Mips[0].Bricks.size() );
             if ( resident.NumMips > 0 )
                 ++m_Stats.ResidentByMips[resident.NumMips - 1];
         }

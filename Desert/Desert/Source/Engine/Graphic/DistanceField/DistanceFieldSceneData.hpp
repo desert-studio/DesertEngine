@@ -36,26 +36,50 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::DistanceField
 {
-    // First-fit ranges over [0, End()): what the brick slots, the indirection table and the asset records are
-    // carved from. Pure, so the allocation is testable without a device.
+    // First-fit ranges over [0, End()): what the indirection table and the asset records are carved from. Pure, so
+    // the allocation is testable without a device.
     class RangeAllocator
     {
     public:
         // The first free range of @p count, or a new one at the end.
         uint32_t Allocate( uint32_t count );
-        // The same, but never past @p limit: nullopt when no free range below it holds @p count.
-        [[nodiscard]] std::optional<uint32_t> Allocate( uint32_t count, uint32_t limit );
         void                                  Free( uint32_t offset, uint32_t count );
         [[nodiscard]] uint32_t                End() const
         {
             return m_End;
         }
-        // Slots in use below End() (End() minus the free ranges).
-        [[nodiscard]] uint32_t Used() const;
 
     private:
         std::map<uint32_t, uint32_t> m_Free; // offset -> count, coalesced
         uint32_t                     m_End = 0;
+    };
+
+    // Single brick slots of the atlas, below its capacity (UE FDistanceFieldBlockAllocator, one brick per block):
+    // a mip's bricks need not be contiguous - the indirection table names every brick's slot - so the pool never
+    // fragments and whether a mip fits is a count. Contiguous ranges did fragment: a near field's mip could not be
+    // placed even after every farther field's finer mips were dropped for it, and those came back the next frame
+    // only to be dropped again - the streaming never settled. Pure, so it is testable without a device.
+    class BrickAllocator
+    {
+    public:
+        // Forgets every slot; @p capacity slots are free.
+        void Reset( uint32_t capacity );
+        // @p count slots, or nullopt (nothing taken) when fewer are free.
+        [[nodiscard]] std::optional<std::vector<uint32_t>> Allocate( uint32_t count );
+        void                                               Free( const std::vector<uint32_t>& slots );
+        [[nodiscard]] uint32_t                             Available() const
+        {
+            return m_Capacity - m_Next + static_cast<uint32_t>( m_Free.size() );
+        }
+        [[nodiscard]] uint32_t Used() const
+        {
+            return m_Capacity - Available();
+        }
+
+    private:
+        uint32_t              m_Capacity = 0;
+        uint32_t              m_Next     = 0; // slots at and above it were never handed out
+        std::vector<uint32_t> m_Free;
     };
 
     // What the pool holds after a frame's streaming (the log line, the view's census).
@@ -134,10 +158,9 @@ namespace Desert::Graphic::DistanceField
         // One resident mip, by its place in the record (0 = the coarsest).
         struct ResidentMip
         {
-            uint32_t BrickOffset       = 0;
-            uint32_t BrickCount        = 0;
-            uint32_t IndirectionOffset = 0;
-            uint32_t IndirectionCount  = 0;
+            std::vector<uint32_t> Bricks; // atlas slot of each brick of the mip, in the mip's brick order
+            uint32_t              IndirectionOffset = 0;
+            uint32_t              IndirectionCount  = 0;
         };
         struct Resident
         {
@@ -155,12 +178,14 @@ namespace Desert::Graphic::DistanceField
         // Drops the finest resident mip of @p resident.
         void DropMip( Resident& resident );
         void Release( Resident& resident );
-        // Frees room for @p bricks by dropping finer mips of fields farther than @p distance, farthest first.
-        bool EvictFartherThan( float distance, uint32_t bricks, const Resident* except );
+        // Makes room for @p bricks by dropping finer mips of fields farther than @p distance, farthest first -
+        // only when that is enough: false, and nothing dropped, when even every such mip would not make the
+        // room (a request that cannot be met must not take mips the farther fields will only want back).
+        bool                                MakeRoom( float distance, uint32_t bricks, const Resident* except );
         [[nodiscard]] Common::BoolResultStr EnsureAtlas();
 
         std::unordered_map<const Assets::MeshDistanceFieldData*, Resident> m_Resident;
-        RangeAllocator                                                     m_BrickSlots;
+        BrickAllocator                                                     m_BrickSlots;
         RangeAllocator                                                     m_IndirectionSlots;
         RangeAllocator                                                     m_AssetSlots;
         std::vector<glm::vec4>                                             m_AssetData;
