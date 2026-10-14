@@ -3,6 +3,8 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Scripting/ScriptProperty.hpp>
+#include <regex>
 #include <array>
 #include <format>
 #include <fstream>
@@ -1075,6 +1077,276 @@ namespace Desert::Migration
             restate( entity.Components, who );
             // An override's Settings is a delta against its prefab record, but the keys it states are gone from
             // the type all the same: a delta stating EnableSSR states ReflectionsMethod now.
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // A literal default a script declares: what `Name = Property.<Kind>( <literal>` states.
+        struct DeclaredDefault
+        {
+            Scripting::PropertyType Type = Scripting::PropertyType::Number;
+            double                  Number = 0.0;
+            bool                    Bool   = false;
+            std::string             Str;
+        };
+        struct ScriptDefaults
+        {
+            std::map<std::string, DeclaredDefault> Literal; // declarations with a literal default
+            std::map<std::string, std::string>     Other;   // declarations without one, as their constructor
+        };
+
+        // The `Properties` table of @p source, comments removed. The ONE declaration form (Property.<Kind>(...),
+        // LuauProperties::Settle refuses anything else) is read for its first argument: a number, a bool or a
+        // quoted string with no escapes. Any other first argument - an expression, a Vector, an Enum list - is
+        // `Other`, and the migration keeps that value rather than evaluate the script.
+        std::optional<ScriptDefaults> ReadScriptDefaults( const std::string& source )
+        {
+            std::string code;
+            code.reserve( source.size() );
+            char quote = 0;
+            for ( std::size_t i = 0; i < source.size(); ++i )
+            {
+                const char c = source[i];
+                if ( quote == 0 && c == '-' && i + 1 < source.size() && source[i + 1] == '-' )
+                {
+                    while ( i < source.size() && source[i] != '\n' )
+                        ++i;
+                    code += '\n';
+                    continue;
+                }
+                if ( quote == 0 && ( c == '"' || c == '\'' ) )
+                    quote = c;
+                else if ( quote != 0 && c == quote )
+                    quote = 0;
+                code += c;
+            }
+            static const std::regex kTable( R"((^|\n)Properties\s*=\s*\{)" );
+            std::smatch             table;
+            if ( !std::regex_search( code, table, kTable ) )
+                return std::nullopt;
+            // The table's own closing brace: the depth returns to zero.
+            std::size_t begin = static_cast<std::size_t>( table.position( 0 ) + table.length( 0 ) );
+            std::size_t end   = begin;
+            for ( int depth = 1; end < code.size() && depth > 0; ++end )
+                depth += code[end] == '{' ? 1 : code[end] == '}' ? -1 : 0;
+            const std::string body = code.substr( begin, end - begin );
+
+            static const std::regex kEntry( R"((\w+)\s*=\s*Property\.(\w+)\s*\(\s*)" );
+            static const std::regex kNumber( R"(^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*[,)])" );
+            static const std::regex kBool( R"(^(true|false)\s*[,)])" );
+            static const std::regex kString( R"re(^"([^"\\]*)"\s*[,)])re" );
+            ScriptDefaults          defaults;
+            for ( auto it = std::sregex_iterator( body.begin(), body.end(), kEntry ); it != std::sregex_iterator();
+                  ++it )
+            {
+                const std::string name = ( *it )[1];
+                const std::string kind = ( *it )[2];
+                const std::string rest = body.substr( static_cast<std::size_t>( it->position( 0 ) + it->length( 0 ) ) );
+                std::smatch       literal;
+                DeclaredDefault   value;
+                if ( ( kind == "Float" || kind == "Int" ) && std::regex_search( rest, literal, kNumber ) )
+                {
+                    value.Type   = kind == "Int" ? Scripting::PropertyType::Int : Scripting::PropertyType::Number;
+                    value.Number = std::stod( literal[0].str().substr( 0, literal[0].length() - 1 ) );
+                }
+                else if ( kind == "Bool" && std::regex_search( rest, literal, kBool ) )
+                {
+                    value.Type = Scripting::PropertyType::Bool;
+                    value.Bool = literal[1] == "true";
+                }
+                else if ( kind == "String" && std::regex_search( rest, literal, kString ) )
+                {
+                    value.Type = Scripting::PropertyType::String;
+                    value.Str  = literal[1];
+                }
+                else
+                {
+                    defaults.Other[name] = "Property." + kind;
+                    continue;
+                }
+                defaults.Literal[name] = value;
+            }
+            return defaults;
+        }
+    } // namespace
+
+    ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
+                                                        const std::filesystem::path&     assetsRoot )
+    {
+        using Scripting::PropertyType;
+        ScriptDefaultsReport                                          report;
+        std::map<std::string, std::optional<ScriptDefaults>>         read; // by script key, read once
+        const auto defaultsOf = [&]( const std::string& key ) -> const std::optional<ScriptDefaults>&
+        {
+            auto found = read.find( key );
+            if ( found != read.end() )
+                return found->second;
+            constexpr std::string_view kMount = "assets:";
+            std::optional<ScriptDefaults> defaults;
+            if ( key.starts_with( kMount ) )
+            {
+                const std::string     relative = key.substr( kMount.size() );
+                std::filesystem::path file     = ( assetsRoot / relative ).lexically_normal();
+                if ( const auto located = LocateMeshFile( relative, assetsRoot ); located.IsSuccess() )
+                    file = located.GetValue().File;
+                if ( std::ifstream in( file ); in )
+                {
+                    std::stringstream text;
+                    text << in.rdbuf();
+                    defaults = ReadScriptDefaults( text.str() );
+                }
+            }
+            return read.emplace( key, std::move( defaults ) ).first->second;
+        };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock(
+                 components, "Script",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "Scripts" );
+                     if ( !stated.has_value() )
+                         return false;
+                     auto slots = stated.value().to_array();
+                     if ( !slots.has_value() )
+                     {
+                         report.Refused.push_back( std::format( "{}: Script.Scripts is not an array", who ) );
+                         return false;
+                     }
+                     rfl::Generic::Array raised;
+                     bool                changed = false;
+                     for ( const rfl::Generic& slotValue : slots.value() )
+                     {
+                         auto slotFields = slotValue.to_object();
+                         if ( !slotFields.has_value() )
+                         {
+                             report.Refused.push_back( std::format( "{}: a Script slot is not an object", who ) );
+                             return false;
+                         }
+                         rfl::Generic::Object slot  = std::move( slotFields.value() );
+                         const auto           key   = slot.get( "ScriptKey" );
+                         const auto           props = slot.get( "Props" );
+                         const std::string    script =
+                              key.has_value() ? key.value().to_string().value_or( std::string() ) : std::string();
+                         // A local: a range-for over `props.value().to_array().value()` walks a destroyed
+                         // temporary.
+                         rfl::Generic::Array statedProps;
+                         if ( props.has_value() )
+                             if ( auto array = props.value().to_array(); array.has_value() )
+                                 statedProps = std::move( array.value() );
+                         if ( statedProps.empty() )
+                         {
+                             raised.push_back( rfl::Generic( std::move( slot ) ) );
+                             continue;
+                         }
+                         const std::optional<ScriptDefaults>& defaults = defaultsOf( script );
+                         rfl::Generic::Array                  kept;
+                         for ( const rfl::Generic& propValue : statedProps )
+                         {
+                             auto propFields = propValue.to_object();
+                             if ( !propFields.has_value() )
+                             {
+                                 report.Refused.push_back(
+                                      std::format( "{}: a property of {} is not an object", who, script ) );
+                                 return false;
+                             }
+                             rfl::Generic::Object prop = std::move( propFields.value() );
+                             const auto           nameValue = prop.get( "Name" );
+                             const auto           typeValue = prop.get( "Type" );
+                             const std::string    name =
+                                  nameValue.has_value() ? nameValue.value().to_string().value_or( "" ) : "";
+                             const int type = typeValue.has_value() ? typeValue.value().to_int().value_or( -1 ) : -1;
+                             const auto keep = [&]( const std::string& why )
+                             {
+                                 report.Kept.push_back( std::format( "{} > {}.{}: {}", who, script, name, why ) );
+                                 kept.push_back( rfl::Generic( prop ) );
+                             };
+                             if ( !defaults.has_value() )
+                             {
+                                 keep( "the script is not found or declares no Properties table" );
+                                 continue;
+                             }
+                             const auto literal = defaults->Literal.find( name );
+                             if ( literal == defaults->Literal.end() )
+                             {
+                                 const auto other = defaults->Other.find( name );
+                                 keep( other != defaults->Other.end()
+                                            ? std::format( "{} states no literal default", other->second )
+                                            : std::string( "the script no longer declares it" ) );
+                                 continue;
+                             }
+                             const DeclaredDefault& declared = literal->second;
+                             const auto             number   = [&]( const char* field )
+                             {
+                                 const auto v = prop.get( field );
+                                 return v.has_value() ? v.value().to_double().value_or( 0.0 ) : 0.0;
+                             };
+                             bool equal = false;
+                             switch ( declared.Type )
+                             {
+                                 case PropertyType::Number:
+                                 case PropertyType::Int:
+                                     if ( type != static_cast<int>( PropertyType::Number ) &&
+                                          type != static_cast<int>( PropertyType::Int ) )
+                                     {
+                                         keep( "stated as another kind than the script declares" );
+                                         continue;
+                                     }
+                                     equal = number( "Number" ) == declared.Number;
+                                     if ( !equal && declared.Type == PropertyType::Int &&
+                                          type == static_cast<int>( PropertyType::Number ) )
+                                     {
+                                         prop["Type"] = rfl::Generic( static_cast<int>( PropertyType::Int ) );
+                                         ++report.Retyped;
+                                         changed = true;
+                                     }
+                                     break;
+                                 case PropertyType::Bool:
+                                 {
+                                     const auto v = prop.get( "Bool" );
+                                     equal = type == static_cast<int>( PropertyType::Bool ) && v.has_value() &&
+                                             v.value().to_bool().value_or( !declared.Bool ) == declared.Bool;
+                                     break;
+                                 }
+                                 default:
+                                 {
+                                     const auto v = prop.get( "Str" );
+                                     equal = type == static_cast<int>( PropertyType::String ) && v.has_value() &&
+                                             v.value().to_string().value_or( "" ) == declared.Str;
+                                     break;
+                                 }
+                             }
+                             if ( equal )
+                             {
+                                 ++report.Dropped;
+                                 changed = true;
+                                 continue;
+                             }
+                             kept.push_back( rfl::Generic( std::move( prop ) ) );
+                         }
+                         DropKey( slot, "Props" );
+                         slot["Props"] = rfl::Generic( std::move( kept ) );
+                         raised.push_back( rfl::Generic( std::move( slot ) ) );
+                     }
+                     if ( !changed )
+                         return false;
+                     DropKey( block, "Scripts" );
+                     block["Scripts"] = rfl::Generic( std::move( raised ) );
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     restate( override_.Components, who );
@@ -3125,6 +3397,18 @@ namespace Desert::Migration
                 if ( !report.RenderMethods.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.RenderMethods.Refused );
+                    return;
+                }
+            }
+
+            // A script slot holds only what differs from its script (SCR-DETAILS).
+            if ( statedSceneVersion < kSceneVersionScriptDefaults )
+            {
+                report.ScriptDefaultsRaised = true;
+                report.ScriptDefaults       = MigrateScriptDefaultsV53ToV54( entities, assetsRoot );
+                if ( !report.ScriptDefaults.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ScriptDefaults.Refused );
                     return;
                 }
             }

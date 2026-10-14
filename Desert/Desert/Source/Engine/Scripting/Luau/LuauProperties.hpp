@@ -23,11 +23,17 @@ namespace Desert::Scripting::LuauProperties
     /// means something as an entry of the script's `Properties` table.
     void Install( lua_State* L );
 
-    /// After a slot's top level ran: reads its `Properties` table — declarations and plain boolean / number /
-    /// string literals — in declaration order, and replaces every entry with its default value in the form the
-    /// script reads (a number, a vector, an asset handle, nil for an unset entity, a table for an array). Refused
-    /// for an entry that is neither, naming it.
-    [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State* thread );
+    /// Before a slot's top level runs: the sandbox's globals remember the line `Properties` is assigned on, so
+    /// an entry Settle refuses names the line of the table that holds it (a table entry carries no line).
+    void WatchPropertiesLine( lua_State* thread );
+
+    /// After a slot's top level ran: reads its `Properties` table in declaration order and replaces every entry
+    /// with its default value in the form the script reads (a number, a vector, an asset handle, nil for an
+    /// unset entity, a table for an array). Every entry is a `Property.*` declaration — the ONE form a script
+    /// declares an editable value in; a plain literal (`Speed = 5`) is refused as `<script>:<line>: ...`, with
+    /// the line of the `Properties` table, saying which declaration it wants.
+    [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State* thread,
+                                                                             std::string_view script );
 
     /// What a value needs from the world it is pushed into: the entity a UUID names.
     using World = LuauPropertyWorld;

@@ -102,15 +102,16 @@ namespace Desert::Editor::ContentBrowserUtils
         // not have VS Code's `code` CLI on its PATH. Without VS Code the OS's default editor opens the file.
         std::error_code             ec;
         const std::filesystem::path absolute = std::filesystem::absolute( path, ec );
-        const std::string           url =
-             std::format( "vscode://file/{}:{}", absolute.generic_string(), std::max( line, 1 ) );
 #if defined( DESERT_PLATFORM_WINDOWS )
-        const std::wstring wide( url.begin(), url.end() );
+        // The path's own UTF-16 (std::filesystem::path holds it natively on Windows): a narrow string would go
+        // through the ANSI code page and lose every character outside it.
+        const std::wstring wide =
+             std::format( L"vscode://file/{}:{}", absolute.generic_wstring(), std::max( line, 1 ) );
         if ( reinterpret_cast<INT_PTR>(
                   ShellExecuteW( nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL ) ) > 32 )
             return true;
 #elif defined( DESERT_PLATFORM_MACOS )
-        if ( SpawnOpen( { "open", url } ) )
+        if ( SpawnOpen( { "open", std::format( "vscode://file/{}:{}", absolute.generic_string(), std::max( line, 1 ) ) } ) )
             return true;
 #endif
         ShellOpenDefault( path );

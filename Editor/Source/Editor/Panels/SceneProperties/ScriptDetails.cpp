@@ -424,7 +424,7 @@ namespace Desert::Editor
 
         // ---- Entity slots ----------------------------------------------------------------------------------
 
-        std::string EntityName( Core::Scene* scene, std::uint64_t uuid )
+        std::string EntityName( ::Desert::Core::Scene* scene, std::uint64_t uuid )
         {
             if ( uuid == 0 )
                 return "None";
@@ -440,7 +440,7 @@ namespace Desert::Editor
 
         // An Entity value: [⊙ name ▾] [eyedropper] [select] [clear]. Picks from the world's entities, from an
         // Outliner row dropped on it, or from a click in the viewport while the eyedropper is armed.
-        bool EntityField( ScriptValue& value, Core::Scene* scene )
+        bool EntityField( ScriptValue& value, ::Desert::Core::Scene* scene )
         {
             bool              changed = false;
             const std::string name    = EntityName( scene, value.Ref );
@@ -549,7 +549,7 @@ namespace Desert::Editor
         }
 
         bool ValueWidget( const char* id, ScriptValue& value, const Reflection::PropertyMetadata& meta,
-                          const std::vector<std::string>& options, Core::Scene* scene,
+                          const std::vector<std::string>& options, ::Desert::Core::Scene* scene,
                           const ComponentEditContext& context )
         {
             ImGui::PushID( id );
@@ -656,7 +656,7 @@ namespace Desert::Editor
             ECS::ScriptSlot&            Slot;
             const ScriptSchema&         Schema;
             const EditTarget&           Target;
-            Core::Scene*                Scene;
+            ::Desert::Core::Scene*                Scene;
             const ComponentEditContext& Context;
         };
 
@@ -910,7 +910,7 @@ namespace Desert::Editor
 
         // Runs `function` on the entity in the EDIT world: a fresh script host bound to the world, the slot
         // loaded with the entity's values, the function called, the host dropped. One undo step.
-        Common::BoolResultStr RunInEditWorld( ECS::Entity& entity, Core::Scene* scene,
+        Common::BoolResultStr RunInEditWorld( ECS::Entity& entity, ::Desert::Core::Scene* scene,
                                               const ComponentEditContext& context, std::uint32_t slotIndex,
                                               const std::string& file, const std::vector<ScriptProperty>& values,
                                               const std::string& function )
@@ -1154,7 +1154,7 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void DrawScriptComponent( ECS::Entity& entity, Core::Scene* scene, const ComponentEditContext& context )
+    void DrawScriptComponent( ECS::Entity& entity, ::Desert::Core::Scene* scene, const ComponentEditContext& context )
     {
         auto&            component = entity.GetComponent<ECS::ScriptComponent>();
         const bool       playing   = std::any_of( component.Scripts.begin(), component.Scripts.end(),

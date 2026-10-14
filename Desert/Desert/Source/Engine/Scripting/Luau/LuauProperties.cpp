@@ -320,6 +320,40 @@ namespace Desert::Scripting::LuauProperties
             return Push( L, std::move( decl ) );
         }
 
+        constexpr const char* kPropertiesLineKey = "__propertiesline";
+
+        /// The globals' __newindex (WatchPropertiesLine): `Properties` notes the line assigning it; every global
+        /// is then set as it would be without the hook.
+        int RecordPropertiesLine( lua_State* L )
+        {
+            if ( lua_type( L, 2 ) == LUA_TSTRING && std::string_view( lua_tostring( L, 2 ) ) == "Properties" )
+            {
+                lua_Debug ar{};
+                if ( lua_getinfo( L, 1, "l", &ar ) != 0 && lua_getmetatable( L, 1 ) != 0 )
+                {
+                    lua_pushinteger( L, ar.currentline );
+                    lua_setfield( L, -2, kPropertiesLineKey );
+                    lua_pop( L, 1 );
+                }
+            }
+            lua_settop( L, 3 );
+            lua_rawset( L, 1 );
+            return 0;
+        }
+
+        /// `<script>:<line>: message` (ScriptErrorLine's form) when the `Properties` line is known.
+        std::string Located( lua_State* thread, std::string_view script, const std::string& message )
+        {
+            int line = 0;
+            if ( lua_getmetatable( thread, LUA_GLOBALSINDEX ) != 0 )
+            {
+                lua_getfield( thread, -1, kPropertiesLineKey );
+                line = lua_isnumber( thread, -1 ) ? lua_tointeger( thread, -1 ) : 0;
+                lua_pop( thread, 2 );
+            }
+            return line > 0 ? std::format( "{}:{}: {}", script, line, message ) : std::format( "{}: {}", script, message );
+        }
+
         const luaL_Reg kModule[] = {
              { "Float", &Scalar<PropertyType::Number> },
              { "Int", &Scalar<PropertyType::Int> },
@@ -348,7 +382,21 @@ namespace Desert::Scripting::LuauProperties
         lua_setglobal( L, "Property" );
     }
 
-    Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State* thread )
+    void WatchPropertiesLine( lua_State* thread )
+    {
+        // luaL_sandboxthread gave the thread fresh globals reading through a READ-ONLY metatable to the shared
+        // ones; this one reads through the same way and also notes where `Properties` is first assigned.
+        lua_getmetatable( thread, LUA_GLOBALSINDEX );
+        lua_newtable( thread );
+        lua_getfield( thread, -2, "__index" );
+        lua_setfield( thread, -2, "__index" );
+        lua_pushcfunction( thread, &RecordPropertiesLine, "Properties line" );
+        lua_setfield( thread, -2, "__newindex" );
+        lua_setmetatable( thread, LUA_GLOBALSINDEX );
+        lua_pop( thread, 1 );
+    }
+
+    Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State* thread, std::string_view script )
     {
         using Decls = std::vector<ScriptPropertyDecl>;
         lua_getglobal( thread, "Properties" );
@@ -361,11 +409,11 @@ namespace Desert::Scripting::LuauProperties
         {
             const std::string type = luaL_typename( thread, -1 );
             lua_pop( thread, 1 );
-            return Common::MakeFormattedError<Decls>( "'Properties' is a {}, not a table", type );
+            return Common::MakeError<Decls>(
+                 Located( thread, script, std::format( "'Properties' is a {}, not a table", type ) ) );
         }
 
         std::vector<std::pair<std::uint64_t, ScriptPropertyDecl>> declared;
-        Decls                                                     literals;
         lua_pushnil( thread );
         while ( lua_next( thread, -2 ) != 0 )
         {
@@ -385,48 +433,32 @@ namespace Desert::Scripting::LuauProperties
             }
             else
             {
-                ScriptPropertyDecl decl;
-                decl.Name         = name;
-                decl.Default.Name = name;
-                switch ( lua_type( thread, -1 ) )
-                {
-                    case LUA_TBOOLEAN:
-                        decl.Default.Type = PropertyType::Bool;
-                        decl.Default.Bool = lua_toboolean( thread, -1 ) != 0;
-                        break;
-                    case LUA_TNUMBER:
-                        decl.Default.Type   = PropertyType::Number;
-                        decl.Default.Number = lua_tonumber( thread, -1 );
-                        break;
-                    case LUA_TSTRING:
-                        decl.Default.Type = PropertyType::String;
-                        decl.Default.Str  = lua_tostring( thread, -1 );
-                        break;
-                    default:
-                    {
-                        const std::string type = luaL_typename( thread, -1 );
-                        lua_pop( thread, 3 );
-                        return Common::MakeFormattedError<Decls>( "Properties.{} is a {}: declare it with "
-                                                                  "Property.Float(...), Property.Entity(...), ... "
-                                                                  "or give a boolean, a number or a string",
-                                                                  name, type );
-                    }
-                }
-                literals.push_back( std::move( decl ) );
+                const int         kind = lua_type( thread, -1 );
+                const std::string want = kind == LUA_TBOOLEAN  ? std::format( "Property.Bool( {} )",
+                                                                            lua_toboolean( thread, -1 ) != 0 )
+                                         : kind == LUA_TNUMBER ? std::format( "Property.Float( {} ) or "
+                                                                              "Property.Int( {} )",
+                                                                              lua_tonumber( thread, -1 ),
+                                                                              lua_tonumber( thread, -1 ) )
+                                         : kind == LUA_TSTRING
+                                              ? std::format( "Property.String( \"{}\" )", lua_tostring( thread, -1 ) )
+                                              : std::string( "Property.Float(...), Property.Entity(...), ..." );
+                const std::string type = luaL_typename( thread, -1 );
+                lua_pop( thread, 3 );
+                return Common::MakeError<Decls>( Located( thread, script,
+                                                          std::format( "Properties.{} is a plain {}: declare it "
+                                                                       "as {}",
+                                                                       name, type, want ) ) );
             }
             lua_pop( thread, 1 );
         }
 
-        // Declarations in source order; the literals (no order to recover) after them, by name.
+        // Declarations in source order (a Luau table keeps none; the constructors counted it).
         std::sort( declared.begin(), declared.end(),
                    []( const auto& a, const auto& b ) { return a.first < b.first; } );
-        std::sort( literals.begin(), literals.end(),
-                   []( const ScriptPropertyDecl& a, const ScriptPropertyDecl& b ) { return a.Name < b.Name; } );
         Decls decls;
-        decls.reserve( declared.size() + literals.size() );
+        decls.reserve( declared.size() );
         for ( auto& [order, decl] : declared )
-            decls.push_back( std::move( decl ) );
-        for ( ScriptPropertyDecl& decl : literals )
             decls.push_back( std::move( decl ) );
 
         // EditCondition names a Bool of THIS script ("!Name" inverts it): Details greys the row by it, so a name
@@ -443,9 +475,10 @@ namespace Desert::Scripting::LuauProperties
             if ( !isBool )
             {
                 lua_pop( thread, 1 );
-                return Common::MakeFormattedError<Decls>(
-                     "Properties.{}: editCondition names '{}', which is no Bool property of this script",
-                     decl.Name, gate );
+                return Common::MakeError<Decls>( Located(
+                     thread, script,
+                     std::format( "Properties.{}: editCondition names '{}', which is no Bool property of this script",
+                                  decl.Name, gate ) ) );
             }
         }
 

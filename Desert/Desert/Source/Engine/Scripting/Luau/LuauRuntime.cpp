@@ -201,6 +201,7 @@ namespace Desert::Scripting
             const int  threadRef = lua_ref( L, -1 );
             lua_pop( L, 1 );
             luaL_sandboxthread( thread );
+            LuauProperties::WatchPropertiesLine( thread );
             lua_setmemcat( thread, code.Category );
 
             for ( const LuauBinding& binding : bindings )
@@ -218,11 +219,11 @@ namespace Desert::Scripting
                 return Common::MakeError<Slot>( ran.GetError() );
             }
             // The declarations become the values the script reads, before anything else calls into it.
-            Common::ResultStr<std::vector<ScriptPropertyDecl>> declared = LuauProperties::Settle( thread );
+            Common::ResultStr<std::vector<ScriptPropertyDecl>> declared = LuauProperties::Settle( thread, script );
             if ( !declared.IsSuccess() )
             {
                 lua_unref( L, threadRef );
-                return Common::MakeError<Slot>( std::format( "{}: {}", script, declared.GetError() ) );
+                return Common::MakeError<Slot>( declared.GetError() );
             }
             return Common::MakeSuccess( Slot{ .Script       = script,
                                               .Thread       = thread,

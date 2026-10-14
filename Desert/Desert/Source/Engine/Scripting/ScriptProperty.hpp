@@ -10,11 +10,11 @@
 namespace Desert::Scripting
 {
     // THE KINDS OF A SCRIPT PROPERTY — what a script declares in its `Properties` table (Property.Float(5, {...}),
-    // Property.Entity(), ... or a plain boolean / number / string literal) and what Details draws a widget for.
+    // Property.Entity(), ...; a plain literal is refused at load) and what Details draws a widget for.
     // The numbers are stored in scenes: append, never renumber.
     enum class PropertyType
     {
-        Number = 0, // a Luau number (Property.Float, or a number literal)
+        Number = 0, // a Luau number (Property.Float)
         Bool   = 1,
         String = 2,
         Int    = 3, // Property.Int: a whole number (Number holds it)
