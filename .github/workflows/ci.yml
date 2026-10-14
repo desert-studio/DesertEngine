@@ -1600,11 +1600,14 @@ jobs:
           timeout 900 ../build/Bin/Debug/Editor.exe --project "$GITHUB_WORKSPACE/Projects/Desert/Desert.deproj" \
             --scene "$SCENE" --shot "$RUNNER_TEMP/gpu-frame/frame.png" --shot-frames 30 \
             > "$RUNNER_TEMP/gpu-frame/editor.log" 2>&1 || echo "Editor exit code $?"
-          grep -m1 -E '\[Vulkan\]' "$RUNNER_TEMP/gpu-frame/editor.log" || true
+          # The engine's log is a FILE, not stdout: Common::Logger relocates it to <project>/Saved/Logs/engine_log.txt
+          # (Editor/Source/Sandbox.hpp RelocateLogFile) - the [Vulkan] device line and every validation message are there.
+          cp "$GITHUB_WORKSPACE/Projects/Desert/Saved/Logs/engine_log.txt" "$RUNNER_TEMP/gpu-frame/engine_log.txt"
+          grep -m2 -E '\[Vulkan\] (device|GPU)' "$RUNNER_TEMP/gpu-frame/engine_log.txt" || true
 
       - name: Verdict (validation errors, black frame)
         shell: bash
-        run: python scripts/CI/GpuShotVerdict.py "$RUNNER_TEMP/gpu-frame/frame.png" "$RUNNER_TEMP/gpu-frame/editor.log"
+        run: python scripts/CI/GpuShotVerdict.py "$RUNNER_TEMP/gpu-frame/frame.png" "$RUNNER_TEMP/gpu-frame/engine_log.txt"
 
       - name: Upload the frame and the log
         if: always()
