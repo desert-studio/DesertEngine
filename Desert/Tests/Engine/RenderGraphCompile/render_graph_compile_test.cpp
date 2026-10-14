@@ -6,6 +6,7 @@
 
 #include "TestSupport/source_roots.hpp"
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -386,17 +387,31 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     EXPECT_EQ( plan.Ranges[1].KeyBase, 4096u );
     EXPECT_EQ( plan.KeyCount, 4096u + 16u );
 
+    // VFX-SPRITE-DRAW: the sort and the draw read the particles where the simulation wrote them - the emitter's
+    // attribute columns - through its draw layout (uploaded, imported); the pool slots are the compact's alone.
     ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    ExternalBuffer   drawLayoutBuffer( BufferDesc{ Sys::kParticleDrawLayoutSize }, Access::None );
     Builder          graph( "particle sort" );
-    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
-    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
-    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
-    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    const BufferRef  slots = graph.CreateBuffer( BufferDesc{ 3380u * Sys::kParticleSlotStride }, "ParticleSlots" );
+    const BufferRef  floats     = graph.CreateBuffer( BufferDesc{ 3380u * 16u * 4u }, "VFXAttributeFloats" );
+    const BufferRef  drawLayout = graph.RegisterExternal( drawLayoutBuffer, "ParticleDrawLayout" );
+    const BufferRef  alive      = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters   = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back       = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Spawn+Update 0", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( slots, Access::StorageWrite );
+             pass.Write( floats, Access::StorageWrite );
+             pass.Write( alive, Access::StorageWrite );
+         },
+         Ok );
     graph.AddPass(
          "Particles: Compact 1", PassFlags::Compute,
          [&]( PassBuilder& pass )
          {
-             pass.Write( particles, Access::StorageWrite );
+             pass.Write( slots, Access::StorageWrite );
              pass.Write( alive, Access::StorageWrite );
              pass.Write( counters, Access::StorageWrite );
          },
@@ -405,13 +420,14 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
     const auto layout         = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSort",
-                                      { { "Particles", ShaderResourceKind::StorageBuffer },
+                                      { { "AttributeFloats", ShaderResourceKind::StorageBuffer },
+                                        { "DrawLayout", ShaderResourceKind::StorageBuffer },
                                         { "AliveList", ShaderResourceKind::StorageBuffer },
                                         { "Counters", ShaderResourceKind::StorageBuffer },
                                         { "SortKeys", ShaderResourceKind::StorageBuffer },
                                         { "SortedAlive", ShaderResourceKind::StorageBuffer } },
                               Sys::kParticleSortPushBytes } );
-    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    const Sys::ParticleSortBuffers buffers{ floats, drawLayout, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     for ( const Sys::ParticleSortRange& range : plan.Ranges )
     {
@@ -429,7 +445,8 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
          "ParticlePass", PassFlags::Raster,
          [&]( PassBuilder& pass )
          {
-             pass.Read( particles, Access::StorageRead );
+             pass.Read( floats, Access::StorageRead );
+             pass.Read( drawLayout, Access::StorageRead );
              pass.Read( alive, Access::StorageRead );  // the opaque / masked emitters
              pass.Read( sorted, Access::StorageRead ); // the translucent / additive ones
              pass.Read( counters, Access::IndirectArgs );
@@ -3463,7 +3480,7 @@ TEST( RenderGraphCompile, TwoViewsOfOneSceneSimulateParticlesOnceAndDrawTwice )
         for ( const char* viewName : { "view A", "view B" } )
         {
             Builder         graph( viewName );
-            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
+            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticleSlots" );
             const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
             const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
             const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );

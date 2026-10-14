@@ -1,43 +1,28 @@
-// THE PARTICLE, declared once.
+// THE POOL SLOT, declared once: the engine's bookkeeping for one entry of the scene's particle pool, and NOTHING of
+// the particle's data. The particle itself - Position, Color, SpriteSize, SpriteRotation, Age, Lifetime, Velocity
+// and whatever else its module stack declares - lives in ONE place, the emitter's SoA attribute columns
+// (VFXDataSetLayout; Programs/Particles/ParticleSimulate.shader writes them, the sprite vertex path and the sort
+// read them through Common/ParticleDrawLayout.glslh), as UE Niagara's FNiagaraDataBuffer is the one store its
+// sprite renderer reads. VFX-SPRITE-DRAW removed the 80-byte `struct Particle` that copied the drawn attributes
+// out of the stack every step: two statements of the same particle, and the draw read the copy.
 //
-// This is the layout of one element of the persistent particle state that
-// Programs/Particles/ParticleSimulate.shader writes and Programs/Particles/ParticleBillboard.shader
-// reads. It was declared independently in both of those files until Г4, and the drift had already
-// started: Д26 gave Age.yzw a meaning in the simulation's copy and left the draw's copy a comment
-// behind. A lane that means one thing in one file and nothing in the other is not yet a defect —
-// both copies were still 64 bytes — but the next edit that changes a SIZE on one side only makes the
-// draw pass read every particle from an offset the simulation never wrote to, and what that looks
-// like in a frame is a badly tuned emitter rather than an error.
+// What is left is what is not an attribute (UE: the data set's ID-to-index table and its instance count): the id
+// the particle's random streams are keyed by, carried between steps, and whether the slot holds a live particle -
+// the simulation clears Alive when the stack kills it, the compact frees a slot whose Alive is 0, a reset zeroes
+// the slot.
 //
-// THE THIRD STATEMENT OF THE SAME FACT IS IN C++: Graphic::System::kParticleStride
-// (Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp) is what allocates and zeroes the
-// state, in bytes, and it cannot be folded into this text. Tests/Engine/ShaderCacheKey compiles both
-// stages for real and asserts the array stride the compiler produced against that constant, so the
-// two sides now fail a test instead of agreeing by comment.
+// THE C++ STATEMENT OF THE SIZE is Graphic::System::kParticleSlotStride (ParticleGpuLayout.hpp), which allocates
+// the pool; Tests/Engine/ShaderCacheKey asserts the array stride every stage compiled against it.
 //
-// A PLAIN STRUCT AND NOT THE STORAGE BLOCK ITSELF, because the two consumers deliberately disagree
-// about both things a block declares. The simulation binds it read-write at slot 0 — a compute pass
-// binds by the argument handed to SetStorageBuffer and never consults reflection — and the draw
-// reads it read-only at slot 1, where the graphics descriptor write uses the resource's own slot.
-// One text for what must agree; one line each for what must not.
-//
-// FIELDS ARE APPENDED, NEVER INSERTED, and kParticleStride is appended with them.
+// FIELDS ARE APPENDED, NEVER INSERTED, and kParticleSlotStride is appended with them.
 
 #ifndef PARTICLE_STATE_GLSLH
 #define PARTICLE_STATE_GLSLH
 
-struct Particle
+struct ParticleSlot
 {
-    vec4 PosSize; // xyz = world position, w = current size
-    vec4 Color;   // rgba = current colour (a folds in the over-life alpha; 0 => dead/invisible)
-    vec4 VelLife; // xyz = velocity, w = lifetime (<= 0 => dead / unspawned)
-    // x = age in seconds. yzw are the SIMULATION's local-space offset from the emitter, written only
-    // while the emitter simulates in local space; the draw pass must not read or repurpose them.
-    vec4 Age;
-    // x = the particle's id, carried between steps (its random streams are keyed by it); yzw = 0 (a uvec4 so the
-    // std430 array stride stays a multiple of 16 B). VFX-HOST: the Spawn from Channel colour and size scale left
-    // the struct for the stack's Initialize modules (they reach the particle's Color / SpriteSize attributes).
-    uvec4 Ids;
+    uint Id;    // the particle's id (its random streams are keyed by it), written at spawn, carried by every step
+    uint Alive; // 1 = a live particle; 0 = free (never spawned, reset, or killed by its stack this step)
 };
 
 #endif // PARTICLE_STATE_GLSLH

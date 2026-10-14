@@ -78,10 +78,12 @@ namespace Desert::Graphic::System
         return std::format( "Particles: Sort {} {}", emitter, stage );
     }
 
-    // The buffers one sort stage binds: the pool's three (imported) and the view's two (transient).
+    // The buffers one sort stage binds: the emitter's attribute columns and draw layout (where its particles are),
+    // the pool's alive list and the emitter's draw slots (imported), and the view's two (transient).
     struct ParticleSortBuffers
     {
-        RDG::BufferRef Particles;
+        RDG::BufferRef Floats;
+        RDG::BufferRef DrawLayout;
         RDG::BufferRef Alive;
         RDG::BufferRef Counters; // the emitter's draw slots
         RDG::BufferRef Keys;
@@ -100,7 +102,7 @@ namespace Desert::Graphic::System
         return { keys, sorted };
     }
 
-    // One stage's block. Every stage binds all five slots (one layout); the keys are written by every stage but
+    // One stage's block. Every stage binds all six slots (one layout); the keys are written by every stage but
     // the last, which reads them and writes the sorted indices. SortedAlive is declared written by every stage so
     // the graph never sees a read of a transient nobody produced and keeps the stages in their declared order.
     inline void DeclareParticleSortStage( RDG::PassBuilder&                                      pass,
@@ -110,7 +112,8 @@ namespace Desert::Graphic::System
     {
         const bool writesSorted = kind == ParticleSortStageKind::Write;
         pass.Bindings( layout, std::move( fill ) )
-             .Storage( "Particles", buffers.Particles, RDG::Access::StorageRead )
+             .Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
+             .Storage( "DrawLayout", buffers.DrawLayout, RDG::Access::StorageRead )
              .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
              .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )
              .Storage( "SortKeys", buffers.Keys,
