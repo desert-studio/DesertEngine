@@ -440,11 +440,20 @@ namespace Desert::Assets
                     q.WorkMs                         = 0.0;
                 }
             }
-            if ( drained )
+            // A burst of cache hits while a scene streams in drains many times in a few frames: those lines are
+            // debug; a burst that built a field, failed one or took over a second is the line a load is read by.
+            if ( drained && ( builtCount > 0 || failed > 0 || wallSeconds >= 1.0 ) )
+            {
                 LOG_INFO( "[MeshDistanceField] async queue drained: {} field(s) - {} built, {} from the DDC, {} "
                           "failed - in {:.1f} s wall ({:.1f} s of work on up to {} worker(s))",
                           fromCache + builtCount + failed, builtCount, fromCache, failed, wallSeconds,
                           workMs / 1000.0, DfConcurrency() );
+            }
+            else if ( drained )
+            {
+                LOG_DEBUG( "[MeshDistanceField] async queue drained: {} field(s) from the DDC in {:.2f} s",
+                           fromCache, wallSeconds );
+            }
             DfPump();
         }
     } // namespace
