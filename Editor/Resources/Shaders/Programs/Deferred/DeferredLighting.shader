@@ -83,18 +83,21 @@ Shader "DeferredLighting"
         // SkinnedMeshLit. Included after the three bindings above because it names them.
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
-        // Slots 28 and 29: 0-24 are taken in this layout (22 and 23 are the local shadow atlas and its views, 24 is
-        // spare) and 25-27 are the reserved scene-read range (Core::IsSceneReadBinding), which no shader in the tree
-        // may declare anything else at. This fullscreen program has no material graph, so the graph's window above
-        // the range is free here.
+        // SET 1, bindings 0 and 1. Set 0 has no room for two: 0-23 are taken in this layout (22 and 23 are the
+        // local shadow atlas and its views), 24 is the only spare, 25-27 are the reserved scene-read range
+        // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
+        // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
+        // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
+        // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.
+        // Raw layout() for the buffer: the DSL's ReadBuffer(n) sugar has no set form.
         #define DESERT_REFLECTION_CAPTURES
         #include <Common/ReflectionCaptureGpu.glslh>
-        ReadBuffer(28) ReflectionCapturesUB
+        layout(std430, set = 1, binding = 0) readonly buffer ReflectionCapturesUB
         {
             uvec4                u_ReflectionCaptureHeader; // x = capture count
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
-        Uniform(29) samplerCubeArray u_ReflectionCaptureCubes;
+        Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The

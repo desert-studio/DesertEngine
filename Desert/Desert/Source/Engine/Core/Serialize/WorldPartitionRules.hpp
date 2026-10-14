@@ -555,6 +555,9 @@ namespace Desert::Core::Rules
          { "Morph", ComponentLoading::Spatial },
          { "PointLight", ComponentLoading::Spatial }, // has a radius; the sun is the global light
          { "Projectile", ComponentLoading::Spatial },
+         // Its influence radius is where it lights; outside it no surface reads the capture (UE: reflection
+         // captures are spatially loaded actors of their cell, like the local lights).
+         { "ReflectionCapture", ComponentLoading::Spatial },
          { "Retarget", ComponentLoading::Spatial },
          { "RigidBody", ComponentLoading::Spatial },
          { "VFX", ComponentLoading::Spatial },

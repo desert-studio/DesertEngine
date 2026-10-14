@@ -192,6 +192,12 @@ namespace Desert::Graphic::System
                 return;
             m_EnvironmentWasComplete = complete;
 
+            // The other edge too: a physical sky's first bake waits one frame for the atmosphere LUTs this
+            // frame's graph writes (SkyboxRenderer), so every new view opens with the gap below; the line that
+            // says the ambient arrived is what tells that one-frame wait from a bake that never landed.
+            if ( complete )
+                LOG_INFO( "DeferredLighting: the baked environment arrived (irradiance, prefiltered, BRDF LUT "
+                          "present): the ambient is the sky's from this frame on." );
             if ( !complete )
                 LOG_ERROR( "DeferredLighting: no baked environment to shade the ambient with — irradiance "
                            "cube {}, prefiltered cube {}, BRDF LUT {}. Every missing one is bound to the "

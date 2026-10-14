@@ -200,7 +200,7 @@ namespace
     // The same reflection for a FRAGMENT stage. A separate function rather than a stage parameter on the
     // one above, because the two shaderc kinds are the only difference and a bool argument at the call
     // site reads as nothing at all.
-    std::vector<VkDescriptorSetLayoutBinding> FragmentSetZero( const std::filesystem::path& shaderFile )
+    std::vector<VkDescriptorSetLayoutBinding> FragmentSet( const std::filesystem::path& shaderFile, uint32_t set )
     {
         const std::string source = StageSource( shaderFile, ShaderStage::Fragment );
         const auto        spirv  = CompileStage( source, shaderFile, shaderc_fragment_shader );
@@ -211,9 +211,14 @@ namespace
         const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Fragment, data );
         EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
 
-        const auto it = data.ShaderDescriptorSets.find( 0 );
+        const auto it = data.ShaderDescriptorSets.find( set );
         return it == data.ShaderDescriptorSets.end() ? std::vector<VkDescriptorSetLayoutBinding>{}
                                                      : ShaderReflection::BuildLayoutBindings( it->second );
+    }
+
+    std::vector<VkDescriptorSetLayoutBinding> FragmentSetZero( const std::filesystem::path& shaderFile )
+    {
+        return FragmentSet( shaderFile, 0u );
     }
 
     // Set 0 of a GRAPHICS shader as the PIPELINE LAYOUT sees it: both stages reflected into one
@@ -1175,7 +1180,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
     //   - the sky's look (20, ENV1), applied where the cubes are sampled;
     //   - GBUF1: slot 1 is the R32_UINT shading word, the position is rebuilt from the depth at 21;
     //   - SHADOW-LOCAL: the local shadow atlas and its view table (22, 23);
-    //   - REFL-CAPTURE: the capture records and their cube array (28, 29: above the reserved scene-read range).
+    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 0 had one spare slot (24) under
+    //     the scene-read range and the graph's window, so they are set 1, pinned by the second register below.
     // And the cascade block it must NOT have disturbed: the same four maps at the same four slots, with
     // ShadowUB where Lit.glsl.frag mirrors it.
     struct Row
@@ -1212,8 +1218,6 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
          { 21, kSampler, "u_GBufferDepth" },
          { 22, kSampler, "u_LocalShadowAtlas" },
          { 23, kStorage, "LocalShadowViewsUB" },
-         { 28, kStorage, "ReflectionCapturesUB" },
-         { 29, kSampler, "u_ReflectionCaptureCubes" },
     };
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
@@ -1222,6 +1226,18 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
              << row.Name << " is not declared at binding " << row.Binding << " with its descriptor type";
     EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), std::size( rows ) )
          << "DeferredLighting's set 0 holds a descriptor no row names (or lost one): add or delete its row";
+
+    // SET 1: the reflection captures (REFL-CAPTURE), and nothing else.
+    const Row setOne[] = {
+         { 0, kStorage, "ReflectionCapturesUB" },
+         { 1, kSampler, "u_ReflectionCaptureCubes" },
+    };
+    const auto setOneBindings = FragmentSet( ShaderPath( "Deferred/DeferredLighting.shader" ), 1u );
+    for ( const Row& row : setOne )
+        EXPECT_TRUE( HasBinding( setOneBindings, row.Binding, row.Type ) )
+             << row.Name << " is not declared at set 1, binding " << row.Binding << " with its descriptor type";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( setOneBindings ), std::size( setOne ) )
+         << "DeferredLighting's set 1 holds a descriptor no row names (or lost one): add or delete its row";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActuallyReads )

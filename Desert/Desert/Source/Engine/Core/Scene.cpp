@@ -741,10 +741,11 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         {
-            DESERT_PROFILE_SCOPE( "Scene: Views" );
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
             // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
-            // by is the one the first such view holds (every view bakes the one sky of this scene).
+            // by is the one the first such view holds (every view bakes the one sky of this scene). A scope of
+            // their own, so "Scene: Views" stays the cost of the views alone.
+            DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             for ( auto& view : m_Views.All() )
             {
                 if ( !view.Renderer->ReadsReflectionCaptures() )
@@ -760,6 +761,9 @@ namespace Desert::Core
                      view.Renderer->GetEnvironmentIdentity() );
                 break;
             }
+        }
+        {
+            DESERT_PROFILE_SCOPE( "Scene: Views" );
             for ( auto& view : m_Views.All() )
             {
                 // ONE VIEW, ONE COMPLETE SEQUENCE — open, record, render, close — AND THE SEQUENCES MUST

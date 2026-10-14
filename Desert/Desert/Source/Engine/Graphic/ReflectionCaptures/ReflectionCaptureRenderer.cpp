@@ -249,7 +249,17 @@ namespace Desert::Graphic
         {
             const auto next = std::find( m_Done.begin(), m_Done.end(), false );
             if ( next == m_Done.end() )
+            {
+                // EVERY CAPTURE IS SETTLED: the six face views are released. Each is a complete SceneRenderer -
+                // G-buffer, its own sky bake, cascades, the local-light shadow atlas - and holding them between
+                // recaptures kept six views' worth of targets alive for nothing (measured on Bistro: the atlas,
+                // the cascades and the sky bake x7 instead of x1, 1.4 GB). UE's capture renderers are transient
+                // the same way. A recapture builds them again; their GPU objects go through the device's
+                // deferred deletion, so a frame still in flight that read a face keeps it until it retires.
+                for ( std::unique_ptr<FaceView>& face : m_Faces )
+                    face.reset();
                 return;
+            }
             m_Pending            = static_cast<uint32_t>( next - m_Done.begin() );
             m_PendingSettled     = 0;
             m_PendingEnvironment = 0;
