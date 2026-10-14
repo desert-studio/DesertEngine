@@ -112,7 +112,8 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }
 
-    dependson { "Desert" }
+    -- After the engine's codegen prebuild, which writes the Reflection.gen.cpp compiled here.
+    DesertEngineModules.DependOnCodegen()
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",

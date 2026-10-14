@@ -100,7 +100,7 @@ workspace "Desert"
     -- Without this property MSBuild picks bin\HostX86\x64: a 32-bit link.exe and a 32-bit mspdbsrv,
     -- one per build and shared by every concurrent link, capped at 4 GB of address space. Debug
     -- objects carry their types inline (/Z7, BuildScripts/MSBuild/Ccache.targets) and every suite links
-    -- Desert.lib, so each test link merges gigabytes of type records through that one server.
+    -- the engine (one Desert.lib then; the modules of EngineModules.lua now), so each test link merges gigabytes of type records through that one server.
     -- Run 36032786406 (Windows Debug) is where it gave out: 321 suite links against 308 in the last
     -- green run 35998147036, Desert.lib 3289 MB against 3131, the 32-bit linker "ran out of heap
     -- space" three times, and eleven migrator suites died in LNK1201 ("check for insufficient disk

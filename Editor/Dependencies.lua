@@ -27,7 +27,7 @@ Dependencies = {
         },
 
         -- NO assimp ENTRY, AND THAT IS THE CHANGE. It is a premake project now, so consumers put
-        -- "Assimp" in `links` beside "Desert" and "GLFW"; a per-configuration path to a prebuilt file
+        -- "Assimp" in `links` beside the engine modules and "GLFW"; a per-configuration path to a prebuilt file
         -- is exactly what this task removed.
         Libraries = {
             Debug = {},

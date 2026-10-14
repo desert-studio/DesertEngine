@@ -6,6 +6,7 @@
 --   PlatformWindows.lua — Windows-wide settings (x64)
 --   PlatformMacOS.lua   — macOS-wide settings (Apple Silicon / ARM64)
 --   UnityBuild.lua      — the CI-only `--unity` switch (Visual Studio unity files)
+--   EngineModules.lua   — the engine's static-library modules and the one way to link them all
 
 include "BuildScripts/Platform.lua"
 include "BuildScripts/Workspace.lua"
@@ -13,6 +14,7 @@ include "BuildScripts/Configurations.lua"
 include "BuildScripts/PlatformWindows.lua"
 include "BuildScripts/PlatformMacOS.lua"
 include "BuildScripts/UnityBuild.lua"
+include "BuildScripts/EngineModules.lua"
 
 group "ThirdParty"
 include "ThirdParty/"

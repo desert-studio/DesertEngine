@@ -82,8 +82,8 @@ project "Editor"
     -- the '#' turns the rest of the DEFINES line into a comment in gmake makefiles.
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
 
+    DesertEngineModules.Link() -- every engine module (BuildScripts/EngineModules.lua)
     links{
-        "Desert",
         "GLFW",
         "Optick",
         "MeshOptimizer",

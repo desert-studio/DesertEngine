@@ -1,4 +1,11 @@
-project "Desert"
+-- THE ENGINE, AS ONE STATIC LIBRARY PER MODULE (BuildScripts/EngineModules.lua names the modules and
+-- the source directories of each). Every module is defined by DefineEngineModule below, so pch, unity,
+-- defines, include directories, warnings, /bigobj and third-party links are the same for all of them;
+-- only the source directories, the codegen prebuild and the platform/vendored sources differ.
+local codegenModule = DesertEngineModules.CodegenModule()
+
+local function DefineEngineModule(module)
+project(module.name)
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
@@ -6,39 +13,54 @@ project "Desert"
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
 
-    -- Reflection codegen (UHT-style): run DesertHeaderTool before compiling so
-    -- Source/Engine/Generated/Reflection.gen.cpp is regenerated from REFLECT()/PROPERTY()
-    -- annotations. The generated file is picked up by the Source/Engine/**.cpp glob below.
-    dependson { "DesertHeaderTool" }
-    -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
-    -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
-    -- application (Engine) and of every world (World, owned by Scene).
-    prebuildcommands {
-        DesertPlatform.BuiltToolPath("DesertHeaderTool")
-            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
-            .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-            .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
-            .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
-    }
+    if module.name == codegenModule then
+        -- Reflection codegen (UHT-style): run DesertHeaderTool before compiling so
+        -- Source/Engine/Generated/Reflection.gen.cpp is regenerated from REFLECT()/PROPERTY()
+        -- annotations. EXACTLY ONCE, in the module that compiles Engine/Generated; every other module
+        -- dependson this one, so none of them compiles against a stale generated file.
+        dependson { "DesertHeaderTool" }
+        -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
+        -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
+        -- application (Engine) and of every world (World, owned by Scene).
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+                .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+                .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+                .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
+                .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
+        }
+    else
+        dependson { codegenModule }
+    end
 
-    files { 
+    files {
         "Source/pch.cpp",
         "Source/pch.hpp",
-        "Source/Engine/**.cpp", 
-        "Source/Engine/**.hpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
-        -- vk-bootstrap v1.3.290 (MIT, ThirdParty/vk-bootstrap/LICENSE.txt): instance, physical-device
-        -- selection and logical-device creation. Vendored as its three source files, like VMA above.
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/vk-bootstrap/VkBootstrap.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
     }
+    for _, dir in ipairs(module.dirs) do
+        files {
+            "Source/Engine/" .. dir .. "/**.cpp",
+            "Source/Engine/" .. dir .. "/**.hpp",
+        }
+    end
+
+    if module.platform then
+        files {
+            "Source/Engine/*.hpp",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
+            -- vk-bootstrap v1.3.290 (MIT, ThirdParty/vk-bootstrap/LICENSE.txt): instance, physical-device
+            -- selection and logical-device creation. Vendored as its three source files, like VMA above.
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/vk-bootstrap/VkBootstrap.cpp",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
+        }
+    end
 
     includedirs {
         "Source/",
@@ -112,17 +134,26 @@ project "Desert"
         -- component-registry translation units (one template instantiation per reflected type) blow
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
-        files {
-            "Source/Platform/Windows/**.cpp",
-            "Source/Platform/Windows/**.hpp",
-        }
+        if module.platform then
+            files {
+                "Source/Platform/Windows/**.cpp",
+                "Source/Platform/Windows/**.hpp",
+            }
+        end
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }
-        files {
-            "Source/Platform/MacOS/**.cpp",
-            "Source/Platform/MacOS/**.hpp",
-            "Source/Platform/MacOS/**.mm",
-        }
+        if module.platform then
+            files {
+                "Source/Platform/MacOS/**.cpp",
+                "Source/Platform/MacOS/**.hpp",
+                "Source/Platform/MacOS/**.mm",
+            }
+        end
 
     filter {}
+end
+
+for _, module in ipairs(DesertEngineModules.Modules) do
+    DefineEngineModule(module)
+end
