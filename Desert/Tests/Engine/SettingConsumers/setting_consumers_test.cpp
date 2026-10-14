@@ -615,6 +615,11 @@ namespace
          // An EDITOR-ONLY visualisation flag, deliberately: it draws the radius gizmo and reaches no
          // shader at all, so the gizmo renderer is the honest consumer to name.
          { "ShowRadius", kLightGizmo },
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
+         { "CastShadows", kPointLight },
+         { "ShadowBias", kPointLight },
+         { "ShadowSlopeBias", kPointLight },
+         { "ShadowResolutionScale", kPointLight },
          { "ContactShadowLength", kPointLight },
          { "ContactShadowLengthInWorldSpace", kPointLight },
     };
@@ -627,6 +632,11 @@ namespace
          { "OuterConeAngle", kSpotLight },
          { "Falloff", kSpotLight },
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
+         { "CastShadows", kSpotLight },
+         { "ShadowBias", kSpotLight },
+         { "ShadowSlopeBias", kSpotLight },
+         { "ShadowResolutionScale", kSpotLight },
          { "ContactShadowLength", kSpotLight },
          { "ContactShadowLengthInWorldSpace", kSpotLight },
     };
