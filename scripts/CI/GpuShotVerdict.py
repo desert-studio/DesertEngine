@@ -12,6 +12,12 @@ synchronization-validation hazard id (SYNC-HAZARD-*, enabled by VulkanContext fo
 layer's own "Validation Error" prefix, or vk-bootstrap's default messenger header "[ERROR: Validation]".
 Warnings and performance notes are not counted: the gate is on rule violations, not advice.
 
+KNOWN ISSUES are matched exactly, never by count: a line is "known" only when it carries every fragment of one
+KNOWN_ISSUES row (rule id, object name, debug region), and each row names the card that removes it. Known lines are
+printed and do not fail the run; any other validation line does. A row whose issue no longer appears FAILS the run
+too - the fix landed, so the row must be deleted in the same change (a list of exceptions that only grows is how
+a gate stops gating).
+
 Standard library only (zlib + struct), so the self-hosted runner needs nothing but Python 3.
 """
 
@@ -21,6 +27,20 @@ import sys
 import zlib
 
 VALIDATION_ERROR = re.compile(r"VUID-|SYNC-HAZARD-|Validation Error|\[ERROR: Validation\]")
+
+# (card that removes it, fragments every matching line must carry)
+KNOWN_ISSUES = [
+    # The render graph's barrier before ParticlePass has srcAccessMask 0 for the depth attachment
+    # (RDGCompile.cpp EmitBarriers): seen on Windows (RTX 3070 Ti) and macOS (MoltenVK), int/b15 and int/b16.
+    ("RDG-DEPTH-WAW", ("SYNC-HAZARD-WRITE-AFTER-WRITE", "Composite framebuffer_attachment1", "debug_region: ParticlePass")),
+]
+
+
+def known_issue(line):
+    for card, fragments in KNOWN_ISSUES:
+        if all(fragment in line for fragment in fragments):
+            return card
+    return None
 
 
 def paeth(a, b, c):
@@ -107,11 +127,22 @@ def main(argv):
     except (OSError, ValueError, zlib.error) as error:
         failures.append(f"frame unreadable: {error}")
     hits = validation_lines(logs)
-    print(f"validation errors: {len(hits)}")
-    for hit in hits[:50]:
+    known = {}
+    unknown = []
+    for hit in hits:
+        card = known_issue(hit)
+        if card:
+            known[card] = known.get(card, 0) + 1
+        else:
+            unknown.append(hit)
+    print(f"validation errors: {len(unknown)} (plus known: {known or 'none'})")
+    for hit in unknown[:50]:
         print(hit)
-    if hits:
-        failures.append(f"{len(hits)} Vulkan validation error line(s)")
+    if unknown:
+        failures.append(f"{len(unknown)} Vulkan validation error line(s)")
+    for card, _ in KNOWN_ISSUES:
+        if card not in known:
+            failures.append(f"known issue {card} no longer appears: delete its KNOWN_ISSUES row")
     for failure in failures:
         print(f"FAIL: {failure}")
     return 1 if failures else 0
