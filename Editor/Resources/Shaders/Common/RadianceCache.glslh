@@ -1,0 +1,90 @@
+#ifndef RADIANCE_CACHE_GLSLH
+#define RADIANCE_CACHE_GLSLH
+
+// THE WORLD RADIANCE CACHE, GPU side (UE LumenRadianceCacheInterpolation.ush). The C++ side and the design notes are
+// Graphic/GlobalIllumination/RadianceCache.hpp; the record here must match it byte for byte. Binding-free: the
+// includer passes the parameters (`RadianceCacheParams`) and declares the indirection and atlas images.
+//
+// Positions are WORLD space, cm. UE works in translated world space (camera-relative, for Large World
+// Coordinates); this engine's frame is float world space everywhere, so the corner is a world position.
+
+#define RADIANCE_CACHE_MAX_CLIPMAPS 6u
+#define RADIANCE_CACHE_INVALID_PROBE 0xFFFFFFFFu
+
+// std430 — must match RadianceCache::RadianceCacheParamsPayload (176 bytes).
+struct RadianceCacheParams {
+    vec4  clipmapCornerAndCellSize[RADIANCE_CACHE_MAX_CLIPMAPS]; // xyz = min corner (world, cm), w = cell size (cm)
+    vec4  clipmapProbeTMin[2];                                    // per clipmap: [0].xyzw = 0..3, [1].xy = 4..5
+    uvec4 shape;    // x = clipmaps, y = grid resolution, z = traced probe resolution, w = final probe resolution
+    uvec4 atlas;    // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame
+    vec4  sampling; // x = reprojection radius scale, y = 1 / clipmap fade size (cells), z = 1 / final atlas texels
+};
+
+// Which cache covers a ray origin (UE FRadianceCacheCoverage).
+struct RadianceCacheCoverage {
+    uint  clipmap;                     // == shape.x when no clipmap covers it
+    float minTraceDistanceBeforeCache; // trace at least this far before reading the cache (no leaking through walls)
+    bool  valid;
+};
+
+float RadianceCacheCellSize( RadianceCacheParams cache, uint clipmap )
+{
+    return cache.clipmapCornerAndCellSize[clipmap].w;
+}
+
+float RadianceCacheProbeTMin( RadianceCacheParams cache, uint clipmap )
+{
+    return clipmap < 4u ? cache.clipmapProbeTMin[0][clipmap] : cache.clipmapProbeTMin[1][clipmap - 4u];
+}
+
+// UE GetRadianceProbeCoordFloat: @p worldPosition in cells of @p clipmap, from its min corner.
+vec3 RadianceCacheCoordFloat( RadianceCacheParams cache, vec3 worldPosition, uint clipmap )
+{
+    return ( worldPosition - cache.clipmapCornerAndCellSize[clipmap].xyz ) / RadianceCacheCellSize( cache, clipmap );
+}
+
+// UE GetRadianceProbeCoord: the cell holding @p worldPosition (floor, so negatives round down).
+ivec3 RadianceCacheProbeCoord( RadianceCacheParams cache, vec3 worldPosition, uint clipmap )
+{
+    return ivec3( floor( RadianceCacheCoordFloat( cache, worldPosition, clipmap ) ) );
+}
+
+// UE GetProbeTranslatedWorldPositionNoOffset: the centre of cell @p coord of @p clipmap.
+vec3 RadianceCacheProbePosition( RadianceCacheParams cache, uvec3 coord, uint clipmap )
+{
+    return cache.clipmapCornerAndCellSize[clipmap].xyz + ( vec3( coord ) + 0.5 ) * RadianceCacheCellSize( cache, clipmap );
+}
+
+// UE GetRadianceProbeClipmap: the finest clipmap whose edge fade at @p worldPosition exceeds @p ditherRandom (0..1),
+// so neighbouring pixels pick the two clipmaps of a fade band in proportion and the seam dissolves.
+uint RadianceCacheClipmapAt( RadianceCacheParams cache, vec3 worldPosition, float ditherRandom )
+{
+    const float grid = float( cache.shape.y );
+    for ( uint clipmap = 0u; clipmap < cache.shape.x; ++clipmap )
+    {
+        const vec3  coord    = RadianceCacheCoordFloat( cache, worldPosition, clipmap );
+        const vec3  bottom   = clamp( ( coord - 0.5 ) * cache.sampling.y, 0.0, 1.0 );
+        const vec3  top      = clamp( ( grid - 0.5 - coord ) * cache.sampling.y, 0.0, 1.0 );
+        const float edgeFade = min( min( min( bottom.x, bottom.y ), bottom.z ), min( min( top.x, top.y ), top.z ) );
+        if ( edgeFade > ditherRandom )
+            return clipmap;
+    }
+    return cache.shape.x;
+}
+
+// UE GetRadianceCacheCoverage.
+RadianceCacheCoverage RadianceCacheCoverageAt( RadianceCacheParams cache, vec3 rayOrigin, float ditherRandom )
+{
+    RadianceCacheCoverage coverage;
+    coverage.clipmap                     = RadianceCacheClipmapAt( cache, rayOrigin, ditherRandom );
+    coverage.valid                       = coverage.clipmap < cache.shape.x;
+    coverage.minTraceDistanceBeforeCache = 1.0e7;
+    if ( coverage.valid )
+    {
+        const float cellOcclusionDistance = RadianceCacheCellSize( cache, coverage.clipmap ) * sqrt( 3.0 );
+        coverage.minTraceDistanceBeforeCache = RadianceCacheProbeTMin( cache, coverage.clipmap ) + cellOcclusionDistance;
+    }
+    return coverage;
+}
+
+#endif // RADIANCE_CACHE_GLSLH

@@ -1,0 +1,70 @@
+#ifndef GI_TRACING_GLSLH
+#define GI_TRACING_GLSLH
+
+// THE GI RAY CONTRACT: one entry for every consumer, two tracers behind it, one function that lights a hit. The
+// C++ side and the design notes are Graphic/GlobalIllumination/GITracing.hpp. Ports UE Lumen's contract:
+// FConeTraceInput / FConeTraceResult (LumenSoftwareRayTracing.ush, LumenTracingCommon.ush) and
+// FRayTracedLightingContext / FRayTracedLightingResult (LumenHardwareRayTracingCommon.ush), reduced to what both
+// tracers fill.
+//
+// THE THREE FUNCTIONS — declared here, each DEFINED by exactly one include of the consumer's permutation:
+//   GITraceRay      the walk. DESERT_GI_TRACER_SOFTWARE: the global SDF march (GLOBAL-SDF); DESERT_GI_TRACER_HARDWARE:
+//                   rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
+//   GIHitRadiance   the radiance leaving a hit towards the ray's origin — ONE function for both tracers
+//                   (GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit outside card coverage,
+//                   or any hit under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only), is lit in place: the lights
+//                   of the world light grid with a shadow ray + emissive + albedo × the radiance cache. UE returns
+//                   black outside coverage (FSurfaceCacheSample.bValid = false); here it is never black.
+//   GIMissRadiance  the sky in the ray's direction (the live sky, not the baked ambient cube).
+// A consumer calls GIRayRadiance and nothing else; it composes the three below.
+
+#if defined( DESERT_GI_TRACER_SOFTWARE ) && defined( DESERT_GI_TRACER_HARDWARE )
+#error "GITracing.glslh: one tracer per permutation (DESERT_GI_TRACER_SOFTWARE or DESERT_GI_TRACER_HARDWARE)"
+#endif
+#if defined( DESERT_GI_HIT_LIGHTING_IN_PLACE ) && !defined( DESERT_GI_TRACER_HARDWARE )
+#error "GITracing.glslh: hit lighting in place needs the hardware tracer (a distance-field hit has no material)"
+#endif
+
+#define GI_NO_INSTANCE 0xFFFFFFFFu
+#define GI_NO_MESH_CARDS 0xFFFFFFFFu
+
+// What a consumer asks (UE FConeTraceInput / the RayDesc of FRayTracedLightingContext).
+struct GITraceInput {
+    vec3  origin;    // world, cm
+    float tMin;      // cm skipped before a hit counts (the radiance cache's probe TMin, a screen trace's end)
+    vec3  direction; // unit
+    float tMax;      // cm; past it the ray is a miss
+    float coneAngle; // half angle, radians: the SDF march widens its step with it, the surface cache picks a mip
+    uint  flags;     // GI_TRACE_* below
+};
+#define GI_TRACE_SHADOW_RAY 1u // any hit ends the walk (visibility only)
+
+// Where a ray stopped (the fields both tracers can fill; UE FConeTraceResult / FRayTracedLightingResult).
+struct GIHit {
+    vec3  position;  // world, cm
+    float distance;  // along the ray, cm
+    vec3  normal;    // world, unit: the SDF gradient (software) or the triangle's shading normal (hardware)
+    uint  meshCards; // MeshCards index of the hit instance (Common/SurfaceCache.glslh), or GI_NO_MESH_CARDS
+    uint  instance;  // scene instance (hardware: TLAS instance custom index), or GI_NO_INSTANCE
+    uint  primitive; // triangle within the instance (hardware only; software: 0)
+    vec2  barycentrics; // of the triangle (hardware only; software: 0)
+    bool  frontFace;
+};
+
+struct GITraceResult {
+    bool  hit;
+    GIHit surface; // valid when hit
+};
+
+GITraceResult GITraceRay( GITraceInput ray );
+vec3          GIHitRadiance( GIHit hit, vec3 rayDirection );
+vec3          GIMissRadiance( vec3 rayDirection );
+
+// THE ONE ENTRY: the radiance arriving at @p ray.origin from @p ray.direction.
+vec3 GIRayRadiance( GITraceInput ray )
+{
+    const GITraceResult result = GITraceRay( ray );
+    return result.hit ? GIHitRadiance( result.surface, ray.direction ) : GIMissRadiance( ray.direction );
+}
+
+#endif // GI_TRACING_GLSLH

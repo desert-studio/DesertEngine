@@ -116,10 +116,10 @@ namespace Common::Scalability
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
-        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
-        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
-        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
-        // not a request, and the resolution never lands on an unimplemented method.
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
+        // also applies the device (no device narrowing here: the device's limit and this one are reported
+        // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
+        // is a limit, not a request, and the resolution never lands on an unimplemented method.
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
@@ -127,8 +127,34 @@ namespace Common::Scalability
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
-        UpscalerSharpness,            // ResolutionScale: percent
+                                 // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness,       // ResolutionScale: percent
+        // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
+        // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
+        // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
+        // GlobalIlluminationQuality.
+        SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
+                                                // r.LumenScene.SurfaceCache.AtlasSize)
+        SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
+                                                // r.LumenScene.SurfaceCache.CardTexelDensityScale)
+        SurfaceCacheCardMinResolution,          // smallest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMinResolution)
+        SurfaceCacheCardMaxResolution,          // largest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMaxResolution)
+        SurfaceCacheDirectLightingUpdateFactor, // 1/N of the card texels relit per frame (UE
+                                                // r.LumenScene.DirectLighting.UpdateFactor)
+        SurfaceCacheRadiosityUpdateFactor,      // 1/N of the card texels re-gathered per frame (UE
+                                                // r.LumenScene.Radiosity.UpdateFactor)
+        SurfaceCacheRadiosityProbeSpacing,      // card texels between radiosity probes (UE
+                                                // r.LumenScene.Radiosity.ProbeSpacing)
+        SurfaceCacheRadiosityProbeResolution,   // radiosity hemisphere probe side (UE
+                                                // r.LumenScene.Radiosity.HemisphereProbeResolution)
+        RadianceCacheProbeResolution,           // octahedral radiance texels per probe side (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution)
+        RadianceCacheProbesPerFrame,            // probes traced per frame (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
+        HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
+                                                // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
