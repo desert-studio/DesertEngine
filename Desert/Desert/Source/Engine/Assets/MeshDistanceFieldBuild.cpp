@@ -625,11 +625,25 @@ namespace Desert::Assets
             return Common::MakeSuccess( std::move( out ) );
         }
 
-        // SPATIAL VOLUMES: a grid of cells over the mesh box, each at most the cap at the chunk voxel (with the
-        // border voxel on each side); a cell's volume is the part of the mesh box its triangles' boxes cover
-        // within it, and a cell no triangle reaches has none. Every volume is built from the whole mesh (ExactBand
-        // takes the triangles within its reach), so neighbouring volumes agree across their common face.
-        const double            cell   = static_cast<double>( maxBlocks * kUnique - 2 * kBorder ) * chunkVoxel;
+        // SPATIAL VOLUMES: a grid of cells over the mesh box; a cell's volume is the part of the mesh box its
+        // triangles' boxes cover within it, grown by the inside pad on every side, and a cell no triangle reaches
+        // has none. Every volume is built from the whole mesh (ExactBand takes the triangles within its reach), so
+        // neighbouring volumes agree across their common face.
+        // THE INSIDE PAD: these meshes are thin by construction, and a cell's triangle box around a flat sheet is
+        // a centimetre or two deep. Past its box a volume reads as the face sample plus the distance to the box
+        // and never negative (MeshDistanceField.glslh) - so a sheet's inside (its back, within the band) existed
+        // only within that centimetre and the field climbed again right under it. The global clipmap samples it
+        // at voxel centres on both sides, both positive: across the sheet its trilinear field stayed as high as
+        // the trace's surface expansion (half a voxel), rays stepped through the sheet in rings set by their step
+        // phase and stopped on the slope beneath it, normal down (the 8 m view, GLOBAL-SDF-10). Two chunk voxels
+        // of stored inside under a sheet keep that reconstruction at most ~12 cm in clipmap 0's 39 cm voxels
+        // (expansion 19.5 cm) and the central difference below the hit pointing out of the sheet; a deeper pad
+        // (the whole band, ~50 cm) triples the bricks of a sheet (three bricks deep instead of one) and the build.
+        // The cell shrinks by the pad so a padded volume still fits the cap at the chunk voxel (a cap too small
+        // for even the pad keeps one chunk voxel of cell, and its volumes' voxels grow past the chunk voxel).
+        const double insidePad = 2.0 * chunkVoxel;
+        const double cell      = std::max(
+             static_cast<double>( maxBlocks * kUnique - 2 * kBorder ) * chunkVoxel - 2.0 * insidePad, chunkVoxel );
         const glm::ivec3        cells  = glm::max( glm::ivec3( glm::ceil( meshSize / cell ) ), glm::ivec3( 1 ) );
         const size_t            nCells = static_cast<size_t>( cells.x ) * cells.y * cells.z;
         std::vector<glm::dvec3> cellLo( nCells, glm::dvec3( std::numeric_limits<double>::max() ) );
@@ -658,8 +672,7 @@ namespace Desert::Assets
         {
             if ( cellLo[c].x > cellHi[c].x )
                 continue; // no triangle reaches this cell
-            glm::dvec3 vLo = cellLo[c], vHi = cellHi[c];
-            positiveBox( vLo, vHi );
+            const glm::dvec3 vLo = cellLo[c] - insidePad, vHi = cellHi[c] + insidePad;
             // Enough bricks that no axis' voxel is coarser than the chunk voxel (rounding up, unlike the single
             // volume's UE rounding - the chunk voxel is the guarantee these volumes exist for).
             const glm::dvec3 voxels = ( vHi - vLo ) / chunkVoxel + 2.0 * kBorder;

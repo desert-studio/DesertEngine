@@ -145,8 +145,9 @@ namespace Desert::Assets
          "MeshDistanceField", ".msdf", { 0x6E1D4B2A93C750F8ULL, 0xB47A0C3E5D9F2816ULL } };
     // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace);
     // 4: the sign by UE's backface rays (98 per band sample) in place of the parity vote; 5: a mesh too large for
-    // the cap at its thinnest extent is built as spatial volumes (ChunkVoxelSize)
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 5;
+    // the cap at its thinnest extent is built as spatial volumes (ChunkVoxelSize); 6: each spatial volume is
+    // padded by two chunk voxels, so a sheet's inside is stored beyond its centimetre-deep triangle box
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 6;
 
     // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
     // sidedness -> this bucket's key.
