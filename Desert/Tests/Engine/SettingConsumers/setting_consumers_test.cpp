@@ -532,6 +532,8 @@ namespace
     };
 
     constexpr const char* kViewSettings = "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp";
+    // The render methods are read where they are resolved (request x Scalability ceiling x device).
+    constexpr const char* kRenderMethods = "Desert/Desert/Source/Engine/Graphic/RenderMethods.cpp";
 
     // The volume's own fields are read where volumes are blended; the grade it carries is read by the
     // renderer from the ONE resolved copy (FinalViewSettings::Post), never from a volume.
@@ -542,11 +544,14 @@ namespace
 
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
-         { "GlobalIllumination", kSceneRenderer },
+         { "GlobalIlluminationMethod", kRenderMethods },
          { "GIIntensity", kSceneRenderer },
-         { "EnableSSR", kSceneRenderer },
+         { "ReflectionsMethod", kRenderMethods },
          { "SSRIntensity", kSceneRenderer },
          { "SSRMaxDistance", kSceneRenderer },
+         { "ShadowsMethod", kRenderMethods },
+         { "ContactShadows", kRenderMethods },
+         { "DistanceFieldShadows", kRenderMethods },
          { "Tonemapper", kSceneRenderer },
          { "Exposure", kSceneRenderer },
          { "Gamma", kSceneRenderer },

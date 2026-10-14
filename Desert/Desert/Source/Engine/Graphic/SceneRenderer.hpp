@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
@@ -322,6 +323,13 @@ namespace Desert::Graphic
         {
             m_Quality = quality;
         }
+        // The GI / reflection / shadow methods this view renders and why any came out below its request — what
+        // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
+        [[nodiscard]] const RenderMethods& GetRenderMethods() const
+        {
+            return m_RenderMethods;
+        }
+
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.
@@ -441,7 +449,7 @@ namespace Desert::Graphic
             return m_GBuffer;
         }
 
-        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMode::RSM.
+        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMethod::ReflectiveShadowMaps.
         // Same attachment layout as the G-buffer, at a fixed light-space resolution.
         const std::shared_ptr<Framebuffer>& GetRSMBuffer() const
         {
@@ -845,9 +853,10 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        Core::GIMode            m_GIMode        = Core::GIMode::ScreenSpace; // indirect-light source
+        // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
+        // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
+        RenderMethods           m_RenderMethods;
         float                   m_GIIntensity   = 2.0f;
-        bool                    m_EnableSSR     = false;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.

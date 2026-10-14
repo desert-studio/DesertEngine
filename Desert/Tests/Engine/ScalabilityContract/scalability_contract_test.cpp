@@ -77,25 +77,25 @@ namespace
       "Cinematic": { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 8192 }
     },
     "Shadows": {
-      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.RayTracing": "None", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 16, "Shadows.LightGridMaxLightsPerCell": 32 },
-      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.RayTracing": "None", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 24, "Shadows.LightGridMaxLightsPerCell": 32 },
-      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.RayTracing": "None", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 32 },
-      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.RayTracing": "None", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 64 },
-      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.RayTracing": "None", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64 }
+      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.Method": "CascadedMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 16, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.Method": "CascadedMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 24, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.Method": "VirtualMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.Method": "HardwareTraced", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 64 },
+      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.Method": "Stochastic", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64 }
     },
     "GlobalIllumination": {
-      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.RayTracing": "None" },
-      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.RayTracing": "None" },
-      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.RayTracing": "None" },
-      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.RayTracing": "None" },
-      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.RayTracing": "None" }
+      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.Method": "ScreenSpace" },
+      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.Method": "ReflectiveShadowMaps" },
+      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.Method": "HardwareTraced" },
+      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.Method": "HardwareTraced" },
+      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.Method": "PathTraced" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.RayTracing": "None" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.RayTracing": "None" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.RayTracing": "None" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.RayTracing": "None" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.RayTracing": "None" }
+      "Low":       { "Reflections.MaxSteps": 12, "Reflections.Method": "ScreenSpace" },
+      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.Method": "ScreenSpace" },
+      "High":      { "Reflections.MaxSteps": 32, "Reflections.Method": "HardwareTraced" },
+      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.Method": "HardwareTraced" },
+      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.Method": "PathTraced" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
@@ -365,7 +365,7 @@ TEST( ScalabilityContract, SetOverrideRefusesAPlaceholderAndSavesNothing )
 {
     InitializeQualityState();
     const QualitySelection before = QualityState::Selection();
-    const auto             report = QualityState::SetOverride( Parameter::ShadowRayTracing, 1 );
+    const auto             report = QualityState::SetOverride( Parameter::TextureMipBias, 100 );
     EXPECT_FALSE( report.Refused.empty() );
     EXPECT_FALSE( report.Saved );
     EXPECT_EQ( g_SaveCalls, 0 );

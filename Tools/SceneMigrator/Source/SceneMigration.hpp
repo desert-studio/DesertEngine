@@ -266,7 +266,16 @@ namespace Desert::Migration
     //       Scenes only.
     inline constexpr int kSceneVersionSceneDependencies = 51;
 
-    static_assert( kSceneVersionSceneDependencies == kSceneVersion,
+    //  52 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
+    //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
+    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
+    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
+    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV51ToV52). Both the record's
+    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
+    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionRenderMethods = 52;
+
+    static_assert( kSceneVersionRenderMethods == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -517,6 +526,18 @@ namespace Desert::Migration
     // States EnableSSR true on every PostProcessVolume record under the rule kSceneVersionSSRDefaultOn
     // states. PURE.
     SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateRenderMethodsV51ToV52 did to one file.
+    struct RenderMethodsReport
+    {
+        std::size_t              Rewritten = 0; // GlobalIllumination / EnableSSR keys re-stated as methods
+        std::vector<std::string> Refused;       // a Settings block or old value that is not the declared type
+    };
+
+    // Re-states PostProcessVolume.Settings GlobalIllumination / EnableSSR as GlobalIlluminationMethod /
+    // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
+    // override. PURE.
+    RenderMethodsReport MigrateRenderMethodsV51ToV52( std::vector<Assets::EntityData>& entities );
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -779,6 +800,9 @@ namespace Desert::Migration
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
 
+        bool                RenderMethodsRaised = false; // below kSceneVersionRenderMethods
+        RenderMethodsReport RenderMethods;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -791,7 +815,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || SceneDependenciesRaised;
+                   HLODLayersRaised || SceneDependenciesRaised || RenderMethodsRaised;
         }
     };
 

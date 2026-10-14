@@ -138,7 +138,7 @@
                 "Shadows.Cascades": 2,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 8000,
-                "Shadows.RayTracing": "None",
+                "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 16,
                 "Shadows.LightGridMaxLightsPerCell": 32
@@ -147,7 +147,7 @@
                 "Shadows.Cascades": 3,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 10000,
-                "Shadows.RayTracing": "None",
+                "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 24,
                 "Shadows.LightGridMaxLightsPerCell": 32
@@ -156,7 +156,7 @@
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
-                "Shadows.RayTracing": "None",
+                "Shadows.Method": "VirtualMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 32
@@ -165,7 +165,7 @@
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 20000,
-                "Shadows.RayTracing": "None",
+                "Shadows.Method": "HardwareTraced",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 64
@@ -174,7 +174,7 @@
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 30000,
-                "Shadows.RayTracing": "None",
+                "Shadows.Method": "Stochastic",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 64,
                 "Shadows.LightGridMaxLightsPerCell": 64
@@ -183,45 +183,45 @@
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.Samples": 8,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "ScreenSpace"
             },
             "Medium": {
                 "GlobalIllumination.Samples": 16,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "ReflectiveShadowMaps"
             },
             "High": {
                 "GlobalIllumination.Samples": 32,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "HardwareTraced"
             },
             "Epic": {
                 "GlobalIllumination.Samples": 48,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "GlobalIllumination.Samples": 64,
-                "GlobalIllumination.RayTracing": "None"
+                "GlobalIllumination.Method": "PathTraced"
             }
         },
         "Reflections": {
             "Low": {
                 "Reflections.MaxSteps": 12,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "ScreenSpace"
             },
             "Medium": {
                 "Reflections.MaxSteps": 20,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "ScreenSpace"
             },
             "High": {
                 "Reflections.MaxSteps": 32,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "HardwareTraced"
             },
             "Epic": {
                 "Reflections.MaxSteps": 48,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 64,
-                "Reflections.RayTracing": "None"
+                "Reflections.Method": "PathTraced"
             }
         },
         "PostProcess": {

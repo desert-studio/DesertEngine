@@ -49,9 +49,12 @@ namespace Desert::Graphic
                                    float weight )
     {
         // Taken whole: a switch, a mode or a count has no value between its two ends.
-        target.EnableSSAO          = volume.EnableSSAO;
-        target.GlobalIllumination  = volume.GlobalIllumination;
-        target.EnableSSR           = volume.EnableSSR;
+        target.EnableSSAO               = volume.EnableSSAO;
+        target.GlobalIlluminationMethod = volume.GlobalIlluminationMethod;
+        target.ReflectionsMethod        = volume.ReflectionsMethod;
+        target.ShadowsMethod            = volume.ShadowsMethod;
+        target.ContactShadows           = volume.ContactShadows;
+        target.DistanceFieldShadows     = volume.DistanceFieldShadows;
         target.Tonemapper          = volume.Tonemapper;
         target.AutoExposure        = volume.AutoExposure;
         target.EnableBloom         = volume.EnableBloom;
