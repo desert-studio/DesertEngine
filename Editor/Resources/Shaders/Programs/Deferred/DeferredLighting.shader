@@ -220,14 +220,14 @@ Shader "DeferredLighting"
         };
         #include <Mesh/LocalLightShadow.glslh>
 
-        // THE VIEW'S LIGHT GRID ("Deferred: LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
+        // THE VIEW'S LIGHT GRID ("LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
         // the point and spot lights of its froxel only (UE LightGrid). The parameters, then the cells.
         #include <Mesh/LightGrid.glslh>
-        ReadBuffer(24) LightGridParamsUB
+        ReadBuffer(28) LightGridParamsUB
         {
         	LightGridParams lightGrid;
         };
-        ReadBuffer(25) LightGridCellsUB
+        ReadBuffer(29) LightGridCellsUB
         {
         	uint lightGridCells[];
         };
