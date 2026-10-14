@@ -269,7 +269,7 @@ TEST( SceneViewCost, TheEcsIsWalkedOnceAndOnlyTheGpuPassesAreMultiplied )
     // SECOND view's HDR target came out empty while every input to it was provably identical. So: the
     // open, the replay, the render and the close all sit inside this one loop, in this order.
     const auto open   = code.find( "Renderer->BeginScene(" );
-    const auto replay = code.find( "buffer->ExecuteAll(" );
+    const auto replay = code.rfind( "buffer->ExecuteAll(" ); // the view's replay; the first is the capture faces'
     const auto render = code.find( "Renderer->OnUpdate(" );
     const auto close  = code.find( "Renderer->EndScene(" );
     ASSERT_NE( open, std::string::npos );
