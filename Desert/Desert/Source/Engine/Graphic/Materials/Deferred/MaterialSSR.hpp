@@ -54,7 +54,9 @@ namespace Desert::Graphic
     class MaterialSSRReflectionResolve final : public Material
     {
     public:
-        MaterialSSRReflectionResolve() : Material( "MaterialSSRReflectionResolve", "SSRResolveTiled" ) {}
+        MaterialSSRReflectionResolve() : Material( "MaterialSSRReflectionResolve", "SSRResolveTiled" )
+        {
+        }
 
         // The SSRReflectionResolveUB (SSRResolveTiled.shader) block, std140, member for member
         // (census: Desert/Tests/Engine/UniformBlockLayout).
@@ -70,7 +72,8 @@ namespace Desert::Graphic
         // unjittered, the space of the velocity target); @p invJitteredViewProjection: ViewFrame::
         // InvJitteredViewProjection (the pixel's world position from the G-buffer depth).
         void BindValues( const glm::mat4& viewProjection, const glm::mat4& prevViewProjection,
-                         const glm::mat4& invJitteredViewProjection, const glm::vec2& texelSize, float historyBlend )
+                         const glm::mat4& invJitteredViewProjection, const glm::vec2& texelSize,
+                         float historyBlend )
         {
             SSRReflectionResolveUBData data{};
             data.ViewProjection            = viewProjection;
