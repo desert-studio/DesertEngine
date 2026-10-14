@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "8452786c623ccda05a4aaaddbf354abd",
         "Versions": {
-            "SCNE": 51,
+            "SCNE": 52,
             "UNIT": 1
         },
         "Dependencies": ["257318dcaa1cff2f324f80faacec0fe4"]
@@ -664,11 +664,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

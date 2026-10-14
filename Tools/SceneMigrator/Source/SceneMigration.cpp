@@ -2,6 +2,8 @@
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Settings/RenderMethods.hpp>
+#include <array>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -993,6 +995,89 @@ namespace Desert::Migration
                            ++report.Volumes;
                            return true;
                        } );
+        }
+        return report;
+    }
+
+    RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIMethod;
+        using Common::Scalability::ReflectionMethod;
+        RenderMethodsReport report;
+
+        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name.
+        constexpr std::array<GIMethod, 3> kFromGIMode{ GIMethod::Off, GIMethod::ScreenSpace,
+                                                       GIMethod::ReflectiveShadowMaps };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           if ( const auto gi = settings.get( "GlobalIllumination" ); gi.has_value() )
+                           {
+                               const auto mode = gi.value().to_int();
+                               if ( !mode.has_value() || mode.value() < 0 ||
+                                    mode.value() >= static_cast<int>( kFromGIMode.size() ) )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.GlobalIllumination {} is not a GIMode "
+                                        "(0 Off, 1 ScreenSpace, 2 RSM)",
+                                        who, rfl::json::write( gi.value() ) ) );
+                                   return false;
+                               }
+                               DropKey( settings, "GlobalIllumination" );
+                               settings["GlobalIlluminationMethod"] = rfl::Generic(
+                                    static_cast<int>( kFromGIMode[static_cast<std::size_t>( mode.value() )] ) );
+                               changed = true;
+                           }
+                           if ( const auto ssr = settings.get( "EnableSSR" ); ssr.has_value() )
+                           {
+                               const auto flag = ssr.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( ssr.value() ) ) );
+                                   return false;
+                               }
+                               DropKey( settings, "EnableSSR" );
+                               settings["ReflectionsMethod"] = rfl::Generic( static_cast<int>(
+                                    flag.value() ? ReflectionMethod::ScreenSpace : ReflectionMethod::Off ) );
+                               changed                       = true;
+                           }
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Rewritten;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            // An override's Settings is a delta against its prefab record, but the keys it states are gone from
+            // the type all the same: a delta stating EnableSSR states ReflectionsMethod now.
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
         }
         return report;
     }
@@ -3032,6 +3117,18 @@ namespace Desert::Migration
                 }
             }
 
+            // GIMode / EnableSSR are the render methods (RMODE-IFACE).
+            if ( statedSceneVersion < kSceneVersionRenderMethods )
+            {
+                report.RenderMethodsRaised = true;
+                report.RenderMethods       = MigrateRenderMethodsV52ToV53( entities );
+                if ( !report.RenderMethods.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.RenderMethods.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3103,7 +3200,13 @@ namespace Desert::Migration
             if ( guid.IsNull() )
                 guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
                                           : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
-            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            Common::Content::TextAssetHeaderSerialized header =
+                 Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            // What the file stated it depends on stays stated: only the v50 -> v51 step (SCENE-DEPS) gathers the
+            // list, and it runs once, so a restated header without it would empty every later migration's list.
+            if ( stated )
+                header.Dependencies = stated->Dependencies;
+            return header;
         }
     } // namespace
 
@@ -3435,6 +3538,18 @@ namespace Desert::Migration
             // RunSteps' v49 step re-stated before it was there: re-state again (idempotent), the count is total.
             if ( report.ShadowBiasCentimetresRaised && report.SceneSettingsHomes.ShadowKeysFound > 0 )
                 report.ShadowBiasesRestated = MigrateShadowBiasCentimetresV48ToV49( scene.Entities );
+            // Likewise the volume it just made states the grade's pre-v53 GlobalIllumination / EnableSSR: re-state
+            // them as methods (idempotent — a re-stated key is gone).
+            if ( report.RenderMethodsRaised )
+            {
+                const RenderMethodsReport lifted = MigrateRenderMethodsV52ToV53( scene.Entities );
+                report.RenderMethods.Rewritten += lifted.Rewritten;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
         }
         if ( statedSceneVersion < kSceneVersionGameModeSettings )
         {

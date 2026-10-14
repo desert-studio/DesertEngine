@@ -18,6 +18,7 @@
 #include <iterator>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -291,6 +292,26 @@ namespace Desert::Editor
                  "Post sharpen (RCAS) after TAA, TAAU or the spatial upscale; 0 is off. "
                  "Native frames without TAA are not sharpened." );
             ShowFallback( resolved, SC::Parameter::UpscalerSharpness );
+        }
+
+        // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp). A view's own method
+        // (its PostProcessVolume) above the ceiling is lowered by Graphic::ResolveRenderMethods, which also applies
+        // the device; the viewport overlay shows what each view really renders.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Render Methods" ) )
+        {
+            const auto methodCombo = [&]( const char* label, SC::Parameter parameter,
+                                          std::span<const std::string_view> names )
+            {
+                const auto requested = static_cast<std::size_t>( Requested( parameter ) );
+                if ( const auto picked = ValueCombo( label, requested, names.size(),
+                                                     [names]( std::size_t i ) { return std::string( names[i] ); } ) )
+                    SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
+            };
+            methodCombo( "Global Illumination", SC::Parameter::GlobalIlluminationMethod, SC::kGIMethodNames );
+            methodCombo( "Reflections", SC::Parameter::ReflectionsMethod, SC::kReflectionMethodNames );
+            methodCombo( "Shadows", SC::Parameter::ShadowsMethod, SC::kShadowMethodNames );
+            ImGui::TextDisabled( "Ceilings: a view never renders above them. Traced methods also need\n"
+                                 "ray query on the device; unimplemented methods are skipped downwards." );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Textures" ) )

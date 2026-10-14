@@ -24,5 +24,12 @@ namespace Desert::Reflection
     /// Stores `value` into `field` inside `object`. Refused, with the reason, when the field is ReadOnly,
     /// when the value is of another kind than the field (no conversion: converting is the caller's
     /// language rule, as for FunctionInfo::Invoke), or when an integer does not fit the field's width.
+    /// Also refused when RefusalOf names a reason.
     [[nodiscard]] Common::BoolResultStr WriteField( const FieldInfo& field, void* object, const Value& value );
+
+    /// WHY `value` MAY NOT BE STORED IN `field`, or empty when it may — the one admission rule every setter of
+    /// an Enum or Bool field applies (the loader, Details, WriteField). An Enum refuses a number that is none
+    /// of its enumerators; either kind then asks the field's PROPERTY( Refuse( ... ) ) check, if it has one.
+    /// `value` is the stored integer (the enumerator, or 0/1).
+    [[nodiscard]] std::string RefusalOf( const FieldInfo& field, std::int64_t value );
 } // namespace Desert::Reflection

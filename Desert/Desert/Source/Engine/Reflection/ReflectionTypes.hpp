@@ -101,6 +101,14 @@ namespace Desert::Reflection
         // is false ("!Foo" inverts it). Unlike Hidden the field stays VISIBLE: the setting exists, it just
         // has no effect yet, and hiding it would only make people wonder where it went.
         std::string EditCondition;
+
+        // PROPERTY(Refuse("Ns::Fn")) — the value check EVERY setter of this field applies: the scene/asset
+        // loader (ReflectionSerializer), Details (the refused entries are drawn disabled with the reason) and
+        // scripts (WriteField). Takes the stored integer (an enumerator, or 0/1 for a bool) and returns the
+        // reason it is refused, or empty. For a value the TYPE allows but this build cannot honour — a declared
+        // render method whose renderer has not landed (Common/Settings/RenderMethods.hpp) — so the refusal is an
+        // error where the value is set, never a silent substitute where it is read.
+        std::string_view ( *Refuse )( std::int64_t value ) = nullptr;
     };
 
     struct TypeInfo; // fwd

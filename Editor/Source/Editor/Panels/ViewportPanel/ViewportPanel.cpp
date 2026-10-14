@@ -1,6 +1,8 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "RenderMethodsOverlay.hpp"
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
@@ -2009,6 +2011,14 @@ namespace Desert::Editor
         // stores the decision nowhere, so no save can find it and no call site can forget to fence it.
         if ( !m_Modes.UI2D )
             DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
+
+        // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
+        if ( !m_Modes.UI2D && m_Scene )
+            if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
+                                          ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
+                                          ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
+                                                  m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
         if ( EditorPreferences::Get().ShowPerfHud )

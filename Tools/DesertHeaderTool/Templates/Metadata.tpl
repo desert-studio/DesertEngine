@@ -19,5 +19,6 @@ PropertyMetadata{ {% if f.meta.displayName %}.DisplayName = "{{ f.meta.displayNa
 {% if f.meta.preview %}.Preview = true, {% endif -%}
 {% if f.meta.saveGame %}.SaveGame = true, {% endif -%}
 {% if f.meta.editCondition %}.EditCondition = "{{ f.meta.editCondition }}", {% endif -%}
+{% if f.meta.refuse %}.Refuse = &::{{ f.meta.refuse }}, {% endif -%}
 }
 {#- the include sits mid-line in Field.tpl, so no newline follows the brace -#}

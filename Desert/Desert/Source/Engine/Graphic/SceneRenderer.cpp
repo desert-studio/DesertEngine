@@ -782,9 +782,11 @@ namespace Desert::Graphic
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
-        m_GIMode         = post.GlobalIllumination;
+        // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
+        // device, each lowered axis logged once.
+        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
-        m_EnableSSR      = post.EnableSSR;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
@@ -1199,7 +1201,8 @@ namespace Desert::Graphic
 
             RDG::TextureRef giAccum;
 
-            if ( m_GIMode == Core::GIMode::RSM && meshRenderer != nullptr && EnsureGIResources() )
+            if ( m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::ReflectiveShadowMaps &&
+                 meshRenderer != nullptr && EnsureGIResources() )
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
                 const glm::vec3                    sunDir( lightDir );
@@ -1220,7 +1223,8 @@ namespace Desert::Graphic
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
 
             // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
-            if ( m_EnableSSR && sceneCopy.IsValid() && EnsureSSRResources() )
+            if ( m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
+                 sceneCopy.IsValid() && EnsureSSRResources() )
                 AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
