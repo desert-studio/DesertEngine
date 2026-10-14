@@ -75,6 +75,9 @@ namespace Desert::Graphic::RDG
                                       uint32_t mip = 0 );
         BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
         BindingBlockBuilder& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
+        // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::
+        // Tlas); declared AccelStructRead, bound as the acceleration structure it stores.
+        BindingBlockBuilder& AccelerationStructure( std::string_view shaderName, BufferRef tlas );
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
 

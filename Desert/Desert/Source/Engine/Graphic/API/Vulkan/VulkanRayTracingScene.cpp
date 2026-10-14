@@ -120,7 +120,8 @@ namespace Desert::Graphic::API::Vulkan
 
             // A new storage buffer starts untouched; each graph hands back the state it leaves the buffer in.
             m_External          = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
-            m_External.Physical = VulkanRdgBuffer::Wrap( m_Storage, m_StorageBytes );
+            m_External.Physical =
+                 VulkanRdgBuffer::WrapAccelerationStructure( m_Storage, m_StorageBytes, m_Handle );
             m_External.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
             {
                 m_External.State = state;

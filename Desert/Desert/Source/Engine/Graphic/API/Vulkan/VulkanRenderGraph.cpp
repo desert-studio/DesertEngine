@@ -582,6 +582,15 @@ namespace Desert::Graphic::API::Vulkan
         return wrapped;
     }
 
+    std::shared_ptr<VulkanRdgBuffer>
+    VulkanRdgBuffer::WrapAccelerationStructure( VkBuffer buffer, uint64_t size,
+                                                VkAccelerationStructureKHR accelerationStructure )
+    {
+        std::shared_ptr<VulkanRdgBuffer> wrapped = Wrap( buffer, size );
+        wrapped->m_AccelerationStructure         = accelerationStructure;
+        return wrapped;
+    }
+
     VulkanRdgBuffer::~VulkanRdgBuffer()
     {
         // A wrapped engine buffer has no allocator: its owner destroys it.
@@ -749,8 +758,9 @@ namespace Desert::Graphic::API::Vulkan
     // ── Pass descriptors ────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers,
-                                                        uint32_t frameSlots )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers )
+                                                        uint32_t frameSlots, bool accelerationStructures )
+         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) ), m_SamplerCache( samplers ),
+           m_AccelerationStructures( accelerationStructures )
     {
     }
 
@@ -806,17 +816,19 @@ namespace Desert::Graphic::API::Vulkan
     {
         // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
         constexpr uint32_t                        kSets = 256;
-        const std::array<VkDescriptorPoolSize, 6> sizes = {
+        const std::array<VkDescriptorPoolSize, 7> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
-             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, kSets } };
         VkDescriptorPoolCreateInfo info{};
-        info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        info.maxSets            = kSets;
-        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() );
+        info.sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.maxSets = kSets;
+        // The acceleration-structure row is last: a device without the extension leaves just that row out.
+        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() ) - ( m_AccelerationStructures ? 0u : 1u );
         info.pPoolSizes         = sizes.data();
         VkDescriptorPool pool   = VK_NULL_HANDLE;
         const VkResult   result = vkCreateDescriptorPool( m_Device, &info, nullptr, &pool );
@@ -915,6 +927,37 @@ namespace Desert::Graphic::API::Vulkan
         write.descriptorCount = 1;
         write.descriptorType  = type;
         write.pBufferInfo     = &info;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgPassDescriptors::WriteAccelerationStructure( VkDescriptorSet           set,
+                                                                                uint32_t                  binding,
+                                                                                VkDescriptorType          type,
+                                                                                const RDG::BufferBinding& tlas )
+    {
+        if ( type != VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR )
+            return Common::MakeFormattedError( "'{}': descriptor type {} is not an acceleration-structure type",
+                                               tlas.Name, static_cast<int>( type ) );
+        if ( !m_AccelerationStructures )
+            return Common::MakeFormattedError( "'{}': the device has no acceleration structures", tlas.Name );
+        const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( tlas );
+        if ( !physical )
+            return Common::MakeError( physical.GetError() );
+        const VkAccelerationStructureKHR handle = physical.GetValue()->GetAccelerationStructure();
+        if ( handle == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "'{}' stores no acceleration structure", tlas.Name );
+        VkWriteDescriptorSetAccelerationStructureKHR structures{};
+        structures.sType                      = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+        structures.accelerationStructureCount = 1;
+        structures.pAccelerationStructures    = &handle;
+        VkWriteDescriptorSet write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.pNext           = &structures;
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = type;
         vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
         return Common::MakeSuccess( true );
     }
