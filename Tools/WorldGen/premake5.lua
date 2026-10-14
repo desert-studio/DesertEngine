@@ -37,7 +37,7 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
-    dependson { "Desert" }
+    DesertModuleLibs.DependOnCodegen()
 
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
