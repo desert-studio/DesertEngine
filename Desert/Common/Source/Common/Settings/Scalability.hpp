@@ -105,6 +105,7 @@ namespace Common::Scalability
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
         ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
+        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High

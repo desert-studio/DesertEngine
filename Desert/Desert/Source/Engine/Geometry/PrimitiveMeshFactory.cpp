@@ -3,7 +3,7 @@
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
-#include <chrono>
+#include <format>
 #include <unordered_map>
 #include <vector>
 
@@ -33,15 +33,16 @@ namespace Desert::Geometry
     // THE SHARED PRIMITIVE CARRIES A DISTANCE FIELD LIKE ANY STATIC MESH (UE: the BasicShapes are static mesh
     // assets, so their fields are built like every other mesh's). Without it every primitive is invisible to
     // the global distance field and every trace through it - a Cornell box built of cubes was an empty volume.
-    // Built here, in process, from the same generator vertices the GPU draws: the geometry is code, not a
-    // file, so there is no asset to key a DDC entry by and nothing a packaged game could have cooked; the
-    // build is deterministic and runs once per shape per process. A forked per-entity copy (the mesh editor)
-    // is procedural and has none, like UE's dynamic meshes. The Plane bounds no volume: its triangles are
-    // two-sided, so the field around it is the distance to its surface with no false interior below.
+    // Built in process from the same generator vertices the GPU draws: the geometry is code, not a file, so
+    // there is no asset to key a DDC entry by and nothing a packaged game could have cooked; the build is
+    // deterministic and runs once per shape per process, on a worker through the same asynchronous queue as
+    // every mesh's (the primitive draws at once and joins the distance-field scene when its field lands). A
+    // forked per-entity copy (the mesh editor) is procedural and has none, like UE's dynamic meshes. The Plane
+    // bounds no volume: its triangles are two-sided, so the field around it is the distance to its surface with
+    // no false interior below.
     static void AttachDistanceField( const PrimitiveType type, DynamicMesh& mesh )
     {
         const std::vector<uint8_t> twoSided( mesh.GetSubmeshes().size(), type == PrimitiveType::Plane ? 1 : 0 );
-        const auto                 start = std::chrono::steady_clock::now();
         auto input = Assets::MeshDistanceFieldInputOf( mesh.GetVertices(), mesh.GetIndices(), mesh.GetSubmeshes(),
                                                        twoSided );
         if ( !input.IsSuccess() )
@@ -50,18 +51,21 @@ namespace Desert::Geometry
                        input.GetError() );
             return;
         }
-        auto built = Assets::BuildMeshDistanceField( input.GetValue(), Assets::MeshDistanceFieldBuildSettings{} );
-        if ( !built.IsSuccess() )
-        {
-            LOG_ERROR( "[PrimitiveMeshFactory] '{}' has no distance field: {}", PrimitiveTypeName( type ),
-                       built.GetError() );
-            return;
-        }
-        const uint32_t bricks = built.GetValue().TotalBrickCount();
-        mesh.SetDistanceField( std::make_shared<const Assets::MeshDistanceFieldData>( built.ExtractValue() ) );
-        LOG_INFO( "[PrimitiveMeshFactory] '{}' distance field: {} brick(s) over {} mip(s) in {:.1f} ms",
-                  PrimitiveTypeName( type ), bricks, Assets::kDistanceFieldNumMips,
-                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count() );
+        auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>();
+        mesh.SetDistanceField( slot );
+        Assets::EnqueueMeshDistanceField(
+             std::move( slot ), std::format( "primitive '{}'", PrimitiveTypeName( type ) ),
+             [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() )](
+                  bool& built ) -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
+             {
+                 built      = true;
+                 auto field = Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{} );
+                 if ( !field.IsSuccess() )
+                     return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
+                          field.GetError() );
+                 return Common::MakeSuccess<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
+                      std::make_shared<const Assets::MeshDistanceFieldData>( field.ExtractValue() ) );
+             } );
     }
 
     DynamicMesh* PrimitiveMeshFactory::GetShared( PrimitiveType type )

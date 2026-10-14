@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -136,9 +137,35 @@ namespace Desert::Assets
     [[nodiscard]] Common::ResultStr<std::string>
     BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input );
 
-    // DDC hit, or build (single-flight per key) and Put. @p input is called only on a miss.
-    [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
-    LoadMeshDistanceField( const std::filesystem::path& asset, uint64_t renderDataKey,
-                           const std::vector<uint8_t>&                                            submeshTwoSided,
-                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input );
+    // DDC hit, or build (single-flight per key) and Put. @p input is called only on a miss; @p built, when
+    // given, is set to whether it was (a build, not a cache hit).
+    [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>> LoadMeshDistanceField(
+         const std::filesystem::path& asset, uint64_t renderDataKey, const std::vector<uint8_t>& submeshTwoSided,
+         const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input, bool* built = nullptr );
+
+    // WHERE A MESH'S FIELD LANDS WHEN ITS BUILD FINISHES (UE FDistanceFieldAsyncQueue: the mesh renders without
+    // a field until the task completes, then the field is attached). Empty until then - and for good when the
+    // build failed, which the queue logs naming the mesh. Read from any thread; written once, by the queue.
+    class MeshDistanceFieldSlot
+    {
+    public:
+        [[nodiscard]] std::shared_ptr<const MeshDistanceFieldData> Get() const;
+        void Publish( std::shared_ptr<const MeshDistanceFieldData> field );
+
+    private:
+        mutable std::mutex                           m_Mutex;
+        std::shared_ptr<const MeshDistanceFieldData> m_Field;
+    };
+
+    // THE ASYNCHRONOUS QUEUE (UE FDistanceFieldAsyncQueue, DistanceFieldAtlas.cpp): a field is derived (DDC read
+    // or build) on the JobSystem's workers, never on the caller's thread, and published into @p slot when done.
+    // At most WorkerCount()-1 (at least one) builds run at once, so one worker always stays free for the rest of
+    // the engine (texture cooks, asset reads); the others wait in this queue, not in the pool's. @p work must
+    // own everything it reads (it runs after the caller returned). @p asset names the mesh in the log.
+    using MeshDistanceFieldWork =
+         std::function<Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>( bool& built )>;
+    void EnqueueMeshDistanceField( std::shared_ptr<MeshDistanceFieldSlot> slot, std::string asset,
+                                   MeshDistanceFieldWork work );
+    // Queued + running builds (diagnostics).
+    [[nodiscard]] size_t PendingMeshDistanceFields();
 } // namespace Desert::Assets

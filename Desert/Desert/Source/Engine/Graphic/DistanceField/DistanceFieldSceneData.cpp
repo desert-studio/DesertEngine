@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <limits>
 
 namespace Desert::Graphic::DistanceField
 {
@@ -25,6 +26,27 @@ namespace Desert::Graphic::DistanceField
         constexpr uint32_t kDfBrick              = Assets::kDistanceFieldBrickSize;
         constexpr uint32_t kDfBricksPerSlice     = kDfAtlasBricksX * kDfAtlasBricksY;
         constexpr uint32_t kDfMaxAtlasDepthTexel = 2048; // the smallest maxImageDimension3D the engine targets
+        constexpr uint32_t kDfBytesPerSlice      = kDfBricksPerSlice * Assets::kDistanceFieldBrickVoxels;
+        // The finer mips uploaded per frame at most (4 MiB of bricks): what bounds the staging memory and the
+        // frame's upload time while a camera move streams a district in. A mip is never split, so a frame always
+        // takes at least one. The coarse mips of newly drawn fields are not counted: without them the object
+        // would be drawn but absent from the field.
+        constexpr uint32_t kDfStreamBricksPerFrame = 8192;
+
+        // The mips a field wants at @p distance (cm) from the camera: all of them inside the finest global
+        // clipmap, one fewer per clipmap level farther out, never fewer than the coarse one. The finest mip is
+        // detail only the finest clipmap (and the near-camera traces that start in it) can resolve.
+        uint32_t DfWantedMips( const float distance )
+        {
+            uint32_t level  = 0;
+            float    extent = DFShared::GDF_CLIPMAP0_EXTENT;
+            while ( level + 1 < Assets::kDistanceFieldNumMips && distance > extent )
+            {
+                ++level;
+                extent *= 2.0f;
+            }
+            return Assets::kDistanceFieldNumMips - level;
+        }
         constexpr uint32_t kDfAssetStride        = static_cast<uint32_t>( DFShared::DF_ASSET_STRIDE );
 
         float DfBits( const uint32_t v )
@@ -49,6 +71,34 @@ namespace Desert::Graphic::DistanceField
         const uint32_t offset = m_End;
         m_End += count;
         return offset;
+    }
+
+    std::optional<uint32_t> RangeAllocator::Allocate( const uint32_t count, const uint32_t limit )
+    {
+        for ( auto it = m_Free.begin(); it != m_Free.end() && it->first + count <= limit; ++it )
+        {
+            if ( it->second < count )
+                continue;
+            const uint32_t offset = it->first;
+            const uint32_t left   = it->second - count;
+            m_Free.erase( it );
+            if ( left > 0 )
+                m_Free.emplace( offset + count, left );
+            return offset;
+        }
+        if ( static_cast<uint64_t>( m_End ) + count > limit )
+            return std::nullopt;
+        const uint32_t offset = m_End;
+        m_End += count;
+        return offset;
+    }
+
+    uint32_t RangeAllocator::Used() const
+    {
+        uint32_t freeSlots = 0;
+        for ( const auto& [offset, count] : m_Free )
+            freeSlots += count;
+        return m_End - freeSlots;
     }
 
     void RangeAllocator::Free( const uint32_t offset, const uint32_t count )
@@ -83,8 +133,40 @@ namespace Desert::Graphic::DistanceField
     DistanceFieldSceneData::DistanceFieldSceneData()  = default;
     DistanceFieldSceneData::~DistanceFieldSceneData() = default;
 
+    bool DistanceFieldSceneData::SetPoolMiB( const uint32_t poolMiB )
+    {
+        if ( poolMiB == m_PoolMiB )
+            return false;
+        // Everything resident lived in the old atlas: drop it all, the next frame acquires again.
+        m_Resident.clear();
+        m_BrickSlots       = {};
+        m_IndirectionSlots = {};
+        m_AssetSlots       = {};
+        m_AssetData.clear();
+        m_Indirection.clear();
+        m_Pending.clear();
+        m_Atlas.reset();
+        m_PoolMiB = poolMiB;
+        const uint64_t slices =
+             std::clamp<uint64_t>( static_cast<uint64_t>( poolMiB ) * 1024u * 1024u / kDfBytesPerSlice, 1u,
+                                   kDfMaxAtlasDepthTexel / kDfBrick );
+        m_CapacityBricks = static_cast<uint32_t>( slices ) * kDfBricksPerSlice;
+        return true;
+    }
+
+    void DistanceFieldSceneData::BeginFrame()
+    {
+        for ( auto& [key, resident] : m_Resident )
+        {
+            resident.Used     = false;
+            resident.Distance = std::numeric_limits<float>::max();
+        }
+        m_UploadedThisFrame = 0;
+    }
+
     Common::ResultStr<std::optional<uint32_t>>
-    DistanceFieldSceneData::Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field )
+    DistanceFieldSceneData::Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                     const float                                                 distance )
     {
         using Result = std::optional<uint32_t>;
         if ( !field )
@@ -92,7 +174,11 @@ namespace Desert::Graphic::DistanceField
         if ( const auto it = m_Resident.find( field.get() ); it != m_Resident.end() )
         {
             if ( it->second.Field.lock() == field )
+            {
+                it->second.Used     = true;
+                it->second.Distance = std::min( it->second.Distance, distance );
                 return Common::MakeSuccess<Result>( it->second.AssetIndex );
+            }
             // A new field at the address of one that died since the last sweep.
             Release( it->second );
             m_Resident.erase( it );
@@ -102,74 +188,176 @@ namespace Desert::Graphic::DistanceField
 
         Resident resident;
         resident.Field      = field;
+        resident.Used       = true;
+        resident.Distance   = distance;
         resident.AssetIndex = m_AssetSlots.Allocate( 1 );
         if ( m_AssetData.size() < static_cast<size_t>( m_AssetSlots.End() ) * kDfAssetStride )
             m_AssetData.resize( static_cast<size_t>( m_AssetSlots.End() ) * kDfAssetStride, glm::vec4( 0.0f ) );
-        glm::vec4* record = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
-        record[0]         = glm::vec4( DfBits( Assets::kDistanceFieldNumMips ), 0.0f, 0.0f, 0.0f );
-        for ( uint32_t m = 0; m < Assets::kDistanceFieldNumMips; ++m )
+        // THE COARSE MIP IS ALWAYS RESIDENT: room is made for it by evicting finer mips of any other field.
+        const uint32_t coarseBricks = field->Mips[Assets::kDistanceFieldNumMips - 1].BrickCount();
+        bool           added        = AddMip( resident, *field );
+        while ( !added && EvictFartherThan( -1.0f, coarseBricks, nullptr ) )
+            added = AddMip( resident, *field );
+        if ( !added )
         {
-            const Assets::SparseDistanceFieldMip& mip = field->Mips[m];
-            resident.BrickOffset[m]                   = m_BrickSlots.Allocate( mip.BrickCount() );
-            resident.IndirectionOffset[m] =
-                 m_IndirectionSlots.Allocate( static_cast<uint32_t>( mip.IndirectionTable.size() ) );
-            if ( m_Indirection.size() < m_IndirectionSlots.End() )
-                m_Indirection.resize( m_IndirectionSlots.End(), Assets::kDistanceFieldInvalidBrick );
-            for ( size_t i = 0; i < mip.IndirectionTable.size(); ++i )
-            {
-                const uint32_t local = mip.IndirectionTable[i];
-                m_Indirection[resident.IndirectionOffset[m] + i] =
-                     local == Assets::kDistanceFieldInvalidBrick ? local : resident.BrickOffset[m] + local;
-            }
-            // UE FDFAssetData: the volume -> indirection transform is the virtual UV one scaled by the grid.
-            const glm::vec3 dims  = glm::vec3( mip.IndirectionDimensions );
-            const glm::vec3 scale = mip.VolumeToVirtualUVScale * dims;
-            const glm::vec3 add   = mip.VolumeToVirtualUVAdd * dims;
-            glm::vec4*      rows  = record + 1 + m * DFShared::DF_ASSET_MIP_STRIDE;
-            rows[0] = glm::vec4( DfBits( mip.IndirectionDimensions.x ), DfBits( mip.IndirectionDimensions.y ),
-                                 DfBits( mip.IndirectionDimensions.z ), DfBits( resident.IndirectionOffset[m] ) );
-            rows[1] = glm::vec4( mip.DistanceFieldToVolumeScaleBias, scale.x, scale.y );
-            rows[2] = glm::vec4( scale.z, add );
+            m_AssetSlots.Free( resident.AssetIndex, 1 );
+            return Common::MakeFormattedError<Result>(
+                 "the {} MiB distance-field pool (Scalability GlobalIllumination.DistanceFieldPoolMiB) cannot "
+                 "hold "
+                 "the coarse mips of {} field(s): {} of {} brick(s) in use, {} more needed",
+                 m_PoolMiB, m_Resident.size() + 1, m_BrickSlots.Used(), m_CapacityBricks, coarseBricks );
         }
-        QueueBricks( *field, resident );
         const uint32_t index = resident.AssetIndex;
         m_Resident.emplace( field.get(), std::move( resident ) );
         return Common::MakeSuccess<Result>( index );
     }
 
-    void DistanceFieldSceneData::QueueBricks( const Assets::MeshDistanceFieldData& field,
-                                              const Resident&                      resident )
+    bool DistanceFieldSceneData::AddMip( Resident& resident, const Assets::MeshDistanceFieldData& field )
     {
+        const uint32_t                        r      = resident.NumMips;
+        const uint32_t                        source = Assets::kDistanceFieldNumMips - 1 - r;
+        const Assets::SparseDistanceFieldMip& mip    = field.Mips[source];
+        const auto                            bricks = m_BrickSlots.Allocate( mip.BrickCount(), m_CapacityBricks );
+        if ( !bricks )
+            return false;
+
+        ResidentMip& slot      = resident.Mips[r];
+        slot.BrickOffset       = *bricks;
+        slot.BrickCount        = mip.BrickCount();
+        slot.IndirectionCount  = static_cast<uint32_t>( mip.IndirectionTable.size() );
+        slot.IndirectionOffset = m_IndirectionSlots.Allocate( slot.IndirectionCount );
+        if ( m_Indirection.size() < m_IndirectionSlots.End() )
+            m_Indirection.resize( m_IndirectionSlots.End(), Assets::kDistanceFieldInvalidBrick );
+        for ( size_t i = 0; i < mip.IndirectionTable.size(); ++i )
+        {
+            const uint32_t local = mip.IndirectionTable[i];
+            m_Indirection[slot.IndirectionOffset + i] =
+                 local == Assets::kDistanceFieldInvalidBrick ? local : slot.BrickOffset + local;
+        }
+        // UE FDFAssetData: the volume -> indirection transform is the virtual UV one scaled by the grid.
+        glm::vec4*      record = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
+        const glm::vec3 dims   = glm::vec3( mip.IndirectionDimensions );
+        const glm::vec3 scale  = mip.VolumeToVirtualUVScale * dims;
+        const glm::vec3 add    = mip.VolumeToVirtualUVAdd * dims;
+        glm::vec4*      rows   = record + 1 + r * DFShared::DF_ASSET_MIP_STRIDE;
+        rows[0] = glm::vec4( DfBits( mip.IndirectionDimensions.x ), DfBits( mip.IndirectionDimensions.y ),
+                             DfBits( mip.IndirectionDimensions.z ), DfBits( slot.IndirectionOffset ) );
+        rows[1] = glm::vec4( mip.DistanceFieldToVolumeScaleBias, scale.x, scale.y );
+        rows[2] = glm::vec4( scale.z, add );
+
         const std::shared_ptr<const Assets::MeshDistanceFieldData> held = resident.Field.lock();
-        for ( uint32_t m = 0; m < Assets::kDistanceFieldNumMips; ++m )
-            for ( uint32_t b = 0; b < field.Mips[m].BrickCount(); ++b )
-                m_Pending.push_back( { resident.BrickOffset[m] + b, held, m, b } );
+        for ( uint32_t b = 0; b < slot.BrickCount; ++b )
+            m_Pending.push_back( { slot.BrickOffset + b, held, source, b } );
+        // The bricks are written by FlushUploads before any pass of this frame reads the record.
+        ++resident.NumMips;
+        record[0] = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
+        return true;
     }
 
-    void DistanceFieldSceneData::Release( const Resident& resident )
+    void DistanceFieldSceneData::DropMip( Resident& resident )
     {
-        // The record and the table range are released by size; the field may already be gone, so the sizes are
-        // read back from the record this class wrote rather than from the field.
-        const glm::vec4* record = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
-        for ( uint32_t m = 0; m < Assets::kDistanceFieldNumMips; ++m )
-        {
-            const glm::vec4 rows0 = record[1 + m * DFShared::DF_ASSET_MIP_STRIDE];
-            const uint32_t  cells = std::bit_cast<uint32_t>( rows0.x ) * std::bit_cast<uint32_t>( rows0.y ) *
-                                   std::bit_cast<uint32_t>( rows0.z );
-            m_IndirectionSlots.Free( resident.IndirectionOffset[m], cells );
-            // Brick counts: the slots of mip m run up to the next mip's, or are counted from the field.
-            uint32_t bricks = 0;
-            for ( uint32_t c = 0; c < cells; ++c )
-                if ( const uint32_t slot = m_Indirection[resident.IndirectionOffset[m] + c];
-                     slot != Assets::kDistanceFieldInvalidBrick )
-                    bricks = std::max( bricks, slot - resident.BrickOffset[m] + 1 );
-            m_BrickSlots.Free( resident.BrickOffset[m], bricks );
-            for ( uint32_t c = 0; c < cells; ++c )
-                m_Indirection[resident.IndirectionOffset[m] + c] = Assets::kDistanceFieldInvalidBrick;
-        }
+        const uint32_t r        = --resident.NumMips;
+        glm::vec4*     record   = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
+        record[0]               = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
+        const ResidentMip& slot = resident.Mips[r];
+        std::fill_n( m_Indirection.begin() + slot.IndirectionOffset, slot.IndirectionCount,
+                     Assets::kDistanceFieldInvalidBrick );
+        m_IndirectionSlots.Free( slot.IndirectionOffset, slot.IndirectionCount );
+        m_BrickSlots.Free( slot.BrickOffset, slot.BrickCount );
+        std::erase_if( m_Pending, [&slot]( const PendingBrick& p )
+                       { return p.Slot >= slot.BrickOffset && p.Slot < slot.BrickOffset + slot.BrickCount; } );
+        resident.Mips[r] = {};
+    }
+
+    void DistanceFieldSceneData::Release( Resident& resident )
+    {
+        while ( resident.NumMips > 0 )
+            DropMip( resident );
         m_AssetSlots.Free( resident.AssetIndex, 1 );
-        std::erase_if( m_Pending, [&resident]( const PendingBrick& p )
-                       { return p.Field == resident.Field.lock(); } );
+    }
+
+    bool DistanceFieldSceneData::EvictFartherThan( const float distance, const uint32_t bricks,
+                                                   const Resident* except )
+    {
+        std::vector<Resident*> holders;
+        for ( auto& [key, resident] : m_Resident )
+            if ( &resident != except && resident.NumMips > 1 && resident.Distance > distance )
+                holders.push_back( &resident );
+        std::sort( holders.begin(), holders.end(),
+                   []( const Resident* a, const Resident* b ) { return a->Distance > b->Distance; } );
+        uint32_t freed = 0;
+        for ( Resident* holder : holders )
+        {
+            while ( holder->NumMips > 1 && freed < bricks )
+            {
+                freed += holder->Mips[holder->NumMips - 1].BrickCount;
+                DropMip( *holder );
+            }
+            if ( freed >= bricks )
+                break;
+        }
+        // Freed slots need not be contiguous: the caller retries the allocation.
+        return freed > 0;
+    }
+
+    void DistanceFieldSceneData::Stream()
+    {
+        // Out first: a field farther than its finer mips are worth gives them back.
+        std::vector<std::pair<Resident*, std::shared_ptr<const Assets::MeshDistanceFieldData>>> requests;
+        for ( auto& [key, resident] : m_Resident )
+        {
+            const uint32_t wanted = resident.Used ? DfWantedMips( resident.Distance ) : 1u;
+            while ( resident.NumMips > wanted )
+                DropMip( resident );
+            if ( resident.NumMips < wanted )
+                if ( auto field = resident.Field.lock() )
+                    requests.emplace_back( &resident, std::move( field ) );
+        }
+        // In, nearest first, one mip per field per frame, inside the pool and the frame's upload budget; a
+        // nearer field may take the room of a farther one's finer mips.
+        std::sort( requests.begin(), requests.end(),
+                   []( const auto& a, const auto& b ) { return a.first->Distance < b.first->Distance; } );
+        uint32_t unmet = 0;
+        for ( auto& [resident, field] : requests )
+        {
+            const uint32_t bricks =
+                 field->Mips[Assets::kDistanceFieldNumMips - 1 - resident->NumMips].BrickCount();
+            if ( m_UploadedThisFrame > 0 && m_UploadedThisFrame + bricks > kDfStreamBricksPerFrame )
+            {
+                ++unmet;
+                continue;
+            }
+            bool added = AddMip( *resident, *field );
+            while ( !added && EvictFartherThan( resident->Distance, bricks, resident ) )
+                added = AddMip( *resident, *field );
+            if ( !added )
+            {
+                ++unmet;
+                continue;
+            }
+            m_UploadedThisFrame += bricks;
+            if ( resident->NumMips < DfWantedMips( resident->Distance ) )
+                ++unmet;
+        }
+
+        m_Stats                = {};
+        m_Stats.Fields         = static_cast<uint32_t>( m_Resident.size() );
+        m_Stats.CapacityBricks = m_CapacityBricks;
+        m_Stats.UsedBricks     = m_BrickSlots.Used();
+        m_Stats.UnmetRequests  = unmet;
+        m_Stats.UploadedBricks = m_UploadedThisFrame;
+        for ( const auto& [key, resident] : m_Resident )
+        {
+            m_Stats.CoarseBricks += resident.Mips[0].BrickCount;
+            if ( resident.NumMips > 0 )
+                ++m_Stats.ResidentByMips[resident.NumMips - 1];
+        }
+    }
+
+    uint32_t DistanceFieldSceneData::ResidentMips( const Assets::MeshDistanceFieldData* field ) const
+    {
+        const auto it = m_Resident.find( field );
+        return it != m_Resident.end() ? it->second.NumMips : 0u;
     }
 
     void DistanceFieldSceneData::ReleaseUnused()
@@ -186,29 +374,17 @@ namespace Desert::Graphic::DistanceField
         }
     }
 
-    Common::BoolResultStr DistanceFieldSceneData::EnsureAtlasCapacity()
+    Common::BoolResultStr DistanceFieldSceneData::EnsureAtlas()
     {
-        const uint32_t neededDepth =
-             std::max<uint32_t>( 1, ( m_BrickSlots.End() + kDfBricksPerSlice - 1 ) / kDfBricksPerSlice );
-        if ( m_Atlas && neededDepth <= m_AtlasDepthInBricks )
+        if ( m_Atlas )
             return BOOLSUCCESS;
-        uint32_t depth = std::max<uint32_t>( 4, m_AtlasDepthInBricks );
-        while ( depth < neededDepth )
-            depth *= 2;
-        if ( depth * kDfBrick > kDfMaxAtlasDepthTexel )
-        {
-            if ( neededDepth * kDfBrick > kDfMaxAtlasDepthTexel )
-                return Common::MakeFormattedError<bool>(
-                     "the distance-field brick atlas needs {} bricks, more than the {} a {}x{}x{} R8 volume holds",
-                     m_BrickSlots.End(), kDfBricksPerSlice * ( kDfMaxAtlasDepthTexel / kDfBrick ),
-                     kDfAtlasBricksX * kDfBrick, kDfAtlasBricksY * kDfBrick, kDfMaxAtlasDepthTexel );
-            depth = kDfMaxAtlasDepthTexel / kDfBrick;
-        }
+        if ( m_CapacityBricks == 0 )
+            return Common::MakeError<bool>( "the distance-field pool was never sized (SetPoolMiB)" );
         const Core::Formats::Image3DSpecification spec{
              .Tag        = "DistanceFieldBrickAtlas",
              .Width      = kDfAtlasBricksX * kDfBrick,
              .Height     = kDfAtlasBricksY * kDfBrick,
-             .Depth      = depth * kDfBrick,
+             .Depth      = ( m_CapacityBricks / kDfBricksPerSlice ) * kDfBrick,
              .Format     = Core::Formats::ImageFormat::R8_UNORM,
              .Data       = Core::Formats::EmptyPixelData{},
              .Properties = Core::Formats::Sample,
@@ -216,26 +392,21 @@ namespace Desert::Graphic::DistanceField
         auto atlas = Image3D::Create( spec );
         if ( !atlas )
             return Common::MakeFormattedError<bool>(
-                 "the {}x{}x{} R8 distance-field brick atlas could not be created", spec.Width, spec.Height,
-                 spec.Depth );
-        // A new image starts empty: every resident brick is written again.
-        const bool regrown   = m_Atlas != nullptr;
-        m_Atlas              = std::move( atlas );
-        m_AtlasDepthInBricks = depth;
-        if ( regrown )
-        {
-            m_Pending.clear();
-            for ( const auto& [key, resident] : m_Resident )
-                if ( const auto field = resident.Field.lock() )
-                    QueueBricks( *field, resident );
-        }
+                 "the {}x{}x{} R8 distance-field brick atlas ({} MiB pool) could not be created", spec.Width,
+                 spec.Height, spec.Depth, m_PoolMiB );
+        m_Atlas = std::move( atlas );
+        LOG_INFO( "[DistanceField] brick atlas {}x{}x{} R8: {} brick(s), {} MiB (GlobalIllumination."
+                  "DistanceFieldPoolMiB)",
+                  spec.Width, spec.Height, spec.Depth, m_CapacityBricks,
+                  static_cast<uint64_t>( m_CapacityBricks ) * Assets::kDistanceFieldBrickVoxels /
+                       ( 1024u * 1024u ) );
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr DistanceFieldSceneData::FlushUploads()
     {
-        if ( const auto capacity = EnsureAtlasCapacity(); !capacity )
-            return capacity;
+        if ( const auto atlas = EnsureAtlas(); !atlas )
+            return atlas;
         if ( m_Pending.empty() )
             return BOOLSUCCESS;
         std::vector<Image3D::RegionWrite> writes;

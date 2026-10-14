@@ -218,10 +218,20 @@ namespace Desert::Graphic::DistanceField
 
     Common::ResultStr<GlobalDistanceField::FrameField>
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
-                                          const std::vector<GlobalDistanceFieldObject>& objects )
+                                          const std::vector<GlobalDistanceFieldObject>& objects,
+                                          const uint32_t                                poolMiB )
     {
-        // Residency first: every object's field in the atlas, its record index for the object buffer.
+        // A different pool drops every resident field: everything composited from the old atlas is rewritten.
+        if ( m_SceneData.SetPoolMiB( poolMiB ) )
+        {
+            m_ValidCentre.fill( std::nullopt );
+            m_Tracked.clear();
+        }
+
+        // Residency first: every object's field in the atlas at the distance of its nearest object, then the
+        // finer mips streamed toward those distances, then its record index and resident mip count.
         m_SceneData.ReleaseUnused();
+        m_SceneData.BeginFrame();
         struct Placed
         {
             const GlobalDistanceFieldObject* Object;
@@ -233,17 +243,26 @@ namespace Desert::Graphic::DistanceField
         placed.reserve( objects.size() );
         for ( const auto& object : objects )
         {
-            auto index = m_SceneData.Acquire( object.Field );
+            const Common::Math::AABB bounds =
+                 Geometry::TransformBounds( object.World, object.Field->LocalSpaceMeshBounds );
+            const glm::vec3 nearest = glm::clamp( camera, bounds.Min, bounds.Max );
+            auto            index   = m_SceneData.Acquire( object.Field, glm::length( nearest - camera ) );
             if ( !index )
                 return Common::MakeError<FrameField>( index.GetError() );
             if ( !index.GetValue().has_value() )
                 continue;
-            placed.push_back( { &object, *index.GetValue(),
-                                Geometry::TransformBounds( object.World, object.Field->LocalSpaceMeshBounds ),
-                                GdfObjectKey( object ) } );
+            placed.push_back( { &object, *index.GetValue(), bounds, 0 } );
         }
+        m_SceneData.Stream();
+        // An object is its field, its transform and how many of the field's mips are resident: a mip streaming in
+        // or out recomposites the object like a move does.
+        for ( auto& p : placed )
+            p.Key = GdfObjectKey( *p.Object ) ^
+                    ( static_cast<uint64_t>( m_SceneData.ResidentMips( p.Object->Field.get() ) ) *
+                      0xC2B2AE3D27D4EB4FULL );
         if ( const auto flushed = m_SceneData.FlushUploads(); !flushed )
             return Common::MakeError<FrameField>( flushed.GetError() );
+        LogStreaming();
 
         // What changed since the clipmaps were written: objects that left and objects that arrived.
         std::vector<Common::Math::AABB>             changed;
@@ -402,6 +421,27 @@ namespace Desert::Graphic::DistanceField
                  } );
         }
         return Common::MakeSuccess( frame );
+    }
+
+    void GlobalDistanceField::LogStreaming()
+    {
+        const DistanceFieldStreamingStats& stats = m_SceneData.GetStats();
+        if ( stats.UploadedBricks > 0 )
+            m_StreamingMoved = true;
+        // Settled = a frame that uploaded nothing; a field still wanting a finer mip then waits for room in the
+        // pool.
+        if ( !m_StreamingMoved || stats.UploadedBricks > 0 )
+            return;
+        m_StreamingMoved = false;
+        const auto mib   = []( const uint64_t bricks )
+        { return static_cast<double>( bricks * Assets::kDistanceFieldBrickVoxels ) / ( 1024.0 * 1024.0 ); };
+        LOG_INFO(
+             "[DistanceField] streaming settled: {} field(s) resident ({} coarse only, {} with 2 mips, {} with "
+             "all 3); {:.1f} of {:.1f} MiB of bricks in use, {:.1f} MiB of them coarse; {} field(s) want a finer "
+             "mip the pool has no room for",
+             stats.Fields, stats.ResidentByMips[0], stats.ResidentByMips[1], stats.ResidentByMips[2],
+             mib( stats.UsedBricks ), mib( stats.CapacityBricks ), mib( stats.CoarseBricks ),
+             stats.UnmetRequests );
     }
 
     Common::BoolResultStr GlobalDistanceField::PrepareDebugPipeline( const Core::Formats::ImageFormat format,

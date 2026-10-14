@@ -509,20 +509,24 @@ namespace Desert::Graphic
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
         // off-screen too (a trace leaves the frustum).
         std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // A mesh whose field is still being derived (the asynchronous queue) is not in it yet.
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
-            if ( draw.Mesh != nullptr && draw.Mesh->GetDistanceField() )
-                objects.push_back( { draw.Mesh->GetDistanceField(), draw.Transform } );
+            if ( draw.Mesh != nullptr )
+                if ( auto field = draw.Mesh->GetDistanceField() )
+                    objects.push_back( { std::move( field ), draw.Transform } );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
-            if ( ism.Mesh != nullptr && ism.Mesh->GetDistanceField() && ism.Transforms )
-                for ( const glm::mat4& world : *ism.Transforms )
-                    objects.push_back( { ism.Mesh->GetDistanceField(), world } );
+            if ( ism.Mesh != nullptr && ism.Transforms )
+                if ( const auto field = ism.Mesh->GetDistanceField() )
+                    for ( const glm::mat4& world : *ism.Transforms )
+                        objects.push_back( { field, world } );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
         // The view's matrices, unjittered (ViewFrame, as every overlay reads them; SceneRenderer.hpp: a pass that
         // reads a matrix or a camera position takes the ViewFrame) - not m_SceneInfo.ActiveCamera's, which framed
         // the field from a different camera than the frame it is drawn over.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects );
+        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
+                                                                   m_DistanceFieldPoolMiB );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", field.GetError() );

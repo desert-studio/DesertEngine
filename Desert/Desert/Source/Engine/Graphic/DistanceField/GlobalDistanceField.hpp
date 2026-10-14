@@ -93,11 +93,12 @@ namespace Desert::Graphic::DistanceField
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
         };
 
-        // Brings the clipmaps up to @p camera and @p objects: residency in the brick atlas, the update plan, and
-        // one composite pass per level that has bricks to rewrite.
+        // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
+        // @p poolMiB (Scalability GlobalIllumination.DistanceFieldPoolMiB), the update plan, and one composite
+        // pass per level that has bricks to rewrite.
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
-                         const std::vector<GlobalDistanceFieldObject>& objects );
+                         const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
@@ -116,6 +117,9 @@ namespace Desert::Graphic::DistanceField
             uint32_t           Count = 0;
         };
 
+        // One line when the streaming settles (no field waits for a finer mip) after it moved.
+        void LogStreaming();
+
         [[nodiscard]] Common::BoolResultStr PrepareDebugPipeline( Core::Formats::ImageFormat format,
                                                                   uint32_t                   samples );
 
@@ -124,6 +128,7 @@ namespace Desert::Graphic::DistanceField
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
         // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
         std::unordered_map<uint64_t, TrackedObject> m_Tracked;
+        bool                                        m_StreamingMoved = false;
 
         std::shared_ptr<Shader>                                               m_CompositeShader;
         std::shared_ptr<ComputePipeline>                                      m_CompositePipeline;

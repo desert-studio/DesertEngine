@@ -31,10 +31,12 @@ uint DFAssetNumMips(uint assetIndex)
     return floatBitsToUint(u_DFAssetData[assetIndex * uint(DF_ASSET_STRIDE)].x);
 }
 
-// @p mipIndex 0 = the finest (Assets::MeshDistanceFieldData::Mips order).
-DFAssetMip LoadDFAssetMip(uint assetIndex, uint mipIndex)
+// @p reversedMipIndex 0 = the COARSEST resident mip, DFAssetNumMips - 1 the finest resident one (UE's reversed
+// mip index): the record lists the resident mips coarsest first, so streaming a finer mip in or out changes only
+// the count and one row (Graphic/DistanceField/DistanceFieldSceneData).
+DFAssetMip LoadDFAssetMip(uint assetIndex, uint reversedMipIndex)
 {
-    const uint base = assetIndex * uint(DF_ASSET_STRIDE) + 1u + mipIndex * uint(DF_ASSET_MIP_STRIDE);
+    const uint base = assetIndex * uint(DF_ASSET_STRIDE) + 1u + reversedMipIndex * uint(DF_ASSET_MIP_STRIDE);
     const vec4 a = u_DFAssetData[base + 0u];
     const vec4 b = u_DFAssetData[base + 1u];
     const vec4 c = u_DFAssetData[base + 2u];
@@ -67,7 +69,7 @@ float SampleSparseMeshSignedDistanceField(vec3 volumePosition, DFAssetMip mip)
     return encoded * mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
 }
 
-// Volume-space distance from the coarsest mip down, refining while near the surface (UE
+// Volume-space distance from the coarsest resident mip down, refining while near the surface (UE
 // DistanceToMeshSurfaceStandalone). @p volumePosition within [-extent, extent].
 float DistanceToMeshSurfaceStandalone(vec3 volumePosition, uint assetIndex)
 {
@@ -75,7 +77,7 @@ float DistanceToMeshSurfaceStandalone(vec3 volumePosition, uint assetIndex)
     float distance = 0.0;
     for (uint reversed = 0u; reversed < numMips; ++reversed)
     {
-        const DFAssetMip mip = LoadDFAssetMip(assetIndex, numMips - 1u - reversed);
+        const DFAssetMip mip = LoadDFAssetMip(assetIndex, reversed);
         distance = SampleSparseMeshSignedDistanceField(volumePosition, mip);
         const float maxEncoded = mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
         if (abs(distance) > 0.25 * maxEncoded)

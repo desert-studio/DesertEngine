@@ -2,6 +2,11 @@
 
 #include <algorithm>
 #include <bit>
+#include <Common/Core/JobSystem.hpp>
+
+#include <chrono>
+#include <cstdlib>
+#include <deque>
 #include <cstring>
 #include <format>
 #include <mutex>
@@ -258,8 +263,11 @@ namespace Desert::Assets
     Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
     LoadMeshDistanceField( const std::filesystem::path& asset, const uint64_t renderDataKey,
                            const std::vector<uint8_t>&                                            submeshTwoSided,
-                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input )
+                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input,
+                           bool*                                                                  built )
     {
+        if ( built != nullptr )
+            *built = false;
         using Result = std::shared_ptr<const MeshDistanceFieldData>;
         const uint64_t key =
              MeshDistanceFieldDerivedDataKey( renderDataKey, MeshDistanceFieldBuildSettings{}, submeshTwoSided );
@@ -283,8 +291,10 @@ namespace Desert::Assets
         else
         {
             auto derived = Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
-                                                    [&builder, &input]() -> Common::ResultStr<std::string>
+                                                    [&builder, &input, built]() -> Common::ResultStr<std::string>
                                                     {
+                                                        if ( built != nullptr )
+                                                            *built = true;
                                                         auto in = input();
                                                         if ( !in.IsSuccess() )
                                                             return Common::MakeError<std::string>( in.GetError() );
@@ -302,5 +312,162 @@ namespace Desert::Assets
                  decoded.GetError() );
         return Common::MakeSuccess<Result>(
              std::make_shared<const MeshDistanceFieldData>( decoded.ExtractValue() ) );
+    }
+
+    std::shared_ptr<const MeshDistanceFieldData> MeshDistanceFieldSlot::Get() const
+    {
+        const std::lock_guard<std::mutex> lock( m_Mutex );
+        return m_Field;
+    }
+
+    void MeshDistanceFieldSlot::Publish( std::shared_ptr<const MeshDistanceFieldData> field )
+    {
+        const std::lock_guard<std::mutex> lock( m_Mutex );
+        m_Field = std::move( field );
+    }
+
+    namespace
+    {
+        struct DfQueuedWork
+        {
+            std::shared_ptr<MeshDistanceFieldSlot> Slot;
+            std::string                            Asset;
+            MeshDistanceFieldWork                  Work;
+        };
+
+        // The queue outlives every static: a job still running when the process exits reads it after the
+        // statics of this file are gone, so it is allocated once and never destroyed.
+        struct DfQueue
+        {
+            std::mutex               Mutex;
+            std::deque<DfQueuedWork> Waiting;
+            size_t                   Running = 0;
+            bool                     Exiting = false;
+            // The current burst (from the first request into an idle queue until it drains), for its log line.
+            std::chrono::steady_clock::time_point BurstStart;
+            uint32_t                              FromCache = 0;
+            uint32_t                              Built     = 0;
+            uint32_t                              Failed    = 0;
+            double                                WorkMs    = 0.0;
+        };
+
+        DfQueue& DfQueueState()
+        {
+            static DfQueue* const s_Queue = []
+            {
+                // The pool first, then the exit hook: atexit handlers run in reverse, so the waiting builds are
+                // dropped before the pool joins its workers - a closing editor does not finish a 1300-mesh burst.
+                (void)Common::JobSystem::Get();
+                auto* queue = new DfQueue();
+                std::atexit(
+                     []
+                     {
+                         DfQueue&                          q = DfQueueState();
+                         const std::lock_guard<std::mutex> lock( q.Mutex );
+                         q.Exiting = true;
+                         q.Waiting.clear();
+                     } );
+                return queue;
+            }();
+            return *s_Queue;
+        }
+
+        size_t DfConcurrency()
+        {
+            const size_t workers = Common::JobSystem::Get().WorkerCount();
+            return workers > 1 ? workers - 1 : 1;
+        }
+
+        void DfRun( DfQueuedWork item );
+
+        // Starts waiting work while there is room. Called with the lock NOT held.
+        void DfPump()
+        {
+            DfQueue& q = DfQueueState();
+            for ( ;; )
+            {
+                DfQueuedWork next;
+                {
+                    const std::lock_guard<std::mutex> lock( q.Mutex );
+                    if ( q.Exiting || q.Waiting.empty() || q.Running >= DfConcurrency() )
+                        return;
+                    next = std::move( q.Waiting.front() );
+                    q.Waiting.pop_front();
+                    ++q.Running;
+                }
+                auto shared = std::make_shared<DfQueuedWork>( std::move( next ) );
+                Common::JobSystem::Get().Submit( [shared] { DfRun( std::move( *shared ) ); } );
+            }
+        }
+
+        void DfRun( DfQueuedWork item )
+        {
+            const auto   start = std::chrono::steady_clock::now();
+            bool         built = false;
+            auto         field = item.Work( built );
+            const double ms =
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
+            if ( field.IsSuccess() )
+                item.Slot->Publish( field.ExtractValue() );
+            else
+                LOG_ERROR( "[MeshDistanceField] '{}': {}; the mesh is left out of every distance-field trace",
+                           item.Asset, field.GetError() );
+
+            DfQueue& q         = DfQueueState();
+            bool     drained   = false;
+            uint32_t fromCache = 0, builtCount = 0, failed = 0;
+            double   wallSeconds = 0.0, workMs = 0.0;
+            {
+                const std::lock_guard<std::mutex> lock( q.Mutex );
+                --q.Running;
+                if ( !field.IsSuccess() )
+                    ++q.Failed;
+                else if ( built )
+                    ++q.Built;
+                else
+                    ++q.FromCache;
+                q.WorkMs += ms;
+                if ( q.Running == 0 && q.Waiting.empty() )
+                {
+                    drained    = true;
+                    fromCache  = q.FromCache;
+                    builtCount = q.Built;
+                    failed     = q.Failed;
+                    workMs     = q.WorkMs;
+                    wallSeconds =
+                         std::chrono::duration<double>( std::chrono::steady_clock::now() - q.BurstStart ).count();
+                    q.FromCache = q.Built = q.Failed = 0;
+                    q.WorkMs                         = 0.0;
+                }
+            }
+            if ( drained )
+                LOG_INFO( "[MeshDistanceField] async queue drained: {} field(s) - {} built, {} from the DDC, {} "
+                          "failed - in {:.1f} s wall ({:.1f} s of work on up to {} worker(s))",
+                          fromCache + builtCount + failed, builtCount, fromCache, failed, wallSeconds,
+                          workMs / 1000.0, DfConcurrency() );
+            DfPump();
+        }
+    } // namespace
+
+    void EnqueueMeshDistanceField( std::shared_ptr<MeshDistanceFieldSlot> slot, std::string asset,
+                                   MeshDistanceFieldWork work )
+    {
+        DfQueue& q = DfQueueState();
+        {
+            const std::lock_guard<std::mutex> lock( q.Mutex );
+            if ( q.Exiting )
+                return;
+            if ( q.Running == 0 && q.Waiting.empty() )
+                q.BurstStart = std::chrono::steady_clock::now();
+            q.Waiting.push_back( { std::move( slot ), std::move( asset ), std::move( work ) } );
+        }
+        DfPump();
+    }
+
+    size_t PendingMeshDistanceFields()
+    {
+        DfQueue&                          q = DfQueueState();
+        const std::lock_guard<std::mutex> lock( q.Mutex );
+        return q.Waiting.size() + q.Running;
     }
 } // namespace Desert::Assets

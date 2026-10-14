@@ -198,19 +198,30 @@ namespace Desert::Assets
             twoSided[i] = sided.GetValue() ? 1 : 0;
         }
 
-        // THE MESH'S DISTANCE FIELD, derived from exactly this render data and these materials: a DDC hit, or
-        // built here where the editor registered the builder. One that cannot be had is an error naming the mesh,
-        // never a field guessed from a different input.
-        auto field = LoadMeshDistanceField(
-             m_Metadata.Filepath, m_RenderDataKey, twoSided, [this, &twoSided]
-             { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided ); } );
-        if ( !field )
+        // THE MESH'S DISTANCE FIELD, derived from exactly this render data and these materials - a DDC hit, or
+        // built where the editor registered the builder - ON A WORKER (UE FDistanceFieldAsyncQueue): the mesh
+        // draws at once and joins the distance-field scene when its field lands in the slot. One that cannot be
+        // had is an error naming the mesh (the queue logs it), never a field guessed from a different input.
+        // The job owns copies of what it reads: this asset may be reloaded or unloaded while it runs, and a
+        // reload makes a new slot, so a late field lands in a slot nothing reads any more.
+        auto slot       = std::make_shared<MeshDistanceFieldSlot>();
+        m_DistanceField = slot;
+        auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
+        if ( !input )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
-                       m_Metadata.Filepath.string(), field.GetError() );
+                       m_Metadata.Filepath.string(), input.GetError() );
             return;
         }
-        m_DistanceField = field.ExtractValue();
+        EnqueueMeshDistanceField(
+             slot, m_Metadata.Filepath.string(),
+             [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
+              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() )]( bool& built )
+             {
+                 return LoadMeshDistanceField(
+                      path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
+                      { return Common::MakeSuccess( *in ); }, &built );
+             } );
     }
 
 } // namespace Desert::Assets

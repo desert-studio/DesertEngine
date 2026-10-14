@@ -854,6 +854,9 @@ namespace Desert::Graphic
         // the first BeginScene.
         int m_SSRMaxSteps = 32;
         int m_GISamples   = 32;
+        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
+        // global distance field's atlas holds and its finer mips stream within.
+        uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;

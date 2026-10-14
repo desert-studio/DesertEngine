@@ -6,7 +6,7 @@
 
 namespace Desert::Assets
 {
-    struct MeshDistanceFieldData;
+    class MeshDistanceFieldSlot;
 
     class StaticMeshAsset final : public MeshAsset
     {
@@ -67,9 +67,10 @@ namespace Desert::Assets
             return m_IsReadyForUse;
         }
 
-        // The mesh's signed distance field (MeshDistanceField.hpp); null until ResolveDependencies, and after it
-        // when the field could not be resolved (logged as an error naming the mesh and the reason).
-        [[nodiscard]] const std::shared_ptr<const MeshDistanceFieldData>& GetDistanceField() const
+        // Where the mesh's signed distance field lands (MeshDistanceField.hpp): null until ResolveDependencies,
+        // and after it a slot the asynchronous queue fills when the field is derived (empty for good when it could
+        // not be, logged as an error naming the mesh and the reason).
+        [[nodiscard]] const std::shared_ptr<const MeshDistanceFieldSlot>& GetDistanceField() const
         {
             return m_DistanceField;
         }
@@ -85,7 +86,7 @@ namespace Desert::Assets
         std::vector<Common::Content::AssetGuid>      m_MaterialGuids;
         uint64_t                                     m_RenderDataKey        = 0;
         bool                                         m_DependenciesResolved = false;
-        std::shared_ptr<const MeshDistanceFieldData> m_DistanceField;
+        std::shared_ptr<const MeshDistanceFieldSlot> m_DistanceField;
 
         bool m_IsReadyForUse = false;
     };
