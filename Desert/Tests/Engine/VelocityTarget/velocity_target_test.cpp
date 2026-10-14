@@ -282,7 +282,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
             const bool        sceneReadHeader =
                  entry.path().filename() == "ObjectMotion.glslh" ||
-                 ( entry.path().filename() == "SurfaceTypes.glslh" && name == "u_SceneDepth" );
+                 ( entry.path().filename() == "SurfaceTypes.glslh" &&
+                   ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
             if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else
@@ -293,10 +294,11 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 3u );
+    ASSERT_EQ( sceneRead.size(), 4u );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
+    EXPECT_EQ( sceneRead["u_SceneShadingWord"], Desert::Core::kSceneShadingWordBinding );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

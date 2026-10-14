@@ -115,11 +115,11 @@ float ContactShadowSubsurfaceDensity(float opacity)
 // UE ApplyContactShadowWithShadowTerms (DeferredLightingCommon.ush): a light's contact shadow at `worldPosition`,
 // 1 = lit. `light` is the light's half: x = ContactShadowLength (0 = none), y = in world space (> 0.5),
 // z = ContactShadowCastingIntensity, w = ContactShadowNonCastingIntensity. The hit texel's caster flag decides
-// which intensity occludes: the includer may define
+// which intensity occludes: the includer defines
 //     #define CONTACT_SHADOW_SHADING_WORD <usampler2D>  the opaque scene's shading word (the G-buffer's), whose
 //                                                       NO_CONTACT_SHADOW bit is the hit primitive's
-//                                                       bCastContactShadow (ShadingModelContract.glslh)
-// and without it every hit is a caster. `subsurfaceOpacity` is the RECEIVER's (DesertSubsurfaceOpacity, < 0 =
+//                                                       bCastContactShadow (ShadingModelContract.glslh, included
+//                                                       before this header). `subsurfaceOpacity` is the RECEIVER's (DesertSubsurfaceOpacity, < 0 =
 // not a subsurface model): a subsurface receiver lets the light through a near occluder, so its occlusion fades
 // with the hit distance as its shadow-map path does. A receiver facing away from the light marches nothing.
 float ContactShadowFactor(vec3 worldPosition, vec3 N, vec3 L, vec4 light, float subsurfaceOpacity)
@@ -132,12 +132,8 @@ float ContactShadowFactor(vec3 worldPosition, vec3 N, vec3 L, vec4 light, float 
 	if (hitDistance <= 0.0)
 		return 1.0;
 
-#ifdef CONTACT_SHADOW_SHADING_WORD
 	const ivec2 hitTexel = ivec2(hitUV * vec2(textureSize(CONTACT_SHADOW_SHADING_WORD, 0)));
 	const bool  hitCasts = DesertCastsContactShadow(texelFetch(CONTACT_SHADOW_SHADING_WORD, hitTexel, 0).rg);
-#else
-	const bool hitCasts = true;
-#endif
 	float occlusion = hitCasts ? light.z : light.w;
 	if (occlusion > 0.0 && subsurfaceOpacity >= 0.0)
 		occlusion *= 1.0 - clamp(exp(-ContactShadowSubsurfaceDensity(subsurfaceOpacity) * hitDistance), 0.0, 1.0);

@@ -49,10 +49,13 @@ layout( binding = 7 ) uniform ShadowUB
 
 // THE CONTACT SHADOWS (UE ContactShadowLength), the same march as the deferred composite's, through the opaque
 // scene depth (u_SceneDepth, Mesh/Surface/SurfaceTypes.glslh: the G-buffer depth on the deferred path; the forward
-// path has none, and ShadowUB says 0 steps there). No shading word is bound here, so every hit occludes with the
-// light's Casting Intensity (ContactShadow.glslh without CONTACT_SHADOW_SHADING_WORD).
-#define CONTACT_SHADOW_DEPTH u_SceneDepth
-#define CONTACT_SHADOW_VP    cameraUB.JitteredViewProjection
+// path has none, and ShadowUB says 0 steps there). The hit texel's caster bit comes from the opaque scene's shading
+// word (u_SceneShadingWord, beside u_SceneDepth), as in the composite: a hit on a mesh with Cast Contact Shadow off
+// occludes with the light's Non Casting Intensity.
+#include <ShadingModels/ShadingModelContract.glslh>
+#define CONTACT_SHADOW_DEPTH        u_SceneDepth
+#define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
 
 // Environment maps, the sky's look (Common/SkyLook.glslh) and the split-sum LUT.

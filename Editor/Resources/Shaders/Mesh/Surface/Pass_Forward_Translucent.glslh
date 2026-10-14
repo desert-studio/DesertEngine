@@ -60,8 +60,11 @@ layout( binding = 7 ) uniform ShadowUB
     vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
 };
-#define CONTACT_SHADOW_DEPTH u_SceneDepth
-#define CONTACT_SHADOW_VP    cameraUB.JitteredViewProjection
+// The hit texel's caster bit: the opaque scene's shading word (u_SceneShadingWord, SurfaceTypes.glslh).
+#include <ShadingModels/ShadingModelContract.glslh>
+#define CONTACT_SHADOW_DEPTH        u_SceneDepth
+#define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
 
 void main()

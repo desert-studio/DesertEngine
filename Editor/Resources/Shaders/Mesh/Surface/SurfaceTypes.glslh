@@ -104,6 +104,11 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
 layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
 #endif
+// THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
+// bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
+layout( binding = 28 ) uniform usampler2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#endif
 
 #if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )

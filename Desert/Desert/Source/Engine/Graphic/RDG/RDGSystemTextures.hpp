@@ -18,6 +18,10 @@ namespace Desert::Graphic::RDG
         // The empty environment: the engine's black cube (UE GBlackTextureCube), sampled where a scene has no
         // baked sky - the split-sum ambient reads zero.
         TextureRef BlackCube;
+        // 1x1 RG32_UINT zero (UE GSystemTextures.ZeroUIntDummy): what an integer sampler (usampler2D) is handed
+        // where its producer did not run - a float image there is a format mismatch, not a neutral input.
+        // Registered by the frame setup (FrameTextures) from FallbackTextures; invalid in a graph without it.
+        TextureRef ZeroUint;
     };
 
     // Registers @p black, @p white and @p blackCube (externals already holding the engine images and their

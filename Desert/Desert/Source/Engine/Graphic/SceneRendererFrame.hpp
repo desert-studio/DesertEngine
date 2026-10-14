@@ -244,6 +244,15 @@ namespace Desert::Graphic
             m_Externals.emplace( white.get(), whiteExternal );
             m_Refs.emplace( blackCube.get(), System.BlackCube );
             m_Externals.emplace( blackCube.get(), blackCubeExternal );
+            // The integer zero (UE GSystemTextures.ZeroUIntDummy), for a usampler2D whose producer did not run.
+            const std::shared_ptr<Image2D> zeroUint =
+                 FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RG32_UINT );
+            if ( RDG::ExternalTexture* zeroUintExternal = ImportExternal( zeroUint, "System.ZeroUint" ) )
+            {
+                System.ZeroUint = m_Graph.RegisterExternal( *zeroUintExternal, "System.ZeroUint" );
+                m_Refs.emplace( zeroUint.get(), System.ZeroUint );
+                m_Externals.emplace( zeroUint.get(), zeroUintExternal );
+            }
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it
