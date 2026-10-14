@@ -6,6 +6,8 @@
 
 namespace Desert::Graphic::System
 {
+    using MeshRendererDetail::SignatureHash;
+
     void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
         // The G-buffer program under DESERT_GBUFFER_RSM (no shading-word output) into the RSM framebuffer, whose
