@@ -109,15 +109,19 @@ project(module.name)
         defines { define }
     end
 
+    -- THE PREBUILT THIRD-PARTY ARCHIVES (Vulkan, shaderc, SPIRV-Cross...) ARE NAMED BY THE PLATFORM MODULE
+    -- ONLY. On Windows a static library's `links` of a FILE is copied INTO that library by lib.exe: named by
+    -- every module they were archived six times (measured: DesertAnimation.lib 717 MB over 224 MB of its own
+    -- objects), and that half-gigabyte per module is exactly the size this split exists to remove.
     filter "configurations:Debug"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Debug) do
+        for name, path in pairs(module.platform and deps.DesertSpecific.Libraries.Debug or {}) do
             links { path }
         end
 
     -- `or Shipping`: the shipping build links the SAME third-party flavour Release does. There is no
     -- third set of prebuilt libraries and inventing one would mean pinning Vulkan and reflect-cpp twice.
     filter "configurations:Release or Shipping"
-        for name, path in pairs(deps.DesertSpecific.Libraries.Release) do
+        for name, path in pairs(module.platform and deps.DesertSpecific.Libraries.Release or {}) do
             links { path }
         end
 

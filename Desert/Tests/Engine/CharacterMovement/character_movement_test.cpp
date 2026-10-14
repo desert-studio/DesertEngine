@@ -29,7 +29,8 @@ namespace
         desc.HalfExtents = half;
         desc.Type        = Physics::BodyType::Static;
         desc.Position    = center;
-        return world.CreateBody( desc ).GetValue();
+        const auto body = world.CreateBody( desc );
+        return body.GetValue();
     }
 
     struct Fixture
