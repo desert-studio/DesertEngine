@@ -423,13 +423,33 @@ namespace Desert::Graphic
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
-        // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
+        // The view's light grid is cut over the render target the G-buffer was drawn at, with the matrices it was
+        // rasterised with (the jittered projection: a pixel's cell is the one its depth sample fell in).
+        const auto gbufferDesc = graph.GetTextureDesc( gbuffer[0] );
+        if ( !gbufferDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: LightGrid: {}", gbufferDesc.GetError() );
+            return;
+        }
+        const LightGridParamsPayload grid = MakeLightGridParams(
+             frame.View, frame.JitteredProjection, frame.NearPlane, gbufferDesc.GetValue().Size.Width,
+             gbufferDesc.GetValue().Size.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
+        // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.GridParams", ordered before the
+        // LightGrid and Composite nodes that read them.
         const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
              graph, GetPointLights(), GetSpotLights(),
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows() );
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+
+        // UE LightGridInjection: every froxel lists the lights that reach it, before the composite reads the
+        // lists.
+        graph.AddPass(
+             "Deferred: LightGrid", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass ) { deferred->DeclareGridBindings( pass, lights ); },
+             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordGrid( context, cells ); } );
 
         graph.AddPass(
              "Deferred: Composite", RDG::PassFlags::Raster,

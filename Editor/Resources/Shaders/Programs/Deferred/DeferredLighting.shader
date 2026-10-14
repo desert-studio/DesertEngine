@@ -220,6 +220,31 @@ Shader "DeferredLighting"
         };
         #include <Mesh/LocalLightShadow.glslh>
 
+        // THE VIEW'S LIGHT GRID ("Deferred: LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
+        // the point and spot lights of its froxel only (UE LightGrid). The parameters, then the cells.
+        #include <Mesh/LightGrid.glslh>
+        ReadBuffer(24) LightGridParamsUB
+        {
+        	LightGridParams lightGrid;
+        };
+        ReadBuffer(25) LightGridCellsUB
+        {
+        	uint lightGridCells[];
+        };
+
+        // One light of the grid's index space (Mesh/LightGrid.glslh): points first, then spots.
+        vec3 ShadeGridLight(uint light, int shadingModel, vec3 worldPos, vec3 N, DesertSurface surface,
+                            DesertPayload payload)
+        {
+        	if (light < lightsMetadata.PointLightCount)
+        		return DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[light], worldPos, N),
+        		                                  surface, payload);
+        	return DesertEvaluateShadingModel(shadingModel,
+        	                                  DesertShadowedSpotLightAt(spotLights[light - lightsMetadata.PointLightCount],
+        	                                                            worldPos, N),
+        	                                  surface, payload);
+        }
+
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
         vec3 HeatColor(float t)
@@ -331,16 +356,23 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
-        	// atlas views when it casts shadows.
-        	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N),
-        		                                     surface, payload);
-
-        	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
-        	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
-        		                                     surface, payload);
+        	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
+        	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
+        	// overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
+        	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        	const uint count = lightGridCells[cell];
+        	if (!LightGridCellOverflowed(lightGrid, count))
+        	{
+        		const uint list = LightGridListOffset(lightGrid, cell);
+        		for (uint j = 0u; j < count; j++)
+        			result += ShadeGridLight(lightGridCells[list + j], shadingModel, worldPos, N, surface, payload);
+        	}
+        	else
+        	{
+        		const uint lights = lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount;
+        		for (uint i = 0u; i < lights; i++)
+        			result += ShadeGridLight(i, shadingModel, worldPos, N, surface, payload);
+        	}
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only

@@ -109,6 +109,12 @@ namespace Common::Scalability
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
+        // costs against what building the grid costs. The image is the same at every value (a cell whose list is
+        // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
+        LightGridPixelSize,        // tile edge in render pixels. 16..256
+        LightGridSlices,           // logarithmic depth slices. 8..128
+        LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget

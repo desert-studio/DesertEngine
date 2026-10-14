@@ -1,6 +1,8 @@
 #pragma once
 
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -12,6 +14,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/LightGrid.hpp>
 
 #include <glm/glm.hpp>
 
@@ -46,10 +49,19 @@ namespace Desert::Graphic::System
         RDG::BufferRef Spot;
         // The local shadow views the lights' ShadowView indices name ("Upload: Lights.ShadowViews").
         RDG::BufferRef ShadowViews;
+        // The view's light grid (Graphic/LightGrid.hpp): its parameters ("Upload: Lights.GridParams") and its
+        // cells, written by "Deferred: LightGrid" and read by the Composite.
+        RDG::BufferRef GridParams;
+        RDG::BufferRef GridCells;
+        // CPU copy of the parameters: the dispatch size of "Deferred: LightGrid".
+        LightGridParamsPayload Grid;
     };
 
     // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
     inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
+    // The light grid's two blocks, in the build shader and the composite (Mesh/LightGrid.glslh).
+    inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
+    inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
@@ -84,18 +96,29 @@ namespace Desert::Graphic::System
             m_Pipeline = pipeline.GetValue();
 
             m_Material = std::make_unique<MaterialDeferredLighting>();
+
+            m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
+            if ( !m_GridShader )
+                return Common::MakeError( "LightGridBuild shader not found" );
+            const auto gridPipeline =
+                 ComputePipeline::Create( { .Shader = m_GridShader, .DebugName = "LightGridBuild" } );
+            if ( !gridPipeline )
+                return Common::MakeError( gridPipeline.GetError() );
+            m_GridPipeline = gridPipeline.GetValue();
             return BOOLSUCCESS;
         }
 
         // Not a render-graph pass — driven from SceneRenderer's manual chain after the geometry graph.
 
-        // GRAPH BUILD (before the Composite node): the lights as two graph buffers, each uploaded by the graph's
-        // upload command. No light is one zeroed entry (a storage buffer is never empty); the shader loops
-        // 0..count, the counts being the material's LightsMetadata.
+        // GRAPH BUILD (before the Composite node): the lights as graph buffers, each uploaded by the graph's
+        // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
+        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its parameters are uploaded too
+        // and its cell buffer created, which "Deferred: LightGrid" fills.
         static DeferredCompositeLights UploadLights( RDG::Builder&                              graph,
                                                      const ShaderProtocols::PointLight&         points,
                                                      const ShaderProtocols::SpotLight&          spots,
-                                                     const std::vector<LocalShadowViewPayload>& shadowViews )
+                                                     const std::vector<LocalShadowViewPayload>& shadowViews,
+                                                     const LightGridParamsPayload&              grid )
         {
             const auto upload = [&graph]( const auto& lights, std::string_view name )
             {
@@ -104,8 +127,44 @@ namespace Desert::Graphic::System
                 graph.QueueBufferUpload( buffer, bytes );
                 return buffer;
             };
-            return { upload( points.PointLights, "Lights.Point" ), upload( spots.SpotLights, "Lights.Spot" ),
-                     upload( shadowViews, "Lights.ShadowViews" ) };
+            const RDG::BufferRef gridParams =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( LightGridParamsPayload ) }, "Lights.GridParams" );
+            graph.QueueBufferUpload( gridParams,
+                                     std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ) );
+            const RDG::BufferRef gridCells =
+                 graph.CreateBuffer( RDG::BufferDesc{ LightGridCellBufferBytes( grid ) }, "Lights.GridCells" );
+            return { upload( points.PointLights, "Lights.Point" ),
+                     upload( spots.SpotLights, "Lights.Spot" ),
+                     upload( shadowViews, "Lights.ShadowViews" ),
+                     gridParams,
+                     gridCells,
+                     grid };
+        }
+
+        // SETUP of the "Deferred: LightGrid" compute node: its one block — the grid parameters and both light
+        // buffers read, the cell buffer written.
+        void DeclareGridBindings( RDG::PassBuilder& pass, const DeferredCompositeLights& lights ) const
+        {
+            if ( !m_GridPipeline )
+                return;
+            pass.Bindings( m_GridLayout.Get( m_GridShader ), Renderer::GetPipelineRouteFill( *m_GridPipeline ) )
+                 .Storage( kLightGridParamsBlockName, lights.GridParams, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
+                 .Storage( kLightGridCellsBlockName, lights.GridCells, RDG::Access::StorageWrite );
+        }
+
+        // EXEC of the same node: one thread per froxel (LightGridBuild.shader's LocalSize 4 x 4 x 4).
+        [[nodiscard]] Common::BoolResultStr RecordGrid( const RDG::PassContext& context, const glm::uvec3& cells )
+        {
+            if ( !m_GridPipeline )
+                return Common::MakeError( "Deferred: LightGrid: the light-grid pipeline is not initialised" );
+            DESERT_PROFILE_PASS( "Deferred: LightGrid" );
+            constexpr uint32_t      kGroup = 4u;
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_GridPipeline, ( cells.x + kGroup - 1u ) / kGroup, ( cells.y + kGroup - 1u ) / kGroup,
+                 ( cells.z + kGroup - 1u ) / kGroup );
         }
 
         // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
@@ -155,7 +214,9 @@ namespace Desert::Graphic::System
                            kSampler )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
+                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
+                 .Storage( kLightGridParamsBlockName, lights.GridParams, RDG::Access::StorageRead )
+                 .Storage( kLightGridCellsBlockName, lights.GridCells, RDG::Access::StorageRead );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }
@@ -168,6 +229,8 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError(
                      "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
+            // Timed on its own: the cost the light grid exists to cut is this pass's per-pixel light loop.
+            DESERT_PROFILE_PASS( "Deferred: Composite" );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
@@ -206,6 +269,11 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>                   m_Shader;
         std::shared_ptr<GraphicsPipeline>         m_Pipeline;
         std::unique_ptr<MaterialDeferredLighting> m_Material;
+
+        // "Deferred: LightGrid": the froxel light lists the composite reads.
+        mutable ShaderBindingLayoutCache m_GridLayout;
+        std::shared_ptr<Shader>          m_GridShader;
+        std::shared_ptr<ComputePipeline> m_GridPipeline;
 
         // Starts true so the first INCOMPLETE frame is the edge that logs; a renderer that never loses
         // its environment says nothing at all.
