@@ -27,6 +27,7 @@
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/RagdollComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
@@ -508,6 +509,18 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Bounciness", .Type = FieldType::Float, .Offset = offsetof( T, Bounciness ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Bounciness )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Bounciness", .Category = "Projectile Bounces", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "Friction", .Type = FieldType::Float, .Offset = offsetof( T, Friction ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Friction )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Friction", .Category = "Projectile Bounces", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0f, } } )
                     .Field( FieldInfo{ .Name = "BounceVelocityStopSimulatingThreshold", .Type = FieldType::Float, .Offset = offsetof( T, BounceVelocityStopSimulatingThreshold ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BounceVelocityStopSimulatingThreshold )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Bounce Stop Speed", .Category = "Projectile Bounces", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, .Units = "cm/s", .Advanced = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::ReflectionCaptureData;
+        TypeBuilder( "ReflectionCaptureData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Shape", .Type = FieldType::Enum, .Offset = offsetof( T, Shape ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Shape )>(), .TypeName = "ReflectionCaptureShape", .Meta = PropertyMetadata{ .DisplayName = "Shape", .Category = "Reflection Capture", .Tooltip = "Sphere: the influence and the parallax proxy are a sphere of Influence Radius. Box: both are the box of Box Extent around the entity (rotated with it) - the shape for a room, whose walls the parallax then follows.", .Summary = true, }, .EnumValues = { EnumValue{ "Sphere", 0 }, EnumValue{ "Box", 1 }, } } )
+                    .Field( FieldInfo{ .Name = "InfluenceRadius", .Type = FieldType::Float, .Offset = offsetof( T, InfluenceRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::InfluenceRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Influence Radius", .Category = "Reflection Capture", .Tooltip = "Sphere shape: radius around the entity inside which surfaces read this capture, and the sphere the reflection ray is projected onto. UE's default, 3000 cm.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "BoxExtent", .Type = FieldType::Vec3, .Offset = offsetof( T, BoxExtent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BoxExtent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Box Extent", .Category = "Reflection Capture", .Tooltip = "Box shape: half-size of the box, around the entity and in its rotation, inside which surfaces read this capture and onto whose walls the reflection is projected.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "BoxTransitionDistance", .Type = FieldType::Float, .Offset = offsetof( T, BoxTransitionDistance ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BoxTransitionDistance )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Box Transition Distance", .Category = "Reflection Capture", .Tooltip = "Box shape: distance inside the box walls across which the capture fades in, so a neighbouring capture or the sky takes over without a seam. UE's default, 100 cm.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10000.0f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "CaptureOffset", .Type = FieldType::Vec3, .Offset = offsetof( T, CaptureOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CaptureOffset )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Capture Offset", .Category = "Reflection Capture", .Tooltip = "Where the cube is captured from, relative to the entity - move it out of a table or a wall without moving the influence.", .IsLength = true, .Advanced = true, } } )
+                    .Field( FieldInfo{ .Name = "Brightness", .Type = FieldType::Float, .Offset = offsetof( T, Brightness ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Brightness )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Brightness", .Category = "Reflection Capture", .Tooltip = "Multiplier on the captured radiance (UE: Brightness).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", } } )
             .WithDefault<T>()
             .Register();
     }

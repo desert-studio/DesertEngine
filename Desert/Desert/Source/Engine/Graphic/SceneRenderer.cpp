@@ -1458,7 +1458,9 @@ namespace Desert::Graphic
         }
         // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
         RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized = m_RenderSystems["HZBSystem"]->Initialize(); !initialized )
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
         {
             LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
