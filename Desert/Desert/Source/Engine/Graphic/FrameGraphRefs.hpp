@@ -128,9 +128,8 @@ namespace Desert::Graphic
             };
             for ( const RDG::TextureRef map : ShadowMaps )
                 add( map );
-            for ( const RDG::TextureRef ref :
-                  { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, LocalShadowAtlas, SceneDepth,
-                    SceneShadingWord } )
+            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap,
+                                                LocalShadowAtlas, SceneDepth, SceneShadingWord } )
                 add( ref );
             return refs;
         }

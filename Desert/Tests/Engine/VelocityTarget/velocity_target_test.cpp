@@ -280,10 +280,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const auto&    m       = *it;
             const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
-            const bool        sceneReadHeader =
-                 entry.path().filename() == "ObjectMotion.glslh" ||
-                 ( entry.path().filename() == "SurfaceTypes.glslh" &&
-                   ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
+            const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
+                                         ( entry.path().filename() == "SurfaceTypes.glslh" &&
+                                           ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
             if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else

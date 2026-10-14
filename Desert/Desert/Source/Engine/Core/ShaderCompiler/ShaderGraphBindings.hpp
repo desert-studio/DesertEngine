@@ -63,9 +63,10 @@ namespace Desert::Core
     inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
     inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
     inline constexpr uint32_t kSceneDepthBinding = kSceneReadBindingFirst + 2u; // Mesh/Surface/SurfaceTypes.glslh
-    // The view's opaque shading word beside its depth (`u_SceneShadingWord`, Forward cells only): the caster bit of
-    // the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
-    inline constexpr uint32_t kSceneShadingWordBinding = kSceneReadBindingFirst + 3u; // Mesh/Surface/SurfaceTypes.glslh
+    // The view's opaque shading word beside its depth (`u_SceneShadingWord`, Forward cells only): the caster bit
+    // of the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
+    // Declared in Mesh/Surface/SurfaceTypes.glslh.
+    inline constexpr uint32_t kSceneShadingWordBinding = kSceneReadBindingFirst + 3u;
     inline constexpr uint32_t kSceneReadBindingCount   = 4u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
