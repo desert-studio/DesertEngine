@@ -1430,6 +1430,13 @@ namespace Desert::Editor
                 U::ImGuiUtilities::EndPropertyRow();
 
                 U::ImGuiUtilities::BeginPropertyRow(
+                     "Cast Contact Shadow",
+                     "A light's contact-shadow ray that hits an instance darkens with the light's Contact Shadow "
+                     "Casting Intensity; off = its Non Casting Intensity" );
+                ::ImGui::Checkbox( "##ism_castcontactshadow", &c.CastContactShadow );
+                U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow(
                      "Max Draw Distance",
                      "cm from the camera beyond which an instance is not drawn (0 = no limit); scaled by the "
                      "camera's field of view, so a zoomed-in camera draws farther. A foliage type's Cull "

@@ -77,11 +77,11 @@ namespace
       "Cinematic": { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 8192 }
     },
     "Shadows": {
-      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.Method": "CascadedMaps" },
-      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.Method": "CascadedMaps" },
-      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.Method": "VirtualMaps" },
-      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.Method": "HardwareTraced" },
-      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.Method": "Stochastic" }
+      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.ContactShadowSteps": 0, "Shadows.Method": "CascadedMaps" },
+      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.ContactShadowSteps": 8, "Shadows.Method": "CascadedMaps" },
+      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.ContactShadowSteps": 12, "Shadows.Method": "VirtualMaps" },
+      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.ContactShadowSteps": 16, "Shadows.Method": "HardwareTraced" },
+      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.ContactShadowSteps": 24, "Shadows.Method": "Stochastic" }
     },
     "GlobalIllumination": {
       "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.Method": "ScreenSpace" },

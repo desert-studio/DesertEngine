@@ -122,6 +122,7 @@ Shader "DeferredLighting"
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
+        	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
         };
 
         float ssgiHash(vec2 p)
@@ -208,9 +209,21 @@ Shader "DeferredLighting"
         	vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
         	vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
         	vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
+        	vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
+        	vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
+        	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
         };
 
         #include <Mesh/CascadedShadow.glslh>
+
+        // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
+        // u_GBufferDepth. Included after ShadowUB, which carries the march's view values; Mesh/LocalLightShadow.glslh
+        // below applies it to the point and spot lights, the sun's is applied in main().
+        #define CONTACT_SHADOW_DEPTH u_GBufferDepth
+        #define CONTACT_SHADOW_VP    u_JitteredViewProjection
+        // The hit texel's NO_CONTACT_SHADOW bit (UE CastContactShadow( GBuffer )): which intensity occludes.
+        #define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
+        #include <Common/ContactShadow.glslh>
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD — a second, independent occluder of the same sun.
         // Declared here, evaluated by the shared receiver text below: the wrapper used to live in this
@@ -341,7 +354,14 @@ Shader "DeferredLighting"
         	int   cascade  = -1;
         	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
-        	float shadow   = DesertReceivesSunShadows(word) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	// The sun's contact shadow joins its cascades: it is the near-contact part of the same occlusion.
+        	// The receiver's subsurface opacity (UE IsSubsurfaceModel + CustomData.a; -1 = not subsurface): its
+        	// contact shadows fade with the hit distance.
+        	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
+        	float shadow   = DesertReceivesSunShadows(word)
+        	                     ? ShadowFactor(worldPos, N, L, cascade) *
+        	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
+        	                     : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
@@ -353,12 +373,12 @@ Shader "DeferredLighting"
         	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
         	// atlas views when it casts shadows.
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N),
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N, subsurfaceOpacity),
         		                                     surface, payload);
 
         	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
         	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N, subsurfaceOpacity),
         		                                     surface, payload);
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:

@@ -175,6 +175,11 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // UE's UPrimitiveComponent::bCastContactShadow: whether this mesh, seen by a light's contact-shadow ray
+        // (Common/ContactShadow.glslh), darkens what is behind it with the light's Contact Shadow Casting
+        // Intensity (on) or its Non Casting Intensity (off). The G-buffer carries it per pixel (the shading word's
+        // NO_CONTACT_SHADOW bit); a mesh drawn after the opaque pass is never in the depth the ray marches.
+        bool CastContactShadow = true;
         // UE's LDMaxDrawDistance: cm from the camera beyond which the mesh is not drawn, measured to its bounds'
         // centre and scaled by the view's lens (Graphic::DrawDistanceScale: a narrower FOV draws farther).
         // 0 = drawn at any distance. A culled mesh casts no shadow either.
@@ -252,6 +257,9 @@ namespace Desert::ECS
         // appended every ISM unconditionally. A UE-style foliage field of grass is the first thing a
         // scene wants to take out of the cascades, and it was the only thing that could not be.
         bool CastShadows = true;
+
+        // UE's bCastContactShadow, as StaticMeshComponent::CastContactShadow (one flag for the whole field).
+        bool CastContactShadow = true;
 
         // UE's LDMaxDrawDistance, per INSTANCE here: cm from the camera beyond which an instance is not drawn,
         // scaled by the view's lens like the static twin's. Per instance and not by the component's bounds
@@ -984,6 +992,36 @@ namespace Desert::ECS
                   Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
                            "the same part." ) )
         float CascadeSplitLambda = 0.6f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the sun: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct DirectionLightComponent
@@ -1052,6 +1090,36 @@ namespace Desert::ECS
                   Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct PointLightComponent
@@ -1114,6 +1182,36 @@ namespace Desert::ECS
                   Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct SpotLightComponent

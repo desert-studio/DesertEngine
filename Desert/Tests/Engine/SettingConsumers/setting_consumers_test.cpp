@@ -602,6 +602,10 @@ namespace
          { "ShadowCascadeBiasDistribution", kViewSettings },
          { "CascadeSplitLambda", kViewSettings },
          { "SourceAngle", kViewSettings },
+         { "ContactShadowLength", kViewSettings },
+         { "ContactShadowLengthInWorldSpace", kViewSettings },
+         { "ContactShadowCastingIntensity", kViewSettings },
+         { "ContactShadowNonCastingIntensity", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -613,20 +617,34 @@ namespace
          // An EDITOR-ONLY visualisation flag, deliberately: it draws the radius gizmo and reaches no
          // shader at all, so the gizmo renderer is the honest consumer to name.
          { "ShowRadius", kLightGizmo },
-         // SHADOW-LOCAL: the light system hands all four to the local shadow atlas as LocalLightShadowSettings.
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
          { "CastShadows", kPointLight },
          { "ShadowBias", kPointLight },
          { "ShadowSlopeBias", kPointLight },
          { "ShadowResolutionScale", kPointLight },
+         { "ContactShadowLength", kPointLight },
+         { "ContactShadowLengthInWorldSpace", kPointLight },
+         { "ContactShadowCastingIntensity", kPointLight },
+         { "ContactShadowNonCastingIntensity", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
-         { "Color", kSpotLight },           { "Intensity", kSpotLight },
-         { "Range", kSpotLight },           { "InnerConeAngle", kSpotLight },
-         { "OuterConeAngle", kSpotLight },  { "Falloff", kSpotLight },
+         { "Color", kSpotLight },
+         { "Intensity", kSpotLight },
+         { "Range", kSpotLight },
+         { "InnerConeAngle", kSpotLight },
+         { "OuterConeAngle", kSpotLight },
+         { "Falloff", kSpotLight },
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
-         { "CastShadows", kSpotLight },     { "ShadowBias", kSpotLight },
-         { "ShadowSlopeBias", kSpotLight }, { "ShadowResolutionScale", kSpotLight },
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
+         { "CastShadows", kSpotLight },
+         { "ShadowBias", kSpotLight },
+         { "ShadowSlopeBias", kSpotLight },
+         { "ShadowResolutionScale", kSpotLight },
+         { "ContactShadowLength", kSpotLight },
+         { "ContactShadowLengthInWorldSpace", kSpotLight },
+         { "ContactShadowCastingIntensity", kSpotLight },
+         { "ContactShadowNonCastingIntensity", kSpotLight },
     };
 
     // REFL-CAPTURE: every field is packed by ReflectionCaptureRenderer's gather into the capture's GPU row.

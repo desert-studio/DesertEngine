@@ -316,6 +316,14 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Cast Contact Shadow",
+                 "A light's contact-shadow ray that hits this mesh darkens with the light's Contact Shadow "
+                 "Casting "
+                 "Intensity; off = its Non Casting Intensity (0 by default: no contact shadow from this mesh)" );
+            ImGui::Checkbox( "##castcontactshadow", &materialComp.CastContactShadow );
+            Utils::ImGuiUtilities::EndPropertyRow();
+
+            Utils::ImGuiUtilities::BeginPropertyRow(
                  "Max Draw Distance",
                  "cm from the camera to the mesh's bounds centre beyond which it is not drawn and casts no "
                  "shadow (0 = no limit); scaled by the camera's field of view, so a zoomed-in camera draws "

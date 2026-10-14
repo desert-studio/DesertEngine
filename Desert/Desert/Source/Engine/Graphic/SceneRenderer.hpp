@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -119,6 +120,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
@@ -290,8 +292,8 @@ namespace Desert::Graphic
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows, const InstanceCullDistance& cullDistance,
-                                  const InstanceWind& wind );
+                                  bool castShadows, bool castContactShadow,
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
@@ -525,6 +527,14 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+
+        /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
+        /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
+        /// @p hasOpaqueDepth says whether the pass has the opaque scene depth to march: the deferred path's
+        /// G-buffer depth does; the forward path draws its opaque surfaces with no prepass, so its passes get
+        /// Steps = 0 (no march) - there is nothing in front of them for the ray to hit.
+        [[nodiscard]] SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
+                                                                                      bool hasOpaqueDepth ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -894,6 +904,14 @@ namespace Desert::Graphic
         int m_SSRRaysPerPixel = 1;
         int m_GISamples   = 32;
         int m_SSAOSamples = 16;
+        // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
+        // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
+        // and handed to the deferred composite (Common/ContactShadow.glslh).
+        int   m_ContactShadowSteps                 = 12;
+        float m_SunContactShadowLength             = 0.0f;
+        bool  m_SunContactShadowLengthInWorldSpace = false;
+        float m_SunContactShadowCastingIntensity    = 1.0f;
+        float m_SunContactShadowNonCastingIntensity = 0.0f;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

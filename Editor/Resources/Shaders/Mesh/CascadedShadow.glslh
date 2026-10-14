@@ -40,6 +40,8 @@
 //         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
 //         vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
 //         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
+//         vec4 u_ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh)
+//         vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
 //     };
 //
 // The cascades are the layers of ONE D32F DEPTH array (ViewTargetFormats::kShadowDepth; UE: the whole-scene

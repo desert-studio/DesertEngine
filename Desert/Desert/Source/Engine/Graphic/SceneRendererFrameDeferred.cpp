@@ -402,6 +402,11 @@ namespace Desert::Graphic
         inputs.GBufferB        = gbuffer[1];
         inputs.GBufferShadingWord = gbuffer[2];
         inputs.GBufferDepth       = textures.Depth( m_GBuffer, "GBuffer" );
+        // The opaque depth is final here: the forward meshes and the glass added after this node march it for
+        // their contact shadows (SceneViewInputs::SceneDepth) and read the hit texel's caster bit from the shading
+        // word (SceneViewInputs::SceneShadingWord). They draw on the scene target, not the G-buffer.
+        textures.Transients.SceneDepth       = inputs.GBufferDepth;
+        textures.Transients.SceneShadingWord = inputs.GBufferShadingWord;
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
@@ -419,6 +424,8 @@ namespace Desert::Graphic
             shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
             shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
         }
+        // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
+        shadow.Contact                       = GetContactShadowSettings( frame, true );
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
@@ -462,7 +469,7 @@ namespace Desert::Graphic
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
                                          shadow, giIntensity, m_EnableSSAO, compositeGI,
-                                         cloudShadow, environment );
+                                         cloudShadow, environment, frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },

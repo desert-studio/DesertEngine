@@ -793,6 +793,11 @@ namespace Desert::Graphic
         m_SSRRaysPerPixel = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+        m_ContactShadowSteps                 = quality.As<int>( Parameter::ShadowContactSteps );
+        m_SunContactShadowLength             = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
+        m_SunContactShadowLengthInWorldSpace = shadows.ContactShadowLengthInWorldSpace;
+        m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
+        m_SunContactShadowNonCastingIntensity = shadows.ContactShadowNonCastingIntensity;
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1630,6 +1635,7 @@ namespace Desert::Graphic
                              .LODBias                  = extra.LODBias,
                              .CastShadows              = extra.CastShadows,
                              .ReceiveShadows           = extra.ReceiveShadows,
+                             .CastContactShadow        = extra.CastContactShadow,
                              .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
@@ -1694,8 +1700,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool castShadows, const InstanceCullDistance& cullDistance,
-                                             const InstanceWind& wind )
+                                             bool castShadows, bool castContactShadow,
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1706,12 +1712,13 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh         = mesh,
-                                      .Material     = material,
-                                      .Transforms   = transforms,
-                                      .CastShadows  = castShadows,
-                                      .CullDistance = cullDistance,
-                                      .Wind         = wind } );
+             ->SubmitInstancedMesh( { .Mesh              = mesh,
+                                      .Material          = material,
+                                      .Transforms        = transforms,
+                                      .CastShadows       = castShadows,
+                                      .CastContactShadow = castContactShadow,
+                                      .CullDistance      = cullDistance,
+                                      .Wind              = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
@@ -2044,6 +2051,20 @@ namespace Desert::Graphic
              ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection,
                                  m_CloudQuality,
                                  heroClouds ); // a profile without clouds never allocates their targets
+    }
+
+    SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
+                                                                                   bool hasOpaqueDepth ) const
+    {
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        return SceneResources::ContactShadowSettings{
+             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
+             .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
+             .SunLength              = m_SunContactShadowLength,
+             .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace,
+             .SunCastingIntensity    = m_SunContactShadowCastingIntensity,
+             .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const

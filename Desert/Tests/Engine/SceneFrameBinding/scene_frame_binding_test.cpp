@@ -341,6 +341,10 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
     // The cloud-shadow pair: the block uploaded by Graphic::CloudShadowUpload out of the same snapshot, the
     // map bound by the mesh node through RDG::PassBindings — see the note on SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
+    // The opaque scene depth the contact shadows march and the shading word whose caster bit they read at the
+    // hit: pass parameters too, bound by the mesh node from SceneViewInputs::SceneDepth / SceneShadingWord
+    // (Graphic::kSceneViewSceneDepthName / kSceneViewSceneShadingWordName), never by the frame snapshot.
+    const char* kSceneDepth[] = { "u_SceneDepth", "u_SceneShadingWord" };
 
     for ( const auto& shader : kMeshShaders )
     {
@@ -359,6 +363,8 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
              parsed.GetValue().Meta, []( const std::string& ) { return 0ull; },
              [&accounted]( const auto& param, uint64_t ) { accounted.insert( param.Name ); } );
         for ( const char* name : kCloudShadow )
+            accounted.insert( name );
+        for ( const char* name : kSceneDepth )
             accounted.insert( name );
         if ( shader.PerObjectVertexBuffer )
             accounted.insert( shader.PerObjectVertexBuffer );
@@ -411,8 +417,9 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 4 x vec4. Spelt out so a silently added member is visible as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 4u * 16u;
+    // 4 x mat4 + 6 x vec4 (the last two: the contact shadows). Spelt out so a silently added member is visible
+    // as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 6u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )

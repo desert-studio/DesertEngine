@@ -1369,6 +1369,8 @@ namespace Desert::Core::Serialize
                     meshSer.CastShadows = smc.CastShadows;
                 if ( !smc.ReceiveShadows )
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
+                if ( !smc.CastContactShadow )
+                    meshSer.CastContactShadow = smc.CastContactShadow;
                 if ( smc.TranslucencySortPriority != 0 )
                     meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
                 if ( smc.MaxDrawDistance > 0.0f )
@@ -1418,6 +1420,7 @@ namespace Desert::Core::Serialize
                 smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
                 smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
+                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
                 smc.TranslucencySortPriority =
                      meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
                 smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
@@ -1487,6 +1490,8 @@ namespace Desert::Core::Serialize
                 ser.Primitive = ism.Primitive;
                 if ( !ism.CastShadows )
                     ser.CastShadows = ism.CastShadows;
+                if ( !ism.CastContactShadow )
+                    ser.CastContactShadow = ism.CastContactShadow;
                 if ( ism.MaxDrawDistance > 0.0f )
                     ser.MaxDrawDistance = ism.MaxDrawDistance;
                 if ( !ism.InstanceTransforms.empty() )
@@ -1543,6 +1548,7 @@ namespace Desert::Core::Serialize
                 }
                 ism.Primitive   = data.Primitive;
                 ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
+                ism.CastContactShadow = data.CastContactShadow.value_or( ism.CastContactShadow );
                 ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {

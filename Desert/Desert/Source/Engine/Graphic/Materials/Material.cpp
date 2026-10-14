@@ -60,6 +60,11 @@ namespace Desert::Graphic
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
+    void Material::SetPrimitiveFlags( const uint32_t flags )
+    {
+        WritePushField( "PrimitiveFlags", &flags, sizeof( uint32_t ) );
+    }
+
     void Material::SetShadowSlopeBias( const float slopeBias, const float slopeClamp )
     {
         const glm::vec2 slope( slopeBias, slopeClamp );

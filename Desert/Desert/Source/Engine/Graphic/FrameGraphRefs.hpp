@@ -35,6 +35,14 @@ namespace Desert::Graphic
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
+        // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
+        // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward
+        // meshes and the glass (SceneViewInputs::SceneDepth)
+        RDG::TextureRef SceneDepth;
+        // The opaque scene's shading word (the G-buffer's, RG32_UINT), set beside SceneDepth by the deferred
+        // composite: the NO_CONTACT_SHADOW bit of the texel a forward contact-shadow ray hit (UE
+        // CastContactShadow( GBuffer ))                                    -> SceneViewInputs::SceneShadingWord
+        RDG::TextureRef SceneShadingWord;
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
         // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult, imported:
@@ -114,6 +122,13 @@ namespace Desert::Graphic
         // The point/spot shadow atlas, or System.White (depth 1 everywhere = "no occluder"; no light then names a
         // view of it, so it is never read).
         RDG::TextureRef LocalShadowAtlas;
+        // The opaque scene's device depth the contact shadows march (Common/ContactShadow.glslh), or System.Black
+        // (reversed-Z 0 = the far plane everywhere: nothing stands in front of any ray, so no contact shadow).
+        RDG::TextureRef SceneDepth;
+        // The opaque scene's shading word, whose NO_CONTACT_SHADOW bit picks the hit's Casting / Non Casting
+        // Intensity, or System.ZeroUint (an integer texture for the usampler2D; never decisive: with the black
+        // depth no ray hits).
+        RDG::TextureRef SceneShadingWord;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -127,7 +142,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes,
-                    LocalShadowAtlas } )
+                    LocalShadowAtlas, SceneDepth, SceneShadingWord } )
                 add( ref );
             return refs;
         }
@@ -143,6 +158,8 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
+    inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
+    inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -156,6 +173,8 @@ namespace Desert::Graphic
         inputs.ReflectionCaptureCubes = t.ReflectionCaptureCubes;
         inputs.ReflectionCaptures     = t.ReflectionCaptures;
         inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
+        inputs.SceneDepth       = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
+        inputs.SceneShadingWord = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         return inputs;
     }
 
@@ -205,6 +224,10 @@ namespace Desert::Graphic
                       RDG::SamplerDesc::LinearClamp() );
             // Read with texelFetch (Mesh/LocalLightShadow.glslh filters by hand inside each tile).
             bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, RDG::SamplerDesc::PointClamp() );
+            // Marched texel by texel (Common/ContactShadow.glslh): nearest, clamped at the screen's edge.
+            bind( kSceneViewSceneDepthName, inputs.SceneDepth, RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch at the hit texel (an integer format is never filtered).
+            bind( kSceneViewSceneShadingWordName, inputs.SceneShadingWord, RDG::SamplerDesc::PointClamp() );
         }
 
         template <typename Samples>

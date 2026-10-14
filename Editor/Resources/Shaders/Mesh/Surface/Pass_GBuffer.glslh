@@ -3,6 +3,9 @@
 // writes through it: the texel carries the template's model index (DESERT_SHADING_MODEL_INDEX, defined by the
 // parser) and payload in the shading word, and the deferred composite lights it through the generated dispatch.
 #include <Generated/ShadingModels.glslh>
+// The ONE engine push block (its PrimitiveFlags below): included here as well, since a template with no Properties
+// block (DefaultSurface) gets no injected copy in this stage; the guard keeps it single where it is injected.
+#include <Common/MaterialTransport.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
 
@@ -37,7 +40,11 @@ void main()
     const uvec2 word =
          DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
-    oGBufferShadingWord = DesertMarkSunShadowReceive( word, s.ReceiveSunShadows );
+    // The material's sun-shadow receive, then the primitive's contact-shadow cast (UE bCastContactShadow): the
+    // draw pushes it (PrimitiveFlags, Common/MaterialTransport.glslh), as UE's primitive data carries it.
+    oGBufferShadingWord = DesertMarkContactShadowCast(
+         DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ),
+         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
 #endif
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
 #ifndef DESERT_GBUFFER_RSM
