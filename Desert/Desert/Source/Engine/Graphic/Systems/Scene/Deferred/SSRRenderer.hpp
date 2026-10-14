@@ -95,7 +95,7 @@ namespace Desert::Graphic::System
                 return Common::MakeError( resolvePipeline.GetError() );
             m_ResolvePipeline = resolvePipeline.GetValue();
 
-            m_ResolveMaterial = std::make_unique<MaterialSSRResolve>( SSRResolveVariant::Tiled );
+            m_ResolveMaterial = std::make_unique<MaterialSSRReflectionResolve>();
             return BOOLSUCCESS;
         }
 
@@ -123,7 +123,7 @@ namespace Desert::Graphic::System
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
-            RDG::TextureDesc TraceRay; // the trace texels' representative rays (SSR.shader u_TraceRay)
+            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader u_TraceRay)
             RDG::TextureDesc TileMask;
         };
 
@@ -177,7 +177,7 @@ namespace Desert::Graphic::System
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
         // frame on the CPU - never inverted per workgroup in the shader. InvJitteredViewProjection keeps the name
-        // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        // every reconstructing reader uses (SSRReflectionResolveUB, DeferredUB) so the camera block can take it over.
         // Last frame's screen position of a hit is the velocity target's, not a matrix's (SSR.shader).
         struct TraceUniforms
         {
@@ -260,12 +260,13 @@ namespace Desert::Graphic::System
         }
 
         // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial (ratio
-        // estimator over @p trace and @p traceRay) + temporal resolve over @p history (GetHistoryImage(),
-        // imported, reprojected through @p velocity), drawn over the tiles @p tiles marks.
+        // estimator over @p trace and the neighbours' hit points @p traceRay) + temporal resolve over @p history
+        // (GetHistoryImage(), imported, read where the reflected point was; @p velocity gives the reflecting
+        // surface's own motion), drawn over the tiles @p tiles marks.
         //
         // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT; point CLAMP for the
         // G-buffer depth and normal, the velocity, the trace and its rays (read texel by texel: the ratio
-        // estimator reuses each neighbour texel's ray, SSRResolveTiled.shader) and u_SSRTileMask, mip 0 of the
+        // estimator reuses each neighbour texel's hit point, SSRResolveTiled.shader) and u_SSRTileMask, mip 0 of the
         // transients; the resolve material is the other route.
         void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
                                      RDG::TextureRef tiles, RDG::TextureRef history, const GBufferInputs& gbuffer,
@@ -298,19 +299,20 @@ namespace Desert::Graphic::System
             return m_History.ReadableIn( frame );
         }
 
-        // EXEC: draws the block DeclareResolveBindings declared. @p prevViewProjection is the view's
-        // (ViewFrame::PrevViewProjection, unjittered); @p invJitteredViewProjection is ViewFrame::
+        // EXEC: draws the block DeclareResolveBindings declared. @p viewProjection / @p prevViewProjection are the
+        // view's (ViewFrame::ViewProjection / PrevViewProjection, unjittered); @p invJitteredViewProjection is ViewFrame::
         // InvJitteredViewProjection (rebuilds the world positions the reprojection needs from the G-buffer depth);
         // @p historyReadable is HistoryReadableIn of this frame. Advances the ping-pong only when the draw was
         // recorded, and stamps the history with @p viewFrameIndex (the ViewFrame this graph was built for).
         [[nodiscard]] Common::BoolResultStr RecordResolve( const RDG::PassContext& context,
+                                                           const glm::mat4&        viewProjection,
                                                            const glm::mat4&        prevViewProjection,
                                                            const glm::mat4&        invJitteredViewProjection,
                                                            const bool              historyReadable,
                                                            const uint64_t          viewFrameIndex )
         {
             DESERT_PROFILE_PASS( "SSR: Resolve" );
-            m_ResolveMaterial->BindValues( prevViewProjection, invJitteredViewProjection, Texel(),
+            m_ResolveMaterial->BindValues( viewProjection, prevViewProjection, invJitteredViewProjection, Texel(),
                                            historyReadable ? 0.88f : 0.0f );
             const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
             const Common::BoolResultStr drawn = Renderer::GetInstance().DrawProcedural(
@@ -390,7 +392,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache      m_ResolveLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
         std::shared_ptr<GraphicsPipeline>     m_ResolvePipeline;
-        std::unique_ptr<MaterialSSRResolve>   m_ResolveMaterial;
+        std::unique_ptr<MaterialSSRReflectionResolve> m_ResolveMaterial;
         std::shared_ptr<Framebuffer>          m_AccumFB[2];
 
         std::shared_ptr<Framebuffer> m_SceneColorHistoryFB;

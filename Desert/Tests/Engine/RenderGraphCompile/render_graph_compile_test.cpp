@@ -2637,7 +2637,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                                "frame.JitteredViewProjection)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
                                "ssr.DeclareResolveBindings(pass,trace,traceRay,tiles,history,inputs,velocity)",
-                               "RecordResolve(context,prevViewProj,invViewProj,readable,index)" } );
+                               "RecordResolve(context,viewProj,prevViewProj,invViewProj,readable,index)" } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )

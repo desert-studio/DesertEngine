@@ -36,9 +36,10 @@ Shader "SSR"
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
         Uniform(7) sampler2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
         Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
-        // The traced texel's representative ray, for the resolve's neighbour reuse (SSRResolveTiled.shader):
-        // xyz = the unit direction the texel's estimate stands for, w = log2 of the VNDF pdf of that direction.
-        layout(binding = 9, rgba16f) writeonly uniform image2D u_TraceRay;  // half resolution, like u_Trace
+        // The traced texel's ray, for the resolve's neighbour reuse (SSRResolveTiled.shader, UE SSRT): xyz = the
+        // WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
+        // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
+        layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // half resolution, like u_Trace
         #include <Common/HZBTrace.glslh>
 
         // Filled on the CPU from the view's matrices once per view frame (SSRRenderer::UploadTraceUniforms).
@@ -65,6 +66,9 @@ Shader "SSR"
         shared uint s_TileReflects;
 
         const float kPi = 3.14159265358979;
+        // A miss's point: 1 km (centimetres) along its ray - far enough that a neighbour re-aiming at it draws the
+        // same direction (the environment is at infinity), near enough to stay exact in a 32-bit float.
+        const float kMissDistance = 1.0e5;
 
         // Per-pixel hash: decorrelates neighbouring texels' ray sequences.
         float hash12(vec2 p)
@@ -147,8 +151,10 @@ Shader "SSR"
         // 0 off the screen and on sky texels; 0 where the ray passed BEHIND the surface by more than the thickness
         // (the depth buffer cannot say what is behind its first layer - the next source answers it); 0 on a face
         // the ray arrives at from behind; then UE's screen-edge vignette and a soft end at the max distance.
-        float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float maxDistance)
+        // @p surface = the world point of the depth buffer at the hit (meaningful where the result is > 0).
+        float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float maxDistance, out vec3 surface)
         {
+        	surface = origin;
         	if (any(lessThan(hit.xy, vec2(0.0))) || any(greaterThan(hit.xy, vec2(1.0))))
         		return 0.0;
         	const ivec2 size  = textureSize(u_GBufferDepth, 0);
@@ -158,7 +164,7 @@ Shader "SSR"
         		return 0.0; // sky: the sky is the environment's, not a screen hit
         	if (dot(normalize(hN), L) > 0.0)
         		return 0.0; // back face
-        	const vec3  surface = ReconstructWorldPosition(hit.xy, texelFetch(u_GBufferDepth, texel, 0).r,
+        	surface             = ReconstructWorldPosition(hit.xy, texelFetch(u_GBufferDepth, texel, 0).r,
         	                                               u_InvJitteredViewProjection);
         	const vec3  rayAt   = ReconstructWorldPosition(hit.xy, hit.z, u_InvJitteredViewProjection);
         	const float behind  = distance(surface, rayAt);
@@ -170,12 +176,13 @@ Shader "SSR"
 
         // The traced texel gPix (HALF RESOLUTION: one G-buffer pixel of a 2x2 block, rotating every frame).
         // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
-        // texel's representative ray for the resolve (u_TraceRay): the weighted mean direction of the rays that
-        // hit (of all rays when none did) and the log2 pdf of drawing it. A texel with no ray: pdf 0 (log -126),
-        // which the resolve reads as "nothing to reuse".
+        // texel's ray for the resolve (u_TraceRay): xyz = the point it hit (the weighted mean of the hit points;
+        // when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
+        // the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
+        // A texel with no ray: pdf 0 (log -126), which the resolve reads as "nothing to reuse".
         vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
         {
-        	ray = vec4(0.0, 0.0, 1.0, -126.0);
+        	ray = vec4(0.0, 0.0, 0.0, -126.0);
         	if (u_SSRParams2.y < 0.5)
         		return vec4(0.0); // no previous frame to reflect: all to the next source
 
@@ -213,8 +220,8 @@ Shader "SSR"
         	float hitWeight = 0.0;       // sum of w * conf, Karis-weighted (the radiance's normaliser)
         	float coverage  = 0.0;       // sum of w * conf
         	float weightSum = 0.0;       // sum of w over every ray
-        	vec3  hitDir    = vec3(0.0); // sum of w * conf * Lt (tangent space): the representative ray of the hits
-        	vec3  rayDir    = vec3(0.0); // sum of w * Lt over every ray: the representative ray when nothing hit
+        	vec3  hitPoint  = vec3(0.0); // sum of w * conf * surface: the texel's hit point (world)
+        	vec3  rayDir    = vec3(0.0); // sum of w * Lt over every ray: the texel's direction when nothing hit
         	for (int r = 0; r < rays; ++r)
         	{
         		const vec3 H = SampleGGXVNDF(Ve, alpha, RayRandom(rotation, seed * uint(rays) + uint(r)));
@@ -238,7 +245,8 @@ Shader "SSR"
         		const HZBTraceResult walk = HZBTraceScreen(originScreen, endScreen - originScreen, iterations);
         		if (walk.Exhausted)
         			continue;
-        		const float confidence = SSRHitConfidence(walk.Position, origin, L, thickness, maxDistance);
+        		vec3        surface;
+        		const float confidence = SSRHitConfidence(walk.Position, origin, L, thickness, maxDistance, surface);
         		if (confidence <= 0.0)
         			continue;
 
@@ -259,14 +267,20 @@ Shader "SSR"
         		radiance  += L_i * (w * confidence * karis);
         		hitWeight += w * confidence * karis;
         		coverage  += w * confidence;
-        		hitDir    += (w * confidence) * Lt;
+        		hitPoint  += (w * confidence) * surface;
         	}
         	if (weightSum <= 0.0)
         		return vec4(0.0);
-        	const vec3 Lr = normalize(dot(hitDir, hitDir) > 0.0 ? hitDir : rayDir);
-        	ray = vec4(normalize(Lr.x * T + Lr.y * B + Lr.z * N), Log2VNDFReflectionPdf(Ve, Lr, alpha));
         	if (hitWeight <= 0.0)
+        	{
+        		const vec3 Lt = normalize(rayDir);
+        		ray = vec4(worldPos + normalize(Lt.x * T + Lt.y * B + Lt.z * N) * kMissDistance,
+        		           Log2VNDFReflectionPdf(Ve, Lt, alpha));
         		return vec4(0.0);
+        	}
+        	const vec3 hit = hitPoint / coverage;
+        	const vec3 L   = normalize(hit - worldPos);
+        	ray = vec4(hit, Log2VNDFReflectionPdf(Ve, vec3(dot(L, T), dot(L, B), max(dot(L, N), 1e-4)), alpha));
 
         	const float fade = SSRRoughnessFade(roughness) * u_SSRParams.z;
         	return vec4(radiance / hitWeight, clamp(coverage / weightSum * fade, 0.0, 1.0));
@@ -317,7 +331,7 @@ Shader "SSR"
         	ivec2 src = min(q * 2 + ivec2(frame & 1, (frame >> 1) & 1), full - 1);
         	if (ivec2(floor((vec2(src) + 0.5) / scale)) != tile)
         		return;
-        	vec4 ray   = vec4(0.0, 0.0, 1.0, -126.0);
+        	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
         	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
         	imageStore(u_Trace, q, trace);
         	imageStore(u_TraceRay, q, ray);

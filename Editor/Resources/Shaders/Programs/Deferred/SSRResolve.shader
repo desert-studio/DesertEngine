@@ -19,8 +19,9 @@ Shader "SSRResolve"
 
     Fragment
     {
-        // Fullscreen: the GI gather writes every pixel, so its resolve has nothing to skip. SSR draws the same
-        // body over its reflecting tiles only (SSRResolveTiled.shader).
+        // Fullscreen: the GI gather writes every pixel, so its resolve has nothing to skip. SSR has a resolve of
+        // its own (SSRResolveTiled.shader: hit-point reuse, history through the reflected point), sharing only
+        // SSRTemporalBlend.
         #include <Common/SSRDenoise.glslh>
 
         In(0) vec2 v_TexCoord;

@@ -639,10 +639,10 @@ namespace Desert::Graphic
                  ReadAll( pass, { gbuffer.begin(), gbuffer.end() }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [ssrPtr = &ssr, prevViewProj = frame.PrevViewProjection,
+             [ssrPtr = &ssr, viewProj = frame.ViewProjection, prevViewProj = frame.PrevViewProjection,
               invViewProj = frame.InvJitteredViewProjection, readable = ssrHistoryReadable,
               index = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssrPtr->RecordResolve( context, prevViewProj, invViewProj, readable, index ); } );
+             { return ssrPtr->RecordResolve( context, viewProj, prevViewProj, invViewProj, readable, index ); } );
         return FrameSSR{ .Resolved = accum, .SceneHistory = sceneHistory };
     }
 } // namespace Desert::Graphic

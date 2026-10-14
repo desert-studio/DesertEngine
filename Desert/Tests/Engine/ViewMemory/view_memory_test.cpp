@@ -43,9 +43,9 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
     // 56 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12; BISTRO-LOOK-3:
     // the word is RG32UI for UE's four CustomData floats, +4) + 4 velocity (TAA1, RG16F) + 72 post stack + 17.8
-    // half/quarter chains and fog + 9 clouds + 20 SSR (SSR2: the trace and its rays at half resolution, 2 + 2,
+    // half/quarter chains and fog + 9 clouds + 22 SSR (SSR2: the trace and its hit points at half resolution, 2 + 4,
     // and the accumulation pair, 16) + 24 GI.
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 202.83, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 204.83, 0.01 );
     // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with
     // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — there is no RGBA32F position and no
     // velocity).
@@ -65,8 +65,8 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
     // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 6 MiB RSM (the G-buffer's -12
-    // B/px is in both), less SSR2's 4 B/px (the trace went from full to half resolution, its rays joined it).
-    EXPECT_EQ( main - preview, 223358976u ) << "main " << main << " preview " << preview;
+    // B/px is in both), less SSR2's 2 B/px (the trace went from full to half resolution, 8 -> 2; its RGBA32F hit points joined it, 4).
+    EXPECT_EQ( main - preview, 227506176u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )
