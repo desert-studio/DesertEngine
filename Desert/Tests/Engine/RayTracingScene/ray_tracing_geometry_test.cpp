@@ -91,6 +91,30 @@ TEST( RayTracingGeometry, HiddenSubmeshesContributeNoSegmentAndTheRestKeepTheirS
         EXPECT_EQ( all[i].SubmeshIndex, i );
 }
 
+// Red if a deformed BLAS reads the skin pass's output at the mesh's vertex stride (positions would be read 56
+// bytes apart from a packed float3 stream), if it ignores the instance's hidden mask, or if its index and vertex
+// ranges stop being the mesh's own (the skin pass keeps vertex order, so the mesh's index buffer addresses it).
+TEST( RayTracingGeometry, ADeformedMeshReadsPackedPositionsAndHonoursTheInstanceMask )
+{
+    const std::vector<Submesh> submeshes{ MakeSubmesh( 0, 6, 0, 9 ), MakeSubmesh( 6, 4, 9, 6 ) };
+
+    const auto deformed = DescribeDeformedMeshGeometry( submeshes, 0b01 );
+    ASSERT_EQ( deformed.size(), 1u );
+    EXPECT_EQ( deformed[0].VertexStride, 12u );
+    EXPECT_EQ( deformed[0].PositionOffset, 0u );
+    EXPECT_EQ( deformed[0].SubmeshIndex, 1u );
+    EXPECT_EQ( deformed[0].FirstVertex, 6u );
+    EXPECT_EQ( deformed[0].MaxVertex, 9u );
+    EXPECT_EQ( deformed[0].IndexByteOffset, 9u * 4u );
+    EXPECT_EQ( deformed[0].PrimitiveCount, 2u );
+
+    const auto rest = DescribeStaticMeshGeometry( submeshes, 0b01 );
+    ASSERT_EQ( rest.size(), 1u );
+    EXPECT_EQ( rest[0].VertexStride, sizeof( Vertex ) );
+    EXPECT_EQ( rest[0].FirstVertex, deformed[0].FirstVertex );
+    EXPECT_EQ( rest[0].IndexByteOffset, deformed[0].IndexByteOffset );
+}
+
 // Red if the BLAS or the TLAS lands under a kind that is not its own (or under the same one), if the bytes are not
 // recorded on the row, or if dropping the token leaves the row in the ledger (a released BLAS still counted).
 TEST( RayTracingGeometry, AnAccelerationStructureIsALedgerRowOfItsOwnKindUntilItsTokenIsReleased )

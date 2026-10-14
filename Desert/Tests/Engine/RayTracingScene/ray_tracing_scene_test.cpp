@@ -64,7 +64,7 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
     primitives[0].Geometry        = &kRock;
     primitives[0].GpuSceneRow     = 4;
     primitives[1].Geometry        = nullptr; // not resident
-    primitives[2].Geometry        = &kCrate;
+    primitives[2].Geometry        = nullptr; // skinned, no dynamic BLAS built this frame
     primitives[2].Skinned         = true;
     primitives[3].Geometry        = &kCrate;
     primitives[3].GpuSceneRow     = 9;
@@ -88,6 +88,49 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::Skinned ), 1u );
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::HiddenSubmeshes ), 1u );
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::RowOutOfRange ), 1u );
+}
+
+// Red if a skinned primitive with its per-frame BLAS is still dropped as Skinned, if its hidden mask drops it as
+// HiddenSubmeshes (its own BLAS already left those out), or if the selection builds for a static primitive, a
+// skinned one with no mesh, or one whose row the TLAS cannot carry; or if requests leave primitive order or lose
+// the slot / mask they were selected for.
+TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughIt )
+{
+    int kHero     = 3;
+    int kHeroBlas = 4;
+    int kGuard    = 5;
+
+    std::vector<RayTracingPrimitive> primitives( 5 );
+    primitives[0].Geometry        = &kRock; // static: never a dynamic build
+    primitives[1].Skinned         = true;   // skinned with no mesh
+    primitives[2].Skinned         = true;
+    primitives[2].DeformedMesh    = &kHero;
+    primitives[2].HiddenSubmeshes = 0b100;
+    primitives[2].GpuSceneRow     = 7;
+    primitives[3].Skinned         = true;
+    primitives[3].DeformedMesh    = &kGuard;
+    primitives[3].GpuSceneRow     = kMaxGpuSceneRow + 1;
+    primitives[4].Skinned         = true;
+    primitives[4].DeformedMesh    = &kGuard;
+    primitives[4].GpuSceneRow     = 8;
+
+    const std::vector<RayTracingDynamicGeometryRequest> requests = SelectDynamicGeometry( primitives );
+    ASSERT_EQ( requests.size(), 2u );
+    EXPECT_EQ( requests[0].Primitive, 2u );
+    EXPECT_EQ( requests[0].DeformedMesh, &kHero );
+    EXPECT_EQ( requests[0].HiddenSubmeshes, 0b100u );
+    EXPECT_EQ( requests[1].Primitive, 4u );
+    EXPECT_EQ( requests[1].DeformedMesh, &kGuard );
+
+    // The build of request 0 fills its slot; request 1's has not been built (it stays out, counted as Skinned).
+    primitives[requests[0].Primitive].Geometry = &kHeroBlas;
+    const RayTracingInstanceList list          = BuildRayTracingInstances( primitives );
+    ASSERT_EQ( list.Instances.size(), 2u );
+    EXPECT_EQ( list.Instances[0].Geometry, &kRock );
+    EXPECT_EQ( list.Instances[1].Geometry, &kHeroBlas );
+    EXPECT_EQ( list.Instances[1].CustomIndex, 7u );
+    EXPECT_EQ( list.SkippedFor( RayTracingSkip::Skinned ), 3u );
+    EXPECT_EQ( list.SkippedFor( RayTracingSkip::HiddenSubmeshes ), 0u );
 }
 
 // Red if the 3x4 is written column-major (glm's order): the translation would land in the bottom row, which a

@@ -55,8 +55,24 @@ namespace Desert::Graphic::RayTracing
     // (UE: a section hidden in ray tracing has no segment, so a ray passes where the raster draws nothing). A
     // submesh with no LOD chain (procedural meshes) uses its own index range, which IS its LOD 0 (Submesh::LODs
     // comment). A trailing partial triangle (IndexCount not a multiple of 3) is not a triangle and is not counted.
+    // The vertex layout a BLAS reads positions from: the mesh's own vertex buffer (Desert::Vertex) for a static
+    // mesh, the skin pass's packed positions for a deformed one.
+    struct RayTracingVertexLayout
+    {
+        uint32_t Stride         = 0;
+        uint32_t PositionOffset = 0;
+    };
+
+    inline constexpr RayTracingVertexLayout kStaticMeshVertexLayout{
+         static_cast<uint32_t>( sizeof( Vertex ) ), static_cast<uint32_t>( offsetof( Vertex, Position ) ) };
+    // UE's skin cache output for ray tracing: one float3 position per vertex, nothing else, in the mesh's own
+    // vertex order — so the mesh's index buffer and its submeshes' vertex ranges address it unchanged.
+    inline constexpr RayTracingVertexLayout kDeformedPositionLayout{ static_cast<uint32_t>( sizeof( glm::vec3 ) ),
+                                                                     0u };
+
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    DescribeMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes,
+                          const RayTracingVertexLayout layout )
     {
         std::vector<RayTracingGeometrySegment> segments;
         segments.reserve( submeshes.size() );
@@ -73,8 +89,8 @@ namespace Desert::Graphic::RayTracing
 
             RayTracingGeometrySegment segment;
             segment.VertexFormat    = RayTracingVertexFormat::Float3;
-            segment.VertexStride    = static_cast<uint32_t>( sizeof( Vertex ) );
-            segment.PositionOffset  = static_cast<uint32_t>( offsetof( Vertex, Position ) );
+            segment.VertexStride    = layout.Stride;
+            segment.PositionOffset  = layout.PositionOffset;
             segment.FirstVertex     = submesh.VertexOffset;
             segment.MaxVertex       = submesh.VertexOffset + submesh.VertexCount - 1u;
             segment.IndexType       = RayTracingIndexType::UInt32;
@@ -84,6 +100,21 @@ namespace Desert::Graphic::RayTracing
             segments.push_back( segment );
         }
         return segments;
+    }
+
+    [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
+    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    {
+        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kStaticMeshVertexLayout );
+    }
+
+    // A skinned mesh's per-frame BLAS input (UE dynamic geometry): the same submesh rule over the skin pass's
+    // packed positions, with the instance's own hidden mask — the BLAS is the instance's, so it can leave out what
+    // that instance hides.
+    [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
+    DescribeDeformedMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    {
+        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kDeformedPositionLayout );
     }
 
     // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a

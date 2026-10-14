@@ -38,6 +38,7 @@ namespace Desert::Graphic::RayTracing
             primitive.World                = data.Transform;
             primitive.GpuSceneRow          = data.MotionRow;
             primitive.Skinned              = true;
+            primitive.DeformedMesh         = data.Mesh;
         }
         m_Instances = BuildRayTracingInstances( m_Primitives );
 

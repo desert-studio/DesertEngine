@@ -32,7 +32,8 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
 
     // One queued primitive as the TLAS sees it. Filled from MeshRenderer's queues; Geometry is the resident BLAS
-    // (null: the mesh has none — not resident yet, or a mesh kind with no BLAS).
+    // (null: the mesh has none — not resident yet, or a mesh kind with no BLAS). For a skinned primitive Geometry
+    // is its per-frame dynamic BLAS (null until one is built for this frame) and DeformedMesh the mesh it skins.
     struct RayTracingPrimitive
     {
         const void* Geometry        = nullptr;
@@ -41,6 +42,17 @@ namespace Desert::Graphic::RayTracing
         bool        CastShadows     = true;
         uint64_t    HiddenSubmeshes = 0; // bit i = submesh i hidden
         bool        Skinned         = false;
+        const void* DeformedMesh    = nullptr; // skinned only: the SkinnedMesh the dynamic BLAS is built from
+    };
+
+    // ONE PER-FRAME BLAS BUILD FOR A DEFORMED PRIMITIVE (UE FRayTracingDynamicGeometryUpdateParams): the skin pass
+    // writes the primitive's posed positions, then its BLAS is rebuilt from them in the frame of the TLAS that
+    // instances it. Primitive indexes the frame's primitive list, the slot whose Geometry the build fills.
+    struct RayTracingDynamicGeometryRequest
+    {
+        uint32_t    Primitive       = 0;
+        const void* DeformedMesh    = nullptr;
+        uint64_t    HiddenSubmeshes = 0;
     };
 
     struct RayTracingInstance
@@ -56,8 +68,8 @@ namespace Desert::Graphic::RayTracing
     enum class RayTracingSkip : uint8_t
     {
         NoGeometry = 0,  // no resident BLAS for the mesh
-        Skinned,         // a deformed mesh needs a per-frame BLAS from skinned positions (a GPU skin cache)
-        HiddenSubmeshes, // one BLAS holds every submesh; an instance cannot hide part of it
+        Skinned,         // a deformed mesh with no dynamic BLAS built this frame (SelectDynamicGeometry)
+        HiddenSubmeshes, // a static mesh's one shared BLAS holds every submesh; an instance cannot hide part of it
         RowOutOfRange,   // the GPU-scene row does not fit the 24-bit custom index
         Count
     };
@@ -90,6 +102,28 @@ namespace Desert::Graphic::RayTracing
         return rows;
     }
 
+    // The deformed primitives that get a BLAS this frame: skinned, with a mesh, and with a GPU-scene row the TLAS
+    // can carry (a build for a primitive the instance list would drop anyway is wasted GPU time). In primitive
+    // order, so builds and instances agree on the slot. Hidden submeshes do not exclude: the build leaves them
+    // out.
+    [[nodiscard]] inline std::vector<RayTracingDynamicGeometryRequest>
+    SelectDynamicGeometry( std::span<const RayTracingPrimitive> primitives )
+    {
+        std::vector<RayTracingDynamicGeometryRequest> requests;
+        for ( std::size_t i = 0; i < primitives.size(); ++i )
+        {
+            const RayTracingPrimitive& primitive = primitives[i];
+            if ( !primitive.Skinned || primitive.DeformedMesh == nullptr ||
+                 primitive.GpuSceneRow > kMaxGpuSceneRow )
+                continue;
+            RayTracingDynamicGeometryRequest& request = requests.emplace_back();
+            request.Primitive                         = static_cast<uint32_t>( i );
+            request.DeformedMesh                      = primitive.DeformedMesh;
+            request.HiddenSubmeshes                   = primitive.HiddenSubmeshes;
+        }
+        return requests;
+    }
+
     [[nodiscard]] inline RayTracingInstanceList
     BuildRayTracingInstances( std::span<const RayTracingPrimitive> primitives )
     {
@@ -98,7 +132,7 @@ namespace Desert::Graphic::RayTracing
         const auto skip = [&list]( RayTracingSkip reason ) { ++list.Skipped[static_cast<std::size_t>( reason )]; };
         for ( const RayTracingPrimitive& primitive : primitives )
         {
-            if ( primitive.Skinned )
+            if ( primitive.Skinned && primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::Skinned );
                 continue;
@@ -108,7 +142,7 @@ namespace Desert::Graphic::RayTracing
                 skip( RayTracingSkip::NoGeometry );
                 continue;
             }
-            if ( primitive.HiddenSubmeshes != 0 )
+            if ( !primitive.Skinned && primitive.HiddenSubmeshes != 0 )
             {
                 skip( RayTracingSkip::HiddenSubmeshes );
                 continue;
