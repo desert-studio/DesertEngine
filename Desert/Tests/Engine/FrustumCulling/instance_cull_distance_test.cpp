@@ -16,9 +16,12 @@
 #include <vector>
 
 using Desert::Graphic::CollectIsmInstances;
+using Desert::Graphic::FoliageQualityFor;
+using Desert::Graphic::FoliageQualityScale;
 using Desert::Graphic::InstanceCullDistance;
 using Desert::Graphic::InstanceFadeThreshold;
 using Desert::Graphic::KeepsInstanceAtDistance;
+using Desert::Graphic::ScaledForQuality;
 
 namespace
 {
@@ -151,4 +154,45 @@ TEST( InstanceCullDistance, AShadowCascadeDropsExactlyWhatTheViewDrops )
         EXPECT_EQ( cascadeKept[i], viewKept[i] ) << "the cascade and the view disagree on survivor " << i;
     for ( const glm::mat4& kept : viewKept )
         EXPECT_LT( -kept[3].z, kBand.Max ) << "an instance from Max on survived";
+}
+
+// SCAL-COVER foliage: the ViewDistance rows reach the ISM loop through ScaledForQuality. Red if the cull scale
+// stops moving both ends, if the density stops thinning a field, if the two compose into anything but
+// Density * (1 - fade), or if a non-foliage ISM is thinned.
+TEST( InstanceCullDistance, TheFoliageCullScaleMovesBothEndsOfTheFade )
+{
+    const InstanceCullDistance foliage{ kBand.Min, kBand.Max, true };
+    const InstanceCullDistance half = ScaledForQuality( foliage, FoliageQualityFor( 50, 100 ) );
+    EXPECT_FLOAT_EQ( half.Min, 500.0f );
+    EXPECT_FLOAT_EQ( half.Max, 1500.0f );
+    EXPECT_DOUBLE_EQ( KeptShare( half, 1500.0f, 1000 ), 0.0 );
+    EXPECT_GT( KeptShare( foliage, 1500.0f, 1000 ), 0.5 );
+    const InstanceCullDistance same = ScaledForQuality( foliage, FoliageQualityScale{} );
+    EXPECT_FLOAT_EQ( same.Min, kBand.Min );
+    EXPECT_FLOAT_EQ( same.Max, kBand.Max );
+    EXPECT_FLOAT_EQ( same.Density, 1.0f );
+}
+
+TEST( InstanceCullDistance, TheFoliageDensityDrawsItsShareAndComposesWithTheFade )
+{
+    const InstanceCullDistance foliage{ kBand.Min, kBand.Max, true };
+    const InstanceCullDistance thin = ScaledForQuality( foliage, FoliageQualityFor( 100, 50 ) );
+    EXPECT_NEAR( KeptShare( thin, 0.0f, 10000 ), 0.50, 0.02 );
+    EXPECT_NEAR( KeptShare( thin, 2000.0f, 10000 ), 0.25, 0.02 ); // Density * (1 - 0.5)
+    EXPECT_DOUBLE_EQ( KeptShare( thin, 3000.0f, 1000 ), 0.0 );
+    // A field that never culls by distance is still thinned.
+    const InstanceCullDistance endless = ScaledForQuality( { 0.0f, 0.0f, true }, FoliageQualityFor( 100, 25 ) );
+    EXPECT_NEAR( KeptShare( endless, 1.0e6f, 10000 ), 0.25, 0.02 );
+    // Every instance the thin field draws, the full field draws too: lowering the density brings nothing back.
+    for ( uint32_t i = 0; i < 2000; ++i )
+        if ( KeepsInstanceAtDistance( thin, i, AtDistance( 2000.0f ), kEye ) )
+            EXPECT_TRUE( KeepsInstanceAtDistance( foliage, i, AtDistance( 2000.0f ), kEye ) ) << i;
+}
+
+TEST( InstanceCullDistance, AnIsmThatIsNotFoliageIgnoresTheFoliageRows )
+{
+    const InstanceCullDistance plain = ScaledForQuality( kBand, FoliageQualityFor( 25, 25 ) );
+    EXPECT_FLOAT_EQ( plain.Min, kBand.Min );
+    EXPECT_FLOAT_EQ( plain.Max, kBand.Max );
+    EXPECT_DOUBLE_EQ( KeptShare( plain, 0.0f, 1000 ), 1.0 );
 }

@@ -332,5 +332,21 @@ namespace Desert::Editor
                                  "the sun-ray (16 runs the sunward highlights bright); Stop Transmittance ends\n"
                                  "the march earlier behind opaque cloud." );
         }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Foliage" ) )
+        {
+            // The ViewDistance group's foliage rows, one slider each within its spec range.
+            for ( const SC::Parameter foliage :
+                  { SC::Parameter::FoliageCullDistancePercent, SC::Parameter::FoliageDensityPercent } )
+            {
+                const SC::ParameterSpec& spec  = SC::SpecOf( foliage );
+                int                      value = Requested( foliage );
+                if ( ImGui::SliderInt( std::string( spec.Key ).c_str(), &value, spec.Min, spec.Max ) )
+                    SC::QualityState::SetOverride( foliage, static_cast<SC::ParameterValue>( value ) );
+            }
+            ImGui::TextDisabled( "100 / 100 is every foliage field as authored. Cull Percent pulls both ends of\n"
+                                 "each foliage type's CullDistance fade in; Density Percent draws that share\n"
+                                 "of every field (shadows follow)." );
+        }
     }
 } // namespace Desert::Editor

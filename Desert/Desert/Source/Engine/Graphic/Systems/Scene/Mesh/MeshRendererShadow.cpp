@@ -724,8 +724,9 @@ namespace Desert::Graphic::System
                 // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodView, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum,
+                                     ScaledForQuality( ism.CullDistance, m_FoliageQuality ), ism.Wind, lodView,
+                                     lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 if ( visible.empty() )
                     continue;
 

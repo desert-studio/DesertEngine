@@ -423,7 +423,7 @@ namespace Desert::ECS
                              if ( const auto* type = Runtime::ResourceRegistry::GetFoliageTypeService()->Get(
                                        foliage->FoliageType ) )
                              {
-                                 cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
+                                 cullDistance = { type->CullDistance.Min, type->CullDistance.Max, true };
                                  const glm::vec3 fieldOrigin =
                                       glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
                                  const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;

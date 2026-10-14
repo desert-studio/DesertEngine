@@ -11,6 +11,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
+#include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <gtest/gtest.h>
@@ -57,11 +58,11 @@ namespace
       "Cinematic": { "Filtering.Texture": 3, "Filtering.Anisotropy": 16 }
     },
     "ViewDistance": {
-      "Low":       { "ViewDistance.MeshLOD": 1 },
-      "Medium":    { "ViewDistance.MeshLOD": 1 },
-      "High":      { "ViewDistance.MeshLOD": 1 },
-      "Epic":      { "ViewDistance.MeshLOD": 1 },
-      "Cinematic": { "ViewDistance.MeshLOD": 0 }
+      "Low":       { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 50, "ViewDistance.FoliageDensityPercent": 50 },
+      "Medium":    { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 75, "ViewDistance.FoliageDensityPercent": 75 },
+      "High":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 },
+      "Epic":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 },
+      "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 }
     },
     "Effects": {
       "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50 },
@@ -508,6 +509,34 @@ TEST( ScalabilityContract, TheEffectsLevelAndEachCloudOverrideChangeWhatTheCloud
     const auto stop = withOverride( Parameter::CloudStopTransmittancePerMille, 20 );
     EXPECT_FLOAT_EQ( stop.StopTransmittanceFloor, 0.02f );
     EXPECT_FLOAT_EQ( stop.ShadowMapScale, 1.0f );
+}
+
+// SCAL-COVER: THE VIEWDISTANCE LEVEL REACHES FOLIAGE. Graphic::FoliageQualityFor( ResolvedQuality ) is what
+// SceneRenderer::SetQuality hands MeshRenderer::SetFoliageQuality. Red if a foliage row stops reaching it, if the
+// levels stop differing, or if High/Epic/Cinematic stop being the authored fields (1 / 1).
+TEST( ScalabilityContract, TheViewDistanceLevelChangesWhatTheFoliageLoopReads )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+    {
+        const Desert::Graphic::FoliageQualityScale same =
+             Desert::Graphic::FoliageQualityFor( Resolve( AllAt( level ), Table(), c ) );
+        EXPECT_FLOAT_EQ( same.CullDistanceScale, 1.0f );
+        EXPECT_FLOAT_EQ( same.Density, 1.0f );
+    }
+    QualitySelection low                                        = AllAt( Level::Epic );
+    low.Levels[static_cast<std::size_t>( Group::ViewDistance )] = Level::Low;
+    const Desert::Graphic::FoliageQualityScale cheap =
+         Desert::Graphic::FoliageQualityFor( Resolve( low, Table(), c ) );
+    EXPECT_FLOAT_EQ( cheap.CullDistanceScale, 0.5f );
+    EXPECT_FLOAT_EQ( cheap.Density, 0.5f );
+
+    QualitySelection s = AllAt( Level::Epic );
+    s.Overrides.push_back( { std::string( SpecOf( Parameter::FoliageDensityPercent ).Key ), 30 } );
+    const Desert::Graphic::FoliageQualityScale dense =
+         Desert::Graphic::FoliageQualityFor( Resolve( s, Table(), c ) );
+    EXPECT_FLOAT_EQ( dense.Density, 0.3f );
+    EXPECT_FLOAT_EQ( dense.CullDistanceScale, 1.0f );
 }
 
 TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingElse )

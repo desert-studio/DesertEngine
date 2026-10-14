@@ -114,6 +114,12 @@ namespace Common::Scalability
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        // Foliage (FO-5 fields), UE r.ViewDistanceScale on a foliage type's CullDistance and foliage.DensityScale.
+        // Both read by Graphic::FoliageQualityFor -> MeshRenderer ISM loops (CollectIsmInstances). Kept in
+        // ViewDistance rather than a sg.FoliageQuality group of its own: both are draw-distance cost, and one
+        // slider moves them with MeshLOD. 100 at High/Epic/Cinematic: the authored look, unchanged.
+        FoliageCullDistancePercent, // both ends of a foliage type's CullDistance fade. 25..100
+        FoliageDensityPercent,      // share of a foliage field's instances drawn at all. 25..100
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget

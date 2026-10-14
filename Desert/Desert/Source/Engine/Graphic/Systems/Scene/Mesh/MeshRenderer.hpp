@@ -497,6 +497,14 @@ namespace Desert::Graphic::System
             return m_LODEnabled;
         }
 
+        // The ViewDistance level's foliage scale (Graphic::FoliageQualityFor), applied to every foliage field's
+        // cull in the geometry pass and the shadow cascades alike (ScaledForQuality), so a thinned field casts
+        // no shadow of the instances it dropped.
+        void SetFoliageQuality( const FoliageQualityScale& quality )
+        {
+            m_FoliageQuality = quality;
+        }
+
         // Which LOD level to draw for a mesh: a forced level (>= 0) wins; otherwise auto by screen
         // coverage (world bounding radius / camera distance), so big objects keep detail farther than
         // small ones. Returns 0 when LOD is off or there's no camera. Used by every mesh draw path.
@@ -682,6 +690,7 @@ namespace Desert::Graphic::System
         bool m_Wireframe = false;
 #endif
         bool                              m_LODEnabled = true;
+        FoliageQualityScale               m_FoliageQuality;
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the
