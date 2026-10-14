@@ -31,7 +31,8 @@ Shader "TemporalAA"
         // TAA_QUALITY is a shader variant, set by the C++ for every pipeline (TemporalAA::PipelineFor):
         //   0 Low    — 5-tap cross min/max clamp, bilinear history fetch;
         //   1 Medium — 3x3 YCoCg variance clip, bilinear history fetch;
-        //   2 High   — 3x3 YCoCg variance clip, 5-tap Catmull-Rom history fetch.
+        //   2 High   — 3x3 YCoCg variance clip, 5-tap Catmull-Rom history fetch, dynamic anti-ghosting (the
+        //              history's alpha = "a moving object covered this pixel", UE AA_DYNAMIC_ANTIGHOST).
         // The program compiled with no define (the shader census, the default variant) is Medium.
         #ifndef TAA_QUALITY
         #define TAA_QUALITY 1
@@ -97,6 +98,31 @@ Shader "TemporalAA"
         float HdrWeight(vec3 c, float exposure)
         {
             return 1.0 / (1.0 + Luma(c) * exposure);
+        }
+
+        // Whether render pixel p shows an object that moves on its own (UE: the velocity texture's "dynamic"
+        // encoding, written only by objects with their own motion). Our geometry writes velocity for every
+        // surface, the camera's motion included, so the object's own motion is the written velocity minus the
+        // camera's reprojection of the same depth (both unjittered: the surface at p's centre sits at
+        // uv - jitter). Measured in OUTPUT pixels (the real on-screen motion), dynamic above a tenth of a pixel
+        // plus the RG16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
+        // moves on its own.
+        const float kDynamicPixels = 0.1;
+
+        bool IsDynamicPixel(ivec2 p)
+        {
+            p                   = clamp(p, ivec2(0), ivec2(u_RenderSize) - 1);
+            const float depth   = texelFetch(u_SceneDepth, p, 0).r;
+            if (depth <= 0.0)
+                return false;
+            const vec2  written = texelFetch(u_Velocity, p, 0).xy;
+            const vec2  ndc     = ScreenUVToNdc((vec2(p) + 0.5) / u_RenderSize - u_JitterUv);
+            const vec4  world   = u_InvViewProjection * vec4(ndc, depth, 1.0);
+            const vec4  prev    = u_PrevViewProjection * world;
+            const vec2  camera  = ndc - prev.xy / prev.w;
+            const vec2  own     = (written - camera) * 0.5 * u_OutputSize;
+            const float limit   = kDynamicPixels + length(written * 0.5 * u_OutputSize) * (1.0 / 1024.0);
+            return dot(own, own) > limit * limit;
         }
 
         vec3 FetchRender(ivec2 p)
@@ -200,7 +226,24 @@ Shader "TemporalAA"
 
             const vec2 historyUv     = uv - velocity * vec2(0.5, -0.5);
             const bool onScreen      = all(greaterThanEqual(historyUv, vec2(0.0))) && all(lessThanEqual(historyUv, vec2(1.0)));
-            const bool ignoreHistory = u_HistoryValid < 0.5 || !onScreen;
+            bool ignoreHistory = u_HistoryValid < 0.5 || !onScreen;
+
+            // Dynamic anti-ghosting (UE AA_DYNAMIC_ANTIGHOST, TemporalAA.usf :2175-2190, :2336-2337; High). The
+            // history's alpha says whether a MOVING object covered that pixel when it was resolved. A pixel whose
+            // plus of K is all static now, but whose history was dynamic, is the trail a moving object leaves behind
+            // (the wall it uncovers keeps the object's colour wherever the neighbourhood clamp lets it through):
+            // drop that history. The flag is written for K (UE Dynamic4).
+        #if TAA_QUALITY >= 2
+            const bool dynamicK   = IsDynamicPixel(renderPixel);
+            const bool dynamicAny = dynamicK || IsDynamicPixel(renderPixel + ivec2(0, -1)) ||
+                                    IsDynamicPixel(renderPixel + ivec2(-1, 0)) ||
+                                    IsDynamicPixel(renderPixel + ivec2(1, 0)) || IsDynamicPixel(renderPixel + ivec2(0, 1));
+            if (!ignoreHistory && !dynamicAny && textureLod(u_History, historyUv, 0.0).a > 0.0)
+                ignoreHistory = true;
+            const float historyFlag = dynamicK ? 1.0 : 0.0;
+        #else
+            const float historyFlag = 0.0;
+        #endif
 
             const float adaptedLum = texelFetch(u_Exposure, ivec2(0), 0).r;
             const float exposure   = 1.0 / max(adaptedLum, 1e-4);
@@ -308,7 +351,7 @@ Shader "TemporalAA"
                 result = (filtered * wCurrent + history * wHistory) / max(wCurrent + wHistory, 1e-6);
             }
 
-            imageStore(u_HistoryOut, pixel, vec4(result, 1.0));
+            imageStore(u_HistoryOut, pixel, vec4(result, historyFlag));
             imageStore(u_Output, pixel, vec4(result, 1.0));
         }
     }
