@@ -125,7 +125,7 @@ namespace Desert::Assets
     // sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshDistanceFieldDerivedDataKey( uint64_t                              renderDataKey,
                                                             const MeshDistanceFieldBuildSettings& settings,
-                                                            const std::vector<uint8_t>&           submeshTwoSided );
+                                                            const std::vector<uint8_t>& submeshTwoSided );
 
     // Where a builder is registered (the editor: SetMeshDistanceFieldBuilder at startup), a miss builds and Puts;
     // a packaged game registers none, and a miss there is an error naming the asset and the key.

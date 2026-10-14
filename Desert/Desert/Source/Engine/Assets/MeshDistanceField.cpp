@@ -94,10 +94,9 @@ namespace Desert::Assets
         return largest > 0.0f ? 1.0f / largest : 0.0f;
     }
 
-    Common::ResultStr<MeshDistanceFieldBuildInput> MeshDistanceFieldInputOf( const std::vector<Vertex>&  vertices,
-                                                          const std::vector<Index>&   indices,
-                                                          const std::vector<Submesh>& submeshes,
-                                                          const std::vector<uint8_t>& submeshTwoSided )
+    Common::ResultStr<MeshDistanceFieldBuildInput>
+    MeshDistanceFieldInputOf( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
+                              const std::vector<Submesh>& submeshes, const std::vector<uint8_t>& submeshTwoSided )
     {
         // LOD0 of every submesh (UE builds the field from LOD0's render data). A submesh's LOD0 is its own index
         // range when it carries no LOD chain, and LODs[0] when it does. Vertices are copied per submesh because
@@ -108,7 +107,7 @@ namespace Desert::Assets
         MeshDistanceFieldBuildInput input;
         for ( size_t s = 0; s < submeshes.size(); ++s )
         {
-            const Submesh& sm = submeshes[s];
+            const Submesh& sm          = submeshes[s];
             const uint32_t indexOffset = sm.LODs.empty() ? sm.IndexOffset : sm.LODs.front().IndexOffset;
             const uint32_t indexCount  = sm.LODs.empty() ? sm.IndexCount : sm.LODs.front().IndexCount;
             // Index records are triangles: IndexOffset/IndexCount count indices, three per record.
@@ -258,7 +257,7 @@ namespace Desert::Assets
 
     Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
     LoadMeshDistanceField( const std::filesystem::path& asset, const uint64_t renderDataKey,
-                           const std::vector<uint8_t>&                         submeshTwoSided,
+                           const std::vector<uint8_t>&                                            submeshTwoSided,
                            const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input )
     {
         using Result = std::shared_ptr<const MeshDistanceFieldData>;

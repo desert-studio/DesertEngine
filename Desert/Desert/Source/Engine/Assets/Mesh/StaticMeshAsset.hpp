@@ -82,9 +82,9 @@ namespace Desert::Assets
         std::vector<MeshVertexStreams> m_VertexStreams;
         std::vector<Common::UUID> m_MaterialAssetHandles;
         // Per submesh, the material GUID the file states (null = none): the distance field's sidedness input.
-        std::vector<Common::Content::AssetGuid> m_MaterialGuids;
-        uint64_t                                m_RenderDataKey        = 0;
-        bool                                    m_DependenciesResolved = false;
+        std::vector<Common::Content::AssetGuid>      m_MaterialGuids;
+        uint64_t                                     m_RenderDataKey        = 0;
+        bool                                         m_DependenciesResolved = false;
         std::shared_ptr<const MeshDistanceFieldData> m_DistanceField;
 
         bool m_IsReadyForUse = false;

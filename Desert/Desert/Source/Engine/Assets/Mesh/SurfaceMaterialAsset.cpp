@@ -297,7 +297,8 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<bool> ResolveMaterialTwoSided( AssetManager& manager, const Common::Content::AssetGuid& material )
+    Common::ResultStr<bool> ResolveMaterialTwoSided( AssetManager&                     manager,
+                                                     const Common::Content::AssetGuid& material )
     {
         // MaterialService::CreateRuntimeInstance caps its chain walk at the same depth.
         constexpr int              kMaxChainDepth = 16;
@@ -324,9 +325,9 @@ namespace Desert::Assets
             {
                 const auto parent = data.ParentGuid();
                 if ( parent.IsNull() || parent == current )
-                    return Common::MakeFormattedError<bool>( "material '{}' names a malformed or its own parent '{}'",
-                                                             asset->GetMetadata().Filepath.generic_string(),
-                                                             *data.ParentText() );
+                    return Common::MakeFormattedError<bool>(
+                         "material '{}' names a malformed or its own parent '{}'",
+                         asset->GetMetadata().Filepath.generic_string(), *data.ParentText() );
                 current = parent;
                 continue;
             }

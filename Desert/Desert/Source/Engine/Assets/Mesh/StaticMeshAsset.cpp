@@ -201,9 +201,9 @@ namespace Desert::Assets
         // THE MESH'S DISTANCE FIELD, derived from exactly this render data and these materials: a DDC hit, or
         // built here where the editor registered the builder. One that cannot be had is an error naming the mesh,
         // never a field guessed from a different input.
-        auto field = LoadMeshDistanceField( m_Metadata.Filepath, m_RenderDataKey, twoSided, [this, &twoSided]
-                                            { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes,
-                                                                               twoSided ); } );
+        auto field = LoadMeshDistanceField(
+             m_Metadata.Filepath, m_RenderDataKey, twoSided, [this, &twoSided]
+             { return MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided ); } );
         if ( !field )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
