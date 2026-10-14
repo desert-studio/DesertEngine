@@ -347,8 +347,7 @@ namespace Desert::Editor
             }
             ImGui::TextDisabled( "100 / 100 is every foliage field as authored. Cull Percent pulls both ends of\n"
                                  "each foliage type's CullDistance fade in; Density Percent draws that share\n"
-                                 "of every field (shadows follow). Landscape LOD Percent scales the distance
-                                 "
+                                 "of every field (shadows follow). Landscape LOD Percent scales the distance\n"
                                  "at which each landscape LOD gives way to the coarser one." );
         }
 
@@ -361,6 +360,17 @@ namespace Desert::Editor
                                                static_cast<SC::ParameterValue>( value ) );
             ImGui::TextDisabled( "100 spawns every emitter's authored rate and bursts; lower spawns that share.\n"
                                  "Gameplay data-channel spawns are never scaled." );
+        }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Texture Mip Bias" ) )
+        {
+            const SC::ParameterSpec& spec  = SC::SpecOf( SC::Parameter::TextureMipBias );
+            int                      value = Requested( SC::Parameter::TextureMipBias );
+            if ( ImGui::SliderInt( std::string( spec.Key ).c_str(), &value, spec.Min, spec.Max ) )
+                SC::QualityState::SetOverride( SC::Parameter::TextureMipBias,
+                                               static_cast<SC::ParameterValue>( value ) );
+            ImGui::TextDisabled(
+                 "In 1/100 mip: 100 samples every texture one mip coarser, 0 the authored detail." );
         }
     }
 } // namespace Desert::Editor

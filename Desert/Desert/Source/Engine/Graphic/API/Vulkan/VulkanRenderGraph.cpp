@@ -792,6 +792,7 @@ namespace Desert::Graphic::API::Vulkan
         info.addressModeU      = RdgVulkanAddress( desc.AddressU );
         info.addressModeV      = RdgVulkanAddress( desc.AddressV );
         info.addressModeW      = RdgVulkanAddress( desc.AddressW );
+        info.mipLodBias        = desc.MipLodBias();
         info.minLod            = 0.0f;
         info.maxLod            = VK_LOD_CLAMP_NONE;
         info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;

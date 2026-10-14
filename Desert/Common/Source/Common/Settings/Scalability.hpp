@@ -77,7 +77,7 @@ namespace Common::Scalability
     inline constexpr std::size_t kLevelCount = static_cast<std::size_t>( Level::Count );
 
     // EVERY QUALITY VALUE A RENDERER READS. A row exists only when a reader exists (contract §1.3): the comment
-    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so
+    // names it. A group whose rows are all placeholders is HIDDEN: IsGroupListed() is false, so
     // no UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the
     // data file gives it levels - a group slider that moves nothing is a dead setting.
     //
@@ -127,8 +127,12 @@ namespace Common::Scalability
         // UE r.ViewDistanceScale on the landscape's LOD: every landscape LOD's switch distance times this
         // percent (TerrainRenderer::SetLodDistanceScale -> LandscapeLodAtDistanceScale). 100 at High+.
         LandscapeLodDistancePercent, // ViewDistance. 25..100
+        // UE r.MipMapLODBias under sg.TextureQuality: the level-of-detail bias, in 1/100 mip, of every engine
+        // image's own sampler and of every graph read naming it (RenderConfig::TextureMipBias ->
+        // GlobalTextureFilterSampler
+        // -> VulkanImage SamplerCreateInfo). Low +100, Medium +50, 0 at High/Epic/Cinematic. -200..400
+        TextureMipBias,
         // ---- placeholders (Reader = nullopt) ----
-        TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         ShadowRayTracing,             // Shadows: RayTracingMode
         GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
         ReflectionRayTracing,         // Reflections: RayTracingMode

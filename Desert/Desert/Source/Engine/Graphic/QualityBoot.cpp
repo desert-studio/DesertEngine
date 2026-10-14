@@ -38,7 +38,9 @@ namespace Desert::Graphic::QualityBoot
             const int  anisotropy    = resolved.As<int>( Parameter::Anisotropy );
             const bool filterChanged = RenderConfig::TextureFilter.exchange( filter ) != filter;
             const bool anisoChanged  = RenderConfig::AnisotropyLevel.exchange( anisotropy ) != anisotropy;
-            if ( filterChanged || anisoChanged )
+            const int  mipBias       = resolved.As<int>( Parameter::TextureMipBias );
+            const bool biasChanged   = RenderConfig::TextureMipBias.exchange( mipBias ) != mipBias;
+            if ( filterChanged || anisoChanged || biasChanged )
                 Renderer::GetInstance().RecreateImageSamplers();
         }
 

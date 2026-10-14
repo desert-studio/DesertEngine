@@ -38,6 +38,10 @@ namespace Desert::Graphic
         // Resolved anisotropy level (1/2/4/8/16), already one of CapabilityCatalog::AnisotropyLevels — the
         // resolver narrowed it to the device, so sampler creation uses it as is.
         static inline std::atomic<int> AnisotropyLevel{ 8 };
+        // Resolved Textures.MipBias in 1/100 mip (Low +100, Medium +50, High and above 0): the level-of-detail
+        // bias every engine image's own sampler carries (GlobalTextureFilterSampler). Same writer as the two
+        // above.
+        static inline std::atomic<int> TextureMipBias{ 0 };
         // Resolved Effects.ParticleSpawnPercent (25..100): every scene's VFXWorld reads it before its Tick
         // (Scene::OnUpdate -> VFXWorld::SetSpawnCountScale). Global like the sampler state, because the quality
         // is per machine while the effects world is per scene.
@@ -60,7 +64,9 @@ namespace Desert::Graphic
     // filter and mip mode from the global texture filter, REPEAT on every axis. The one derivation of it -- the
     // backend's own sampler reads it, and a graph entry that must read an image exactly as the image's own
     // sampler did (RDG-FAULT1 sampler parity) names it. Anisotropy is not part of a SamplerDesc: the entries
-    // that name this sample from compute with an explicit level of detail, where anisotropy does not apply.
+    // that name this sample from compute with an explicit level of detail, where anisotropy does not apply. The
+    // mip bias IS part of it: Vulkan adds mipLodBias to an explicit level of detail too, so a graph read without
+    // it would land on a different mip than the image's own sampler.
     inline RDG::SamplerDesc GlobalTextureFilterSampler()
     {
         using FM                      = Common::Settings::TextureFilter;
@@ -71,12 +77,13 @@ namespace Desert::Graphic
              mode == static_cast<int>( FM::Trilinear ) || mode == static_cast<int>( FM::Anisotropic )
                   ? RDG::SamplerMipMode::Linear
                   : RDG::SamplerMipMode::Nearest;
-        return { filter,
-                 filter,
-                 mip,
-                 RDG::SamplerAddress::Repeat,
-                 RDG::SamplerAddress::Repeat,
-                 RDG::SamplerAddress::Repeat };
+        const RDG::SamplerDesc desc{ filter,
+                                     filter,
+                                     mip,
+                                     RDG::SamplerAddress::Repeat,
+                                     RDG::SamplerAddress::Repeat,
+                                     RDG::SamplerAddress::Repeat };
+        return desc.WithMipLodBias( static_cast<int16_t>( RenderConfig::TextureMipBias.load() ) );
     }
 
     // The sampler an engine Image3D carries as its own (AlwaysLinear policy): LINEAR, linear mip, REPEAT, whatever

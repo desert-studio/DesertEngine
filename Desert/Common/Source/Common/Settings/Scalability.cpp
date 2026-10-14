@@ -72,7 +72,9 @@ namespace Common::Scalability
                "SpawnState::Step" },
              { P::LandscapeLodDistancePercent, G::ViewDistance, "ViewDistance.LandscapeLodPercent", 25, 100,
                CL::None, "TerrainRenderer::SetLodDistanceScale (SceneRenderer::BeginScene) -> TileLod" },
-             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
+             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None,
+               "RenderConfig::TextureMipBias -> GlobalTextureFilterSampler -> VulkanImage SamplerCreateInfo "
+               "mipLodBias (and every graph read naming it)" },
              { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
              { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,

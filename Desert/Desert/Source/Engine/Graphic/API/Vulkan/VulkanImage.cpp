@@ -136,7 +136,7 @@ namespace Desert::Graphic::API::Vulkan
                                                .addressModeU            = AddressModeOf( slot.WrapU ),
                                                .addressModeV            = AddressModeOf( slot.WrapV ),
                                                .addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                               .mipLodBias              = 0.0f,
+                                               .mipLodBias              = desc.MipLodBias(),
                                                .anisotropyEnable        = useAniso ? VK_TRUE : VK_FALSE,
                                                .maxAnisotropy           = maxAniso,
                                                .compareEnable           = VK_FALSE,

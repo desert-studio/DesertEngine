@@ -73,7 +73,7 @@ namespace
     },
     "Textures": {
       "Low":       { "Textures.MipBias": 100 },
-      "Medium":    { "Textures.MipBias": 0 },
+      "Medium":    { "Textures.MipBias": 50 },
       "High":      { "Textures.MipBias": 0 },
       "Epic":      { "Textures.MipBias": 0 },
       "Cinematic": { "Textures.MipBias": 0 }
@@ -350,11 +350,10 @@ TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader
             EXPECT_FALSE( reader->empty() ) << spec.Key << " names no reader";
         }
     }
-    // Textures has only placeholders today: no slider for it. Every other group has a real row.
-    EXPECT_FALSE( IsGroupListed( Group::Textures ) );
+    // Every group has a real row (Textures since its mip bias gained a reader).
     for ( const Group g :
-          { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
-            Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess } )
+          { Group::Textures, Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance,
+            Group::Effects, Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess } )
         EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
 }
 
@@ -563,6 +562,23 @@ TEST( ScalabilityContract, TheEffectsLevelChangesTheParticleSpawnShare )
     low.Levels[static_cast<std::size_t>( Group::Effects )] = Level::Low;
     EXPECT_EQ( Resolve( low, Table(), c ).As<int>( Parameter::ParticleSpawnPercent ), 50 );
     EXPECT_EQ( SpecOf( Parameter::ParticleSpawnPercent ).Owner, Group::Effects );
+}
+
+// Textures.MipBias is the level-of-detail bias every engine image's own sampler and every graph read naming it
+// carry (GlobalTextureFilterSampler; the RenderGraphPassBindings suite pins that the desc carries it): High+
+// unbiased.
+TEST( ScalabilityContract, TheTexturesLevelChangesTheSamplerMipBias )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( Resolve( AllAt( level ), Table(), c ).As<int>( Parameter::TextureMipBias ), 0 );
+    QualitySelection sel                                    = AllAt( Level::Epic );
+    sel.Levels[static_cast<std::size_t>( Group::Textures )] = Level::Low;
+    EXPECT_EQ( Resolve( sel, Table(), c ).As<int>( Parameter::TextureMipBias ), 100 );
+    sel.Levels[static_cast<std::size_t>( Group::Textures )] = Level::Medium;
+    EXPECT_EQ( Resolve( sel, Table(), c ).As<int>( Parameter::TextureMipBias ), 50 );
+    EXPECT_FALSE( IsPlaceholder( SpecOf( Parameter::TextureMipBias ) ) );
+    EXPECT_TRUE( IsGroupListed( Group::Textures ) );
 }
 
 // ViewDistance.LandscapeLodPercent is the switch-distance scale TerrainRenderer's TileLod reads (the TerrainBatch
@@ -848,6 +864,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::AmbientOcclusionSamples ), kOldSSAOTaps );
     EXPECT_EQ( high( Parameter::GlobalIlluminationSamples ), kOldGITaps );
     EXPECT_EQ( high( Parameter::BloomMips ), kOldBloomMips );
+    // VulkanImage SamplerCreateInfo before SCAL-COVER: `.mipLodBias = 0.0f` on every image sampler, at every
+    // High+.
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( table.ValueAt( Parameter::TextureMipBias, level ), 0 ) << LevelKey( level );
 }
 
 // ---- Presets ---------------------------------------------------------------------------------------------

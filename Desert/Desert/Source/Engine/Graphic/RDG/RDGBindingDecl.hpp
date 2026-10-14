@@ -39,7 +39,10 @@ namespace Desert::Graphic::RDG
     // so a call site cannot bind a texture without saying how it is filtered and addressed (the six-field
     // constructor is the only one, so SamplerDesc is not an aggregate and has no default constructor). Level of
     // detail is unclamped (every mip of the bound view is reachable); a Mip(m) range already limits the view to
-    // one mip.
+    // one mip. The level-of-detail bias is 0 unless named (WithMipLodBias): a render target is read at the level
+    // asked; only an engine image's own sampler carries the machine's Textures.MipBias
+    // (GlobalTextureFilterSampler), and a graph entry that reads such an image names that same desc, so both apply
+    // the same bias.
     struct SamplerDesc
     {
         SamplerFilter  MinFilter;
@@ -48,6 +51,8 @@ namespace Desert::Graphic::RDG
         SamplerAddress AddressU;
         SamplerAddress AddressV;
         SamplerAddress AddressW;
+        // In 1/100 mip (the unit of Scalability Textures.MipBias): integral, so the cache key is exact.
+        int16_t MipLodBiasCentiMips = 0;
 
         constexpr SamplerDesc( SamplerFilter minFilter, SamplerFilter magFilter, SamplerMipMode mipMode,
                                SamplerAddress addressU, SamplerAddress addressV, SamplerAddress addressW )
@@ -72,12 +77,26 @@ namespace Desert::Graphic::RDG
                      SamplerAddress::Repeat, SamplerAddress::Repeat, SamplerAddress::Repeat };
         }
 
+        [[nodiscard]] constexpr SamplerDesc WithMipLodBias( int16_t centiMips ) const
+        {
+            SamplerDesc biased         = *this;
+            biased.MipLodBiasCentiMips = centiMips;
+            return biased;
+        }
+
+        // The VkSamplerCreateInfo::mipLodBias (in mips) every backend sampler made from this desc carries.
+        [[nodiscard]] constexpr float MipLodBias() const
+        {
+            return static_cast<float>( MipLodBiasCentiMips ) / 100.0f;
+        }
+
         // One value per distinct description: the key of the backend's sampler cache.
         [[nodiscard]] constexpr uint32_t GetKey() const
         {
             return static_cast<uint32_t>( MinFilter ) | ( static_cast<uint32_t>( MagFilter ) << 2 ) |
                    ( static_cast<uint32_t>( MipMode ) << 4 ) | ( static_cast<uint32_t>( AddressU ) << 6 ) |
-                   ( static_cast<uint32_t>( AddressV ) << 9 ) | ( static_cast<uint32_t>( AddressW ) << 12 );
+                   ( static_cast<uint32_t>( AddressV ) << 9 ) | ( static_cast<uint32_t>( AddressW ) << 12 ) |
+                   ( static_cast<uint32_t>( static_cast<uint16_t>( MipLodBiasCentiMips ) ) << 16 );
         }
 
         friend constexpr bool operator==( const SamplerDesc&, const SamplerDesc& ) = default;

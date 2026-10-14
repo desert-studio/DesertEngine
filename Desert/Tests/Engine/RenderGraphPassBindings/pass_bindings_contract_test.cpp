@@ -390,6 +390,23 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
 // The system textures are graph resources of a fresh graph (UE: FRDGSystemTextures): registered once, valid,
 // distinct, and a pass whose block declares a read of System.Black binds it like any graph texture -
 // the tonemap's "bloom did not run" input, with no default texture substituted anywhere else.
+// SCAL-COVER Textures.MipBias: the bias is part of the desc, so the backend sampler made for a graph read differs
+// from an unbiased one (cache key) and carries the same mipLodBias as the image's own sampler (both read
+// SamplerDesc::MipLodBias). A desc that dropped the bias, or a key that ignored it, would share one VkSampler.
+TEST( RenderGraphPassBindings, TheMipBiasIsPartOfTheSamplerAndItsKey )
+{
+    constexpr SamplerDesc plain  = SamplerDesc::LinearRepeat();
+    constexpr SamplerDesc biased = SamplerDesc::LinearRepeat().WithMipLodBias( 50 );
+    static_assert( plain.MipLodBiasCentiMips == 0 );
+    static_assert( plain.GetKey() != biased.GetKey() );
+    static_assert( !( plain == biased ) );
+    static_assert( SamplerDesc::LinearRepeat().WithMipLodBias( -200 ).GetKey() !=
+                   SamplerDesc::LinearRepeat().WithMipLodBias( 400 ).GetKey() );
+    EXPECT_FLOAT_EQ( biased.MipLodBias(), 0.5f );
+    EXPECT_FLOAT_EQ( SamplerDesc::LinearRepeat().WithMipLodBias( 100 ).MipLodBias(), 1.0f );
+    EXPECT_FLOAT_EQ( plain.MipLodBias(), 0.0f );
+}
+
 TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
 {
     ExternalTexture blackImage( Tex2D( 1, 1 ), Access::None );

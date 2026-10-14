@@ -146,7 +146,7 @@
                 "Textures.MipBias": 100
             },
             "Medium": {
-                "Textures.MipBias": 0
+                "Textures.MipBias": 50
             },
             "High": {
                 "Textures.MipBias": 0
