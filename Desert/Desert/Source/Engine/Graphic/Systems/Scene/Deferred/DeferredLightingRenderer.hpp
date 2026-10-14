@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
@@ -159,7 +158,6 @@ namespace Desert::Graphic::System
         {
             if ( !m_GridPipeline )
                 return Common::MakeError( "Deferred: LightGrid: the light-grid pipeline is not initialised" );
-            DESERT_PROFILE_PASS( "Deferred: LightGrid" );
             constexpr uint32_t      kGroup = 4u;
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DispatchCompute(
@@ -229,8 +227,6 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError(
                      "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
-            // Timed on its own: the cost the light grid exists to cut is this pass's per-pixel light loop.
-            DESERT_PROFILE_PASS( "Deferred: Composite" );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
