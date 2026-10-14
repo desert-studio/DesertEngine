@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -68,6 +69,28 @@ namespace Desert::Graphic::RayTracing
             segments.push_back( segment );
         }
         return segments;
+    }
+
+    // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a
+    // view TLAS answer different questions), and this is the one place the level picks the kind.
+    enum class AccelerationStructureLevel : uint8_t
+    {
+        Bottom,
+        Top,
+    };
+
+    // THE LEDGER ROW OF AN ACCELERATION STRUCTURE'S STORAGE. The device object holds the returned token from the
+    // moment its storage is allocated to the moment that storage is released: destroying (or resetting) the token
+    // is the release, so a BLAS dropped with its mesh or a TLAS reallocated for a larger scene cannot leave a row
+    // behind. @p bytes is the allocation's device footprint (VulkanAllocator::AllocationSize). The owner is the
+    // attribution scope the build runs in (the scene renderer's).
+    [[nodiscard]] inline ResourceOwnership
+    RecordAccelerationStructureMemory( const AccelerationStructureLevel level, const std::size_t bytes )
+    {
+        const ResourceKind kind = level == AccelerationStructureLevel::Bottom
+                                       ? ResourceKind::BottomLevelAccelerationStructure
+                                       : ResourceKind::TopLevelAccelerationStructure;
+        return ResourceOwnership::Take( kind, bytes );
     }
 
     // A built BLAS as the renderer sees it: the address a TLAS instance row points at. The API object behind it

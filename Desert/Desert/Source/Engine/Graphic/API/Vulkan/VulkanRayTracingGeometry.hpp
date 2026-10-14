@@ -52,5 +52,6 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocation                         m_StorageMemory = nullptr;
         VkDeviceAddress                       m_DeviceAddress = 0;
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
+        ResourceOwnership                     m_Ledger; // the storage's row; released with this object
     };
 } // namespace Desert::Graphic::API::Vulkan

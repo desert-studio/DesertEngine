@@ -64,3 +64,60 @@ TEST( RayTracingGeometry, EmptySubmeshesAndPartialTrianglesAreNotGeometry )
     EXPECT_EQ( segments[0].FirstVertex, 3u );
     EXPECT_EQ( segments[0].PrimitiveCount, 2u );
 }
+
+// Red if the BLAS or the TLAS lands under a kind that is not its own (or under the same one), if the bytes are not
+// recorded on the row, or if dropping the token leaves the row in the ledger (a released BLAS still counted).
+TEST( RayTracingGeometry, AnAccelerationStructureIsALedgerRowOfItsOwnKindUntilItsTokenIsReleased )
+{
+    using Desert::Graphic::ResourceCensus;
+    using Desert::Graphic::ResourceKind;
+    using Desert::Graphic::ResourceLedger;
+    using Desert::Graphic::ResourceOwner;
+    using Desert::Graphic::ResourceOwnership;
+
+    const auto count = []( const ResourceCensus& census, ResourceKind kind )
+    { return census.PerKind[static_cast<std::size_t>( kind )]; };
+    const auto bytes = []( const ResourceCensus& census, ResourceKind kind )
+    {
+        uint64_t sum = 0;
+        for ( std::size_t owner = 0; owner < static_cast<std::size_t>( ResourceOwner::Count ); ++owner )
+            sum += census.BytesPerOwnerKind[owner][static_cast<std::size_t>( kind )];
+        return sum;
+    };
+
+    const ResourceCensus before = ResourceLedger::Take();
+    {
+        ResourceOwnership blas = RecordAccelerationStructureMemory( AccelerationStructureLevel::Bottom, 65'536 );
+        ResourceOwnership tlas = RecordAccelerationStructureMemory( AccelerationStructureLevel::Top, 4'096 );
+        ASSERT_TRUE( blas.IsAccounted() );
+        ASSERT_TRUE( tlas.IsAccounted() );
+
+        const ResourceCensus during = ResourceLedger::Take();
+        EXPECT_EQ( count( during, ResourceKind::BottomLevelAccelerationStructure ) -
+                        count( before, ResourceKind::BottomLevelAccelerationStructure ),
+                   1u );
+        EXPECT_EQ( count( during, ResourceKind::TopLevelAccelerationStructure ) -
+                        count( before, ResourceKind::TopLevelAccelerationStructure ),
+                   1u );
+        EXPECT_EQ( bytes( during, ResourceKind::BottomLevelAccelerationStructure ) -
+                        bytes( before, ResourceKind::BottomLevelAccelerationStructure ),
+                   65'536u );
+        EXPECT_EQ( bytes( during, ResourceKind::TopLevelAccelerationStructure ) -
+                        bytes( before, ResourceKind::TopLevelAccelerationStructure ),
+                   4'096u );
+
+        // The TLAS's Release resets its token (a reallocation for a larger scene): the row goes, the BLAS stays.
+        tlas                          = ResourceOwnership{};
+        const ResourceCensus released = ResourceLedger::Take();
+        EXPECT_EQ( count( released, ResourceKind::TopLevelAccelerationStructure ),
+                   count( before, ResourceKind::TopLevelAccelerationStructure ) );
+        EXPECT_EQ( count( released, ResourceKind::BottomLevelAccelerationStructure ) -
+                        count( before, ResourceKind::BottomLevelAccelerationStructure ),
+                   1u );
+    }
+    const ResourceCensus after = ResourceLedger::Take();
+    EXPECT_EQ( count( after, ResourceKind::BottomLevelAccelerationStructure ),
+               count( before, ResourceKind::BottomLevelAccelerationStructure ) );
+    EXPECT_EQ( bytes( after, ResourceKind::BottomLevelAccelerationStructure ),
+               bytes( before, ResourceKind::BottomLevelAccelerationStructure ) );
+}

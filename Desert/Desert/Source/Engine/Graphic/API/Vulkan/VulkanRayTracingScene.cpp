@@ -101,6 +101,8 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError<Sizes>( "TLAS storage: {}", storage.GetError() );
             m_StorageMemory = storage.GetValue();
             m_StorageBytes  = storageSizes.accelerationStructureSize;
+            m_Ledger        = RayTracing::RecordAccelerationStructureMemory(
+                 RayTracing::AccelerationStructureLevel::Top, VulkanAllocator::AllocationSize( m_StorageMemory ) );
             m_Destroy       = functions.DestroyAccelerationStructure;
 
             VkAccelerationStructureCreateInfoKHR create{
@@ -180,6 +182,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Storage       = VK_NULL_HANDLE;
         m_StorageMemory = nullptr;
         m_StorageBytes  = 0;
+        m_Ledger        = ResourceOwnership{};
         m_Capacity      = 0;
         m_External      = RDG::ExternalBuffer{};
     }

@@ -47,5 +47,6 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t                              m_Capacity      = 0; // instances the storage was sized for
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
         RDG::ExternalBuffer                   m_External;
+        ResourceOwnership                     m_Ledger; // the storage's row; reset by Release
     };
 } // namespace Desert::Graphic::API::Vulkan

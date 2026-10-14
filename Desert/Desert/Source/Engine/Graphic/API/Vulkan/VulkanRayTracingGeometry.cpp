@@ -78,6 +78,9 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS storage: {}",
                                                                                           storage.GetError() );
         geometry->m_StorageMemory = storage.GetValue();
+        geometry->m_Ledger        = RayTracing::RecordAccelerationStructureMemory(
+             RayTracing::AccelerationStructureLevel::Bottom,
+             VulkanAllocator::AllocationSize( storage.GetValue() ) );
 
         VkAccelerationStructureCreateInfoKHR create{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
         create.buffer = geometry->m_Storage;

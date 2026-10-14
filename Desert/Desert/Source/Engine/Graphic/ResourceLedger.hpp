@@ -81,6 +81,11 @@ namespace Desert::Graphic
         Shader,
         Framebuffer,
         Material,
+        // A ray-tracing acceleration structure's storage: one row per mesh BLAS (its rebuild recipe is the mesh)
+        // and one per view TLAS (rebuilt every frame from the scene). Two kinds, not one, because the two
+        // answers people ask of the census differ: 'what do the meshes cost to trace' vs 'what does a view'.
+        BottomLevelAccelerationStructure,
+        TopLevelAccelerationStructure,
 
         // NOT a kind: the number of them. A new kind is added ABOVE this line and turns
         // Desert/Tests/Engine/AssetEviction red until it is named in ResourceKindName.
@@ -118,6 +123,10 @@ namespace Desert::Graphic
                 return "Framebuffer";
             case ResourceKind::Material:
                 return "Material";
+            case ResourceKind::BottomLevelAccelerationStructure:
+                return "BottomLevelAccelerationStructure";
+            case ResourceKind::TopLevelAccelerationStructure:
+                return "TopLevelAccelerationStructure";
             case ResourceKind::Count:
                 return "Count";
         }
