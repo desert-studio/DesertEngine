@@ -116,6 +116,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
@@ -278,8 +279,8 @@ namespace Desert::Graphic
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows, const InstanceCullDistance& cullDistance,
-                                  const InstanceWind& wind );
+                                  bool castShadows, bool castContactShadow,
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
@@ -870,6 +871,8 @@ namespace Desert::Graphic
         int   m_ContactShadowSteps                 = 12;
         float m_SunContactShadowLength             = 0.0f;
         bool  m_SunContactShadowLengthInWorldSpace = false;
+        float m_SunContactShadowCastingIntensity    = 1.0f;
+        float m_SunContactShadowNonCastingIntensity = 0.0f;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

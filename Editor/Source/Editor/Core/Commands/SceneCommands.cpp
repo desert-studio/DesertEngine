@@ -1460,6 +1460,7 @@ namespace Desert::Editor::Commands
             identity.Primitive   = mesh.Primitive;
             identity.Materials   = mesh.MaterialSlots;
             identity.CastShadows = mesh.CastShadows;
+            identity.CastContactShadow = mesh.CastContactShadow;
             return identity;
         }
     } // namespace
@@ -1615,6 +1616,7 @@ namespace Desert::Editor::Commands
         ism.Primitive              = plan.Identity.Primitive;
         ism.MaterialSlots          = plan.Identity.Materials;
         ism.CastShadows            = plan.Identity.CastShadows;
+        ism.CastContactShadow      = plan.Identity.CastContactShadow;
         ism.InstanceTransforms     = plan.InstanceTransforms;
         composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ folded } ) );
 

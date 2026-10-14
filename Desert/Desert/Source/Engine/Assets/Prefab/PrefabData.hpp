@@ -46,6 +46,7 @@ namespace Desert::Assets
         std::optional<int>                          LODBias;
         std::optional<bool>                         CastShadows;
         std::optional<bool>                         ReceiveShadows;
+        std::optional<bool>                         CastContactShadow; // written only when false
         std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
         std::optional<float>                        MaxDrawDistance; // cm; written only when set (> 0)
@@ -80,6 +81,7 @@ namespace Desert::Assets
         // Absent = component default (true), and written only when false — the same shape the static
         // and skinned mirrors use, so no existing `.desce` changes a byte and no schema version moves.
         std::optional<bool> CastShadows;
+        std::optional<bool> CastContactShadow; // the same shape as CastShadows
         // cm; absent = 0 (no limit), written only when set, the same shape as CastShadows.
         std::optional<float> MaxDrawDistance;
     };

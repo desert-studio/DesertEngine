@@ -604,6 +604,8 @@ namespace
          { "SourceAngle", kViewSettings },
          { "ContactShadowLength", kViewSettings },
          { "ContactShadowLengthInWorldSpace", kViewSettings },
+         { "ContactShadowCastingIntensity", kViewSettings },
+         { "ContactShadowNonCastingIntensity", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -622,6 +624,8 @@ namespace
          { "ShadowResolutionScale", kPointLight },
          { "ContactShadowLength", kPointLight },
          { "ContactShadowLengthInWorldSpace", kPointLight },
+         { "ContactShadowCastingIntensity", kPointLight },
+         { "ContactShadowNonCastingIntensity", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
@@ -639,6 +643,8 @@ namespace
          { "ShadowResolutionScale", kSpotLight },
          { "ContactShadowLength", kSpotLight },
          { "ContactShadowLengthInWorldSpace", kSpotLight },
+         { "ContactShadowCastingIntensity", kSpotLight },
+         { "ContactShadowNonCastingIntensity", kSpotLight },
     };
 
     constexpr Row kParticleRows[] = {

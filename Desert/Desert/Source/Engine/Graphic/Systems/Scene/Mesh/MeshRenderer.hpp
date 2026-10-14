@@ -160,6 +160,7 @@ namespace Desert::Graphic::System
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
+        bool     CastContactShadow = true; // UE bCastContactShadow: the G-buffer's NO_CONTACT_SHADOW bit (static)
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
@@ -185,6 +186,8 @@ namespace Desert::Graphic::System
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            // UE bCastContactShadow: pushed with the G-buffer draw (PrimitiveFlags) into the shading word.
+            bool                   CastContactShadow        = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
@@ -223,6 +226,7 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
+            bool                                          CastContactShadow = true; // UE bCastContactShadow
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
@@ -1115,6 +1119,9 @@ namespace Desert::Graphic::System
             // Pushed with the draw, zeros for everything but a swaying foliage field (FO-7): the push
             // block keeps its bytes between draws, so an auto-batched wall must push its own stillness.
             InstanceWindPush Wind;
+            // The push PrimitiveFlags (Common/MaterialTransport.glslh) every instance of the draw shares: a batch
+            // only holds objects that agree on them. Pushed with every draw, for the reason Wind is.
+            uint32_t PrimitiveFlags = 0;
         };
 
         // EVERY INSTANCED DRAW THAT ONE MATERIAL RECORDS, plus the two buffers those draws read.

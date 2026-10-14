@@ -14,6 +14,20 @@
 
 namespace Desert::Graphic
 {
+    // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
+    // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw
+    // that pushes 0 is a default primitive.
+    namespace PrimitiveFlag
+    {
+        // UE !bCastContactShadow (StaticMeshComponent / InstancedStaticMeshComponent::CastContactShadow off).
+        inline constexpr uint32_t NoContactShadow = 1u << 0;
+    } // namespace PrimitiveFlag
+
+    [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow )
+    {
+        return castContactShadow ? 0u : PrimitiveFlag::NoContactShadow;
+    }
+
     class Material : public IPropertyOwner
     {
     public:
@@ -88,6 +102,11 @@ namespace Desert::Graphic
         // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp): the push fields WindA/WindB.
         // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
+
+        // A G-buffer draw's per-primitive bits (PrimitiveFlag below): the push field `PrimitiveFlags`, which
+        // Mesh/Surface/Pass_GBuffer.glslh moves into the shading word. Every G-buffer draw writes it, a default
+        // primitive with 0, since the push block keeps its bytes between draws; a cell without it writes nothing.
+        void SetPrimitiveFlags( uint32_t flags );
 
         // A light-view caster's slope depth bias (Graphic::CascadeCasterBias::SlopeBias / SlopeClamp): the push
         // field `ShadowSlope`, read by a caster whose one material serves every cascade and so cannot carry it

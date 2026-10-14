@@ -41,14 +41,16 @@ layout( binding = 7 ) uniform ShadowUB
     vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
     vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
     vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
-    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
+    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
+                              // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
 };
 
 #include <Mesh/CascadedShadow.glslh>
 
 // THE CONTACT SHADOWS (UE ContactShadowLength), the same march as the deferred composite's, through the opaque
 // scene depth (u_SceneDepth, Mesh/Surface/SurfaceTypes.glslh: the G-buffer depth on the deferred path; the forward
-// path has none, and ShadowUB says 0 steps there).
+// path has none, and ShadowUB says 0 steps there). No shading word is bound here, so every hit occludes with the
+// light's Casting Intensity (ContactShadow.glslh without CONTACT_SHADOW_SHADING_WORD).
 #define CONTACT_SHADOW_DEPTH u_SceneDepth
 #define CONTACT_SHADOW_VP    cameraUB.JitteredViewProjection
 #include <Common/ContactShadow.glslh>
@@ -112,9 +114,11 @@ void main()
     // The sun is occluded by the cascades (unless the surface does not receive them) and then by the cloud
     // layer — the cloud factor AFTER the toggle, exactly as the deferred composite assembles it.
     const vec3 sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
-    int        cascade;
-    float      shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade ) *
-                   ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow.x, u_SunContactShadow.y > 0.5 );
+    // The receiver's subsurface opacity for its contact shadows (UE IsSubsurfaceModel; -1 = not subsurface).
+    const float subsurfaceOpacity = DesertSubsurfaceOpacity( DESERT_SHADING_MODEL_INDEX, payload );
+    int         cascade;
+    float       shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade ) *
+                   ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
     if ( s.ReceiveSunShadows < 0.5 )
         shadow = 1.0;
     shadow *= CloudShadowFactor( i.WorldPosition );
@@ -131,15 +135,15 @@ void main()
     for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
     {
         DesertLight point = DesertPointLightAt( pointLights[p], i.WorldPosition );
-        point.Shadow *= ContactShadowFactor( i.WorldPosition, N, point.L, pointLights[p].contactShadowLength,
-                                             pointLights[p].contactShadowInWorld != 0 );
+        point.Shadow *= ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[p] ),
+                                             subsurfaceOpacity );
         light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, point, surface, payload );
     }
     for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
     {
         DesertLight spot = DesertSpotLightAt( spotLights[p], i.WorldPosition );
-        spot.Shadow *= ContactShadowFactor( i.WorldPosition, N, spot.L, spotLights[p].contactShadowLength,
-                                            spotLights[p].contactShadowInWorld != 0 );
+        spot.Shadow *= ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[p] ),
+                                            subsurfaceOpacity );
         light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, spot, surface, payload );
     }
 

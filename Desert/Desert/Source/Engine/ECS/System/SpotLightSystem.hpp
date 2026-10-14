@@ -76,6 +76,8 @@ namespace Desert::ECS
                      light.ContactShadowLength =
                           spotlight.Data.CastShadows ? spotlight.Data.ContactShadowLength : 0.0f;
                      light.ContactShadowInWorld = spotlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
+                     light.ContactShadowCastingIntensity    = spotlight.Data.ContactShadowCastingIntensity;
+                     light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

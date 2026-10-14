@@ -57,7 +57,8 @@ layout( binding = 7 ) uniform ShadowUB
     vec4 u_CascadeTexelWorld;
     vec4 u_CascadeDepthRange;
     vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
-    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
+    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
+                              // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
 };
 #define CONTACT_SHADOW_DEPTH u_SceneDepth
 #define CONTACT_SHADOW_VP    cameraUB.JitteredViewProjection
@@ -83,8 +84,8 @@ void main()
     const vec3  H    = normalize( V + L );
     const float spec = pow( max( dot( N, H ), 0.0 ), 128.0 ) * directionLights.directionLights.ColorIntensity.a *
                        CloudShadowFactor( v_Surface.WorldPosition ) *
-                       ContactShadowFactor( v_Surface.WorldPosition, N, L, u_SunContactShadow.x,
-                                            u_SunContactShadow.y > 0.5 );
+                       ContactShadowFactor( v_Surface.WorldPosition, N, L, u_SunContactShadow,
+                                            /*not a subsurface receiver*/ -1.0 );
 
     // Screen-space refraction: the composited scene behind the surface, bent by the normal (more for a higher
     // IOR) and tinted by the surface colour.

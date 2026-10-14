@@ -27,8 +27,10 @@ namespace Desert::Graphic::ShaderProtocols
         // UE ULightComponent::ContactShadowLength / bContactShadowLengthInWS (PointLightPayload says how).
         float   ContactShadowLength  = 0.0f; // 60
         int32_t ContactShadowInWorld = 0;    // 64
-        float   _pad0                = 0.0f; // 68
-        float   _pad1                = 0.0f; // 72
+        // UE ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: the occlusion of a hit on a mesh
+        // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
+        float   ContactShadowCastingIntensity    = 1.0f; // 68
+        float   ContactShadowNonCastingIntensity = 0.0f; // 72
         float   _pad2                = 0.0f; // 76 -> 80
     };
 

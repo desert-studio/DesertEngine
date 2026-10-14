@@ -21,8 +21,8 @@ struct PointLight {
     int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
     float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float _pad0;
-    float _pad1;
+    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
+    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     float _pad2;
 };
 
@@ -39,10 +39,24 @@ struct SpotLight {
     int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
     float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float _pad0;
-    float _pad1;
+    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
+    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     float _pad2;
 };
+
+// A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
+// casting intensity, non-casting intensity).
+vec4 LightContactShadow(PointLight source)
+{
+    return vec4(source.contactShadowLength, float(source.contactShadowInWorld), source.contactShadowCastingIntensity,
+                source.contactShadowNonCastingIntensity);
+}
+
+vec4 LightContactShadow(SpotLight source)
+{
+    return vec4(source.contactShadowLength, float(source.contactShadowInWorld), source.contactShadowCastingIntensity,
+                source.contactShadowNonCastingIntensity);
+}
 
 // Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
 float SpotConeFactor(SpotLight light, vec3 L)

@@ -46,7 +46,9 @@ namespace Desert::Graphic::SceneResources
         // The contact shadows' march (Common/ContactShadow.glslh): x = ray steps (0 = none), y = tan(fovY / 2),
         // z = dither frame 0..7, w unused. Packed by PackContactShadow.
         glm::vec4 ContactShadowView;
-        glm::vec4 SunContactShadow; // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres
+        // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
+        // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
+        glm::vec4 SunContactShadow;
     };
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the
@@ -63,13 +65,16 @@ namespace Desert::Graphic::SceneResources
         uint32_t DitherFrame     = 0;     // 0..7, UE's StateFrameIndexMod8
         float    SunLength       = 0.0f;  // DirectionalLightData::ContactShadowLength (0 = none)
         bool     SunInWorldSpace = false; // DirectionalLightData::ContactShadowLengthInWorldSpace
+        float    SunCastingIntensity    = 1.0f;  // DirectionalLightData::ContactShadowCastingIntensity
+        float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
     };
 
     inline void PackContactShadow( ShadowUBData& data, const ContactShadowSettings& contact )
     {
         data.ContactShadowView = glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
                                             static_cast<float>( contact.DitherFrame ), 0.0f );
-        data.SunContactShadow  = glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f, 0.0f, 0.0f );
+        data.SunContactShadow  = glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f,
+                                            contact.SunCastingIntensity, contact.SunNonCastingIntensity );
     }
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";

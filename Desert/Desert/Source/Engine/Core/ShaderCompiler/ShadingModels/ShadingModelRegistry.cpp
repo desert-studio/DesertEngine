@@ -340,6 +340,17 @@ namespace Desert::Core::ShadingModels
                   "DesertPayload P )",
                   "EvaluateAmbient", "A, S, P" );
 
+        // UE IsSubsurfaceModel + GBuffer.CustomData.a: the model's subsurface opacity from its payload, from the
+        // manifests' SubsurfaceOpacity lines; -1 = not a subsurface model (Common/ContactShadow.glslh).
+        out +=
+             "\n// The receiver's subsurface opacity for a light's contact shadow; -1 = not a subsurface model.\n"
+             "float DesertSubsurfaceOpacity( int index, DesertPayload P )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SubsurfaceOpacityPin.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return P.{};\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.SubsurfaceOpacityPin );
+        out += "    return -1.0;\n}\n";
+
         // The shading word (ShadingModelContract.glslh): a uvec2, packed and unpacked with integer operations, its
         // bits numbered across the pair (0..31 = .x, 32..63 = .y). The NO_SUN_SHADOWS bit is not one of these
         // fields and is left to the pass.

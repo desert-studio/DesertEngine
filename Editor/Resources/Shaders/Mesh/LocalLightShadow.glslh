@@ -93,25 +93,24 @@ float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
 }
 
 // The lights as a shading model receives them, with their shadow.
-DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, vec3 N)
+// `subsurfaceOpacity`: the receiver's (DesertSubsurfaceOpacity; -1 = not a subsurface model), for its contact shadow.
+DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, vec3 N, float subsurfaceOpacity)
 {
     DesertLight light = DesertPointLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
         light.Shadow = PointLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, N, light.L, source.contactShadowLength,
-                                           source.contactShadowInWorld != 0);
+                       ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
     return light;
 }
 
-DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3 N)
+DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3 N, float subsurfaceOpacity)
 {
     DesertLight light = DesertSpotLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
         light.Shadow = SpotLightShadow(source, worldPosition, N) *
-                       ContactShadowFactor(worldPosition, N, light.L, source.contactShadowLength,
-                                           source.contactShadowInWorld != 0);
+                       ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
     return light;
 }
 

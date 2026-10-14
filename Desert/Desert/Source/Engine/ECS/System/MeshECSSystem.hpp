@@ -314,7 +314,7 @@ namespace Desert::ECS
                                   static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
                                   outlined, split.SurfaceHidden, mesh.ForcedLOD, mesh.LODBias,
                                   split.SurfaceCastShadows, mesh.ReceiveShadows, mesh.TranslucencySortPriority,
-                                  mesh.MaxDrawDistance );
+                                  mesh.MaxDrawDistance, /*motionPart*/ 0, mesh.CastContactShadow );
                      } );
             }
 
@@ -433,6 +433,7 @@ namespace Desert::ECS
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
                               targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
+                              ism.CastContactShadow,
                               Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }

@@ -28,8 +28,10 @@ namespace Desert::Graphic::ShaderProtocols
         // the receiver, or centimetres when ContactShadowInWorld; 0 = none (also when the light casts no shadow).
         float   ContactShadowLength  = 0.0f; // 44
         int32_t ContactShadowInWorld = 0;    // 48
-        float   _pad0                = 0.0f; // 52
-        float   _pad1                = 0.0f; // 56
+        // UE ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: the occlusion of a hit on a mesh
+        // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
+        float   ContactShadowCastingIntensity    = 1.0f; // 52
+        float   ContactShadowNonCastingIntensity = 0.0f; // 56
         float   _pad2                = 0.0f; // 60 -> 64
     };
 

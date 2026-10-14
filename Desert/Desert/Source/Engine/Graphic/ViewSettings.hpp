@@ -24,6 +24,10 @@ namespace Desert::Graphic
         // in the deferred composite (Common/ContactShadow.glslh). 0 = none, UE's default.
         float ContactShadowLength             = 0.0f;
         bool  ContactShadowLengthInWorldSpace = false;
+        // ...ContactShadowCastingIntensity / ...NonCastingIntensity: the occlusion of a hit on a contact-shadow
+        // caster / non-caster (UE's defaults 1 and 0).
+        float ContactShadowCastingIntensity    = 1.0f;
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     // EVERYTHING A VIEW IS GRADED AND SHADOWED WITH, RESOLVED IN ONE PLACE — UE's FFinalPostProcessSettings.
