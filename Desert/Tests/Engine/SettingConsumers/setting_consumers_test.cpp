@@ -505,12 +505,7 @@ namespace
     constexpr const char* kPointLight = "Desert/Desert/Source/Engine/ECS/System/PointLightSystem.hpp";
     constexpr const char* kSpotLight  = "Desert/Desert/Source/Engine/ECS/System/SpotLightSystem.hpp";
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
-    // VFX-07b: the scene's GPU particle state snapshots every emitter's settings into its sim push once per
-    // VFXWorld tick (ParticleWorldGpu::PrepareTick); the renderer only draws the pool.
-    constexpr const char* kParticles =
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp";
-    // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
-    // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
+    // VFX-HOST: a placed system is planned by the VFXWorld; the renderer only draws what the steps produced.
     constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
@@ -620,36 +615,7 @@ namespace
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
     };
 
-    constexpr Row kParticleRows[] = {
-         { "Enabled", kParticles },
-         { "MaxParticles", kParticles },
-         { "SpawnRate", kVFXWorld },
-         { "Looping", kVFXWorld },
-         // WIRED BY Д26, after a lifetime as a dead row: the renderer folds it into the sim push
-         // (Counts.w), and the compute pass keeps a local-mode particle's offset from the emitter and
-         // rebases it on the current emitter position — so "Simulate In World" off makes the system RIDE
-         // a moving emitter instead of trailing behind it, which is what the tooltip promised all along.
-         { "WorldSpace", kParticles },
-         { "Lifetime", kParticles },
-         { "LifetimeVariance", kParticles },
-         { "StartSpeed", kParticles },
-         { "SpeedVariance", kParticles },
-         { "Direction", kParticles },
-         { "ConeAngle", kParticles },
-         { "Gravity", kParticles },
-         { "StartSize", kParticles },
-         { "SizeCurvePower", kParticles },
-         { "EndSize", kParticles },
-         { "StartColor", kParticles },
-         { "EndColor", kParticles },
-         { "StartAlpha", kParticles },
-         { "EndAlpha", kParticles },
-         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the
-         // emitter names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
-         { "Material", kParticles },
-    };
-
-    // VFX-03b: the VFXWorld plans the played system's emitters (System) and plans none when not activated.
+    // The placed system and its activation are read where its emitters are planned (VFXWorld::Tick).
     constexpr Row kVFXRows[] = {
          { "System", kVFXWorld },
          { "AutoActivate", kVFXWorld },
@@ -1201,8 +1167,7 @@ namespace
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },
          { "PointLightData", "PointLightComponent", nullptr, CENSUS_ROWS( kPointLightRows ) },
          { "SpotLightData", "SpotLightComponent", nullptr, CENSUS_ROWS( kSpotLightRows ) },
-         { "ParticleEmitterData", "ParticleEmitterComponent", nullptr, CENSUS_ROWS( kParticleRows ) },
-         { "VFXData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
+         { "VFXComponentData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
          // The one component whose reflected type IS the component: there is no `Data` member to hop
          // through, so it anchors on its own name.
          { "SkyboxComponent", nullptr, nullptr, CENSUS_ROWS( kSkyboxRows ) },
@@ -1463,8 +1428,7 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 66 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
     // -> 67 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
     // -> 69 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
-    // -> 70 with VFX-03b's VFXData (kVFXRows: both fields read by VFXWorld.cpp).
-    EXPECT_EQ( all.size(), 70u );
+    EXPECT_EQ( all.size(), 69u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

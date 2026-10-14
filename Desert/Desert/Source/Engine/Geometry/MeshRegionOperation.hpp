@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace Desert::Geometry
 {
@@ -36,6 +37,9 @@ namespace Desert::Geometry
         std::shared_ptr<const DynamicMesh3> Mesh;
         // The moved region (Extrude, Push/Pull) or the inset region (Inset, Outset), in the selection's mode.
         ElementSelection Selection{ ElementMode::Triangle };
+        // What the operation did beyond the mesh itself, in numbers, for the log (Clean's counts). Empty when
+        // the topology change says it all.
+        std::string Report;
     };
 
     // Runs `operation` on a copy of `before`. `distance` is in cm: positive for Extrude / Inset / Outset, signed
@@ -76,6 +80,10 @@ namespace Desert::Geometry
     // as it is. Refused, naming @p name, when the mesh has tangents but no UV layer 0, or the tangents cannot be
     // written.
     [[nodiscard]] Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name );
+    // A mesh with an attribute set but no tangent space gets one, built as RecomputeTangentSpace builds it
+    // (UE's FStaticMeshBuilder computes tangents for a source without them); one that has tangents is left as
+    // it is. Refused as RecomputeTangentSpace refuses, and on a mesh with no attribute set.
+    [[nodiscard]] Common::BoolResultStr EnsureTangentSpace( DynamicMesh3& mesh, const char* name );
 
     // The Subdivide tool's settings, UE's USubdividePolyToolProperties (SubdividePolyTool.h:44-62) with its
     // defaults. Not ported: bAddExtraCorners / ExtraCornerAngleThresholdDegrees (GroupTopology here has no

@@ -255,7 +255,7 @@ namespace
 {
     // A 2 x 2-quad plane (faces 0..7) plus the three shapes an FBX export leaves behind: a degenerate face
     // (face 8), a duplicate of face 0 (face 9) and a fin on the plane's shared edge 1-3 (face 10), which
-    // EditMesh cannot share and stands on its own corner copies. Face k carries polygroup 100 + k.
+    // DynamicMesh3 cannot share and stands on its own corner copies. Face k carries polygroup 100 + k.
     Ser::MeshAssetData PlaneWithExportDebris()
     {
         Ser::MeshAssetData data;
@@ -286,7 +286,7 @@ TEST( ImportedMeshAsset, ExportDebrisIsSkippedAndTheRestKeepsItsGroups )
 
     // Every surviving face keeps ITS group: 8 plane faces and the fin; the dropped faces' groups (108, 109)
     // are gone rather than shifted onto the fin.
-    const Geometry::EditMeshSer& mesh = source.GetValue().Source.Models[0].Mesh;
+    const Geometry::MeshSavedForm& mesh = source.GetValue().Source.Models[0].Mesh;
     ASSERT_EQ( mesh.Triangles.size(), 9u * 3u );
     std::vector<int> groups = mesh.PolyGroups;
     std::ranges::sort( groups );

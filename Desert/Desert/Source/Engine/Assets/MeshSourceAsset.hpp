@@ -12,7 +12,7 @@
 //   Meta     display name + bounds of the source positions (cm) — what the registry and a thumbnail read
 //            without the body; it replaces the Reserved/flag bounds of the DESTMESH render header
 //   IMPT     MeshImportInfo: provenance (stable key and content hash of the imported file) + import settings
-//   SRCE     MeshSourceData: the source models, one EditMeshSer (our FMeshDescription) per authored LOD, the
+//   SRCE     MeshSourceData: the source models, one MeshSavedForm (our FMeshDescription) per authored LOD, the
 //            material slots they share, and for a skinned mesh its skin (bone names + per-vertex influences)
 //
 // Sections are written and read in exactly that order (META, IMPT, SRCE), nothing else: the order is part
@@ -138,7 +138,7 @@ namespace Desert::Assets
         bool               operator==( const MeshImportInfo& ) const = default;
     };
 
-    // One entry of the slot table EditMeshSer::MaterialIds index into (UE FStaticMaterial). A null GUID is an
+    // One entry of the slot table MeshSavedForm::MaterialIds index into (UE FStaticMaterial). A null GUID is an
     // unassigned slot.
     struct MeshMaterialSlot
     {
@@ -149,7 +149,7 @@ namespace Desert::Assets
 
     struct MeshSkinInfluence
     {
-        uint32_t Vertex                                       = 0; // EditMeshSer vertex index
+        uint32_t Vertex                                       = 0; // MeshSavedForm vertex index
         uint32_t Bone                                         = 0; // index into MeshSkin::BoneNames
         float    Weight                                       = 0.0f;
         bool     operator==( const MeshSkinInfluence& ) const = default;
@@ -173,7 +173,7 @@ namespace Desert::Assets
     // sibling), which the builder folds into the render LOD chain instead of simplifying LOD0.
     struct MeshSourceModel
     {
-        Geometry::EditMeshSer Mesh;
+        Geometry::MeshSavedForm Mesh;
         bool                  operator==( const MeshSourceModel& ) const = default;
     };
 
@@ -203,7 +203,7 @@ namespace Desert::Assets
     // skin's skeleton when it is not one of them.
     std::vector<Common::Content::AssetGuid> MeshSourceDependencies( const MeshSourceData& source );
     // Bounds of the source positions, cm; nullopt for a mesh with no vertices. The asset's Meta bounds are LOD0's.
-    std::optional<Common::Content::EnvelopeBounds> MeshSourceBounds( const Geometry::EditMeshSer& mesh );
+    std::optional<Common::Content::EnvelopeBounds> MeshSourceBounds( const Geometry::MeshSavedForm& mesh );
 
     // Refuse anything that is not a well-formed asset: a kind other than the two mesh kinds, a skin that
     // disagrees with the kind, out-of-range indices, a torn overlay, a bad setting, inconsistent provenance.

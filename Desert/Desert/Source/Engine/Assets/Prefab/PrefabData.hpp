@@ -39,7 +39,7 @@ namespace Desert::Assets
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
-        std::optional<Geometry::EditMeshSer> EditMesh;
+        std::optional<Geometry::MeshSavedForm> EditMesh;
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         std::optional<bool>                         OutlineDraw;
         std::optional<int>                          ForcedLOD;

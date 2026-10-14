@@ -44,7 +44,7 @@ namespace
         m.Triangles            = { 0, 1, 2, 0, 2, 3 };
         m.PolyGroups           = { 7, 7 };
         m.MaterialIds          = { 0, 0 };
-        m.Normals                      = Geometry::EditMeshOverlaySer{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
+        m.Normals                      = Geometry::MeshOverlaySavedForm{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
         m.UVs                  = { { { 0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f }, { 0, 1, 2, 0, 2, 3 } } };
         a.Source.MaterialSlots = { { "Body", kMaterial } };
         if ( skinned )

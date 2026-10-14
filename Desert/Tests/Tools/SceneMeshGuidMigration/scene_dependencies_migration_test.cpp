@@ -1,5 +1,5 @@
 // SCENE-DEPS: Header.Dependencies is gathered by ONE rule (Core::GatherSceneDependencies) on the save and in the
-// v50 -> v51 step. The step's list is the rule's list; a path-only slot and a UI sequence's sounds count, a
+// v51 -> v52 step. The step's list is the rule's list; a path-only slot and a UI sequence's sounds count, a
 // hosted header's own Guid and a prefab instance's overrides do not; and every corpus scene states exactly what
 // the rule gathers from its own records - the list a save of that scene writes.
 
@@ -72,7 +72,7 @@ TEST( SceneDependenciesMigration, TheStepStatesEveryReferenceOnceSortedAndNothin
          R"({"id":2,"PrefabPath":"Prefabs/P.deprefab","PrefabOverrides":[{"Path":[3],)"
          R"("AudioSource":{"Sound":{"Guid":"000000000000000000000000000000ff","Path":"x"}}}]}]})" ) );
 
-    const auto report = Migration::MigrateSceneDependenciesV50ToV51( scene, assets );
+    const auto report = Migration::MigrateSceneDependenciesV51ToV52( scene, assets );
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused.front();
     ASSERT_TRUE( scene.Header.has_value() );
     const std::vector<std::string> expected = {
@@ -89,7 +89,7 @@ TEST( SceneDependenciesMigration, APrefabWhoseFileStatesNoGuidRefusesAndStatesNo
     auto       scene  = Parse( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001",)"
                                       R"("Versions":{"SCNE":42,"UNIT":1},"Dependencies":["keep"]},"SceneName":"R",)"
                                       R"("Entities":[{"id":2,"PrefabPath":"Prefabs/Missing.deprefab"}]})" );
-    const auto report = Migration::MigrateSceneDependenciesV50ToV51( scene, scratch.Path() );
+    const auto report = Migration::MigrateSceneDependenciesV51ToV52( scene, scratch.Path() );
     ASSERT_EQ( report.Refused.size(), 1u );
     EXPECT_NE( report.Refused.front().find( "Missing.deprefab" ), std::string::npos );
     EXPECT_EQ( scene.Header->Dependencies, std::vector<std::string>{ "keep" } );

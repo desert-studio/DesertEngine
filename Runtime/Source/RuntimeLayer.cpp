@@ -56,7 +56,6 @@
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/VFX/VFXSystemLookup.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
@@ -572,8 +571,6 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::LevelSequenceSystem>( m_Scene.get(), m_AssetManager.get() );
-        // A VFXComponent names its system by handle; the scene has no asset manager, the host does.
-        m_Scene->GetVFXWorld().SetSystemLookup( Desert::VFX::MakeAssetSystemLookup( *m_AssetManager ) );
     }
 
     Common::BoolResultStr RuntimeLayer::OnDetach()

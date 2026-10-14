@@ -3,6 +3,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ToolCursor.hpp>
 
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
@@ -34,6 +35,19 @@ namespace Desert::Editor::Tools
     public:
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive );
+
+        // From what the last Update left: Drag while Ctrl+LMB pulls the selection, Select while a marquee or
+        // corner sweep runs and over a targeted grid face, Unavailable where the cursor targets nothing.
+        [[nodiscard]] ToolCursor Cursor() const
+        {
+            if ( !m_WasActive )
+                return ToolCursor::None;
+            if ( m_DragExtrude )
+                return ToolCursor::Drag;
+            if ( m_Selecting || m_CornerSweep || m_HoverValid )
+                return ToolCursor::Select;
+            return ToolCursor::Unavailable;
+        }
 
     private:
         void RegenMesh( ::Desert::Core::Scene& scene );                // rebuild the blockout mesh from the volume

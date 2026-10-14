@@ -7,14 +7,14 @@
 namespace Desert::Geometry
 {
     // The engine's render-mesh arrays (Vertex / Index / Submesh, what DynamicMesh and StaticMesh are built
-    // from), as both editable-mesh cores convert to and from them: EditMesh (EditMeshConversion.hpp) and
+    // from), as the editable-mesh core converts to and from them:
     // DynamicMesh3 (DynamicMeshRenderConversion.hpp). Kept free of the GPU classes so it is testable without
     // a device.
     //
     // THE RENDER SIDE HAS NO TOPOLOGY. A render vertex is one (position, normal, tangent frame, UV) tuple, so
-    // an EditMesh corner is emitted once per distinct combination of the elements its triangles use there:
+    // a mesh corner is emitted once per distinct combination of the elements its triangles use there:
     // every seam in a carried layer becomes duplicated render vertices, and nothing else does. A cube with
-    // a hard-edged normal layer is 8 EditMesh vertices and 24 render vertices.
+    // a hard-edged normal layer is 8 mesh vertices and 24 render vertices.
     //
     // WHAT CROSSES AND WHAT CANNOT. The render Vertex carries one normal, one tangent + bitangent and ONE UV
     // channel. So the conversion carries the normal overlay, the tangent overlay (bitangent = cross(N, T) * w,
@@ -39,7 +39,7 @@ namespace Desert::Geometry
         // turns each non-empty one back into that layer.
         std::vector<glm::vec4> Colors;
         std::vector<glm::vec2> UV1;
-        // ToRenderMesh only: the EditMesh vertex each render vertex came from, and the EditMesh triangle each
+        // ToRenderMesh only: the source mesh vertex each render vertex came from, and the source triangle each
         // render triangle came from - what a tool needs to map a pick or a paint stroke back.
         std::vector<int> SourceVertices;
         std::vector<int> SourceTriangles;

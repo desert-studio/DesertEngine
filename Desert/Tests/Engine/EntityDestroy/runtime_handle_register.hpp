@@ -147,12 +147,12 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Emitters",
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Systems",
            Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
-           "RetireDestroyedEmitters( m_Emitters, reg )",
-           "the emitter's step/counter/dispatch buffers in the scene's pool; PrepareTick drops emitters whose "
-           "entity "
-           "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
-           "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
+           "RetireDestroyedEmitters( m_Systems, reg )",
+           "each VFX system's per-emitter step/counter/dispatch buffers in the scene's pool (VFX-HOST); "
+           "PrepareTick drops systems whose entity is gone or lost the component, released through the "
+           "allocator's deletion ring (EntityDestroy.DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletion"
+           "Ring)" },
     } };
 } // namespace Desert::Tests::RuntimeHandles
