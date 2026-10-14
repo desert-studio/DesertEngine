@@ -81,27 +81,32 @@
             "Low": {
                 "ViewDistance.MeshLOD": 1,
                 "ViewDistance.FoliageCullPercent": 50,
-                "ViewDistance.FoliageDensityPercent": 50
+                "ViewDistance.FoliageDensityPercent": 50,
+                "ViewDistance.LandscapeLodPercent": 50
             },
             "Medium": {
                 "ViewDistance.MeshLOD": 1,
                 "ViewDistance.FoliageCullPercent": 75,
-                "ViewDistance.FoliageDensityPercent": 75
+                "ViewDistance.FoliageDensityPercent": 75,
+                "ViewDistance.LandscapeLodPercent": 75
             },
             "High": {
                 "ViewDistance.MeshLOD": 1,
                 "ViewDistance.FoliageCullPercent": 100,
-                "ViewDistance.FoliageDensityPercent": 100
+                "ViewDistance.FoliageDensityPercent": 100,
+                "ViewDistance.LandscapeLodPercent": 100
             },
             "Epic": {
                 "ViewDistance.MeshLOD": 1,
                 "ViewDistance.FoliageCullPercent": 100,
-                "ViewDistance.FoliageDensityPercent": 100
+                "ViewDistance.FoliageDensityPercent": 100,
+                "ViewDistance.LandscapeLodPercent": 100
             },
             "Cinematic": {
                 "ViewDistance.MeshLOD": 0,
                 "ViewDistance.FoliageCullPercent": 100,
-                "ViewDistance.FoliageDensityPercent": 100
+                "ViewDistance.FoliageDensityPercent": 100,
+                "ViewDistance.LandscapeLodPercent": 100
             }
         },
         "Effects": {

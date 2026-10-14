@@ -337,7 +337,8 @@ namespace Desert::Editor
         {
             // The ViewDistance group's foliage rows, one slider each within its spec range.
             for ( const SC::Parameter foliage :
-                  { SC::Parameter::FoliageCullDistancePercent, SC::Parameter::FoliageDensityPercent } )
+                  { SC::Parameter::FoliageCullDistancePercent, SC::Parameter::FoliageDensityPercent,
+                    SC::Parameter::LandscapeLodDistancePercent } )
             {
                 const SC::ParameterSpec& spec  = SC::SpecOf( foliage );
                 int                      value = Requested( foliage );
@@ -346,7 +347,9 @@ namespace Desert::Editor
             }
             ImGui::TextDisabled( "100 / 100 is every foliage field as authored. Cull Percent pulls both ends of\n"
                                  "each foliage type's CullDistance fade in; Density Percent draws that share\n"
-                                 "of every field (shadows follow)." );
+                                 "of every field (shadows follow). Landscape LOD Percent scales the distance
+                                 "
+                                 "at which each landscape LOD gives way to the coarser one." );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Particles" ) )

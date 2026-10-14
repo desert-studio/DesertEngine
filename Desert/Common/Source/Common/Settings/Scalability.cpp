@@ -70,6 +70,8 @@ namespace Common::Scalability
              { P::ParticleSpawnPercent, G::Effects, "Effects.ParticleSpawnPercent", 25, 100, CL::None,
                "RenderConfig::ParticleSpawnPercent -> Scene::Update VFXWorld::SetSpawnCountScale -> "
                "SpawnState::Step" },
+             { P::LandscapeLodDistancePercent, G::ViewDistance, "ViewDistance.LandscapeLodPercent", 25, 100,
+               CL::None, "TerrainRenderer::SetLodDistanceScale (SceneRenderer::BeginScene) -> TileLod" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },

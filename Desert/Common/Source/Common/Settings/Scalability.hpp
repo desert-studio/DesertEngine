@@ -124,6 +124,9 @@ namespace Common::Scalability
         // and burst counts spawned (VFX::SpawnState::Step via VFXWorld::SetSpawnCountScale). Gameplay channel
         // spawns are not scaled. 100 at High/Epic/Cinematic.
         ParticleSpawnPercent, // 25..100
+        // UE r.ViewDistanceScale on the landscape's LOD: every landscape LOD's switch distance times this
+        // percent (TerrainRenderer::SetLodDistanceScale -> LandscapeLodAtDistanceScale). 100 at High+.
+        LandscapeLodDistancePercent, // ViewDistance. 25..100
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         ShadowRayTracing,             // Shadows: RayTracingMode

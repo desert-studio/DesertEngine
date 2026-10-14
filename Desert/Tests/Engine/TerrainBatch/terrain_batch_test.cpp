@@ -15,6 +15,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
 using Desert::Graphic::MaterialOverrides;
+using Desert::Graphic::System::LandscapeLodAtDistanceScale;
 using Desert::Graphic::System::LandscapeLodFromScreenSize;
 using Desert::Graphic::System::LandscapeLodSettings;
 using Desert::Graphic::System::LandscapeLodVertexCount;
@@ -127,6 +128,23 @@ TEST( LandscapeLod, UEScreenSizeRatiosAndTheLastLod )
 
 // A border's LOD is one number for both tiles of it, and a corner's for all four — the relation the seams
 // rest on (LandscapeLod.glslh). Checked on a 3 x 3 block with every LOD different.
+// ViewDistance.LandscapeLodPercent: at scale s a tile takes the LOD it had at distance d / s, i.e. at s^2 times
+// its screen size squared. Scale 1 is the authored LOD; Low's 0.5 makes the same tile coarser. Red if TileLod's
+// helper ignores the scale.
+TEST( LandscapeLod, TheLodDistanceScaleMovesEverySwitchDistance )
+{
+    const auto s = Desert::Graphic::System::MakeLandscapeLodSettings( 64u );
+    for ( const float size : { 1.0f, 0.2f, 0.16f, 0.01f, 1e-4f } )
+    {
+        EXPECT_FLOAT_EQ( LandscapeLodAtDistanceScale( s, size, 1.0f ), LandscapeLodFromScreenSize( s, size ) );
+        EXPECT_FLOAT_EQ( LandscapeLodAtDistanceScale( s, size, 0.5f ),
+                         LandscapeLodFromScreenSize( s, size * 0.25f ) );
+    }
+    // A tile exactly on LOD 1 at full scale is between LOD 1 and 2 at half scale (0.16 / 4 lies in (0.16 / 9,
+    // 0.16)).
+    EXPECT_GT( LandscapeLodAtDistanceScale( s, 0.16f, 0.5f ), LandscapeLodAtDistanceScale( s, 0.16f, 1.0f ) );
+}
+
 TEST( LandscapeLod, BordersAndCornersAreOneValueForEveryTileSharingThem )
 {
     const float lods[3][3] = { { 0.2f, 1.7f, 3.1f }, { 2.4f, 0.0f, 5.9f }, { 1.1f, 4.4f, 0.6f } };

@@ -69,6 +69,13 @@ namespace Desert::Graphic::System
         // Under a zero-cascade budget there are none and none is built (RecordShadowCascade is never reached).
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
+        // ViewDistance.LandscapeLodPercent / 100, pushed by SceneRenderer::BeginScene with the rest of the
+        // quality; every tile's LOD in PrepareFrame reads it (LandscapeLodAtDistanceScale). 1 = authored.
+        void SetLodDistanceScale( float scale )
+        {
+            m_LodDistanceScale = scale;
+        }
+
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
         // matrices — the same view every other pass of the frame draws for. Nothing may draw a terrain this
@@ -100,6 +107,8 @@ namespace Desert::Graphic::System
         }
 
     private:
+        float m_LodDistanceScale = 1.0f; // SetLodDistanceScale
+
         // One texture set's materials, one per program. Textures are the materials' identity (see
         // TerrainTextureKey), so each program needs its own copy of the set.
         struct ProgramMaterials

@@ -115,17 +115,18 @@ namespace Desert::Graphic::System
         // The tile's continuous LOD for the main camera: its bounding sphere's screen size, UE's way. The
         // sphere holds the tile's full height range, not its actual heights — a taller sphere only means
         // finer detail sooner.
-        float TileLod( const LandscapeTileDraw& l, const glm::vec3& viewOrigin, const glm::mat4& projection )
+        float TileLod( const LandscapeTileDraw& l, const glm::vec3& viewOrigin, const glm::mat4& projection,
+                       const float lodDistanceScale )
         {
             const float     extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
             const glm::vec3 center(
                  l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent, l.BaseY,
                  l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
-            return LandscapeLodFromScreenSize(
-                 MakeLandscapeLodSettings( l.QuadsPerTile ),
-                 Geometry::BoundsScreenRadiusSquared( center, radius,
-                                                      Geometry::LODView{ viewOrigin, projection } ) );
+            return LandscapeLodAtDistanceScale( MakeLandscapeLodSettings( l.QuadsPerTile ),
+                                                Geometry::BoundsScreenRadiusSquared(
+                                                     center, radius, Geometry::LODView{ viewOrigin, projection } ),
+                                                lodDistanceScale );
         }
     } // namespace
 
@@ -253,7 +254,8 @@ namespace Desert::Graphic::System
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
         for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, frame.CameraPosition, frame.Projection );
+            tileLods[KeyOf( t.Landscape, 0, 0 )] =
+                 TileLod( t.Landscape, frame.CameraPosition, frame.Projection, m_LodDistanceScale );
 
         for ( const auto& t : m_Queue )
         {

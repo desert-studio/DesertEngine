@@ -58,11 +58,11 @@ namespace
       "Cinematic": { "Filtering.Texture": 3, "Filtering.Anisotropy": 16 }
     },
     "ViewDistance": {
-      "Low":       { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 50, "ViewDistance.FoliageDensityPercent": 50 },
-      "Medium":    { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 75, "ViewDistance.FoliageDensityPercent": 75 },
-      "High":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 },
-      "Epic":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 },
-      "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100 }
+      "Low":       { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 50, "ViewDistance.FoliageDensityPercent": 50, "ViewDistance.LandscapeLodPercent": 50 },
+      "Medium":    { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 75, "ViewDistance.FoliageDensityPercent": 75, "ViewDistance.LandscapeLodPercent": 75 },
+      "High":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 },
+      "Epic":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 },
+      "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 }
     },
     "Effects": {
       "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50, "Effects.ParticleSpawnPercent": 50 },
@@ -563,6 +563,19 @@ TEST( ScalabilityContract, TheEffectsLevelChangesTheParticleSpawnShare )
     low.Levels[static_cast<std::size_t>( Group::Effects )] = Level::Low;
     EXPECT_EQ( Resolve( low, Table(), c ).As<int>( Parameter::ParticleSpawnPercent ), 50 );
     EXPECT_EQ( SpecOf( Parameter::ParticleSpawnPercent ).Owner, Group::Effects );
+}
+
+// ViewDistance.LandscapeLodPercent is the switch-distance scale TerrainRenderer's TileLod reads (the TerrainBatch
+// suite pins LandscapeLodAtDistanceScale): High and above authored, Low half the distances.
+TEST( ScalabilityContract, TheViewDistanceLevelChangesTheLandscapeLodDistance )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( Resolve( AllAt( level ), Table(), c ).As<int>( Parameter::LandscapeLodDistancePercent ), 100 );
+    QualitySelection low                                        = AllAt( Level::Epic );
+    low.Levels[static_cast<std::size_t>( Group::ViewDistance )] = Level::Low;
+    EXPECT_EQ( Resolve( low, Table(), c ).As<int>( Parameter::LandscapeLodDistancePercent ), 50 );
+    EXPECT_EQ( SpecOf( Parameter::LandscapeLodDistancePercent ).Owner, Group::ViewDistance );
 }
 
 TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingElse )

@@ -203,6 +203,15 @@ namespace Desert::Graphic::System
                                      std::log( settings.LODOnePlusDistributionScalarSquared ) );
     }
 
+    // ViewDistance.LandscapeLodPercent (UE r.ViewDistanceScale as the landscape LOD reads it): every LOD's switch
+    // distance times @p lodDistanceScale. A tile at distance d takes the LOD it had at d / scale, whose screen
+    // size squared is this one's times scale^2 - below 1 each LOD gives way to the coarser one sooner.
+    inline float LandscapeLodAtDistanceScale( const LandscapeLodSettings& settings, float screenSizeSquared,
+                                              float lodDistanceScale )
+    {
+        return LandscapeLodFromScreenSize( settings, screenSizeSquared * lodDistanceScale * lodDistanceScale );
+    }
+
     // A tile's LOD and what its borders and corners take. `lodAt(dx, dz)` is the continuous LOD of the tile
     // at that offset from this one, or nullopt where there is none (the landscape's own edge: nothing to
     // agree with there, so the tile's own LOD). max() on both sides of a border is what makes it one value.
