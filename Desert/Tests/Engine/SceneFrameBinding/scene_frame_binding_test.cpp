@@ -342,9 +342,10 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
     // The cloud-shadow pair: the block uploaded by Graphic::CloudShadowUpload out of the same snapshot, the
     // map bound by the mesh node through RDG::PassBindings — see the note on SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
-    // The opaque scene depth the contact shadows march: a pass parameter too, bound by the mesh node from
-    // SceneViewInputs::SceneDepth (Graphic::kSceneViewSceneDepthName), never by the frame snapshot.
-    const char* kSceneDepth = "u_SceneDepth";
+    // The opaque scene depth the contact shadows march and the shading word whose caster bit they read at the
+    // hit: pass parameters too, bound by the mesh node from SceneViewInputs::SceneDepth / SceneShadingWord
+    // (Graphic::kSceneViewSceneDepthName / kSceneViewSceneShadingWordName), never by the frame snapshot.
+    const char* kSceneDepth[] = { "u_SceneDepth", "u_SceneShadingWord" };
 
     for ( const auto& shader : kMeshShaders )
     {
@@ -364,7 +365,8 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
              [&accounted]( const auto& param, uint64_t ) { accounted.insert( param.Name ); } );
         for ( const char* name : kCloudShadow )
             accounted.insert( name );
-        accounted.insert( kSceneDepth );
+        for ( const char* name : kSceneDepth )
+            accounted.insert( name );
         if ( shader.PerObjectVertexBuffer )
             accounted.insert( shader.PerObjectVertexBuffer );
         // Only the motion groups THIS cell is meant to read: the instanced cell declaring rows is red here.
