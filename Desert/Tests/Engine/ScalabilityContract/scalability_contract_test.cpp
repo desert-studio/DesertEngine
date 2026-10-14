@@ -10,6 +10,7 @@
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
+#include <Engine/Graphic/Clouds/CloudQuality.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <gtest/gtest.h>
@@ -63,11 +64,11 @@ namespace
       "Cinematic": { "ViewDistance.MeshLOD": 0 }
     },
     "Effects": {
-      "Low":       { "Effects.CloudQuality": 0 },
-      "Medium":    { "Effects.CloudQuality": 1 },
-      "High":      { "Effects.CloudQuality": 2 },
-      "Epic":      { "Effects.CloudQuality": 2 },
-      "Cinematic": { "Effects.CloudQuality": 2 }
+      "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50 },
+      "Medium":    { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 0 },
+      "High":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 },
+      "Epic":      { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 },
+      "Cinematic": { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 }
     },
     "Textures": {
       "Low":       { "Textures.MipBias": 100, "Textures.StreamingPoolMiB": 512 },
@@ -226,7 +227,9 @@ TEST( ScalabilityContract, TheRetiredMachineSettingsFieldsAreGroupParameters )
     EXPECT_EQ( SpecOf( Parameter::TextureFilter ).Owner, Group::Filtering );
     EXPECT_EQ( SpecOf( Parameter::Anisotropy ).Owner, Group::Filtering );
     EXPECT_EQ( SpecOf( Parameter::MeshLOD ).Owner, Group::ViewDistance );
-    EXPECT_EQ( SpecOf( Parameter::CloudQuality ).Owner, Group::Effects );
+    EXPECT_EQ( SpecOf( Parameter::CloudLightSamples ).Owner, Group::Effects );
+    EXPECT_EQ( SpecOf( Parameter::CloudShadowMapPercent ).Owner, Group::Effects );
+    EXPECT_EQ( SpecOf( Parameter::CloudStopTransmittancePerMille ).Owner, Group::Effects );
     EXPECT_EQ( SpecOf( Parameter::RenderScalePercent ).Owner, Group::ResolutionScale );
     EXPECT_EQ( SpecOf( Parameter::Upscaler ).Owner, Group::ResolutionScale );
 }
@@ -247,11 +250,12 @@ TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
 {
     std::string bad( kTable );
     bad.replace( bad.find( "\"Filtering.Anisotropy\": 4" ), 25, "\"Filtering.Anisotrophy\": 4" ); // unknown key
-    bad.replace( bad.find( "\"Effects.CloudQuality\": 1" ), 25, "\"Effects.CloudQuality\": 9" );  // out of range
+    // Medium's (Low has 16): out of the 8..64 range.
+    bad.replace( bad.find( "\"Effects.CloudLightSamples\": 64" ), 31, "\"Effects.CloudLightSamples\": 99" );
     const auto parsed = ScalabilityTable::Parse( bad );
     ASSERT_FALSE( parsed.IsSuccess() );
     EXPECT_NE( parsed.GetError().find( "Filtering.Anisotrophy" ), std::string::npos );
-    EXPECT_NE( parsed.GetError().find( "Effects.CloudQuality" ), std::string::npos );
+    EXPECT_NE( parsed.GetError().find( "Effects.CloudLightSamples" ), std::string::npos );
     // Each error names where it sits in the file.
     EXPECT_NE( parsed.GetError().find( "Groups.Effects.Medium" ), std::string::npos ) << parsed.GetError();
 }
@@ -288,7 +292,7 @@ TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
 TEST( ScalabilityContract, AParameterUnderAGroupThatDoesNotOwnItIsRefused )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "\"ViewDistance.MeshLOD\": 0" ), 25, "\"Effects.CloudQuality\": 0" );
+    bad.replace( bad.find( "\"ViewDistance.MeshLOD\": 0" ), 25, "\"Effects.CloudLightSamples\": 16" );
     EXPECT_FALSE( ScalabilityTable::Parse( bad ).IsSuccess() );
 }
 
@@ -465,6 +469,45 @@ TEST( ScalabilityContract, AGroupLevelGivesTheTableValuesWithNoFallbackOnACapabl
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::Anisotropy )], 8 );
     EXPECT_EQ( r.Scale, ScaleMode::Native );
+}
+
+// SCAL-COVER: THE EFFECTS LEVEL REACHES THE CLOUD LAYER. Graphic::CloudQualityFor( ResolvedQuality ) is the one
+// function SceneRenderer::SetQuality hands the cloud renderer; this drives it from a resolved selection, so a
+// Cloud* row nothing reads, or a CloudQualityFor that drops a knob, goes red here.
+TEST( ScalabilityContract, TheEffectsLevelAndEachCloudOverrideChangeWhatTheCloudLayerReads )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+
+    const Desert::Graphic::CloudQualityScale epic =
+         Desert::Graphic::CloudQualityFor( Resolve( AllAt( Level::Epic ), Table(), c ) );
+    EXPECT_EQ( epic.LightMarchSampleCeiling, 64 );
+    EXPECT_FLOAT_EQ( epic.ShadowMapScale, 1.0f );
+    EXPECT_FLOAT_EQ( epic.StopTransmittanceFloor, 0.0f );
+
+    QualitySelection low                                   = AllAt( Level::Epic );
+    low.Levels[static_cast<std::size_t>( Group::Effects )] = Level::Low;
+    const Desert::Graphic::CloudQualityScale cheap =
+         Desert::Graphic::CloudQualityFor( Resolve( low, Table(), c ) );
+    EXPECT_EQ( cheap.LightMarchSampleCeiling, 16 );
+    EXPECT_FLOAT_EQ( cheap.ShadowMapScale, 0.5f );
+    EXPECT_FLOAT_EQ( cheap.StopTransmittanceFloor, 0.05f );
+
+    // Each knob alone, through an override on top of Epic: only its own field moves.
+    const auto withOverride = [&]( Parameter parameter, ParameterValue value )
+    {
+        QualitySelection s = AllAt( Level::Epic );
+        s.Overrides.push_back( { std::string( SpecOf( parameter ).Key ), value } );
+        return Desert::Graphic::CloudQualityFor( Resolve( s, Table(), c ) );
+    };
+    const auto light = withOverride( Parameter::CloudLightSamples, 24 );
+    EXPECT_EQ( light.LightMarchSampleCeiling, 24 );
+    EXPECT_FLOAT_EQ( light.ShadowMapScale, 1.0f );
+    const auto map = withOverride( Parameter::CloudShadowMapPercent, 75 );
+    EXPECT_FLOAT_EQ( map.ShadowMapScale, 0.75f );
+    EXPECT_EQ( map.LightMarchSampleCeiling, 64 );
+    const auto stop = withOverride( Parameter::CloudStopTransmittancePerMille, 20 );
+    EXPECT_FLOAT_EQ( stop.StopTransmittanceFloor, 0.02f );
+    EXPECT_FLOAT_EQ( stop.ShadowMapScale, 1.0f );
 }
 
 TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingElse )
@@ -680,13 +723,16 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
 {
     // MachineSettings before SCAL1 (c830e1a8c^): AAMethod = FXAA; MSAASamples = 4 was read only under MSAA, so
     // FXAA ran at one sample; MeshLOD = true; TextureFilterMode = Trilinear; Anisotropy = 8 (read only under
-    // Anisotropic); CloudQualityTier = High.
+    // Anisotropic); CloudQualityTier = High, whose numbers (CloudQuality.hpp before SCAL-COVER) were the
+    // identities: light-march ceiling 64 = ECS::kCloudLightMarchMaxSamples, shadow map scale 1, stop floor 0.
     constexpr auto           kOldAntiAliasing = static_cast<ParameterValue>( AntiAliasingMethod::FXAA );
     constexpr ParameterValue kOldSamples      = 1;
     constexpr ParameterValue kOldMeshLOD      = 1;
     constexpr auto kOldFilter = static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
     constexpr ParameterValue kOldAnisotropy = 8;
-    constexpr auto kOldCloudQuality         = static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
+    constexpr ParameterValue kOldCloudLightSamples = 64;
+    constexpr ParameterValue kOldCloudShadowMap    = 100;
+    constexpr ParameterValue kOldCloudStop         = 0;
     // Graphic::kSceneShadowQuality (ShadowCascades.hpp): 4 cascades of 2048 over 150 m.
     constexpr ParameterValue kOldShadowCascades = 4;
     constexpr ParameterValue kOldShadowMapSize  = 2048;
@@ -717,7 +763,16 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::MeshLOD ), kOldMeshLOD );
     EXPECT_EQ( high( Parameter::TextureFilter ), kOldFilter );
     EXPECT_EQ( high( Parameter::Anisotropy ), kOldAnisotropy );
-    EXPECT_EQ( high( Parameter::CloudQuality ), kOldCloudQuality );
+    // The owner's rule for SCAL-COVER: the cloud look at High AND Epic AND Cinematic is the calibrated one.
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+    {
+        EXPECT_EQ( table.ValueAt( Parameter::CloudLightSamples, level ), kOldCloudLightSamples )
+             << LevelKey( level );
+        EXPECT_EQ( table.ValueAt( Parameter::CloudShadowMapPercent, level ), kOldCloudShadowMap )
+             << LevelKey( level );
+        EXPECT_EQ( table.ValueAt( Parameter::CloudStopTransmittancePerMille, level ), kOldCloudStop )
+             << LevelKey( level );
+    }
     EXPECT_EQ( high( Parameter::ShadowCascades ), kOldShadowCascades );
     EXPECT_EQ( high( Parameter::ShadowMapSize ), kOldShadowMapSize );
     EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );

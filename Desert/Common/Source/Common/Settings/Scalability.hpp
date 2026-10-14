@@ -34,7 +34,7 @@
 // THE FORMER MachineSettings FIELDS (SCAL1-S2) — each is now a Parameter of the table:
 //     AAMethod -> AntiAliasingMethod, MSAASamples -> AntiAliasingSamples (AntiAliasing); TextureFilterMode ->
 //     TextureFilter, Anisotropy -> Anisotropy (Filtering); MeshLOD -> MeshLOD (ViewDistance); CloudQualityTier ->
-//     CloudQuality (Effects; UE puts volumetric clouds under sg.EffectsQuality).
+//     the three Effects.Cloud* cost knobs (SCAL-COVER split the tier; UE puts clouds under sg.EffectsQuality).
 //   The six fields were DELETED from MachineSettings and its JSON; MachineSettings gained
 //   `std::optional<QualitySelection> Quality`. Nothing migrates the old keys at load: a machine.json that still
 //   carries one keeps it as an unknown key (named in a WARN). The former per-setting AA resolvers and
@@ -96,7 +96,12 @@ namespace Common::Scalability
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
-        CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
+        // The volumetric cloud layer's three COST knobs (Graphic::CloudQualityFor). Each composes with the
+        // authored component value toward the cheaper side, so none can make a scene dearer than authored, and
+        // the High/Epic/Cinematic values are the identities (the calibrated look, unchanged).
+        CloudLightSamples,              // ceiling on VolumetricCloudData::LightMarchSamples. 8..64
+        CloudShadowMapPercent,          // cloud shadow map resolution + extent + snap, together. 50..100
+        CloudStopTransmittancePerMille, // floor under VolumetricCloudData::StopTransmittance, 1/1000. 0..100
         // The three shadow rows: a level's viewport re-allocates its cascade maps when they change.
         ShadowCascades, // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
         ShadowMapSize,  // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
@@ -131,7 +136,7 @@ namespace Common::Scalability
     // Which catalog list a parameter's values are checked against, if any.
     enum class CatalogList : int
     {
-        None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, CloudQuality)
+        None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, Cloud*)
         AntiAliasingMethods,
         MSAACounts,
         Upscalers,

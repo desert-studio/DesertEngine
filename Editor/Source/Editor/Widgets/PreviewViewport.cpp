@@ -1203,9 +1203,14 @@ namespace Desert::Editor
         // reason it exists: a view's transient idea of what it needs must not become the user's permanent
         // one. Pushed every frame, like EditorLayer pushes the viewport's, so the pane follows a change
         // made in Scene Settings instead of holding whatever the machine said when the panel opened.
-        Common::Scalability::ResolvedQuality quality = Common::Scalability::QualityState::Resolved();
-        quality.Values[static_cast<std::size_t>( Common::Scalability::Parameter::CloudQuality )] =
-             static_cast<Common::Scalability::ParameterValue>( Common::Settings::CloudQuality::Low );
+        // The cheap cloud budget is the TABLE's Low Effects level (one source of truth), not numbers restated
+        // here.
+        namespace SC                        = Common::Scalability;
+        SC::ResolvedQuality         quality = SC::QualityState::Resolved();
+        const SC::ScalabilityTable& table   = SC::QualityState::Table();
+        for ( const SC::Parameter cloud : { SC::Parameter::CloudLightSamples, SC::Parameter::CloudShadowMapPercent,
+                                            SC::Parameter::CloudStopTransmittancePerMille } )
+            quality.Values[static_cast<std::size_t>( cloud )] = table.ValueAt( cloud, SC::Level::Low );
         m_Renderer->SetQuality( quality );
 
         ApplyCamera( m_Width, m_Height );

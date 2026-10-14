@@ -461,26 +461,28 @@ TEST( CloudShadowMap, TheTexelResolvesWhatTheMarchCanFind )
 
 namespace
 {
-    // Every enumerator, listed once. A new tier that is not added here is a tier nothing checks, which is
-    // why the count is asserted below rather than left to the reader.
-    constexpr Common::Settings::CloudQuality kAllTiers[] = {
-         Common::Settings::CloudQuality::Low,
-         Common::Settings::CloudQuality::Medium,
-         Common::Settings::CloudQuality::High,
+    // THE CORNERS OF THE THREE Effects.Cloud* PARAMETERS (SCAL-COVER), not the levels the shipped table holds:
+    // a relation that holds at every legal value cannot be broken by retuning the table. Ordered by ascending
+    // shadow-map footprint (the ladder test below needs that). Every Shadow Map Percent here is a multiple of
+    // 25 so 512 x scale is a whole texel count; TheCasesSpanEveryParameterRange asserts the ends ARE the spec's,
+    // so widening a range without widening this list goes red.
+    struct CloudTierCase
+    {
+        const char* Name;
+        int32_t     LightSamples;
+        int32_t     ShadowMapPercent;
+        int32_t     StopPerMille;
+    };
+    constexpr CloudTierCase kAllTiers[] = {
+         { "map50/light8/stop100", 8, 50, 100 },
+         { "map50/light16/stop50", 16, 50, 50 },
+         { "map75/light64/stop0", 64, 75, 0 },
+         { "map100/light64/stop0", 64, 100, 0 },
     };
 
-    const char* TierName( Common::Settings::CloudQuality tier )
+    Desert::Graphic::CloudQualityScale QualityOf( const CloudTierCase& tier )
     {
-        switch ( tier )
-        {
-            case Common::Settings::CloudQuality::Low:
-                return "Low";
-            case Common::Settings::CloudQuality::Medium:
-                return "Medium";
-            case Common::Settings::CloudQuality::High:
-                return "High";
-        }
-        return "?";
+        return Desert::Graphic::CloudQualityFor( tier.LightSamples, tier.ShadowMapPercent, tier.StopPerMille );
     }
 
     // The component's default Max Steps, which no tier lowers and which
@@ -500,20 +502,20 @@ TEST( CloudShadowMapTiers, EveryTierKeepsTheTexelInsideTheChordTheMarchCanFind )
     // shader's own text is the one this test wants: it is the thing being held to a relation.
     const float chordKm = Desert::Tests::CloudShadowRef::CloudFinestResolvableChordKm( kDefaultMaxStepsAllTiers );
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTierCase& tier : kAllTiers )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = QualityOf( tier );
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
         const float             texelKm    = CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) );
 
         std::printf( "[CloudShadowMapTiers] %-6s  map %ux%u over %.1f km radius -> texel %.1f m, chord "
                      "%.1f m (%.2fx), samples <= %d\n",
-                     TierName( tier ), resolution, resolution, extentKm, texelKm * 1000.0f, chordKm * 1000.0f,
+                     tier.Name, resolution, resolution, extentKm, texelKm * 1000.0f, chordKm * 1000.0f,
                      texelKm / chordKm, scale.LightMarchSampleCeiling );
 
         EXPECT_LE( texelKm, chordKm )
-             << TierName( tier ) << " gives the shadow map a texel of " << texelKm * 1000.0f << " m against the "
+             << tier.Name << " gives the shadow map a texel of " << texelKm * 1000.0f << " m against the "
              << chordKm * 1000.0f
              << " m chord the view march can be relied on to find, so the map would be quantizing cloud "
                 "the sky visibly has. Scale the extent WITH the resolution — that is what "
@@ -521,7 +523,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsTheTexelInsideTheChordTheMarchCanFind )
                 "resolution alone";
 
         EXPECT_GE( texelKm, chordKm * 0.5f )
-             << TierName( tier )
+             << tier.Name
              << " is storing detail the march cannot produce — resolution spent on "
                 "nothing, which is the opposite failure and just as much a defect";
     }
@@ -553,9 +555,9 @@ TEST( CloudShadowMapTiers, EveryTierFadesItsBorderOverAtLeastTenTexels )
 {
     using namespace Desert::Graphic;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTierCase& tier : kAllTiers )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = QualityOf( tier );
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
         const float             texelKm    = CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) );
@@ -565,8 +567,7 @@ TEST( CloudShadowMapTiers, EveryTierFadesItsBorderOverAtLeastTenTexels )
         // stopped being a UV constant — so the ten-texel span survives a tier that halves the map.
         EXPECT_NEAR( bandKm, CLOUD_SHADOWMAP_BORDER_FADE_KM, 1e-4f );
         EXPECT_GT( bandKm, 10.0f * texelKm )
-             << TierName( tier )
-             << " fades its border over fewer than ten texels, which bands instead of blending";
+             << tier.Name << " fades its border over fewer than ten texels, which bands instead of blending";
     }
 }
 
@@ -581,17 +582,17 @@ TEST( CloudShadowMapTiers, EveryTierGuaranteesCoverageAroundTheCameraAndTheLadde
     float previousCoverageKm = 0.0f;
     float previousCostShare  = 0.0f;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers ) // Low -> Medium -> High
+    for ( const CloudTierCase& tier : kAllTiers ) // ascending shadow-map footprint
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = QualityOf( tier );
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
 
         const float coverageKm = extentKm - 0.5f * snapKm;
-        EXPECT_GT( coverageKm, 0.0f ) << TierName( tier ) << " guarantees no cloud shadow anywhere at all";
+        EXPECT_GT( coverageKm, 0.0f ) << tier.Name << " guarantees no cloud shadow anywhere at all";
         EXPECT_NEAR( coverageKm / extentKm, 2.0f / 3.0f, 1e-5f )
-             << TierName( tier ) << " does not keep the snap in proportion to the extent";
+             << tier.Name << " does not keep the snap in proportion to the extent";
 
         // MONOTONE IN BOTH DIRECTIONS, which is the property that makes this a ladder rather than three
         // opinions: a more expensive tier must never cover less world, and must never cost less.
@@ -603,9 +604,40 @@ TEST( CloudShadowMapTiers, EveryTierGuaranteesCoverageAroundTheCameraAndTheLadde
         EXPECT_GE( costShare, previousCostShare );
         previousCostShare = costShare;
 
-        std::printf( "[CloudShadowMapTiers] %-6s  guaranteed coverage %.1f km, %u^2 texel-rays\n",
-                     TierName( tier ), coverageKm, resolution );
+        std::printf( "[CloudShadowMapTiers] %-6s  guaranteed coverage %.1f km, %u^2 texel-rays\n", tier.Name,
+                     coverageKm, resolution );
     }
+}
+
+TEST( CloudShadowMapTiers, TheCasesSpanEveryParameterRange )
+{
+    using Common::Scalability::Parameter;
+    using Common::Scalability::SpecOf;
+    auto lowest = []( auto field )
+    {
+        int32_t v = INT32_MAX;
+        for ( const CloudTierCase& t : kAllTiers )
+            v = std::min( v, field( t ) );
+        return v;
+    };
+    auto highest = []( auto field )
+    {
+        int32_t v = INT32_MIN;
+        for ( const CloudTierCase& t : kAllTiers )
+            v = std::max( v, field( t ) );
+        return v;
+    };
+    const auto light = []( const CloudTierCase& t ) { return t.LightSamples; };
+    const auto map   = []( const CloudTierCase& t ) { return t.ShadowMapPercent; };
+    const auto stop  = []( const CloudTierCase& t ) { return t.StopPerMille; };
+    EXPECT_EQ( lowest( light ), SpecOf( Parameter::CloudLightSamples ).Min );
+    EXPECT_EQ( highest( light ), SpecOf( Parameter::CloudLightSamples ).Max );
+    EXPECT_EQ( lowest( map ), SpecOf( Parameter::CloudShadowMapPercent ).Min );
+    EXPECT_EQ( highest( map ), SpecOf( Parameter::CloudShadowMapPercent ).Max );
+    EXPECT_EQ( lowest( stop ), SpecOf( Parameter::CloudStopTransmittancePerMille ).Min );
+    EXPECT_EQ( highest( stop ), SpecOf( Parameter::CloudStopTransmittancePerMille ).Max );
+    // The light ceiling's identity is the component's own Range maximum: a Max above it would be a dead value.
+    EXPECT_EQ( SpecOf( Parameter::CloudLightSamples ).Max, Desert::ECS::kCloudLightMarchMaxSamples );
 }
 
 TEST( CloudShadowMapTiers, TheReferenceTierIsExactlyWhatWasShippedBeforeTheTierExisted )
@@ -614,7 +646,12 @@ TEST( CloudShadowMapTiers, TheReferenceTierIsExactlyWhatWasShippedBeforeTheTierE
 
     // The one assertion that says this task changed no picture at High: the reference tier reproduces the
     // three constants the map was shipped with, to the digit.
-    const CloudQualityScale high = CloudQualityFor( Common::Settings::CloudQuality::High );
+    using Common::Scalability::Parameter;
+    using Common::Scalability::SpecOf;
+    const CloudQualityScale high = CloudQualityFor( SpecOf( Parameter::CloudLightSamples ).Max,
+                                                    SpecOf( Parameter::CloudShadowMapPercent ).Max,
+                                                    SpecOf( Parameter::CloudStopTransmittancePerMille ).Min );
+    EXPECT_FLOAT_EQ( high.StopTransmittanceFloor, 0.0f );
 
     EXPECT_FLOAT_EQ( high.ShadowMapScale, 1.0f );
     EXPECT_EQ( CloudShadowResolutionForScale( high.ShadowMapScale ), kCloudShadowMapResolution );
@@ -711,9 +748,9 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
 {
     using namespace Desert::Graphic;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTierCase& tier : kAllTiers )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = QualityOf( tier );
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
@@ -738,7 +775,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
             for ( int c = 0; c < 4; ++c )
                 for ( int r = 0; r < 4; ++r )
                     EXPECT_FLOAT_EQ( view.WorldToMap[c][r], reference.WorldToMap[c][r] )
-                         << TierName( tier ) << ", camera step " << i << ", element (" << c << ", " << r
+                         << tier.Name << ", camera step " << i << ", element (" << c << ", " << r
                          << ") — this tier's shadow boils under a moving camera";
         }
 
@@ -750,8 +787,8 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
         const float              texelWorld =
              CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) ) * kCloudWorldUnitsPerKm;
 
-        EXPECT_NEAR( centreB.x - centreA.x, snapWorld, texelWorld ) << TierName( tier );
-        EXPECT_NEAR( centreB.z - centreA.z, 0.0f, texelWorld ) << TierName( tier );
+        EXPECT_NEAR( centreB.x - centreA.x, snapWorld, texelWorld ) << tier.Name;
+        EXPECT_NEAR( centreB.z - centreA.z, 0.0f, texelWorld ) << tier.Name;
 
         // 3. And the sub-texel residual the second snap removes is the SAME SIZE on every tier, because
         //    the texel is. That is the number that decides whether a shadow shimmers, and it is why
@@ -761,7 +798,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
                      CloudShadowTexelKm( kCloudShadowExtentKm, static_cast<float>( kCloudShadowMapResolution ) ) *
                           kCloudWorldUnitsPerKm,
                      1.0f )
-             << TierName( tier ) << " changed the size of the lattice the second snap works on";
+             << tier.Name << " changed the size of the lattice the second snap works on";
     }
 }
 

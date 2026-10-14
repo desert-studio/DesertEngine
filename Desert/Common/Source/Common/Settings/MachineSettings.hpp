@@ -43,8 +43,8 @@ namespace Common::Settings
     // WHAT IS IN IT AND WHAT IS NOT. The test is К1's and it is checkable rather than a matter of taste:
     // set the field to its CHEAPEST value — has the level been MIS-AUTHORED, or merely RENDERED WORSE?
     //   * rendered worse -> here. MeshLOD off is byte-identical geometry near the camera; Anisotropy 1,
-    //     Nearest filtering, AA None and MSAA off are the same picture, blurrier or harsher; CloudQuality
-    //     High reproduces the calibrated constants to the digit.
+    //     Nearest filtering, AA None and MSAA off are the same picture, blurrier or harsher; the Effects.Cloud*
+    //     knobs at High reproduce the calibrated constants to the digit.
     //   * mis-authored -> the level file. Forward and Deferred disagree about cloud shadow on the ground;
     //     ACES and Reinhard are two grades; GI Off is a darker room, not a coarser one. Those stay in
     //     Core::SceneSettings and are named there.
@@ -69,21 +69,6 @@ namespace Common::Settings
         Bilinear    = 1, // linear min/mag + nearest mip
         Trilinear   = 2, // linear min/mag + linear mip
         Anisotropic = 3, // trilinear + anisotropic filtering (if the device supports it)
-    };
-
-    // How much the volumetric cloud layer may spend on OCCLUSION — the shadow ray each lit sample traces
-    // toward the sun, and the map the layer casts onto the world under it. See Graphic::CloudQualityScale
-    // for what each tier changes and Docs/Clouds/CALIBRATION.md section QT for what each one costs.
-    //
-    //  High   — the reference. Everything at the value the calibration converged on.
-    //  Medium — the cloud shadow map at HALF its linear footprint; the SKY is unchanged.
-    //  Low    — the above, plus the shadow ray capped at 16 samples, which runs the sunward highlights
-    //           about a third bright.
-    enum class CloudQuality : int
-    {
-        Low    = 0,
-        Medium = 1,
-        High   = 2,
     };
 
     struct MachineSettings

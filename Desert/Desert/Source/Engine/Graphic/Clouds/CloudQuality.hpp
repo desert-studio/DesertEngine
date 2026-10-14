@@ -2,7 +2,7 @@
 
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
-#include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -115,43 +115,33 @@ namespace Desert::Graphic
     };
 
     /**
-     * The tier's numbers. PURE, so Desert/Tests/Engine/CloudShadow drives it directly and asserts the
-     * relations tier by tier instead of on the one set of constants that happens to be compiled in.
+     * THE THREE NUMBERS, FROM THE THREE Effects.Cloud* QUALITY PARAMETERS (SCAL-COVER). PURE, so
+     * Desert/Tests/Engine/CloudShadow drives it directly and asserts the relations over every legal value of
+     * each parameter instead of over the one set of levels the shipped table happens to hold.
      *
-     * An unknown enumerator answers High rather than a guess: High is the calibrated reference, so a
-     * scene whose tier failed to deserialize renders correctly and slowly, which is the failure a person
-     * notices and reports rather than one they ship.
+     * The ranges are the parameter specs' (Common/Settings/Scalability.cpp), already enforced by Resolve, so
+     * nothing is clamped here: Light Samples 8..64 (64 = ECS::kCloudLightMarchMaxSamples, the identity), Shadow
+     * Map Percent 50..100 (100 = identity; 50 is the Low/Medium footprint measured in CALIBRATION.md QT), Stop
+     * Transmittance 0..100 per mille (0 = identity; 50 = the 0.05 floor that saves 2.83 ms for <= 10/255).
+     * The shipped table keeps the former tiers exactly: Low 16/50/50, Medium 64/50/0, High..Cinematic 64/100/0,
+     * so the look at the default and Epic levels is the calibrated reference, untouched.
      */
-    inline CloudQualityScale CloudQualityFor( Common::Settings::CloudQuality tier )
+    inline CloudQualityScale CloudQualityFor( int32_t lightSamples, int32_t shadowMapPercent,
+                                              int32_t stopTransmittancePerMille )
     {
         CloudQualityScale scale;
-        switch ( tier )
-        {
-            case Common::Settings::CloudQuality::Low:
-                // Sixteen is where the shadow ray's price list stops being worth paying rather than an
-                // arbitrary halving: it is 3.73 ms below the default here, and the frame it produces is
-                // 34% hot in the sunward highlights against the converged answer — a difference a person
-                // sees, which is the test a tier has to pass in the other direction.
-                scale.LightMarchSampleCeiling = 16;
-                scale.ShadowMapScale          = 0.5f;
-                // Ten times the default, and the number is where the measurement stops being free: it
-                // saves 2.83 ms while moving no pixel of the shipped demo by more than 10 of 255.
-                scale.StopTransmittanceFloor = 0.05f;
-                break;
-
-            case Common::Settings::CloudQuality::Medium:
-                scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
-                scale.ShadowMapScale          = 0.5f;
-                scale.StopTransmittanceFloor  = 0.0f;
-                break;
-
-            case Common::Settings::CloudQuality::High:
-            default:
-                scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
-                scale.ShadowMapScale          = 1.0f;
-                scale.StopTransmittanceFloor  = 0.0f;
-                break;
-        }
+        scale.LightMarchSampleCeiling = lightSamples;
+        scale.ShadowMapScale          = static_cast<float>( shadowMapPercent ) / 100.0f;
+        scale.StopTransmittanceFloor  = static_cast<float>( stopTransmittancePerMille ) / 1000.0f;
         return scale;
+    }
+
+    /// What a view's resolved quality asks of the cloud layer (SceneRenderer::SetQuality is the one caller).
+    inline CloudQualityScale CloudQualityFor( const Common::Scalability::ResolvedQuality& quality )
+    {
+        using Common::Scalability::Parameter;
+        return CloudQualityFor( quality.As<int32_t>( Parameter::CloudLightSamples ),
+                                quality.As<int32_t>( Parameter::CloudShadowMapPercent ),
+                                quality.As<int32_t>( Parameter::CloudStopTransmittancePerMille ) );
     }
 } // namespace Desert::Graphic

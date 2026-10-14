@@ -139,7 +139,7 @@ namespace Desert::Graphic::System
          *                   other.
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                               const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
+                               const glm::vec3& windDirection, const CloudQualityScale& quality,
                                const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
@@ -766,8 +766,8 @@ namespace Desert::Graphic::System
         // every use because EnsureShadowMap has to notice when it CHANGES — the map's size is a property
         // of the tier, so switching tiers mid-session reallocates it, which is the one thing the old
         // "allocated once and never again" comment on that function stopped being true about.
-        Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
-        float              m_ShadowMapScaleInUse = 0.0f;
+        CloudQualityScale m_Quality; // CloudQualityFor( the view's ResolvedQuality )
+        float             m_ShadowMapScaleInUse = 0.0f;
 
         // The HALF-resolution grid, which is what the sub-pixel jitter and the reconstruction are both
         // expressed in. The trace's own extents are this rounded up again and are derived where needed

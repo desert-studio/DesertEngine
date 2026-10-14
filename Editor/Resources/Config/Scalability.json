@@ -96,19 +96,29 @@
         },
         "Effects": {
             "Low": {
-                "Effects.CloudQuality": 0
+                "Effects.CloudLightSamples": 16,
+                "Effects.CloudShadowMapPercent": 50,
+                "Effects.CloudStopTransmittancePerMille": 50
             },
             "Medium": {
-                "Effects.CloudQuality": 1
+                "Effects.CloudLightSamples": 64,
+                "Effects.CloudShadowMapPercent": 50,
+                "Effects.CloudStopTransmittancePerMille": 0
             },
             "High": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudLightSamples": 64,
+                "Effects.CloudShadowMapPercent": 100,
+                "Effects.CloudStopTransmittancePerMille": 0
             },
             "Epic": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudLightSamples": 64,
+                "Effects.CloudShadowMapPercent": 100,
+                "Effects.CloudStopTransmittancePerMille": 0
             },
             "Cinematic": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudLightSamples": 64,
+                "Effects.CloudShadowMapPercent": 100,
+                "Effects.CloudStopTransmittancePerMille": 0
             }
         },
         "Textures": {

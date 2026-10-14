@@ -812,9 +812,9 @@ namespace Desert::Graphic
         std::shared_ptr<Framebuffer> m_RSMBuffer;                  // reflective shadow map (G-buffer from the sun)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene
         // The volumetric cloud layer's cost ceiling, taken from m_Quality each BeginScene and handed to
-        // the cloud renderer with the layer itself. HIGH is the calibrated reference, so a renderer
-        // nobody pushes to renders correctly rather than cheaply.
-        Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
+        // the cloud renderer with the layer itself. The default-constructed scale is the identity (the
+        // calibrated reference), so a renderer nobody pushes to renders correctly rather than cheaply.
+        CloudQualityScale m_CloudQuality;
         // WHAT THIS MACHINE CAN AFFORD. NOT read from the scene — pushed in by whoever owns the view
         // (SetQuality). See Common/Settings/MachineSettings.hpp for why it stopped being scene data.
         //

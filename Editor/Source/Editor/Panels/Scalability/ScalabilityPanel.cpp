@@ -317,15 +317,20 @@ namespace Desert::Editor
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Clouds" ) )
         {
-            static constexpr const char* kCloud[] = { "Low", "Medium", "High" };
-            const auto cloud = static_cast<std::size_t>( Requested( SC::Parameter::CloudQuality ) );
-            if ( const auto picked = ValueCombo( "Cloud Quality", cloud, std::size( kCloud ),
-                                                 []( std::size_t i ) { return std::string( kCloud[i] ); } ) )
-                SC::QualityState::SetOverride( SC::Parameter::CloudQuality,
-                                               static_cast<SC::ParameterValue>( *picked ) );
-            ImGui::TextDisabled( "High is the calibrated reference. Medium halves the cloud shadow map's\n"
-                                 "reach on the ground (~15 km); Low also caps the sun-ray at 16 samples,\n"
-                                 "which runs the sunward highlights bright." );
+            // One slider per cost knob, each within its spec range (Resolve clamps to the same range).
+            for ( const SC::Parameter cloud :
+                  { SC::Parameter::CloudLightSamples, SC::Parameter::CloudShadowMapPercent,
+                    SC::Parameter::CloudStopTransmittancePerMille } )
+            {
+                const SC::ParameterSpec& spec  = SC::SpecOf( cloud );
+                int                      value = Requested( cloud );
+                if ( ImGui::SliderInt( std::string( spec.Key ).c_str(), &value, spec.Min, spec.Max ) )
+                    SC::QualityState::SetOverride( cloud, static_cast<SC::ParameterValue>( value ) );
+            }
+            ImGui::TextDisabled( "64 / 100 / 0 is the calibrated reference. Shadow Map Percent shrinks the\n"
+                                 "cloud shadow map's reach on the ground (texel unchanged); Light Samples caps\n"
+                                 "the sun-ray (16 runs the sunward highlights bright); Stop Transmittance ends\n"
+                                 "the march earlier behind opaque cloud." );
         }
     }
 } // namespace Desert::Editor

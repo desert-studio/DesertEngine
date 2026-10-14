@@ -777,7 +777,7 @@ namespace Desert::Graphic
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
-        m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
+        m_CloudQuality   = CloudQualityFor( quality );
         m_GIMode         = post.GlobalIllumination;
         m_GIIntensity    = post.GIIntensity;
         m_EnableSSR      = post.EnableSSR;

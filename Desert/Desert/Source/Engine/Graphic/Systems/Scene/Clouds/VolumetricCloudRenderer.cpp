@@ -757,7 +757,7 @@ namespace Desert::Graphic::System
         if ( m_ShadowMapFailed )
             return false;
 
-        const float scale = CloudQualityFor( m_Quality ).ShadowMapScale;
+        const float scale = m_Quality.ShadowMapScale;
         if ( m_ShadowMapImage && m_ShadowMapScaleInUse == scale )
             return true;
 
@@ -837,7 +837,7 @@ namespace Desert::Graphic::System
         // THE TIER'S TWO CEILINGS COME FROM ONE CALL for every consumer, because the passes march the same
         // field and a shadow ray of two different lengths in one frame is the class of disagreement
         // §2.3.1 of the contract is about.
-        const CloudQualityScale quality = CloudQualityFor( m_Quality );
+        const CloudQualityScale& quality = m_Quality;
 
         payload = PackCloudParams(
              m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
@@ -1080,7 +1080,7 @@ namespace Desert::Graphic::System
         // that the texel — and therefore the relation against the chord the view march can find, which
         // Desert/Tests/Engine/CloudShadow asserts for every tier — does not move at all. What the cheaper
         // tier buys is a smaller square of world, not a coarser one.
-        const CloudQualityScale quality    = CloudQualityFor( m_Quality );
+        const CloudQualityScale& quality    = m_Quality;
         const uint32_t          resolution = CloudShadowResolutionForScale( quality.ShadowMapScale );
         const float             extentKm   = CloudShadowExtentKmForScale( quality.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( quality.ShadowMapScale );
@@ -1171,7 +1171,7 @@ namespace Desert::Graphic::System
 
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
                                                     const glm::vec3& windOffset, const glm::vec3& windDirection,
-                                                    Common::Settings::CloudQuality        quality,
+                                                    const CloudQualityScale&              quality,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
