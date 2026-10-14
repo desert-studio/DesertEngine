@@ -798,6 +798,10 @@ namespace Desert::Graphic
         m_SunContactShadowLengthInWorldSpace = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
         m_SunContactShadowNonCastingIntensity = shadows.ContactShadowNonCastingIntensity;
+        m_LightGridQuality =
+             LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
+                               .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
+                               .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1182,6 +1186,9 @@ namespace Desert::Graphic
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
         AddFrameShadowDepths( graph, textures );
+        // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
+        // deferred composite, the glass).
+        AddFrameLightGrid( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 

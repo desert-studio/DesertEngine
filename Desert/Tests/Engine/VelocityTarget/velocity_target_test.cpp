@@ -283,7 +283,19 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
-            if ( sceneReadHeader )
+            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range (the
+            // deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both outside it).
+            if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
+            {
+                if ( Desert::Core::IsSceneReadBinding( binding ) )
+                {
+                    EXPECT_EQ( binding, name == "LightGridParamsUB" ? Desert::Core::kLightGridParamsBinding
+                                                                    : Desert::Core::kLightGridCellsBinding )
+                         << entry.path().string() << " declares '" << name << "' at binding " << binding;
+                    sceneRead[name] = binding;
+                }
+            }
+            else if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else
                 EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
@@ -293,7 +305,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 4u );
+    ASSERT_EQ( sceneRead.size(), 6u );
+    EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
+    EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );

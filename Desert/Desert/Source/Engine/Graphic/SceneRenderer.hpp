@@ -41,6 +41,7 @@
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Graphic/LightGrid.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -760,6 +761,9 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& rsm,
                                            System::MeshRenderer* meshRenderer, const ViewFrame& frame,
                                            const glm::vec4& lightColor );
+        // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
+        // FrameTransients::Lights — before the first lit node, on both paths.
+        void            AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
@@ -912,6 +916,9 @@ namespace Desert::Graphic
         bool  m_SunContactShadowLengthInWorldSpace = false;
         float m_SunContactShadowCastingIntensity    = 1.0f;
         float m_SunContactShadowNonCastingIntensity = 0.0f;
+        // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
+        // initialiser is the High column.
+        LightGridQuality m_LightGridQuality;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

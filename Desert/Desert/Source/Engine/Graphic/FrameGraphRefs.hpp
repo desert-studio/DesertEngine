@@ -27,6 +27,19 @@ namespace Desert::Graphic
     // is asserted equal where both are visible (MeshRendererInternal.hpp).
     inline constexpr uint32_t kSceneViewShadowCascades = 4;
 
+    // The view's dynamic lights as buffers of THIS frame's graph (SceneRenderer::AddFrameLightGrid, before any lit
+    // node): the point and spot rows, the local shadow views their ShadowView indices name, and the view's light
+    // grid (Graphic/LightGrid.hpp, UE's ForwardLightData) — its parameters (uploaded) and its cells (written by
+    // the "LightGrid" compute node). Every lit pass reads the grid: the deferred composite, the forward meshes.
+    struct ViewLightBuffers
+    {
+        RDG::BufferRef Point;       // "Upload: Lights.Point"
+        RDG::BufferRef Spot;        // "Upload: Lights.Spot"
+        RDG::BufferRef ShadowViews; // "Upload: Lights.ShadowViews"
+        RDG::BufferRef GridParams;  // "Upload: Lights.GridParams"
+        RDG::BufferRef GridCells;   // written by "LightGrid"
+    };
+
     struct FrameTransients
     {
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
@@ -80,6 +93,8 @@ namespace Desert::Graphic
         // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
         RDG::TextureRef SkyTransmittanceLut;
         RDG::TextureRef SkyViewLut;
+        // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
+        ViewLightBuffers Lights;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
@@ -129,6 +144,10 @@ namespace Desert::Graphic
         // Intensity, or System.ZeroUint (an integer texture for the usampler2D; never decisive: with the black
         // depth no ray hits).
         RDG::TextureRef SceneShadingWord;
+        // The view's light grid (ViewLightBuffers::GridParams / GridCells): a lit pass shades a pixel with the
+        // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
+        RDG::BufferRef LightGridParams;
+        RDG::BufferRef LightGridCells;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -160,6 +179,9 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
     inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
+    // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
+    inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
+    inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -175,6 +197,8 @@ namespace Desert::Graphic
         inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         inputs.SceneDepth       = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
         inputs.SceneShadingWord = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
+        inputs.LightGridParams  = t.Lights.GridParams;
+        inputs.LightGridCells   = t.Lights.GridCells;
         return inputs;
     }
 
@@ -199,6 +223,13 @@ namespace Desert::Graphic
             return std::any_of(
                  layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
                  { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::SampledTexture; } );
+        }
+        [[nodiscard]] inline bool LayoutReadsBuffer( const RDG::ShaderBindingLayout& layout,
+                                                     std::string_view                name )
+        {
+            return std::any_of(
+                 layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
+                 { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::StorageBuffer; } );
         }
 
         // THE one list of scene/view inputs with their samplers: binds each one @p samples( name ) admits. The
@@ -273,5 +304,11 @@ namespace Desert::Graphic
                                      slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
                           } ) )
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
+        // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
+        // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
+        for ( const auto& [name, buffer] : { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
+                                             std::pair{ kLightGridCellsBlockName, inputs.LightGridCells } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
+                block.Storage( name, buffer, RDG::Access::StorageRead );
     }
 } // namespace Desert::Graphic

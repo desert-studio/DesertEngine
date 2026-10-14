@@ -252,6 +252,33 @@ Shader "DeferredLighting"
         };
         #include <Mesh/LocalLightShadow.glslh>
 
+        // THE VIEW'S LIGHT GRID ("LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
+        // the point and spot lights of its froxel only (UE LightGrid). The parameters, then the cells, at set-0
+        // slots 22/23 (freed by the cascade array; 28 up is the shader graph's window, which this pass may not enter).
+        #include <Mesh/LightGrid.glslh>
+        ReadBuffer(22) LightGridParamsUB
+        {
+        	LightGridParams lightGrid;
+        };
+        ReadBuffer(23) LightGridCellsUB
+        {
+        	uint lightGridCells[];
+        };
+
+        // One light of the grid's index space (Mesh/LightGrid.glslh): points first, then spots.
+        vec3 ShadeGridLight(uint light, int shadingModel, vec3 worldPos, vec3 N, float subsurfaceOpacity,
+                            DesertSurface surface, DesertPayload payload)
+        {
+        	if (light < lightsMetadata.PointLightCount)
+        		return DesertEvaluateShadingModel(shadingModel,
+        		                                  DesertShadowedPointLightAt(pointLights[light], worldPos, N, subsurfaceOpacity),
+        		                                  surface, payload);
+        	return DesertEvaluateShadingModel(shadingModel,
+        	                                  DesertShadowedSpotLightAt(spotLights[light - lightsMetadata.PointLightCount],
+        	                                                            worldPos, N, subsurfaceOpacity),
+        	                                  surface, payload);
+        }
+
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
         vec3 HeatColor(float t)
@@ -301,21 +328,17 @@ Shader "DeferredLighting"
         	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); return; }                 // Roughness
         	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); return; }                 // Ambient Occlusion
 
-        	// Light Complexity: count how many point/spot light VOLUMES cover this pixel (by radius/range +
-        	// cone), then map the count to a heat colour. Cheap in deferred — the light data is already bound.
+        	// Light Complexity: the number of point/spot lights the lighting below shades this pixel with — its froxel's
+        	// count in the view's light grid (UE's clustered "light count" view), so the picture is the cost actually
+        	// paid, not a separate estimate. An overflowed cell is shaded by every light and shows that total.
+        	// Normalized by a fixed budget (8 lights = full red) so the scale is stable.
         	if (dbg == 7)
         	{
-        		uint lights = 0u;
-        		for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        			if (distance(pointLights[i].position, worldPos) < pointLights[i].radius)
-        				lights++;
-        		for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		{
-        			vec3  toL = spotLights[i].position - worldPos;
-        			if (length(toL) < spotLights[i].range && SpotConeFactor(spotLights[i], normalize(toL)) > 0.0)
-        				lights++;
-        		}
-        		// Normalize by a fixed budget (8 overlapping lights = full red) so the scale is stable.
+        		const uint cell   = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        		const uint count  = lightGridCells[cell];
+        		const uint lights = LightGridCellOverflowed(lightGrid, count)
+        		                        ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
+        		                        : count;
         		oColor = vec4(HeatColor(float(lights) / 8.0), 1.0);
         		return;
         	}
@@ -370,16 +393,24 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
-        	// atlas views when it casts shadows.
-        	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N, subsurfaceOpacity),
-        		                                     surface, payload);
-
-        	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
-        	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N, subsurfaceOpacity),
-        		                                     surface, payload);
+        	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
+        	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
+        	// overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
+        	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        	const uint count = lightGridCells[cell];
+        	if (!LightGridCellOverflowed(lightGrid, count))
+        	{
+        		const uint list = LightGridListOffset(lightGrid, cell);
+        		for (uint j = 0u; j < count; j++)
+        			result += ShadeGridLight(lightGridCells[list + j], shadingModel, worldPos, N, subsurfaceOpacity, surface,
+        			                         payload);
+        	}
+        	else
+        	{
+        		const uint lights = lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount;
+        		for (uint i = 0u; i < lights; i++)
+        			result += ShadeGridLight(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
+        	}
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only

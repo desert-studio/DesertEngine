@@ -122,6 +122,12 @@ namespace Common::Scalability
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
+        // costs against what building the grid costs. The image is the same at every value (a cell whose list is
+        // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
+        LightGridPixelSize,        // tile edge in render pixels. 16..256
+        LightGridSlices,           // logarithmic depth slices. 8..128
+        LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
