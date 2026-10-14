@@ -101,12 +101,10 @@ namespace Desert::Graphic::System
     }
 
     // Common/ParticleSpriteSource.glslh's ParticleSpriteSource, field for field: one row per drawn emitter.
-    inline constexpr std::uint32_t kParticleSpriteSourceRecord = 0u; // a legacy ParticleEmitter's Particle record
-    inline constexpr std::uint32_t kParticleSpriteSourceStack  = 1u; // a compiled stack's SoA components
 
     struct ParticleSpriteSourceGpu
     {
-        glm::uvec4 Layout{ 0u }; // float base, range capacity, range pool base, kParticleSpriteSource*
+        glm::uvec4 Layout{ 0u };                     // float base, range capacity, range pool base, 0 (pad)
         glm::uvec4 Starts{ kParticleSpriteUnbound }; // Position, Color, SpriteSize, NormalizedAge
     };
     static_assert( sizeof( ParticleSpriteSourceGpu ) == 32, "ParticleSpriteSource is two uvec4 rows" );
@@ -119,7 +117,7 @@ namespace Desert::Graphic::System
                                                                          const std::uint32_t           rangeBase )
     {
         ParticleSpriteSourceGpu source;
-        source.Layout = glm::uvec4( floatBase, capacity, rangeBase, kParticleSpriteSourceStack );
+        source.Layout = glm::uvec4( floatBase, capacity, rangeBase, 0u );
         source.Starts = glm::uvec4( bindings.FloatStart[0], bindings.FloatStart[1], bindings.FloatStart[2],
                                     bindings.FloatStart[3] );
         return source;

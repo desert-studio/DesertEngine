@@ -6,9 +6,9 @@
 // its indirect arguments. VertexCount is 6 x the particles the compact found alive (it is the alive counter, added
 // to by six), FirstVertex is 6 x the emitter's pool base, so the billboard's gl_VertexIndex / 6 is the alive-list
 // entry (Base + k). FreeCount counts the free-list entries. ParticleCompact of compact c fills slot (c & 1) and
-// resets slot ((c + 1) & 1) for the next compact; ParticleSimulate of step s reads slot (s & 1), the one compact s
+// resets slot ((c + 1) & 1) for the next compact; the simulation program of step s reads slot (s & 1), the one compact s
 // filled before it.
-// The thread-group size of ParticleSimulate and ParticleCompact (ParticleGpuLayout.hpp kParticleLocalSize): the
+// The thread-group size of the simulation program and ParticleCompact (ParticleGpuLayout.hpp kParticleLocalSize): the
 // divisor ParticleDispatchArgs turns thread counts into group counts with.
 #define PARTICLE_GROUP_SIZE 64u
 
@@ -26,8 +26,8 @@ struct ParticleDrawSlot
     uint Pad2;
 };
 
-// One pool slot's liveness and identity (ParticleWorldGpu VFXSlotStateGpu), written by every simulation program -
-// ParticleSimulate and a compiled stack's VFX/Simulate - and read by ParticleCompact: the compact frees a slot whose
+// One pool slot's liveness and identity (ParticleWorldGpu VFXSlotStateGpu), written by every compiled stack's
+// simulation program (VFX/Simulate) - and read by ParticleCompact: the compact frees a slot whose
 // Alive is 0, whatever layout the particle's attributes have.
 struct VFXSlotState
 {

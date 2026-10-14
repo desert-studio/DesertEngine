@@ -12,14 +12,12 @@ namespace Desert::Graphic::System
 {
     // THE GRAPH SIDE of a Spawn+Update node (VFX-03g), device-free so RenderGraphCompile builds the same blocks
     // from the same declarations ParticleRenderer::DeclareSimulateBindings makes. One block per emitter that runs
-    // the step, bound to the layout of the program that emitter dispatches: the legacy ParticleSimulate (AoS
-    // Particles + Spawn from Channel) or its compiled stack's simulation program (VFX/Simulate/<key>, SoA Floats /
-    // Ints of the pool + its Params rows and Curves atlas, VFX::SimulationBinding).
+    // the step, bound to the layout of its compiled stack's simulation program (VFX/Simulate/<key>, SoA Floats /
+    // Ints of the pool + its Params rows, Curves atlas and Spawn from Channel rows, VFX::SimulationBinding).
 
     // The scene pool as this frame's graph sees it. Floats / Ints are invalid while no compiled stack plays.
     struct ParticlePoolRefs
     {
-        RDG::BufferRef Particles;
         RDG::BufferRef Slots;
         RDG::BufferRef Floats;
         RDG::BufferRef Ints;
@@ -36,7 +34,6 @@ namespace Desert::Graphic::System
         RDG::BufferRef Channel; // this tick's Spawn from Channel rows (engine:SpawnFromChannel)
         RDG::BufferRef Params;  // a compiled stack's parameter rows
         RDG::BufferRef Curves;  // a compiled stack's curve atlas
-        bool           Stack = false;
         std::shared_ptr<const RDG::ShaderBindingLayout> Layout; // the layout of the program it dispatches
         RDG::OtherRouteFill                             Fill;
         std::uint32_t                                   PushBytes = 0;
@@ -45,33 +42,18 @@ namespace Desert::Graphic::System
     inline void DeclareParticleSimulateBlock( RDG::PassBuilder& pass, const ParticlePoolRefs& pool,
                                               const ParticleSimEmitterRefs& emitter )
     {
-        if ( emitter.Stack )
-        {
-            pass.Bindings( emitter.Layout, emitter.Fill )
-                 .Storage( "Floats", pool.Floats, RDG::Access::StorageWrite )
-                 .Storage( "Ints", pool.Ints, RDG::Access::StorageWrite )
-                 .Storage( "Params", emitter.Params, RDG::Access::StorageRead )
-                 .Storage( "Curves", emitter.Curves, RDG::Access::StorageRead )
-                 .Storage( "StepTable", emitter.Steps, RDG::Access::StorageRead )
-                 .Storage( "FreeList", pool.Free, RDG::Access::StorageRead )
-                 .Storage( "AliveList", pool.Alive, RDG::Access::StorageWrite )
-                 .Storage( "Counters", emitter.Counters, RDG::Access::StorageRead )
-                 .Storage( "Slots", pool.Slots, RDG::Access::StorageWrite )
-                 .Storage( "ChannelSpawns", emitter.Channel, RDG::Access::StorageRead )
-                 .PushConstantBytes( emitter.PushBytes );
-        }
-        else
-        {
-            pass.Bindings( emitter.Layout, emitter.Fill )
-                 .Storage( "Particles", pool.Particles, RDG::Access::StorageWrite )
-                 .Storage( "StepTable", emitter.Steps, RDG::Access::StorageRead )
-                 .Storage( "FreeList", pool.Free, RDG::Access::StorageRead )
-                 .Storage( "AliveList", pool.Alive, RDG::Access::StorageWrite )
-                 .Storage( "Counters", emitter.Counters, RDG::Access::StorageRead )
-                 .Storage( "ChannelSpawns", emitter.Channel, RDG::Access::StorageRead )
-                 .Storage( "Slots", pool.Slots, RDG::Access::StorageWrite )
-                 .PushConstantBytes( emitter.PushBytes );
-        }
+        pass.Bindings( emitter.Layout, emitter.Fill )
+             .Storage( "Floats", pool.Floats, RDG::Access::StorageWrite )
+             .Storage( "Ints", pool.Ints, RDG::Access::StorageWrite )
+             .Storage( "Params", emitter.Params, RDG::Access::StorageRead )
+             .Storage( "Curves", emitter.Curves, RDG::Access::StorageRead )
+             .Storage( "StepTable", emitter.Steps, RDG::Access::StorageRead )
+             .Storage( "FreeList", pool.Free, RDG::Access::StorageRead )
+             .Storage( "AliveList", pool.Alive, RDG::Access::StorageWrite )
+             .Storage( "Counters", emitter.Counters, RDG::Access::StorageRead )
+             .Storage( "Slots", pool.Slots, RDG::Access::StorageWrite )
+             .Storage( "ChannelSpawns", emitter.Channel, RDG::Access::StorageRead )
+             .PushConstantBytes( emitter.PushBytes );
         // As many groups as the step's Dispatch Args wrote.
         pass.Read( emitter.Args, RDG::Access::IndirectArgs );
     }

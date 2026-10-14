@@ -14,8 +14,6 @@
 #define PARTICLE_SPRITE_SOURCE_GLSLH
 
 #define PARTICLE_SPRITE_UNBOUND 0xFFFFFFFFu
-#define PARTICLE_SPRITE_SOURCE_RECORD 0u
-#define PARTICLE_SPRITE_SOURCE_STACK 1u
 
 // The renderer defaults of an unbound attribute (ParticleSpriteBindings.hpp kParticleSpriteDefault*).
 #define PARTICLE_SPRITE_DEFAULT_POSITION vec3( 0.0 )
@@ -25,9 +23,8 @@
 
 struct ParticleSpriteSource
 {
-    // x = float base, y = range capacity, z = range pool base, w = PARTICLE_SPRITE_SOURCE_STACK (the pool's SoA
-    // components) or PARTICLE_SPRITE_SOURCE_RECORD (a legacy ParticleEmitter's Particle record, until it runs as
-    // its own compiled layout: REMAINDER-VFX-03h piece 3)
+    // x = float base, y = range capacity, z = range pool base of the emitter's compiled stack in the pool's SoA
+    // float components, w = 0 (pad)
     uvec4 Layout;
     uvec4 Starts; // x = Position, y = Color, z = SpriteSize, w = NormalizedAge float starts (PARTICLE_SPRITE_UNBOUND =
                   // the default)

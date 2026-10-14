@@ -17,15 +17,9 @@ Shader "ParticleSort"
         // places the barrier between two writes of the key buffer.
         LocalSize(512, 1, 1);
 
-        #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
         #include <Common/ParticleSortKey.glslh>
         #include <Common/ParticleSpriteSource.glslh>
-
-        Buffer(0) Particles
-        {
-            Particle u_Particles[];
-        };
 
         Buffer(1) AliveList
         {
@@ -101,11 +95,8 @@ Shader "ParticleSort"
                 {
                     uint                 index  = u_Alive[u_Range.x + t];
                     ParticleSpriteSource source = ParticleSpriteSource( u_SourceLayout, u_SourceStarts );
-                    vec3                 position =
-                         source.Layout.w == PARTICLE_SPRITE_SOURCE_STACK
-                                           ? PARTICLE_SPRITE_VEC3( u_Floats, source, source.Starts.x, index,
-                                                                   PARTICLE_SPRITE_DEFAULT_POSITION )
-                                           : u_Particles[index].PosSize.xyz;
+                    vec3                 position = PARTICLE_SPRITE_VEC3(
+                         u_Floats, source, source.Starts.x, index, PARTICLE_SPRITE_DEFAULT_POSITION );
                     float depth = dot( position - u_ViewOrigin.xyz, u_ViewForward.xyz );
                     key         = uvec2( ParticleSortKey( depth ), index );
                 }

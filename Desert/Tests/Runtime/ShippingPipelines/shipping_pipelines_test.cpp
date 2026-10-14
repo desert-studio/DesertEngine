@@ -515,8 +515,6 @@ namespace
 
              // ── particles ───────────────────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
-               "\"ParticleSimulate\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
                "\"ParticleAdd\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
                "\"ParticleAlpha\"", Verdict::Shipped, "" },

@@ -81,7 +81,6 @@ namespace Desert::Graphic::System
     // The buffers one sort stage binds: the pool's four (imported) and the view's two (transient).
     struct ParticleSortBuffers
     {
-        RDG::BufferRef Particles;
         RDG::BufferRef Floats; // a compiled stack's Position components (VFX-03h)
         RDG::BufferRef Alive;
         RDG::BufferRef Counters; // the emitter's draw slots
@@ -89,13 +88,12 @@ namespace Desert::Graphic::System
         RDG::BufferRef Sorted;
     };
 
-    // The pool buffers one emitter's sprite draw reads (ParticlePass): the legacy records, a stack's float
+    // The pool buffers one emitter's sprite draw reads (ParticlePass): a compiled stack's float
     // components and slot states (Common/ParticleSpriteSource.glslh says which by the emitter's source row) and
     // the alive list it walks (the view's SortedAlive for a sorted emitter). One declaration for the renderer and
     // the graph test, so a slot the vertex path adds is declared in both or red in the test.
     struct ParticleSpriteDrawRefs
     {
-        RDG::BufferRef Particles;
         RDG::BufferRef Floats;
         RDG::BufferRef Slots;
         RDG::BufferRef Alive;
@@ -104,7 +102,6 @@ namespace Desert::Graphic::System
     template <typename Block>
     void DeclareParticleSpriteDraw( Block& block, const ParticleSpriteDrawRefs& refs )
     {
-        block.Storage( "Particles", refs.Particles, RDG::Access::StorageRead );
         block.Storage( "Floats", refs.Floats, RDG::Access::StorageRead );
         block.Storage( "Slots", refs.Slots, RDG::Access::StorageRead );
         block.Storage( "AliveList", refs.Alive, RDG::Access::StorageRead );
@@ -132,7 +129,6 @@ namespace Desert::Graphic::System
     {
         const bool writesSorted = kind == ParticleSortStageKind::Write;
         pass.Bindings( layout, std::move( fill ) )
-             .Storage( "Particles", buffers.Particles, RDG::Access::StorageRead )
              .Storage( "Floats", buffers.Floats, RDG::Access::StorageRead )
              .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
              .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )

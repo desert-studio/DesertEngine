@@ -1869,17 +1869,10 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCaster
     EXPECT_TRUE( HasBinding( c, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (holes)
 }
 
-// ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --
+// ---- The particle programs: the step table stride and the workgroup the dispatch divides by --------------
 //
-// The particle subsystem carried the defect shape this file exists for, in its purest form. Two shaders
-// declared `struct Particle` INDEPENDENTLY — the simulation that writes the storage and the billboard draw
-// that reads it — and ParticleRenderer sized and zeroed that storage from a C++ constant whose entire
-// guard was the comment `must match the shader's Particle`. Д26 then gave Age.yzw a meaning in one of the
-// two declarations, so the copies had already begun to diverge in MEANING while still agreeing in SIZE.
-//
-// Г4 removed the mirror where it could: the struct now lives in Common/ParticleState.glslh and both stages
-// include it. The C++ stride cannot be folded into GLSL, so it is asserted here instead — against the
-// array stride the COMPILER produced for each stage, which is the number the GPU actually indexes by.
+// The fixed particle record (Common/ParticleState.glslh) and its simulation are gone (VFX-03k): every emitter
+// runs its compiled stack. What is left are the numbers the C++ dispatch shares with the particle programs.
 //
 // The same treatment for the workgroup: LocalSize is declared in the shader, the group count is computed
 // in C++, and a disagreement leaves the tail of every emitter unsimulated with nothing in any log.
@@ -1890,7 +1883,7 @@ namespace
     //
     // Not ShaderReflection's block Size, for the reason the terrain test above gives: a block whose only
     // member is a runtime array reflects as size 0 by definition. The stride is the number that matters
-    // anyway — it is what `u_Particles[i]` multiplies i by.
+    // anyway — it is what `u_Steps[i]` multiplies i by.
     uint32_t StorageArrayStride( const std::filesystem::path& shaderFile, ShaderStage stage,
                                  shaderc_shader_kind kind, uint32_t binding, const std::string& cell = {} )
     {
@@ -1930,137 +1923,23 @@ namespace
     // The cell a sprite template draws particles through (MeshVertexPath ParticleSprite, MeshPass Forward).
     constexpr const char* kParticleSpriteCell = "ParticleSprite.Forward";
 
-    bool ClosureNames( const std::vector<std::filesystem::path>& includes, const char* filename )
-    {
-        for ( const auto& include : includes )
-            if ( include.filename() == filename )
-                return true;
-        return false;
-    }
 } // namespace
-
-TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheEngineAllocates )
-{
-    // THE RELATION, stated against BOTH readers of the storage because the engine writes only one of the
-    // two numbers it needs to be right about. ParticleRenderer allocates MaxParticles * kParticleStride
-    // and zeroes exactly that many bytes; the simulation writes element i at i * (its own stride) and the
-    // draw reads element i at i * (its own stride). Any one of the three moving alone is a frame in which
-    // particles are read from bytes nobody wrote — and the shipped symptom of that is an emitter that
-    // looks mistuned, not an error.
-    const uint32_t simulate  = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
-                                                   ShaderStage::Compute, shaderc_compute_shader, 0 );
-    // The draw is the ParticleSprite.Forward cell of a sprite template (Mesh/Surface/Vertex_ParticleSprite.glslh
-    // reads the state at binding 9); the default template is the one every emitter falls back to.
-    const uint32_t billboard =
-         StorageArrayStride( ShaderPath( "Particles/ParticleSpriteDefault.shader" ), ShaderStage::Vertex,
-                             shaderc_vertex_shader, 9, kParticleSpriteCell );
-
-    EXPECT_GT( simulate, 0u ) << "ParticleSimulate declares no storage block at slot 0";
-    EXPECT_GT( billboard, 0u ) << "the ParticleSprite vertex path declares no storage block at slot 9";
-
-    EXPECT_EQ( simulate, Desert::Graphic::System::kParticleStride )
-         << "the simulation indexes the state by " << simulate << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-    EXPECT_EQ( billboard, Desert::Graphic::System::kParticleStride )
-         << "the billboard draw indexes the state by " << billboard << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-
-    // ...and therefore each other. Stated separately, because the two equalities above would both hold in
-    // a world where the constant was edited to follow ONE of the shaders and this line is what names the
-    // pair that actually shares the bytes.
-    EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
-}
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStepTableIsIndexedByTheStrideTheEngineUploads )
 {
-    // ParticleRenderer uploads the frame's VFX steps as an array of kParticleStepStride-byte elements
-    // and the simulation reads step N at N * (its own stride). A field added on one side alone gives
-    // every step after the first another step's id base, seed and budget.
-    const uint32_t steps = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
-                                               ShaderStage::Compute, shaderc_compute_shader, 1 );
+    // ParticleRenderer uploads the frame's VFX steps as an array of kParticleStepStride-byte elements and
+    // ParticleDispatchArgs reads step N at N * (its own stride) - as does every compiled stack's simulation
+    // program, which declares the same `struct VFXStep`. A field added on one side alone gives every step after
+    // the first another step's id base, seed and budget.
+    const uint32_t steps = StorageArrayStride( ShaderPath( "Particles/ParticleDispatchArgs.shader" ),
+                                               ShaderStage::Compute, shaderc_compute_shader, 0 );
     EXPECT_EQ( steps, Desert::Graphic::System::kParticleStepStride )
-         << "ParticleSimulate indexes its step table by " << steps << " bytes and ParticleRenderer uploads "
+         << "ParticleDispatchArgs indexes its step table by " << steps << " bytes and ParticleRenderer uploads "
          << Desert::Graphic::System::kParticleStepStride;
     // The stated size, 20 since VFX-10 (was 12): `struct VFXStep` is five uints - id base, seed, budget and the
     // step's Spawn from Channel window ChannelFirst / ChannelCount (VFXWorld EmitterStep). Stated as a number
-    // because the two equalities above also hold when both sides lose the channel window together.
+    // because the equality above also holds when both sides lose the channel window together.
     EXPECT_EQ( steps, 20u ) << "VFXStep is no longer id base, seed, budget, ChannelFirst, ChannelCount";
-}
-
-// VFX-10b: the Spawn from Channel record (binding 5) is uploaded at kParticleChannelSpawnStride per particle by
-// ParticleWorldGpu and read at the shader's own stride; 64 = position, direction, colour and the scalars vec4
-// (lifetime, colour bound, lifetime bound). A payload field added to one side alone reads the next particle's.
-TEST_F( ShaderCacheKeyShaderRoot, TheChannelSpawnRecordIsReadAtTheStrideTheEngineUploads )
-{
-    const uint32_t record = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
-                                                ShaderStage::Compute, shaderc_compute_shader, 5 );
-    EXPECT_EQ( record, Desert::Graphic::System::kParticleChannelSpawnStride )
-         << "ParticleSimulate reads its channel spawns by " << record << " bytes and ParticleWorldGpu uploads "
-         << Desert::Graphic::System::kParticleChannelSpawnStride;
-    EXPECT_EQ( record, 64u ) << "VFXChannelSpawn is no longer Position, Direction, Color, Scalars";
-}
-
-// VFX-10b: a bound channel colour reaches the particle - the spawn writes it into Particle.Tint and the colour
-// over life is multiplied by it every step (Shade), so the tint outlives the spawn step; a bound lifetime
-// replaces the emitter's.
-TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
-{
-    const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    EXPECT_NE( simulate.find( "p.Tint         = channel.Scalars.z > 0.5 ? channel.Color : vec4( 1.0 );" ),
-               std::string::npos )
-         << "the spawn no longer writes the channel colour into the particle's Tint";
-    EXPECT_NE( simulate.find( "p.Color     = mix( u_StartColor, u_EndColor, t ) * p.Tint;" ), std::string::npos )
-         << "Shade no longer multiplies the colour over life by the particle's Tint";
-    EXPECT_NE( simulate.find( "life = channel.Scalars.x;" ), std::string::npos )
-         << "a bound channel lifetime no longer replaces the emitter's";
-    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "vec4 Tint;" ), std::string::npos ) << "struct Particle lost its Tint";
-}
-
-// VFX-10c: a bound channel Size scales the particle's base size - the upload packs it into the record's Scalars.y
-// (1 when unbound), the spawn keeps it in Particle.SizeScale and Shade multiplies the size over life by it every
-// step. Particle grew a sixth vec4, so the stride the engine allocates is 96 B.
-TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
-{
-    const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    EXPECT_NE( simulate.find( "p.PosSize.w = mix( u_Sizes.x, u_Sizes.y, st ) * p.SizeScale.x;" ),
-               std::string::npos )
-         << "Shade no longer scales the size over life by the particle's SizeScale";
-    EXPECT_NE( simulate.find( "p.SizeScale    = vec4( channel.Scalars.y, 0.0, 0.0, 0.0 );" ), std::string::npos )
-         << "the spawn no longer keeps the channel size scale in the particle";
-    EXPECT_NE( simulate.find( "channel.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
-         << "a particle not from a channel no longer gets size scale 1";
-    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "vec4 SizeScale;" ), std::string::npos ) << "struct Particle lost its SizeScale";
-    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 96u )
-         << "struct Particle is six vec4s (PosSize, Color, VelLife, Age, Tint, SizeScale)";
-    const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
-                                         "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
-    EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )
-         << "the channel record no longer carries the bound size (or 1) in Scalars.y";
-}
-
-TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
-{
-    // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size
-    // pass it — which was exactly the state Д26 left behind, one copy having gained a meaning for Age.yzw
-    // that the other did not know about. Sizes are what a stride can see; MEANING is not, and the only
-    // way to assert it is that there is one text.
-    //
-    // Membership rather than absence of the word `struct`, because what must hold is that both stages
-    // COMPILE the shared header — a second declaration alongside it would not even build.
-    const auto simulate = CollectShaderIncludes(
-         StageSource( ShaderPath( "Particles/ParticleSimulate.shader" ), ShaderStage::Compute ),
-         ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    const auto billboard =
-         CollectShaderIncludes( StageSource( ShaderPath( "Particles/ParticleSpriteDefault.shader" ),
-                                             ShaderStage::Vertex, kParticleSpriteCell ),
-                                ShaderPath( "Particles/ParticleSpriteDefault.shader" ) );
-
-    EXPECT_TRUE( ClosureNames( simulate, "ParticleState.glslh" ) )
-         << "the simulation declares the particle layout itself again";
-    EXPECT_TRUE( ClosureNames( billboard, "ParticleState.glslh" ) )
-         << "the billboard draw declares the particle layout itself again";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )
@@ -2070,10 +1949,10 @@ TEST_F( ShaderCacheKeyShaderRoot, TheParticleDispatchDividesByTheWorkgroupTheSha
     // is never touched by the simulation. Those particles keep their zeroed state — dead, alpha 0, never
     // respawned — so the emitter simply carries fewer particles than it was configured for, forever, with
     // nothing logged and nothing invalid anywhere.
-    const auto local = ComputeLocalSize( ShaderPath( "Particles/ParticleSimulate.shader" ) );
+    const auto local = ComputeLocalSize( ShaderPath( "Particles/ParticleCompact.shader" ) );
 
     EXPECT_EQ( local[0], Desert::Graphic::System::kParticleLocalSize )
-         << "ParticleSimulate runs " << local[0] << " threads per group and Simulate divides by "
+         << "ParticleCompact runs " << local[0] << " threads per group and Simulate divides by "
          << Desert::Graphic::System::kParticleLocalSize;
 
     // One thread per particle over a one-dimensional dispatch: the group count C++ computes is a division
@@ -2167,7 +2046,7 @@ namespace
 
     // One shader, twice: written the way an engineer would write it, and with every comment deleted.
     // The comments are the ones that were live in the tree — "In LOCAL mode" is verbatim from
-    // Programs/Particles/ParticleSimulate.shader.
+    // the fixed particle simulation shader VFX-03k deleted.
     const char* kCommented = R"(
 Shader "ProseVsCode"
 {

@@ -16,7 +16,7 @@ namespace Desert::Graphic::System
     // absolute pool indices; an emitter's entries live in the same range of each list (entry k of its alive list
     // is at AliveList[Base + k]). ParticlePoolRanges hands the ranges out; ParticlePoolLists is the C++ statement
     // of what the two compute passes do with the lists (Programs/Particles/ParticleCompact.shader,
-    // ParticleSimulate.shader), which the device-free suite checks.
+    // a compiled stack's VFX/Simulate program), which the device-free suite checks.
 
     // The identity of one emitter's GPU state (VFX::EmitterKey on the GPU side): the entity, and for a
     // VFXComponent the emitter's index in its system. A ParticleEmitterComponent is emitter 0 of its entity, not a
@@ -166,7 +166,7 @@ namespace Desert::Graphic::System
                 ( alive[i] ? m_Alive : m_Free ).push_back( i );
         }
 
-        // The indices ParticleSimulate's spawn threads write for a step budget of @p budget.
+        // The indices the simulation program's spawn threads write for a step budget of @p budget.
         [[nodiscard]] std::vector<uint32_t> SpawnIndices( const uint32_t budget ) const
         {
             const auto            spawned = static_cast<uint32_t>( std::min<size_t>( budget, m_Free.size() ) );

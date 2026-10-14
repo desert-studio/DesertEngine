@@ -14,8 +14,7 @@ namespace Desert::VFX
     {
         // The program around the fragment. {0} = the program's name, {1} = the fragment (the Particle block's
         // body, which includes the contract). Every storage function is the SoA address of the header comment; the
-        // main is VFX-07's step over one range (ParticleSimulate.shader) with the stack in place of the fixed
-        // integration.
+        // main is VFX-07's step over one range with the stack's modules as its integration.
         constexpr std::string_view kProgram =
              "Shader \"{0}\"\n"
              "{{\n"

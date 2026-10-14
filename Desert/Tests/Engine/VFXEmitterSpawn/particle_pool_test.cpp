@@ -1,5 +1,5 @@
 // VFX-07: the world particle pool's device-free bookkeeping - the emitter ranges (ParticlePoolRanges, what
-// ParticleRenderer allocates) and the free / alive list contract the ParticleCompact and ParticleSimulate passes
+// ParticleRenderer allocates) and the free / alive list contract the ParticleCompact and simulation passes
 // keep (ParticlePoolLists). Red when a range overlaps another, a released range is not reused or coalesced, a
 // compact loses or duplicates an index, or a spawn takes an index that is alive.
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>

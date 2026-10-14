@@ -73,8 +73,9 @@ TEST( VFXSpriteBindings, AMissingOrMisSizedAttributeUsesTheRendererDefaultAndIsN
 // VFX-03h. The sprite vertex path and the view sort read a stack emitter THROUGH these bindings: the stack branch
 // of each reads Position / Color / SpriteSize from the pool's float components at the emitter's source row starts
 // (Common/ParticleSpriteSource.glslh) and touches no field of the fixed Particle record, and the shader's renderer
-// defaults are the C++ ones. Red when a stack branch reads u_Particles / PosSize / a Particle field, when a branch
-// stops reading an attribute through its start, when the stack branch is gone, or when the defaults drift apart.
+// defaults are the C++ ones. Red when the attribute reads touch u_Particles / PosSize / a Particle field, when one
+// stops reading an attribute through its start, when the reads are gone, or when the defaults drift apart. (The
+// fixed record itself is gone, VFX-03k: VFXParticleRecordCensus keeps it out of every shader.)
 namespace
 {
     std::string ReadShaderText( const char* relative )
@@ -90,10 +91,10 @@ namespace
         return std::string( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
     }
 
-    // The text of the branch taken for a stack source: from the STACK test to the `else` (or `:`) after it.
-    std::string StackBranch( const std::string& text, const std::string& end )
+    // The text that reads a particle's attributes: from @p from to @p end after it.
+    std::string StackBranch( const std::string& text, const std::string& from, const std::string& end )
     {
-        const size_t begin = text.find( "== PARTICLE_SPRITE_SOURCE_STACK" );
+        const size_t begin = text.find( from );
         if ( begin == std::string::npos )
             return {};
         const size_t stop = text.find( end, begin );
@@ -104,8 +105,8 @@ namespace
 TEST( VFXSpriteBindings, TheSpriteVertexPathAndTheSortReadAStackThroughItsBindingsNotTheParticleRecord )
 {
     const std::string vertex = ReadShaderText( "Mesh/Surface/Vertex_ParticleSprite.glslh" );
-    const std::string branch = StackBranch( vertex, "    else" );
-    ASSERT_FALSE( branch.empty() ) << "the sprite vertex path has no stack branch";
+    const std::string branch = StackBranch( vertex, "void main()", "const vec2 corners" );
+    ASSERT_FALSE( branch.empty() ) << "the sprite vertex path has no main";
     for ( const char* record : { "u_Particles", "PosSize", "VelLife", "p.", "Particle " } )
         EXPECT_EQ( branch.find( record ), std::string::npos ) << "the stack branch reads the record: " << record;
     for ( const char* read :
@@ -115,8 +116,8 @@ TEST( VFXSpriteBindings, TheSpriteVertexPathAndTheSortReadAStackThroughItsBindin
         EXPECT_NE( branch.find( read ), std::string::npos ) << "the stack branch does not read " << read;
 
     const std::string sort       = ReadShaderText( "Programs/Particles/ParticleSort.shader" );
-    const std::string sortBranch = StackBranch( sort, ":" );
-    ASSERT_FALSE( sortBranch.empty() ) << "the sort has no stack branch";
+    const std::string sortBranch = StackBranch( sort, "if ( t < alive )", "float depth" );
+    ASSERT_FALSE( sortBranch.empty() ) << "the sort reads no particle position";
     EXPECT_NE( sortBranch.find( "PARTICLE_SPRITE_VEC3( u_Floats, source, source.Starts.x" ), std::string::npos );
     EXPECT_EQ( sortBranch.find( "u_Particles" ), std::string::npos );
 
@@ -129,14 +130,12 @@ TEST( VFXSpriteBindings, TheSpriteVertexPathAndTheSortReadAStackThroughItsBindin
     EXPECT_EQ( Sys::kParticleSpriteDefaultColor, glm::vec4( 1.0f ) );
     EXPECT_NE( source.find( "#define PARTICLE_SPRITE_DEFAULT_SIZE vec2( 10.0 )" ), std::string::npos );
     EXPECT_EQ( Sys::kParticleSpriteDefaultSize, glm::vec2( 10.0f ) );
-    EXPECT_NE( source.find( "#define PARTICLE_SPRITE_SOURCE_STACK 1u" ), std::string::npos );
-    EXPECT_EQ( Sys::kParticleSpriteSourceStack, 1u );
 
     // The row a stack draws with: its range and its starts, in the glslh's field order.
     Sys::ParticleSpriteBindings bindings;
     bindings.FloatStart                    = { 8u, Sys::kParticleSpriteUnbound, 3u, 5u };
     const Sys::ParticleSpriteSourceGpu row = Sys::ParticleSpriteSourceOf( bindings, 640u, 256u, 1024u );
-    EXPECT_EQ( row.Layout, glm::uvec4( 640u, 256u, 1024u, Sys::kParticleSpriteSourceStack ) );
+    EXPECT_EQ( row.Layout, glm::uvec4( 640u, 256u, 1024u, 0u ) );
     EXPECT_EQ( row.Starts, glm::uvec4( 8u, Sys::kParticleSpriteUnbound, 3u, 5u ) );
     // VFX-03i: the relative time is the NormalizedAge binding (Starts.w), the renderer default when unbound.
     EXPECT_NE( source.find( "#define PARTICLE_SPRITE_DEFAULT_NORMALIZED_AGE 0.0" ), std::string::npos );

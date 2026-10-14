@@ -397,8 +397,8 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
 // a sentence of their own documentation compiled into a layout qualifier, each one silently consuming
 // an automatic number:
 //
-//   Particles/ParticleSimulate    "// Integrate alive particles. In LOCAL mode (u_Counts.w) ..."
-//   Sky/SkyDistantLight           "// ... two LUT fetches per step. In one thread that is ~2000 ..."
+//   Particles/ParticleSimulate    (deleted by VFX-03k) "// Integrate alive particles. In LOCAL mode (u_Counts.w)
+//   ..." Sky/SkyDistantLight           "// ... two LUT fetches per step. In one thread that is ~2000 ..."
 //   Deferred/DeferredLighting     "// ... many dynamic lights in screen space. In a debug mode it ..."
 //   Fog/HeightFog                 "// ... is what fades this in. In the physical ..."
 //   Clouds/CloudShadowMap         "// WHERE IT RUNS. In-frame compute, outside any render pass ..."

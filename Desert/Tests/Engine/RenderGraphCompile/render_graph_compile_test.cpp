@@ -407,14 +407,13 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
     const auto layout         = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSort",
-                                      { { "Particles", ShaderResourceKind::StorageBuffer },
-                                        { "Floats", ShaderResourceKind::StorageBuffer },
+                                      { { "Floats", ShaderResourceKind::StorageBuffer },
                                         { "AliveList", ShaderResourceKind::StorageBuffer },
                                         { "Counters", ShaderResourceKind::StorageBuffer },
                                         { "SortKeys", ShaderResourceKind::StorageBuffer },
                                         { "SortedAlive", ShaderResourceKind::StorageBuffer } },
                               Sys::kParticleSortPushBytes } );
-    const Sys::ParticleSortBuffers buffers{ particles, floats, alive, counters, keys, sorted };
+    const Sys::ParticleSortBuffers buffers{ floats, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     for ( const Sys::ParticleSortRange& range : plan.Ranges )
     {
@@ -493,7 +492,6 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneRunsEachEmittersStackAsItsOwnSim
     ExternalTexture       backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
     Builder               graph( "vfx stack simulate" );
     Sys::ParticlePoolRefs pool;
-    pool.Particles = graph.CreateBuffer( BufferDesc{ 256u * 64u }, "ParticlePool" );
     pool.Slots     = graph.CreateBuffer( BufferDesc{ 256u * 8u }, "ParticleSlots" );
     pool.Floats    = graph.CreateBuffer( BufferDesc{ 256u * 12u * 4u }, "ParticleFloats" );
     pool.Ints      = graph.CreateBuffer( BufferDesc{ 256u * 4u }, "ParticleInts" );
@@ -522,7 +520,6 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneRunsEachEmittersStackAsItsOwnSim
         refs.Args      = graph.CreateBuffer( BufferDesc{ 32 }, std::format( "ParticleDispatchArgs{}", e ) );
         refs.Params    = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleParams{}", e ) );
         refs.Curves    = graph.CreateBuffer( BufferDesc{ 256 }, std::format( "ParticleCurves{}", e ) );
-        refs.Stack     = true;
         refs.Layout    = stackLayout;
         refs.PushBytes = 48u;
     }
@@ -626,7 +623,6 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThr
 
     ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
     Builder          graph( "vfx stack draw" );
-    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 256u * 64u }, "ParticlePool" );
     const BufferRef  floats    = graph.CreateBuffer( BufferDesc{ 256u * 12u * 4u }, "ParticleFloats" );
     const BufferRef  slots     = graph.CreateBuffer( BufferDesc{ 256u * 8u }, "ParticleSlots" );
     const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 256u * 4u }, "ParticleAliveList" );
@@ -637,7 +633,7 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThr
          [&]( PassBuilder& pass )
          {
              // Stands in for the uploads, the stack's Spawn+Update and the last compact.
-             for ( const BufferRef buffer : { particles, floats, slots, alive, counters } )
+             for ( const BufferRef buffer : { floats, slots, alive, counters } )
                  pass.Write( buffer, Access::StorageWrite );
          },
          Ok );
@@ -645,14 +641,13 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThr
     const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 256u * 4u );
     const auto sortLayout     = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSort",
-                                  { { "Particles", ShaderResourceKind::StorageBuffer },
-                                    { "Floats", ShaderResourceKind::StorageBuffer },
+                                  { { "Floats", ShaderResourceKind::StorageBuffer },
                                     { "AliveList", ShaderResourceKind::StorageBuffer },
                                     { "Counters", ShaderResourceKind::StorageBuffer },
                                     { "SortKeys", ShaderResourceKind::StorageBuffer },
                                     { "SortedAlive", ShaderResourceKind::StorageBuffer } },
                               Sys::kParticleSortPushBytes } );
-    const Sys::ParticleSortBuffers buffers{ particles, floats, alive, counters, keys, sorted };
+    const Sys::ParticleSortBuffers buffers{ floats, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     const auto                     stages = Sys::ParticleSortStages( plan.Ranges[0].Length );
     for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
@@ -666,8 +661,7 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThr
     // The sprite cell's pool reads (Vertex_ParticleSprite.glslh); its material's own buffers are route-filled.
     const auto spriteLayout = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSpriteDefault/ParticleSprite.Forward",
-                              { { "Particles", ShaderResourceKind::StorageBuffer },
-                                { "Floats", ShaderResourceKind::StorageBuffer },
+                              { { "Floats", ShaderResourceKind::StorageBuffer },
                                 { "Slots", ShaderResourceKind::StorageBuffer },
                                 { "AliveList", ShaderResourceKind::StorageBuffer } },
                               112u } );
@@ -676,8 +670,7 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThr
          [&]( PassBuilder& pass )
          {
              auto block = pass.Bindings( spriteLayout, {} );
-             Sys::DeclareParticleSpriteDraw( block,
-                                             Sys::ParticleSpriteDrawRefs{ particles, floats, slots, sorted } );
+             Sys::DeclareParticleSpriteDraw( block, Sys::ParticleSpriteDrawRefs{ floats, slots, sorted } );
              pass.Read( counters, Access::IndirectArgs );
              pass.ColorTarget( 0, back, LoadOp::DontCare() );
          },
@@ -3610,8 +3603,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
                                ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleCompactPush)));"
@@ -3622,24 +3614,16 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
                std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
-                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
-                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
-                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
-                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
-               std::string::npos );
     // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
     // only Dispatch Args (one thread) and compact 0 (the range's full scan).
-    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_SimPipeline,ve.ArgsRef,"
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*ve.Program->Pipeline,ve.ArgsRef,"
                                "kParticleSimulateArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
                                "kParticleCompactArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
-    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*ve.Program->Pipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
     EXPECT_NE(
          particles.find( "Renderer::DrawProceduralIndirect(bindings,*pipeline,ve.Material->GetMaterialExecutor(),"
@@ -3970,8 +3954,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "(void)DeclareGroupBlocks(declared,m_Pipeline.get(),m_ForwardLayout,GroupExecutors(&ProgramMaterials::"
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
-         { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)" },
+         { "Systems/Scene/Particles/ParticleSortGraph.hpp",
+           "block.Storage(\"Floats\",refs.Floats,RDG::Access::StorageRead);" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -4500,8 +4484,7 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
-                                 ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead);"
+    EXPECT_NE( declaration.find( ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageRead);"
                                  "declared.Read(fe.CountersRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
@@ -5588,7 +5571,8 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
 {
     // VFX-10. The tick's Spawn from Channel particles reach the GPU spawn as a per-tick upload buffer of each
     // emitter (ParticleWorldGpu::PrepareTick), imported into the frame graph by the simulating view and declared
-    // StorageRead by Spawn+Update, whose shader reads it at binding 5 with the step's ChannelFirst/ChannelCount.
+    // StorageRead by Spawn+Update, whose compiled stack program reads it at binding 9 with the step's
+    // ChannelFirst/ChannelCount.
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::string renderer = SqueezedSource(
@@ -5616,14 +5600,12 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
 
     const std::string world = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" );
-    EXPECT_NE( world.find( "gpu.ChannelSpawns->SetData(channel.data(),needed*kParticleChannelSpawnStride)" ),
+    EXPECT_NE( world.find( "gpu.ChannelSpawns->SetData(channel.data(),needed*VFX::kVFXChannelSpawnRowStride)" ),
                std::string::npos )
          << "the tick's channel spawns are not uploaded";
 
-    const std::string shader =
-         SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
-    EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
-    EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
-         << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
+    const std::string program = SqueezedSource( root, "Desert/Desert/Source/Engine/VFX/VFXSimulationProgram.cpp" );
+    EXPECT_NE( program.find( "ReadBuffer(9)ChannelSpawns" ), std::string::npos );
+    EXPECT_NE( program.find( "c.Position=u_ChannelSpawns[4u*row+0u];" ), std::string::npos )
+         << "Spawn+Update does not take spawn t's payload from the channel rows";
 }

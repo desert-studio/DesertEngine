@@ -860,7 +860,7 @@ Shader "Volume"
 //
 // The sugar rules matched the WHOLE file text, comments included, and the five paren-less keywords
 // (In / Out / Uniform / Buffer / PushConstant) are ordinary English words. The live instance was
-// Programs/Particles/ParticleSimulate.shader:
+// the fixed particle simulation shader (deleted by VFX-03k):
 //
 //     // Integrate alive particles. In LOCAL mode (u_Counts.w) the integrated state is the offset
 //

@@ -52,7 +52,7 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles, const uint32_t floats,
                                                const uint32_t ints )
     {
-        if ( m_Pool.Particles && particles <= m_Pool.Capacity && floats <= m_Pool.FloatCapacity &&
+        if ( m_Pool.Slots && particles <= m_Pool.Capacity && floats <= m_Pool.FloatCapacity &&
              ints <= m_Pool.IntCapacity )
             return true;
         // Grown to at least double, so a scene adding emitters one by one recreates the pool a logarithmic number
@@ -63,8 +63,6 @@ namespace Desert::Graphic::System
         const uint32_t floatCapacity = grown( floats, m_Pool.FloatCapacity );
         const uint32_t intCapacity   = grown( ints, m_Pool.IntCapacity );
         m_Pool                       = {};
-        m_Pool.Particles = ShaderResources::StorageBuffer::Create( "ParticlePool", capacity * kParticleStride, 1,
-                                                                   /*persistent=*/true );
         m_Pool.Slots     = ShaderResources::StorageBuffer::Create(
              "ParticleSlots", capacity * static_cast<uint32_t>( sizeof( VFXSlotStateGpu ) ), 1, true );
         m_Pool.Floats    = ShaderResources::StorageBuffer::Create( "ParticleFloats", floatCapacity * 4u, 1, true );
@@ -72,8 +70,7 @@ namespace Desert::Graphic::System
         m_Pool.FreeList  = ShaderResources::StorageBuffer::Create( "ParticleFreeList", capacity * 4u, 2, true );
         // Two alive lists per range (ping-pong halves): a compact reads the half the previous compact wrote.
         m_Pool.AliveList = ShaderResources::StorageBuffer::Create( "ParticleAliveList", capacity * 8u, 2, true );
-        if ( !m_Pool.Particles || !m_Pool.Slots || !m_Pool.Floats || !m_Pool.Ints || !m_Pool.FreeList ||
-             !m_Pool.AliveList )
+        if ( !m_Pool.Slots || !m_Pool.Floats || !m_Pool.Ints || !m_Pool.FreeList || !m_Pool.AliveList )
         {
             LOG_ERROR( "[Particles] the scene's pool of {} particles ({} float, {} int components) could not be "
                        "created: no emitter runs",

@@ -21,19 +21,6 @@ namespace Desert::Core
 
 namespace Desert::Graphic::System
 {
-    // Push constant for ParticleSimulate (must match the shader's 128-byte block).
-    struct ParticleSimPush
-    {
-        glm::vec4  EmitterPos; // xyz world pos, w the fixed step length (seconds)
-        glm::vec4  Gravity;    // xyz gravity, w unused
-        glm::vec4  Direction;  // xyz dir, w cone half-angle (rad)
-        glm::vec4  Params;     // startSpeed, speedVar, lifetime, lifetimeVar
-        glm::vec4  StartColor; // rgb + start alpha
-        glm::vec4  EndColor;   // rgb + end alpha
-        glm::vec4  Sizes;      // startSize, endSize, size-curve power, 0
-        glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
-    };
-
     // A compiled stack's VFX/Simulate push constant (VFXSimulationProgram.cpp): Time = (dt, emitter age, 0, 0),
     // Counts = (range particles, step index, range pool base, 0), Bases = (float, int, param row, curve float)
     // starts of the emitter in the pool's Floats / Ints and its own Params / Curves.
@@ -72,7 +59,7 @@ namespace Desert::Graphic::System
         glm::uvec4 Step;
     };
 
-    // One element of ParticleSimulate's step table (`struct VFXStep`).
+    // One element of the simulation program's step table (`struct VFXStep`).
     struct ParticleStepGpu
     {
         uint32_t IdBase       = 0;
@@ -128,10 +115,8 @@ namespace Desert::Graphic::System
         uint64_t            Key      = 0; // ParticleEmitterKey
         ParticleEmitterGpu* Gpu      = nullptr;
         // Every emitter's compiled stack (a ParticleEmitterComponent's is VFX::ParticleEmitterSystem's, VFX-03i),
-        // simulated by its program (ShaderService::AcquireSimulationProgram) with StackPush. Push is dead with
-        // ParticleSimulate (REMAINDER-VFX-03i).
+        // simulated by its program (ShaderService::AcquireSimulationProgram) with StackPush.
         std::shared_ptr<const VFX::VFXCompiledEmitter> Stack;
-        ParticleSimPush                                Push;
         VFXStackSimPush                                StackPush;
         // The emitter's ParticleEmitterData::Material (null = the default sprite template); the drawing view
         // resolves its ParticleSprite.Forward cell and reads the blend mode off it.
@@ -139,11 +124,10 @@ namespace Desert::Graphic::System
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
-    // The pool's buffers: particles, the free list (one entry per particle), the alive list (two per particle),
+    // The pool's buffers: the free list (one entry per particle), the alive list (two per particle),
     // every slot's liveness (Slots) and the compiled stacks' attributes as SoA float / int components.
     struct ParticlePoolBuffers
     {
-        std::shared_ptr<ShaderResources::StorageBuffer> Particles;
         std::shared_ptr<ShaderResources::StorageBuffer> Slots;
         std::shared_ptr<ShaderResources::StorageBuffer> Floats;
         std::shared_ptr<ShaderResources::StorageBuffer> Ints;

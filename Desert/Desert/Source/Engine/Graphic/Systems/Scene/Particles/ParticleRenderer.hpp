@@ -111,8 +111,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr BuildDispatchArgs( const RDG::PassContext& context, uint32_t step );
         void DeclareDispatchArgsBindings( RDG::PassBuilder& pass, uint32_t step ) const;
 
-        // Spawn+Update of step @p step: one ParticleSimulate dispatch per declared emitter that runs the step,
-        // INDIRECT from the step's Dispatch Args (kParticleSimulateArgsOffset); block n = the n-th such emitter.
+        // Spawn+Update of step @p step: one dispatch of its compiled stack's program per declared emitter that
+        // runs the step, INDIRECT from the step's Dispatch Args (kParticleSimulateArgsOffset); block n = the n-th
+        // such emitter.
         [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step );
         void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
 
@@ -152,11 +153,9 @@ namespace Desert::Graphic::System
         // This view's imports of the scene's pool.
         struct ViewPool
         {
-            RDG::ExternalBuffer ParticlesImport;
             RDG::ExternalBuffer SlotsImport;
             RDG::ExternalBuffer FreeImport;
             RDG::ExternalBuffer AliveImport;
-            RDG::BufferRef      ParticlesRef;
             RDG::BufferRef      SlotsRef;
             RDG::ExternalBuffer FloatsImport; // the compiled stacks' SoA components (absent while none plays)
             RDG::ExternalBuffer IntsImport;
@@ -192,7 +191,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
-            const StackProgram*         Program = nullptr; // a compiled stack's program (null = ParticleSimulate)
+            const StackProgram* Program = nullptr;   // a compiled stack's program (null = it sits out this frame)
             RDG::ExternalBuffer         ParamsImport;      // a compiled stack's parameter rows and curve atlas
             RDG::ExternalBuffer         CurvesImport;
             RDG::BufferRef              ParamsRef;
@@ -221,7 +220,6 @@ namespace Desert::Graphic::System
         SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
                                    EmitterMaterial& material );
 
-        std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<ComputePipeline>  m_CompactPipeline;
         std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
         std::shared_ptr<ComputePipeline>  m_SortPipeline;
@@ -229,7 +227,6 @@ namespace Desert::Graphic::System
         RDG::BufferRef                    m_SortKeysRef;
         RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
-        mutable ShaderBindingLayoutCache m_SimLayout;
         mutable ShaderBindingLayoutCache m_CompactLayout;
         mutable ShaderBindingLayoutCache m_ArgsLayout;
 
