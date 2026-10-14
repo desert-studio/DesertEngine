@@ -348,13 +348,10 @@ TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
 {
     const DynamicMesh3 base = NewCore( Cases().front() );
 
-    DynamicMesh3 colours = base;
-    colours.Attributes()->EnablePrimaryColors();
-    EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( colours, kSlots ) ).find( "colour" ), std::string::npos );
-
+    // The colour overlay and UV layer 1 are the file's Colors / UV1 streams; a third UV layer has no home.
     DynamicMesh3 uvs = base;
-    uvs.Attributes()->SetNumUVLayers( 2 );
-    EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( uvs, kSlots ) ).find( "2 UV layers" ), std::string::npos );
+    uvs.Attributes()->SetNumUVLayers( 3 );
+    EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( uvs, kSlots ) ).find( "3 UV layers" ), std::string::npos );
 
     DynamicMesh3 layers = base;
     layers.Attributes()->SetNumPolygroupLayers( 1 );
