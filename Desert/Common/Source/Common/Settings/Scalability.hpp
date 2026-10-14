@@ -103,9 +103,9 @@ namespace Common::Scalability
         ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
+        ReflectionMaxSteps,        // HZB traversal iterations per ray, SSR and SSGI (trace push constants). 8..128
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
-        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        AmbientOcclusionSamples,   // GTAO horizon taps per slice side (GTAORenderer). 4..32
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High

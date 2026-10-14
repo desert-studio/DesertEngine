@@ -13,7 +13,8 @@
 // order on either side is free by design; the census there is the name + type set (mutation: a member renamed,
 // dropped or retyped on one side -> red).
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
-#include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/GTAORenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SSGIRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 
@@ -75,6 +76,26 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
     EXPECT_EQ( sizeof( T ), 128u );
 }
 
+TEST( UniformBlockLayout, SSGITraceUBIsTheTraceUniforms )
+{
+    using T = Desert::Graphic::System::SSGIRenderer::TraceUniforms;
+    ExpectTwin( "SSGI.shader", "SSGITraceUB",
+                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 128u );
+}
+
+TEST( UniformBlockLayout, GTAOUBIsTheGTAOUniforms )
+{
+    using T = Desert::Graphic::System::GTAORenderer::Uniforms;
+    ExpectTwin( "GTAO.shader", "GTAOUB",
+                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 128u );
+}
+
 TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
 {
     using T = Desert::Graphic::System::ScreenSpaceDenoiser::ViewUniforms;
@@ -88,20 +109,6 @@ TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
                       { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
                     sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 192u );
-}
-
-TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )
-{
-    using T = Desert::Graphic::MaterialSSAO::SSAOUBData;
-    ExpectTwin( "SSAO.shader", "SSAOUB",
-                {
-                     { "u_ViewProj", offsetof( T, ViewProj ) },
-                     { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "u_CameraPos", offsetof( T, CameraPos ) },
-                     { "u_SSAOParams", offsetof( T, Params ) },
-                },
-                sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 160u );
 }
 
 TEST( UniformBlockLayout, GIResolveUBIsTheGatherMaterialsStruct )

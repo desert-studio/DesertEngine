@@ -37,7 +37,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant). A colour attachment of the
     // G-buffer AND of the scene target, because both hold passes that write the view's depth.
     inline constexpr ImageFormat kVelocity        = ImageFormat::RG16F;
-    inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
+    // GTAO's raw estimate (GTAO.shader u_AO, rgba8): rgb = bent normal 0.5 + 0.5 n, a = visibility - all in [0,
+    // 1].
+    inline constexpr ImageFormat kGTAO = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,
     // height fog, clouds) also spells its format in the shader's image qualifier (rgba32f / rgba16f): change

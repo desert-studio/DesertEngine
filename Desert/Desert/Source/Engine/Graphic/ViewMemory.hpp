@@ -332,7 +332,13 @@ namespace Desert::Graphic
         add( { "GBuffer.Depth", "SceneRenderer.cpp", F::kGBufferDepth, width, height } );
         // Graph transients still cost their pooled memory while the view is open (like SMAA / Bloom below).
         add( { "SceneColorCopy", "SceneRendererFrameDeferred.cpp", F::kSceneColorCopy, width, height } );
-        add( { "SSAO", "SceneRendererFrameDeferred.cpp", F::kSSAO, width, height } );
+        // GTAORenderer: the raw estimate, then ScreenSpaceDenoiser::DenoiseAmbientOcclusion's reconstruction +
+        // output (transients) and its history pair.
+        add( { "GTAO", "GTAORenderer.hpp", F::kGTAO, width, height } );
+        add( { "SSD.AO.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1, 2 } );
+        add( { "SSD.AO.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1, 2 } );
+        add( { "SSD.AO.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width, height, 1,
+               2 } );
         // TAA1: the per-view velocity transient every depth-writing view pass writes (View/SceneViewState.hpp).
         add( { "Velocity", "SceneRenderer.cpp", F::kVelocity, width, height } );
 
@@ -384,7 +390,9 @@ namespace Desert::Graphic
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
+            // The raw GI signal of the one GI mode that runs: the SSGI trace (SSGIRenderer.hpp) or the RSM gather
+            // (SceneRendererFrameDeferred.cpp), both kGIResolve at the view's size.
+            add( { "GI.Signal", "SSGIRenderer.hpp", F::kGIResolve, width, height } );
             // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
             add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
                    2 } );

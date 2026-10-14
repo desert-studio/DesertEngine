@@ -78,9 +78,8 @@ namespace Desert::Graphic
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
-                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
-                         bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
-                         const DeferredEnvironmentInput& environment )
+                         uint32_t spotCount, const DeferredShadowInput& shadow, bool aoEnabled,
+                         const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
             // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
@@ -95,11 +94,10 @@ namespace Desert::Graphic
             // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
-            // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
-            // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
-            // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
-            SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
-                                  static_cast<float>( giMode ) ) );
+            // u_Params: x = debug mode, z = 1 when u_SSAO holds this frame's GTAO (else the shader takes AO = 1
+            // and the surface normal); y, w unused. The indirect light needs no switch: u_GI is the denoised SSGI
+            // or RSM-GI with its intensity applied by its producer, System.Black when GI is off.
+            SetParams( glm::vec4( static_cast<float>( debugMode ), 0.0f, aoEnabled ? 1.0f : 0.0f, 0.0f ) );
 
             UploadShadow( shadow );
             UploadCloudShadow( cloudShadow );

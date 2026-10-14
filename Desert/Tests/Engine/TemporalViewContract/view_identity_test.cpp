@@ -14,7 +14,7 @@
 //     Mutations: a ticket copy sharing its source's id; IssueCameraSourceId returning a constant;
 //     MakeViewCameraIdentity dropping bit 32 (issued ids collide with entity ids); Camera::GetSourceId returning
 //     the entity only; SceneRenderer keying the view by GetSourceEntity.
-//     Mutations: re-adding an m_PrevViewProj* member; moving m_ViewState.BeginFrame below AddFrameSSAO; dropping
+//     Mutations: re-adding an m_PrevViewProj* member; moving m_ViewState.BeginFrame below AddFrameGTAO; dropping
 //     m_ViewState.EndFrame.
 #include <Engine/Core/CameraSourceId.hpp>
 #include <Engine/Core/SceneGeneration.hpp>
@@ -249,7 +249,7 @@ TEST( ViewIdentityCensus, OnUpdateOpensTheViewFrameBeforeItsReadersAndClosesItAf
     const auto        body   = source.find( "void SceneRenderer::OnUpdate(" );
     ASSERT_NE( body, std::string::npos );
     const auto begin   = source.find( "m_ViewState.BeginFrame(", body );
-    const auto ssao    = source.find( "AddFrameSSAO(", body );
+    const auto ssao    = source.find( "AddFrameGTAO(", body );
     const auto execute = source.find( "ExecuteGraph( graph )", body );
     const auto end     = source.find( "m_ViewState.EndFrame(", body );
     ASSERT_NE( begin, std::string::npos );

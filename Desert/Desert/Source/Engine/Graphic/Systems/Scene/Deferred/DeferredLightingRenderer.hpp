@@ -112,20 +112,18 @@ namespace Desert::Graphic::System
         // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
         // material whose route fill the setup validates is filled before the validation reads it, never in the
         // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
-        // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
-        // source (0 = off, 1 = screen-space, 2 = RSM).
+        // = camera world position; debugMode selects a raw channel (0 = lit); aoEnabled: u_SSAO holds this frame's
+        // GTAO (bent normal + visibility), else the shader takes AO = 1 and the surface normal.
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
-                           uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
-                           bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
-                           const DeferredEnvironmentInput& environment )
+                           uint32_t spotCount, const DeferredShadowInput& shadow, bool aoEnabled,
+                           const CloudShadowInput& cloudShadow, const DeferredEnvironmentInput& environment )
         {
             if ( !m_Material )
                 return;
             ReportEnvironmentGap( environment );
             m_Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
-                                    pointCount, spotCount, shadow, giIntensity, ssaoEnabled, giMode, cloudShadow,
-                                    environment );
+                                    pointCount, spotCount, shadow, aoEnabled, cloudShadow, environment );
         }
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and

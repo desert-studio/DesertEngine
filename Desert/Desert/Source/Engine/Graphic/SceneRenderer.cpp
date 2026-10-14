@@ -404,12 +404,15 @@ namespace Desert::Graphic
             }
             case 10:
             {
-                // SSAO (fullscreen G-buffer -> AO factor). Its target is a per-frame graph transient
-                // (AddFrameSSAO); the deferred Composite reads it. Deferred only. Non-fatal.
-                RegisterSystem<System::SSAORenderer>( "SSAOSystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
-                    LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
-                return "SSAO";
+                // GTAO (compute horizon search -> bent normal + visibility, through the screen-space denoiser).
+                // Its images are per-frame graph transients and the denoiser's history (AddFrameGTAO); the
+                // deferred Composite reads the result. Deferred only. Non-fatal.
+                RegisterSystem<System::GTAORenderer>( "GTAOSystem", this, m_TargetFramebuffer );
+                if ( const auto gtaoInit =
+                          SP_CAST( System::GTAORenderer, m_RenderSystems["GTAOSystem"] )->Initialize();
+                     !gtaoInit )
+                    LOG_WARN( "[SceneRenderer] GTAO system unavailable: {}", gtaoInit.GetError() );
+                return "GTAO";
             }
             case 11:
             {
@@ -1191,22 +1194,28 @@ namespace Desert::Graphic
                 lightDir   = dl[0].Direction;
                 lightColor = dl[0].ColorIntensity;
             }
-            AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameGTAO( graph, textures, gbuffer, frame );
 
-            // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
-            // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
-            // history, which this frame's scene copy below refills.
+            // The screen traces before the lighting, which composes them: SSR over the reflection environment (UE:
+            // SSR, then the reflection environment pass), SSGI as the ambient's indirect light. Both trace LAST
+            // frame's lit scene - the view's scene colour history, which this frame's scene copy below refills -
+            // over this frame's HZB.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             System::SSRRenderer* const ssr =
                  m_EnableSSR && EnsureSSRResources()
                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
                       : nullptr;
-            const FrameSSR ssrFrame =
-                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+            const bool             ssgi = m_GIMode == Core::GIMode::ScreenSpace && EnsureSSGIResources();
+            const FrameScreenTrace screenTrace =
+                 ( ssr != nullptr || ssgi ) ? AddFrameScreenTrace( graph, textures, frame ) : FrameScreenTrace{};
+            const RDG::TextureRef ssrResolved =
+                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame )
+                                : RDG::TextureRef{};
 
             RDG::TextureRef giAccum;
-
-            if ( m_GIMode == Core::GIMode::RSM && meshRenderer != nullptr && EnsureGIResources() )
+            if ( ssgi )
+                giAccum = AddFrameSSGI( graph, textures, gbuffer, screenTrace, frame );
+            else if ( m_GIMode == Core::GIMode::RSM && meshRenderer != nullptr && EnsureGIResources() )
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
                 const glm::vec3                    sunDir( lightDir );
@@ -1218,20 +1227,25 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
-                               lightColor, frame );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrResolved, meshRenderer, lightDir, lightColor,
+                               frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
-            // serves this frame's refraction and next frame's reflections.
+            // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces read):
+            // one copy serves this frame's refraction and next frame's SSR and SSGI.
             std::function<void()> stampHistory;
-            if ( ssrFrame.SceneHistory.IsValid() )
-                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
+            if ( screenTrace.SceneHistory.IsValid() )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
+                                               m_RenderSystems["SceneColorHistorySystem"] );
+                stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
+            }
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
+                 graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
@@ -1468,18 +1482,79 @@ namespace Desert::Graphic
             m_SSRResourcesFailed = true;
             return false;
         }
-        // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
-        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized =
-                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
-             !initialized )
+        if ( !EnsureScreenTraceResources() )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
 
         m_SSRResourcesReady = true;
+        return true;
+    }
+
+    bool SceneRenderer::EnsureScreenTraceResources()
+    {
+        if ( m_ScreenTraceResourcesReady )
+            return true;
+        if ( m_ScreenTraceResourcesFailed )
+            return false;
+        Renderer::GetInstance().WaitDeviceIdle();
+        // The hierarchy every screen trace walks (HZBRenderer) and the scene colour history every trace returns at
+        // a hit (SceneColorHistoryRenderer): the view's, built with the first trace that needs them.
+        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the HZB: {}", initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        RegisterSystem<System::SceneColorHistoryRenderer>( "SceneColorHistorySystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] )
+                       ->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the scene colour history: {}",
+                      initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        m_ScreenTraceResourcesReady = true;
+        return true;
+    }
+
+    bool SceneRenderer::EnsureSSGIResources()
+    {
+        if ( m_SSGIResourcesReady )
+            return true;
+        if ( m_SSGIResourcesFailed || !m_ViewProfile.GlobalIllumination )
+            return false;
+        // The trace signal and the denoiser's history are sampled float targets (kGIResolve / kDenoiserSignal).
+        if ( !HasFloatRenderTargetSupport() )
+        {
+            LOG_WARN( "[SceneRenderer] SSGI needs blendable float render targets, which this device does not "
+                      "report — screen-space GI stays off." );
+            m_SSGIResourcesFailed = true;
+            return false;
+        }
+        if ( !EnsureScreenTraceResources() )
+        {
+            m_SSGIResourcesFailed = true;
+            return false;
+        }
+        Renderer::GetInstance().WaitDeviceIdle();
+        RegisterSystem<System::SSGIRenderer>( "SSGISystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::SSGIRenderer, m_RenderSystems["SSGISystem"] )->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] SSGI system unavailable: {}", initialized.GetError() );
+            m_SSGIResourcesFailed = true;
+            return false;
+        }
+        m_SSGIResourcesReady = true;
         return true;
     }
 

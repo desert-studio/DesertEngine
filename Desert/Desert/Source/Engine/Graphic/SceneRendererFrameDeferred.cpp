@@ -235,65 +235,45 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
+    void SceneRenderer::AddFrameGTAO( RDG::Builder& graph, FrameTextures& textures,
                                       const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
-        // SSAO first (reads the G-buffer world pos + normal into the AO buffer); the lighting pass below
-        // multiplies its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
+        // GTAO first (horizon search over the G-buffer depth + normal, then the screen-space denoiser); the
+        // lighting multiplies its ambient by the visibility and reads the sky along the bent normal. Skipped when
+        // disabled (the composite takes AO = 1 and the surface normal then).
         //
-        // The hemisphere radius and depth bias are WORLD distances, and a world unit is a centimetre;
-        // the classic recipe (John Chapman-style hemisphere SSAO, radius 0.5, bias 0.025) states them in
-        // METRES.
-        constexpr float kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
-        constexpr float kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
+        // The search radius is a WORLD distance, and a world unit is a centimetre: UE's default
+        // AmbientOcclusionRadius is 200 units (2 m).
+        constexpr float kGTAORadius = Common::Units::Metres( 2.0f );
 
         if ( !m_EnableSSAO )
             return;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
-        if ( ssao == nullptr )
+        auto* gtao = UNIQUE_GET_AS( System::GTAORenderer, m_RenderSystems["GTAOSystem"] );
+        if ( gtao == nullptr )
             return;
         if ( gbuffer.size() < 3 )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: SSAO needs the G-buffer normal and position, the graph has {}",
+            LOG_ERROR( "[SceneRenderer] Deferred: GTAO needs the G-buffer normal, the graph has {}",
                        gbuffer.size() );
             return;
         }
-        // The AO image lives within this graph (UE: a transient from the scene textures' desc): the G-buffer's
-        // size, the SSAO format, one mip, one sample.
-        auto desc = graph.GetTextureDesc( gbuffer[0] );
-        if ( !desc )
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: SSAO: {}", desc.GetError() );
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: GTAO needs the view's velocity (the denoiser reprojects its history "
+                 "through it), the frame has none" );
             return;
         }
-        RDG::TextureDesc aoDesc        = desc.GetValue();
-        aoDesc.Format                  = ViewTargetFormats::kSSAO;
-        aoDesc.Mips                    = 1;
-        aoDesc.Layers                  = 1;
-        aoDesc.Samples                 = 1;
-        const RDG::TextureRef ao       = graph.CreateTexture( aoDesc, "SSAO" );
-        // A lost SSAO term is "no occlusion": the composite goes on lit, unoccluded (RDG-FAULT1).
-        graph.SetFaultDefault( ao, RDG::FaultDefault::White );
-        const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
-        const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
-        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
-        graph.AddPass(
-             "Deferred: SSAO", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 ssao->DeclareBindings( pass, depth, normal );
-                 pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
-             },
-             // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
-             // reconstructs positions with its inverse (both from the ViewFrame, one copy).
-             [ssao, viewProj = frame.JitteredViewProjection, invViewProj = frame.InvJitteredViewProjection,
-              cameraPos = glm::vec4( frame.CameraPosition, 1.0f ),
-              samples   = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 return ssao->Record( context, viewProj, invViewProj, cameraPos, kSSAORadius, kSSAOBias,
-                                      /*power*/ 1.5f, samples );
-             } );
+        // -> Deferred: Composite (u_SSAO): the denoised bent normal + visibility.
+        textures.Transients.SSAO = gtao->AddPasses(
+             graph,
+             System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                            .GBufferDepth  = textures.Depth( m_GBuffer, "GBuffer" ),
+                                            .Velocity      = velocity,
+                                            .Black         = textures.GraphRefs().System.Black },
+             frame, m_SSAOSamples, kGTAORadius );
     }
 
     RDG::TextureRef SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
@@ -400,6 +380,8 @@ namespace Desert::Graphic
         inputs.GBufferShadingWord = gbuffer[2];
         inputs.GBufferDepth       = textures.Depth( m_GBuffer, "GBuffer" );
         inputs.GBufferEmissive = gbuffer[3];
+        // The denoised GTAO (rgb = bent normal, a = visibility) when it ran; u_Params.z tells the shader which.
+        const bool aoEnabled      = refs.Transients.SSAO.IsValid();
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
         inputs.SSR                = ssr.IsValid() ? ssr : refs.System.Black;
@@ -434,7 +416,6 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -452,8 +433,7 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
-                                         cloudShadow, environment );
+                                         shadow, aoEnabled, cloudShadow, environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
@@ -524,8 +504,8 @@ namespace Desert::Graphic
         copyDesc.Samples                   = 1;
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
-        // -> Deferred: Glass, Water; and, as SSR's scene colour history, next frame's Deferred: SSR
-        // (u_SceneColor).
+        // -> Deferred: Glass, Water; and, as the view's scene colour history, next frame's Deferred: SSR and
+        // Deferred: SSGI (u_SceneColor).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,
@@ -562,10 +542,64 @@ namespace Desert::Graphic
         return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
     }
 
-    SceneRenderer::FrameSSR SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                                                        System::SSRRenderer&                ssr,
-                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                        const ViewFrame&                    frame )
+    SceneRenderer::FrameScreenTrace
+    SceneRenderer::AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* history =
+             UNIQUE_GET_AS( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] );
+        if ( history == nullptr || !history->Prepare() )
+            return {};
+        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
+        if ( !hzb.IsValid() )
+            return {};
+        // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
+        // frame may have written.
+        return FrameScreenTrace{ .HZB          = hzb,
+                                 .SceneHistory = textures.Import( history->GetImage(), "SceneColorHistory" ),
+                                 .SceneHistoryReadable = history->ReadableIn( frame ) };
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                                                 const std::vector<RDG::TextureRef>& gbuffer,
+                                                 const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* ssgi = UNIQUE_GET_AS( System::SSGIRenderer, m_RenderSystems["SSGISystem"] );
+        if ( ssgi == nullptr || !screenTrace.HZB.IsValid() )
+            return {};
+        if ( gbuffer.size() < 2 )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SSGI needs the G-buffer normal, the graph has {}",
+                       gbuffer.size() );
+            return {};
+        }
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: SSGI needs the view's velocity (where a hit was last frame), the "
+                 "frame has none" );
+            return {};
+        }
+        RDG::TextureRef       raw;
+        const RDG::TextureRef denoised = ssgi->AddPasses(
+             graph,
+             System::SSGIRenderer::TraceInputs{ .GBufferNormal = gbuffer[1],
+                                                .GBufferDepth  = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                .SceneColor    = screenTrace.SceneHistory,
+                                                .HZB           = screenTrace.HZB,
+                                                .Velocity      = velocity },
+             frame, textures.GraphRefs().System.Black, screenTrace.SceneHistoryReadable, m_SSRMaxSteps,
+             m_GIIntensity, Common::Units::Metres( 0.5f ) /* literature: 0.5 m, as SSR's */, raw );
+        textures.Transients.GIResolve = raw;
+        return denoised;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
+                                                System::SSRRenderer&                ssr,
+                                                const std::vector<RDG::TextureRef>& gbuffer,
+                                                const FrameScreenTrace& screenTrace, const ViewFrame& frame )
     {
         if ( gbuffer.size() < 3 )
         {
@@ -574,7 +608,7 @@ namespace Desert::Graphic
             return {};
         }
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
-        if ( !traceTargets )
+        if ( !traceTargets || !screenTrace.HZB.IsValid() )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
         if ( !velocity.IsValid() )
@@ -583,9 +617,7 @@ namespace Desert::Graphic
                        "frame has none" );
             return {};
         }
-        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
-        if ( !hzb.IsValid() )
-            return {};
+        const RDG::TextureRef hzb = screenTrace.HZB;
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled resolve.
         const RDG::TextureRef trace    = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
         const RDG::TextureRef traceRay = graph.CreateTexture( traceTargets->TraceRay, "SSR.TraceRay" );
@@ -595,17 +627,14 @@ namespace Desert::Graphic
         graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
         graph.SetFaultDefault( traceRay, RDG::FaultDefault::Black );
         graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
-        const RDG::TextureRef sceneHistory =
-             textures.Import( ssr.GetSceneColorHistoryImage(), "SSR.SceneColorHistory" );
+        const RDG::TextureRef sceneHistory = screenTrace.SceneHistory;
         // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
         // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
                                                          textures.Depth( m_GBuffer, "GBuffer" ) };
         const RDG::BufferRef                     traceUniforms = System::SSRRenderer::UploadTraceUniforms(
              graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection );
-        // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
-        // frame may have written.
-        const bool                         sceneHistoryReadable = ssr.SceneColorHistoryReadableIn( frame );
+        const bool                         sceneHistoryReadable = screenTrace.SceneHistoryReadable;
         const uint32_t                     seed                 = ssr.NextTraceSeed();
         System::SSRRenderer::TraceSettings settings;
         settings.RaysPerPixel = m_SSRRaysPerPixel;
@@ -626,15 +655,13 @@ namespace Desert::Graphic
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
-        const RDG::TextureRef resolved =
-             ssr.Denoise( graph,
-                          System::ReflectionsDenoiserInputs{
-                               .Trace = trace, .TraceRay = traceRay, .TileMask = tiles, .TraceSeed = seed },
-                          System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
-                                                         .GBufferDepth  = inputs[2],
-                                                         .Velocity      = velocity,
-                                                         .Black         = textures.GraphRefs().System.Black },
-                          frame );
-        return FrameSSR{ .Resolved = resolved, .SceneHistory = sceneHistory };
+        return ssr.Denoise( graph,
+                            System::ReflectionsDenoiserInputs{
+                                 .Trace = trace, .TraceRay = traceRay, .TileMask = tiles, .TraceSeed = seed },
+                            System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                                           .GBufferDepth  = inputs[2],
+                                                           .Velocity      = velocity,
+                                                           .Black         = textures.GraphRefs().System.Black },
+                            frame );
     }
 } // namespace Desert::Graphic

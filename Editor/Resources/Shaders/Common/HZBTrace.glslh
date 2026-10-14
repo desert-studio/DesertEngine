@@ -18,7 +18,7 @@
 // t * direction for t >= 0 and every boundary crossing is one division.
 //
 // THE CONTRACT WITH THE NEXT SOURCE: HZBTraceScreen says where the ray met the depth buffer, nothing about whether
-// the depth buffer was right to stop it. The caller validates the hit (SSR.shader SSRHitConfidence: thickness, sky,
+// the depth buffer was right to stop it. The caller validates the hit (Common/ScreenTrace.glslh ScreenHitConfidence: thickness, sky,
 // back face, screen edge - HZBScreenEdgeFade) into a CONFIDENCE in [0, 1], and whatever confidence is missing is the share of the ray
 // the next source answers (Common/ReflectionEnvironment.glslh today, the hardware ray continued into the TLAS
 // later): a reflection is never "hit or black".

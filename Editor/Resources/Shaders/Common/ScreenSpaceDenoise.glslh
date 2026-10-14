@@ -15,9 +15,11 @@ const float kSSDPi = 3.14159265358979;
 // ScreenSpaceDenoiser.hpp DenoiserSignal - the push constant's signal id.
 const int kSSDSignalReflections     = 0;
 const int kSSDSignalDiffuseIndirect = 1;
+const int kSSDSignalAmbientOcclusion = 2; // GTAO: rgb = bent normal (0.5 + 0.5 n), a = visibility
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
-// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect: every surface pixel.
+// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect and ambient occlusion: every surface
+// pixel.
 bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
 {
 	if (signal == kSSDSignalReflections)

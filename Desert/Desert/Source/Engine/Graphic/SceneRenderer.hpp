@@ -55,7 +55,9 @@
 #include "Systems/Scene/PostProcessing/LightShaftRenderer.hpp"
 #include "Systems/Scene/PostProcessing/AutoExposureRenderer.hpp"
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
-#include "Systems/Scene/Deferred/SSAORenderer.hpp"
+#include "Systems/Scene/Deferred/GTAORenderer.hpp"
+#include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
+#include "Systems/Scene/Deferred/SSGIRenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
@@ -733,7 +735,8 @@ namespace Desert::Graphic
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
         void ApplySceneSampleCount( uint32_t samples );
-        void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
+        // GTAO + its denoiser; publishes the denoised bent normal + visibility as FrameTransients::SSAO.
+        void AddFrameGTAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The denoised GI the composite samples (u_GI), invalid when GI did not run this frame.
         RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
@@ -747,25 +750,36 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
-        // colour, its desc refused - logged). @p into: the imported image to copy into (SSR's scene colour
-        // history, which next frame's trace reads), or invalid for a per-frame transient; @p recorded runs in the
-        // copy's exec once the copy was recorded (the history's stamp), may be empty.
+        // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene colour
+        // history, which next frame's SSR and SSGI traces read), or invalid for a per-frame transient; @p recorded
+        // runs in the copy's exec once the copy was recorded (the history's stamp), may be empty.
         static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                   const std::vector<RDG::TextureRef>& sceneColor,
                                                   System::CopyRenderer* copy, RDG::TextureRef into,
                                                   std::function<void()> recorded );
         // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
-        // SSR's HZB + trace + denoiser, before the lighting. Resolved: the reflection the lighting composes
-        // (u_SSR); SceneHistory: SSR's scene colour history as imported here (last frame's lit scene, which this
-        // frame's scene copy refills). Both invalid when SSR did not run.
-        struct FrameSSR
+        // What every screen trace of the frame shares: the closest-depth hierarchy and the view's scene colour
+        // history as imported here (last frame's lit scene, which this frame's scene copy refills), with whether
+        // it holds the previous frame. All invalid / false when no screen trace runs.
+        struct FrameScreenTrace
         {
-            RDG::TextureRef Resolved;
+            RDG::TextureRef HZB;
             RDG::TextureRef SceneHistory;
+            bool            SceneHistoryReadable = false;
         };
-        FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
-                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
+        FrameScreenTrace AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame );
+        // SSR's trace + denoiser, before the lighting: the reflection the lighting composes (u_SSR), invalid when
+        // SSR did not run.
+        RDG::TextureRef AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+                                     const std::vector<RDG::TextureRef>& gbuffer,
+                                     const FrameScreenTrace& screenTrace, const ViewFrame& frame );
+        // SSGI's trace + denoiser, before the lighting: the indirect light the lighting adds (u_GI), invalid when
+        // SSGI did not run.
+        RDG::TextureRef AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                      const FrameScreenTrace& screenTrace, const ViewFrame& frame );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
@@ -867,9 +881,9 @@ namespace Desert::Graphic
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
-        bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
+        bool m_EnableSSAO = true; // deferred GTAO pass on/off (refreshed from the post settings)
         Core::GIMode            m_GIMode        = Core::GIMode::ScreenSpace; // indirect-light source
-        float                   m_GIIntensity   = 2.0f;
+        float                   m_GIIntensity   = 1.0f;
         bool                    m_EnableSSR     = false;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
@@ -901,12 +915,19 @@ namespace Desert::Graphic
         // Return false when the feature is unavailable; the failure is latched so it is not retried each frame.
         bool EnsureGIResources();
         bool EnsureSSRResources();
+        bool EnsureSSGIResources();
+        // The HZB and the scene colour history every screen trace (SSR, SSGI) reads, built with the first of them.
+        bool EnsureScreenTraceResources();
         // Device can sample+blend RGBA32F colour attachments — the precondition both features share.
         bool HasFloatRenderTargetSupport() const;
         bool m_GIResourcesReady   = false;
         bool m_GIResourcesFailed  = false;
         bool m_SSRResourcesReady  = false;
         bool                                                            m_SSRResourcesFailed = false;
+        bool                                                            m_SSGIResourcesReady         = false;
+        bool                                                            m_SSGIResourcesFailed        = false;
+        bool                                                            m_ScreenTraceResourcesReady  = false;
+        bool                                                            m_ScreenTraceResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 
         // The names above, in the order they were first registered. RebindScene and ResetTemporalHistory walk

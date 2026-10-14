@@ -11,7 +11,7 @@ Shader "SSR"
     //
     // The trace (SSR2): per traced texel, Reflections.RaysPerPixel rays whose directions are drawn from the GGX
     // distribution of VISIBLE normals (Heitz 2018; UE MonteCarlo.ush ImportanceSampleVisibleGGX), each walked over the
-    // closest-depth HZB (Common/HZBTrace.glslh) and validated into a confidence (SSRHitConfidence). The rays are
+    // closest-depth HZB (Common/HZBTrace.glslh) and validated into a confidence (ScreenHitConfidence). The rays are
     // combined with the RATIO ESTIMATOR (Stachowiak 2015, "Stochastic Screen-Space Reflections"; UE SSRT's
     // reflection reconstruction): sum(w * L) / sum(w), w = the BRDF*cos/pdf of the ray without its Fresnel - the
     // split-sum Fresnel-and-geometry term (the BRDF LUT) multiplies the result in the lighting, exactly as it
@@ -61,6 +61,10 @@ Shader "SSR"
         	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame, zw unused
         };
 
+        // The screen-ray helpers this trace shares with the SSGI trace (projection, basis, R2 sequence, hit
+        // confidence); they name u_GBufferNormal / u_GBufferDepth and u_InvJitteredViewProjection, declared above.
+        #include <Common/ScreenTrace.glslh>
+
         LocalSize(8, 8, 1);
 
         shared uint s_TileReflects;
@@ -70,31 +74,6 @@ Shader "SSR"
         // same direction (the environment is at infinity), near enough to stay exact in a 32-bit float.
         const float kMissDistance = 1.0e5;
 
-        // Per-pixel hash: decorrelates neighbouring texels' ray sequences.
-        float hash12(vec2 p)
-        {
-        	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        	p3 += dot(p3, p3.yzx + 33.33);
-        	return fract((p3.x + p3.y) * p3.z);
-        }
-
-        // The R2 low-discrepancy sequence (Roberts 2018): sample n of a 2D sequence that fills the square evenly
-        // for every prefix length, offset per pixel by a Cranley-Patterson rotation. Frames and rays share one index,
-        // so the denoiser's temporal accumulation gathers successive, well-spread lobe samples.
-        vec2 RayRandom(vec2 rotation, uint index)
-        {
-        	return fract(rotation + vec2(0.7548776662, 0.5698402910) * float(index));
-        }
-
-        // Orthonormal basis around n (Duff et al. 2017, "Building an Orthonormal Basis, Revisited").
-        void Basis(vec3 n, out vec3 t, out vec3 b)
-        {
-        	const float s = n.z >= 0.0 ? 1.0 : -1.0;
-        	const float a = -1.0 / (s + n.z);
-        	const float c = n.x * n.y * a;
-        	t = vec3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
-        	b = vec3(c, s + n.y * n.y * a, -n.y);
-        }
 
         // Heitz 2018, "Sampling the GGX Distribution of Visible Normals" (UE ImportanceSampleVisibleGGX): a microfacet
         // normal in tangent space seen from ve (tangent space, z = the surface normal), alpha = roughness^2.
@@ -134,44 +113,6 @@ Shader "SSR"
         {
         	const float a2 = alpha * alpha;
         	return 2.0 * nDotL / (nDotL + sqrt(a2 + (1.0 - a2) * nDotL * nDotL));
-        }
-
-        // World point -> (uv, deviceZ) through the jittered matrix. False behind the camera.
-        bool ProjectToScreen(mat4 viewProj, vec3 p, out vec3 screen)
-        {
-        	const vec4 clip = viewProj * vec4(p, 1.0);
-        	if (clip.w <= 0.0)
-        		return false;
-        	screen = vec3(clip.xy / clip.w * 0.5 + 0.5, clip.z / clip.w);
-        	screen.y = 1.0 - screen.y; // engine renders through a Y-flipped viewport (Common/ScreenUV.glslh)
-        	return true;
-        }
-
-        // How much a walk that stopped at @p hit (uv, deviceZ) is a real reflection of the surface there, in [0, 1].
-        // 0 off the screen and on sky texels; 0 where the ray passed BEHIND the surface by more than the thickness
-        // (the depth buffer cannot say what is behind its first layer - the next source answers it); 0 on a face
-        // the ray arrives at from behind; then UE's screen-edge vignette and a soft end at the max distance.
-        // @p surface = the world point of the depth buffer at the hit (meaningful where the result is > 0).
-        float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float maxDistance, out vec3 surface)
-        {
-        	surface = origin;
-        	if (any(lessThan(hit.xy, vec2(0.0))) || any(greaterThan(hit.xy, vec2(1.0))))
-        		return 0.0;
-        	const ivec2 size  = textureSize(u_GBufferDepth, 0);
-        	const ivec2 texel = clamp(ivec2(hit.xy * vec2(size)), ivec2(0), size - 1);
-        	const vec3  hN    = texelFetch(u_GBufferNormal, texel, 0).rgb;
-        	if (dot(hN, hN) <= 0.001)
-        		return 0.0; // sky: the sky is the environment's, not a screen hit
-        	if (dot(normalize(hN), L) > 0.0)
-        		return 0.0; // back face
-        	surface             = ReconstructWorldPosition(hit.xy, texelFetch(u_GBufferDepth, texel, 0).r,
-        	                                               u_InvJitteredViewProjection);
-        	const vec3  rayAt   = ReconstructWorldPosition(hit.xy, hit.z, u_InvJitteredViewProjection);
-        	const float behind  = distance(surface, rayAt);
-        	float confidence    = 1.0 - smoothstep(0.0, thickness, behind);
-        	confidence *= confidence;
-        	const float travel = distance(origin, surface);
-        	return confidence * HZBScreenEdgeFade(hit.xy) * (1.0 - smoothstep(0.7 * maxDistance, maxDistance, travel));
         }
 
         // The traced texel gPix (HALF RESOLUTION: one G-buffer pixel of a 2x2 block, rotating every frame).
@@ -246,7 +187,7 @@ Shader "SSR"
         		if (walk.Exhausted)
         			continue;
         		vec3        surface;
-        		const float confidence = SSRHitConfidence(walk.Position, origin, L, thickness, maxDistance, surface);
+        		const float confidence = ScreenHitConfidence(walk.Position, origin, L, thickness, maxDistance, surface);
         		if (confidence <= 0.0)
         			continue;
 

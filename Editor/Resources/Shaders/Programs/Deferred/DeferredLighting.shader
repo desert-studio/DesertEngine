@@ -30,10 +30,6 @@ Shader "DeferredLighting"
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
         // above (which already include it). Named explicitly because this pass calls it directly.
         #include <Mesh/DirectLighting.glslh>
-        // The one-bounce estimate GatherIndirectGI below is built from — direct light seen a second time,
-        // so it is the SAME BRDF, reached through the same text. Must follow DirectLighting.glslh, which it
-        // calls.
-        #include <Mesh/IndirectBounce.glslh>
         // World position from the G-buffer depth (u_GBufferDepth below): the one reconstruction every deferred
         // reader shares.
         #include <Common/ReconstructPosition.glslh>
@@ -47,10 +43,13 @@ Shader "DeferredLighting"
         Uniform(21) sampler2D u_GBufferDepth;
         Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
         Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
-        Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
+        // The denoised GTAO (Programs/Deferred/GTAO.shader through ScreenSpaceDenoiser): rgb = the bent normal encoded
+        // 0.5 + 0.5 n, a = visibility (1 = unoccluded). System.White and u_Params.z = 0 when AO is off.
+        Uniform(8) sampler2D u_SSAO;
         Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (added below), a = material AO
-        // RSM GI mode only: one-bounce indirect light PRE-RESOLVED into its own buffer by the GIResolve pass
-        // (already temporally denoised there). Unused — and left bound to its dummy — in the other GI modes.
+        // The one-bounce indirect light, denoised (ScreenSpaceDenoiser, diffuse indirect) and with its intensity
+        // applied by its producer: the SSGI trace (Programs/Deferred/SSGI.shader - the previous frame's lit scene,
+        // every light) or the RSM gather (GIResolve.shader - the sun). System.Black when GI is off.
         Uniform(10) sampler2D u_GI;
 
         // THE BAKED ENVIRONMENT — the same trio the forward mesh shaders bind, and the whole point of
@@ -113,84 +112,10 @@ Shader "DeferredLighting"
         {
         	vec4 u_LightDir;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 u_LightColor; // rgb = colour, a = intensity
-        	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
+        	vec4 u_Params;     // x = debug mode (0..9), z = 1 when u_SSAO holds this frame's GTAO; y, w unused
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         };
-
-        float ssgiHash(vec2 p)
-        {
-        	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        	p3 += dot(p3, p3.yzx + 33.33);
-        	return fract((p3.x + p3.y) * p3.z);
-        }
-
-        // One-bounce screen-space GI: gather nearby G-buffer texels, work out how much of the SUN each of
-        // them reflects TOWARD this surface, and accumulate it. Screen-space only (no extra passes / no
-        // lit-colour feedback); misses off-screen and point-lit bounces.
-        //
-        // HOW LITTLE THIS DELIVERS IN A ROOM, measured on CornellDemo (the scene that existed to show
-        // colour bleed) at --camera 0,300,1400, 715x764, noise floor 0 pixels:
-        //   * the whole feature on vs off:  mean 0.11/255, max 16/255, 13.4 % of pixels;
-        //   * the isolated indirect buffer: 0.000 in every statistic on the floor, near the walls and at
-        //     the centre alike, with a faint band only where a SUNLIT wall meets the floor;
-        //   * aiming the sun at the unlit wall: no change whatsoever.
-        // Three divisors stack. A neighbour the sun does not reach returns exactly vec3(0) from the
-        // shared BRDF; BounceFalloff is 1 + d²/(1 m)², which is 9.4 across a 290 cm room; and the sum is
-        // divided by SAMPLES whether or not a sample found an emitter, so WIDENING the radius makes the
-        // bleed weaker rather than longer-ranged — measured at 0.45 instead of 0.12, the one non-zero
-        // floor reading fell from 0.001 to 0.000. RADIUS is therefore not the knob it looks like.
-        //
-        // What would change the answer is bouncing the point and spot lights as well as the sun, at a
-        // price of SAMPLES × lights BRDF evaluations per pixel inside the pass that produces the lit
-        // colour. That is a design decision for the owner, not a constant for whoever is passing.
-        //
-        // The per-sample estimate is Mesh/IndirectBounce.glslh, which shades the bouncing neighbour through the
-        // SAME Mesh/DirectLighting.glslh the sun below is shaded with. It used to shade it here, inline, as
-        // `nAlb * max(0.0, dot(nN, sunL)) * sunRadiance` — the un-normalized Lambert this engine deleted from
-        // its forward mesh shaders — which made every emitter PI times brighter than the same surface is when
-        // the main pass shades it. The G-buffer already carries the neighbour's metallic (GBufferA.a) and
-        // roughness (GBufferB.a), so nothing extra is sampled to shade it properly.
-        //
-        // WHAT THE ESTIMATE DELIBERATELY DOES NOT MODEL, stated so the omission is a property and not an
-        // oversight: the neighbour's own occlusion. The sun below is attenuated by ShadowFactor *
-        // CloudShadowFactor; re-deriving that per gather sample means a cascade choice plus nine PCF taps
-        // TWELVE more times per pixel, and there is no lit-colour buffer to read it back from because this
-        // gather runs inside the very pass that produces the lit colour. A neighbour standing in shadow
-        // therefore bounces as though it stood in sun.
-        vec3 GatherIndirectGI(vec2 uv, vec3 worldPos, vec3 N, vec3 sunL, vec3 sunRadiance)
-        {
-        	const int   SAMPLES = 12;     // GI sample count (perf/quality knob)
-        	// NOT a range knob, measured: because the sum below is divided by SAMPLES whether or not a
-        	// sample found an emitter, and BounceFalloff grows with distance, a WIDER radius spreads the
-        	// same fixed budget over dimmer contributions. At 0.45 instead of 0.12 the only non-zero
-        	// reading on CornellDemo's floor fell from 0.001 to 0.000. The line used to say "wider =
-        	// longer-range bleed, but noisier"; the first half of that is false.
-        	const float RADIUS  = 0.12;   // screen-space gather radius (UV)
-        	const float GOLDEN  = 2.3999632; // golden angle for an even spiral
-
-        	float ang      = ssgiHash(uv * 2048.0) * 6.2831853;
-        	vec3  indirect = vec3(0.0);
-
-        	for (int i = 0; i < SAMPLES; i++)
-        	{
-        		float r = RADIUS * sqrt((float(i) + 0.5) / float(SAMPLES));
-        		float a = ang + float(i) * GOLDEN;
-        		vec2  suv = uv + vec2(cos(a), sin(a)) * r;
-        		if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
-
-        		vec4 nb = texture(u_GBufferB, suv);
-        		if (dot(nb.rgb, nb.rgb) <= 0.001) continue; // sky texel -> no bounce
-
-        		vec4  na   = texture(u_GBufferA, suv);
-        		vec3  nPos = ReconstructWorldPosition(suv, texture(u_GBufferDepth, suv).r, u_InvJitteredViewProjection);
-        		vec3  nF0  = mix(Fdielectric, na.rgb, na.a);
-
-        		indirect += EvaluateBounceSample(worldPos, N, nPos, normalize(nb.rgb), na.rgb, nF0, na.a,
-        		                                 max(nb.a, 0.04), sunL, sunRadiance);
-        	}
-        	return indirect / float(SAMPLES);
-        }
 
         // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
@@ -271,9 +196,11 @@ Shader "DeferredLighting"
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
         	// Ambient occlusion as UE composes it for the ambient: the MATERIAL's (GBuffer AO, from the surface's
-        	// AmbientOcclusion output — the forward path's whole AO) times the screen-space one. z = SSAO enabled.
-        	const float ssao = (u_Params.z > 0.5) ? texture(u_SSAO, v_TexCoord).r : 1.0;
-        	float       ao   = ge.a * ssao;
+        	// AmbientOcclusion output — the forward path's whole AO) times the screen-space one (GTAO's visibility).
+        	// z = GTAO ran this frame; its bent normal is then the direction the sky's irradiance is read along.
+        	const bool  gtao  = u_Params.z > 0.5;
+        	const vec4  ssao  = gtao ? textureLod(u_SSAO, v_TexCoord, 0.0) : vec4(0.5, 0.5, 0.5, 1.0);
+        	float       ao    = ge.a * ssao.a;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
         	if (dbg == 1) { oColor = vec4(albedo, 1.0); return; }                          // Albedo
@@ -355,26 +282,9 @@ Shader "DeferredLighting"
         		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
         		                                     surface, payload);
 
-        	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
-        	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only
-        	//      geometry currently ON SCREEN can bounce, and there is no denoiser.
-        	//  2 = RSM: read the GIResolve buffer, which bounced light from everything the SUN sees (off-screen
-        	//      included), denoised by the screen-space denoiser (ScreenSpaceDenoiser). Costs an extra
-        	//      shadow-style pass, the gather and the denoiser's passes. Its intensity is already applied in
-        	//      GIResolve, so it is NOT scaled again here.
-        	vec3  indirect    = vec3(0.0);
-        	float giIntensity = u_Params.y;
-        	int   giMode      = int(u_Params.w + 0.5);
-        	if (giMode == 1 && giIntensity > 0.0)
-        	{
-        		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
-        	}
-        	else if (giMode == 2)
-        	{
-        		// Already denoised (ScreenSpaceDenoiser, diffuse indirect: bilateral reconstruction, temporal
-        		// accumulation, history convolution) - a second, depth-blind blur here would bleed across edges.
-        		indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
-        	}
+        	// One-bounce GI: the denoised SSGI or RSM-GI buffer (System.Black when GI is off) - already denoised, a
+        	// second, depth-blind blur here would bleed across edges.
+        	const vec3 indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
 
         	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only
 
@@ -387,6 +297,14 @@ Shader "DeferredLighting"
         	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
         	// captures, then the split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	// The sky's irradiance along GTAO's bent normal - the mean unoccluded direction - instead of the surface
+        	// normal (Jimenez 2016 §5: a crease is lit by the sky it sees, not by the sky its normal points at).
+        	if (gtao && dot(ssao.rgb, ssao.rgb) > 0.0)
+        	{
+        		const vec3 bent = ssao.rgb * 2.0 - 1.0;
+        		if (dot(bent, bent) > 1e-4)
+        			sampled.Irradiance = DesertAmbientIrradiance(normalize(bent));
+        	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);

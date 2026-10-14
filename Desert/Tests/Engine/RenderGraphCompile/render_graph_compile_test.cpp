@@ -1055,7 +1055,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
         Builder          graph( "composite without ssao" );
         const auto       system = RegisterSystemTextures( graph, black, white, blackCube );
         const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
-        const TextureRef ssao{}; // FrameTransients::SSAO when AddFrameSSAO returned early
+        const TextureRef ssao{}; // FrameTransients::SSAO when AddFrameGTAO returned early
         graph.AddPass(
              "Deferred: Composite", PassFlags::Raster,
              [&]( PassBuilder& pass )
@@ -2455,7 +2455,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "TerrainGBuffer",
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
-         "Deferred: SSAO",
          "Deferred: SSR",
          "Deferred: RSM",
          "Deferred: GIResolve",
@@ -2527,11 +2526,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
-    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings,
-    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
-    // delegates.
-    declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
+    // RDG-FAULT1: the sampled reads live in the system's binding block (GTAORenderer::AddPasses declares them
+    // Access::SampledCompute, DeferredLightingRenderer::DeclareCompositeBindings Access::SampledGraphics); the
+    // node delegates.
+    declares( "AddFrameGTAO", { "textures.Transients.SSAO=gtao->AddPasses(graph," } );
     // TAA1-B: the temporal resolve reads the scene colour, the scene depth, the frame's velocity, the previous
     // adapted luminance and the registered history, and hands its output back as the post input.
     declares( "AddFrameTemporal",
@@ -2647,8 +2645,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         EXPECT_NE(
              declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
              std::string::npos );
-        EXPECT_NE( declaration( "SSAORenderer.hpp" )
-                        .find( ".Sampled(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
+        EXPECT_NE( declaration( "GTAORenderer.hpp" )
+                        .find( ".Sampled(\"u_GBufferDepth\",scene.GBufferDepth,RDG::Access::SampledCompute" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
                         .find( ".Sampled(\"u_SSAO\",inputs.SSAO,RDG::Access::SampledGraphics" ),
@@ -5455,7 +5453,9 @@ TEST( RenderGraphCompile, ProducersDeclareTheirFaultDefault )
     constexpr const char* kDeferred   = "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp";
     constexpr const char* kPostFX     = "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp";
     const Producer        producers[] = {
-         { kDeferred, "ao", "SSAO", "White" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GTAORenderer.hpp", "raw", "GTAO", "White" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSGIRenderer.hpp", "signal", "SSGI.Trace",
+                  "Black" },
          { kDeferred, "gather", "GI.Gather", "Black" },
          { kDeferred, "trace", "SSR.Trace", "Black" },
          { kDeferred, "tiles", "SSR.TileMask", "Black" },

@@ -256,8 +256,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "the SunLightFx slice is pushed per frame with the sky command" },
          { "LensFlareSystem", "Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.hpp", false, false,
            "params pushed per frame in BeginScene" },
-         { "SSAOSystem", "Graphic/Systems/Scene/Deferred/SSAORenderer.hpp", false, false,
-           "a function of this frame's G-buffer" },
+         { "GTAOSystem", "Graphic/Systems/Scene/Deferred/GTAORenderer.hpp", true, true,
+           "the denoiser's temporally accumulated bent normal and visibility, reprojected from the previous "
+           "frame" },
          { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false, false,
            "a copy of this frame's target" },
          { "VelocityViewSystem", "Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp", false, false,
@@ -286,6 +287,10 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
          { "SSRSystem", "Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", true, true,
            "the temporally accumulated reflection, blended at 0.88 against a reprojection of the "
            "previous frame" },
+         { "SSGISystem", "Graphic/Systems/Scene/Deferred/SSGIRenderer.hpp", true, true,
+           "the denoiser's temporally accumulated indirect light, reprojected from the previous frame" },
+         { "SceneColorHistorySystem", "Graphic/Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp", true, true,
+           "the previous frame's lit scene every screen trace returns at a hit" },
          { "AutoExposureSystem", "Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.hpp", true, true,
            "the adapted luminance is a temporal history and would ramp out of the previous level's "
            "brightness" },

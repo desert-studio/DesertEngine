@@ -32,8 +32,8 @@ namespace Desert::Graphic
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
-        RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
-        RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
+        RDG::TextureRef SSAO;           // denoised GTAO (bent normal, AO)    -> deferred lighting
+        RDG::TextureRef GIResolve;      // raw GI signal (SSGI trace / RSM gather, pre-denoise) -> denoiser
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply

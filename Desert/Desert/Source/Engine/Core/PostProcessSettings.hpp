@@ -8,9 +8,9 @@
 namespace Desert::Core
 {
     // Source of the one-bounce indirect light (Deferred path only).
-    //  ScreenSpace — gathers from sun-lit G-buffer neighbours right inside the lighting pass. Cheap and
-    //                self-contained, but ONLY geometry currently on screen can bounce, and there is no
-    //                denoiser, so a wide radius reads as noise.
+    //  ScreenSpace — SSGI (UE's screen-space diffuse indirect): rays over the HZB return the previous frame's
+    //                lit scene, so every light (sun, point, spot, emissive) bounces, through the screen-space
+    //                denoiser. Only geometry on screen can bounce.
     //  RSM         — bounces light off everything the SUN sees (off-screen geometry included) via a
     //                reflective shadow map, resolved into its own buffer and temporally accumulated.
     //                Better and stabler; costs one sun-view raster pass plus two fullscreen passes.
@@ -47,15 +47,17 @@ namespace Desert::Core
         REFLECT()
 
         // Deferred screen-space effects (Deferred path only). Each costs a full-screen multi-sample pass.
+        // The screen-space ambient occlusion is GTAO with a bent normal (GTAORenderer).
         PROPERTY( DisplayName( "Enable SSAO" ), Category( "Rendering Features" ) )
         bool EnableSSAO = true;
 
         PROPERTY( DisplayName( "Global Illumination" ), Category( "Global Illumination" ) )
         GIMode GlobalIllumination = GIMode::ScreenSpace;
-        // ONE knob for both GI modes, but they are not on the same scale: the screen-space gather is bright
-        // at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor) and wants ~6.
+        // ONE knob for both GI modes. SSGI is physically scaled at 1 (UE's IndirectLightingIntensity): it reads
+        // the previous frame's lit scene, last frame's bounce included, so above 1 / albedo an enclosed room gains
+        // light every frame. The RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor), wants ~6.
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
-        float GIIntensity = 2.0f;
+        float GIIntensity = 1.0f;
 
         // On by default (SSR1B, scene v48): the trace + resolve cost 0.25-0.29 ms after SSR1, so a view no volume
         // touches reflects, as UE's ScreenSpaceReflectionIntensity default does. v47 files stated the old default
