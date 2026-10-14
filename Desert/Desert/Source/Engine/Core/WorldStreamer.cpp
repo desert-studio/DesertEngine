@@ -11,6 +11,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -277,7 +278,12 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // The machine's streaming range (Scalability ViewDistance), on the component sources only.
+        const std::size_t componentCount = sources.size();
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
+        Rules::ScaleComponentSourceRanges( sources, componentCount,
+                                           Common::Scalability::QualityState::Resolved().As<int>(
+                                                Common::Scalability::Parameter::StreamingRangePercent ) );
         return sources;
     }
 

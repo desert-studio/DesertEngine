@@ -572,3 +572,22 @@ TEST( WorldPartitionStreaming, AHigherPrioritySourcesCellsComeFirstAndTheSetDoes
         }
     }
 }
+
+// SCAL-COVER ViewDistance.StreamingRangePercent: WorldStreamer::GatherSources hands the machine's percent to
+// ScaleComponentSourceRanges. The component sources' radius follows it; an instrument after them keeps its own.
+// Red if the helper stops scaling (the Low level would stream the authored range) or scales the instruments.
+TEST( WorldPartitionStreaming, TheMachineStreamingRangeScalesOnlyTheComponentSources )
+{
+    namespace Rules = Desert::Core::Rules;
+    WorldPartitionGridSerialized grid;
+    grid.LoadingRange = 10000.0f; // cm
+    std::vector<Rules::StreamingSource> sources( 3 );
+    sources[1].RangeScale = 2.0f;
+    Rules::ScaleComponentSourceRanges( sources, 2, 50 );
+    EXPECT_DOUBLE_EQ( Rules::SourceRadius( sources[0], grid ), 5000.0 );
+    EXPECT_DOUBLE_EQ( Rules::SourceRadius( sources[1], grid ), 10000.0 );
+    EXPECT_DOUBLE_EQ( Rules::SourceRadius( sources[2], grid ), 10000.0 ); // the instrument
+    std::vector<Rules::StreamingSource> authored( 1 );
+    Rules::ScaleComponentSourceRanges( authored, 1, 100 );
+    EXPECT_DOUBLE_EQ( Rules::SourceRadius( authored[0], grid ), 10000.0 );
+}

@@ -338,7 +338,7 @@ namespace Desert::Editor
             // The ViewDistance group's foliage rows, one slider each within its spec range.
             for ( const SC::Parameter foliage :
                   { SC::Parameter::FoliageCullDistancePercent, SC::Parameter::FoliageDensityPercent,
-                    SC::Parameter::LandscapeLodDistancePercent } )
+                    SC::Parameter::LandscapeLodDistancePercent, SC::Parameter::StreamingRangePercent } )
             {
                 const SC::ParameterSpec& spec  = SC::SpecOf( foliage );
                 int                      value = Requested( foliage );

@@ -141,6 +141,17 @@ namespace Desert::Core::Rules
         return static_cast<double>( range ) * static_cast<double>( source.RangeScale );
     }
 
+    // The machine's ViewDistance.StreamingRangePercent on the first @p componentCount sources (the
+    // StreamingSourceComponents WorldStreamer::GatherSources made; the instruments a caller passed after them
+    // keep their own scale): each one's RangeScale, so its circle and every shape of it, times percent / 100.
+    inline void ScaleComponentSourceRanges( std::span<StreamingSource> sources, std::size_t componentCount,
+                                            int percent )
+    {
+        const float scale = static_cast<float>( percent ) / 100.0f;
+        for ( std::size_t index = 0; index < componentCount && index < sources.size(); ++index )
+            sources[index].RangeScale *= scale;
+    }
+
     // ONE SHAPE ON THE GROUND, in world cm: what the query tests cells against and the panel paints.
     struct SourceSector
     {

@@ -75,6 +75,8 @@ namespace Common::Scalability
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None,
                "RenderConfig::TextureMipBias -> GlobalTextureFilterSampler -> VulkanImage SamplerCreateInfo "
                "mipLodBias (and every graph read naming it)" },
+             { P::StreamingRangePercent, G::ViewDistance, "ViewDistance.StreamingRangePercent", 25, 100, CL::None,
+               "Core::WorldStreamer::GatherSources -> Rules::ScaleComponentSourceRanges -> SourceRadius" },
              { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
              { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,

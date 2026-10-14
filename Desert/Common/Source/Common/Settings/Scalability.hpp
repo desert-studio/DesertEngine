@@ -132,6 +132,10 @@ namespace Common::Scalability
         // GlobalTextureFilterSampler
         // -> VulkanImage SamplerCreateInfo). Low +100, Medium +50, 0 at High/Epic/Cinematic. -200..400
         TextureMipBias,
+        // UE wp.Runtime streaming range under sg.ViewDistanceQuality: every streaming-source COMPONENT's loading
+        // range times this percent (Core::WorldStreamer::GatherSources -> Rules::ScaleComponentSourceRanges ->
+        // StreamingSource::RangeScale). Instruments a caller passes are not scaled. 100 at High+. 25..100
+        StreamingRangePercent,
         // ---- placeholders (Reader = nullopt) ----
         ShadowRayTracing,             // Shadows: RayTracingMode
         GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode

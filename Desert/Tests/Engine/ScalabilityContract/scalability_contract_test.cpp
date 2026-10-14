@@ -58,11 +58,11 @@ namespace
       "Cinematic": { "Filtering.Texture": 3, "Filtering.Anisotropy": 16 }
     },
     "ViewDistance": {
-      "Low":       { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 50, "ViewDistance.FoliageDensityPercent": 50, "ViewDistance.LandscapeLodPercent": 50 },
-      "Medium":    { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 75, "ViewDistance.FoliageDensityPercent": 75, "ViewDistance.LandscapeLodPercent": 75 },
-      "High":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 },
-      "Epic":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 },
-      "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100 }
+      "Low":       { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 50, "ViewDistance.FoliageDensityPercent": 50, "ViewDistance.LandscapeLodPercent": 50, "ViewDistance.StreamingRangePercent": 50 },
+      "Medium":    { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 75, "ViewDistance.FoliageDensityPercent": 75, "ViewDistance.LandscapeLodPercent": 75, "ViewDistance.StreamingRangePercent": 75 },
+      "High":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100, "ViewDistance.StreamingRangePercent": 100 },
+      "Epic":      { "ViewDistance.MeshLOD": 1, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100, "ViewDistance.StreamingRangePercent": 100 },
+      "Cinematic": { "ViewDistance.MeshLOD": 0, "ViewDistance.FoliageCullPercent": 100, "ViewDistance.FoliageDensityPercent": 100, "ViewDistance.LandscapeLodPercent": 100, "ViewDistance.StreamingRangePercent": 100 }
     },
     "Effects": {
       "Low":       { "Effects.CloudLightSamples": 16, "Effects.CloudShadowMapPercent": 50, "Effects.CloudStopTransmittancePerMille": 50, "Effects.ParticleSpawnPercent": 50 },
@@ -581,6 +581,19 @@ TEST( ScalabilityContract, TheTexturesLevelChangesTheSamplerMipBias )
     EXPECT_TRUE( IsGroupListed( Group::Textures ) );
 }
 
+// ViewDistance.StreamingRangePercent is the share of every streaming-source component's loading range the
+// world loads within (WorldPartitionStreaming suite pins ScaleComponentSourceRanges): High+ the authored range.
+TEST( ScalabilityContract, TheViewDistanceLevelChangesTheStreamingRange )
+{
+    const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( Resolve( AllAt( level ), Table(), c ).As<int>( Parameter::StreamingRangePercent ), 100 );
+    QualitySelection low                                        = AllAt( Level::Epic );
+    low.Levels[static_cast<std::size_t>( Group::ViewDistance )] = Level::Low;
+    EXPECT_EQ( Resolve( low, Table(), c ).As<int>( Parameter::StreamingRangePercent ), 50 );
+    EXPECT_EQ( SpecOf( Parameter::StreamingRangePercent ).Owner, Group::ViewDistance );
+}
+
 // ViewDistance.LandscapeLodPercent is the switch-distance scale TerrainRenderer's TileLod reads (the TerrainBatch
 // suite pins LandscapeLodAtDistanceScale): High and above authored, Low half the distances.
 TEST( ScalabilityContract, TheViewDistanceLevelChangesTheLandscapeLodDistance )
@@ -868,6 +881,9 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     // High+.
     for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
         EXPECT_EQ( table.ValueAt( Parameter::TextureMipBias, level ), 0 ) << LevelKey( level );
+    // WorldStreamer before SCAL-COVER: every component source loaded within its whole range (RangeScale 1).
+    for ( const Level level : { Level::High, Level::Epic, Level::Cinematic } )
+        EXPECT_EQ( table.ValueAt( Parameter::StreamingRangePercent, level ), 100 ) << LevelKey( level );
 }
 
 // ---- Presets ---------------------------------------------------------------------------------------------
