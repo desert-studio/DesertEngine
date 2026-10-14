@@ -23,6 +23,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <regex>
 #include <set>
@@ -259,4 +260,130 @@ TEST( ModuleBoundary, CrossingsReport )
     EXPECT_GT( allowedEngineToRenderCore, 0u )
          << "no Engine -> RenderCore include resolved: the walk lost the RHI";
     EXPECT_FALSE( byEdge.contains( "Engine -> RenderCore" ) ) << "an allowed edge is reported as a crossing";
+}
+
+// ONE LIBRARY PER MODULE (BUILD-MOD2): premake builds each module's legacy files as their own static library,
+// placing every file with DesertModules.PlaceLegacy (a Lua matcher of the ECMAScript subset the rows use); the
+// header tool and this suite place with std::regex. Red when the two disagree on any file (the matcher drifted
+// from ECMAScript, or a row uses a construct only one of them reads the same way).
+namespace
+{
+    const fs::path& TableFile()
+    {
+        static const fs::path file = RepoRoot() / "BuildScripts" / "DesertModules.lua";
+        return file;
+    }
+
+    // Every file of the legacy root but its shared precompiled header (every library compiles pch.cpp).
+    std::vector<std::string> LegacyFiles()
+    {
+        const std::string        prefix = std::format( "{}/", Table().LegacyRoot() );
+        std::vector<std::string> legacy;
+        for ( const std::string& file : EngineFiles() )
+            if ( file.starts_with( prefix ) )
+            {
+                const std::string relative = file.substr( prefix.size() );
+                if ( relative != "pch.cpp" && relative != "pch.hpp" )
+                    legacy.push_back( relative );
+            }
+        return legacy;
+    }
+
+    // module -> the library premake names it (DesertModules.LegacyLibName), for each module with legacy files.
+    std::map<std::string, std::string> LegacyLibraries()
+    {
+        std::set<std::string> withFiles;
+        for ( const std::string& file : LegacyFiles() )
+            withFiles.insert( Table().ModuleOfLegacy( file ) );
+        const std::vector<std::string> modules( withFiles.begin(), withFiles.end() );
+        auto names = Desert::HeaderTool::ModuleTable::CallForEach( TableFile(), "LegacyLibName", modules );
+        std::map<std::string, std::string> libraries;
+        if ( !names.IsSuccess() )
+        {
+            ADD_FAILURE() << names.GetError();
+            return libraries;
+        }
+        for ( std::size_t i = 0; i < modules.size(); ++i )
+            libraries[modules[i]] = names.GetValue()[i];
+        return libraries;
+    }
+} // namespace
+
+TEST( ModuleBoundary, PremakeAndHeaderToolPlaceEveryLegacyFileTheSame )
+{
+    std::vector<std::string> paths = LegacyFiles();
+    ASSERT_GT( paths.size(), 1000u ) << "the walk found no legacy library: " << RepoRoot();
+    // The matcher's edges, beside the real files: an anchor inside an alternation, `$`, `\w*`, a near miss.
+    for ( const char* probe :
+          { "Engine/Core/WindowCloseGateX.cpp", "Engine/Core/Window.cpp", "XPlatform/Windows/A.cpp",
+            "Engine/Generated/Reflection_Water.gen.cppx", "Engine/ECS/System/LandscapeAny_1.cpp",
+            "Engine/Assets/TextAssetHeaderReader.hpp", "Engine/Graphic/Unlisted.cpp" } )
+        paths.emplace_back( probe );
+    auto lua = Desert::HeaderTool::ModuleTable::CallForEach( TableFile(), "PlaceLegacy", paths );
+    ASSERT_TRUE( lua.IsSuccess() ) << lua.GetError();
+    for ( std::size_t i = 0; i < paths.size(); ++i )
+        EXPECT_EQ( lua.GetValue()[i], Table().ModuleOfLegacy( paths[i] ) )
+             << paths[i] << ": premake (Lua) and the header tool (std::regex) place it differently";
+}
+
+// Red when a generated module library misses a legacy file, compiles one twice, or compiles one outside its
+// module's library. Reads the Visual Studio projects premake wrote (build/Projects); skipped when there are none.
+TEST( ModuleBoundary, EveryLegacyFileIsInExactlyItsModulesLibrary )
+{
+    const fs::path projects  = RepoRoot() / "build" / "Projects";
+    const auto     libraries = LegacyLibraries();
+    ASSERT_FALSE( libraries.empty() );
+    if ( !fs::exists( projects / ( libraries.begin()->second + ".vcxproj" ) ) )
+        GTEST_SKIP() << "no generated Visual Studio projects under " << projects;
+
+    static const std::regex kItem( R"#(<(?:ClCompile|ClInclude|None) Include="([^"]+)")#" );
+    const std::string       marker = std::format( "{}/", Table().LegacyRoot() );
+    std::map<std::string, std::vector<std::string>> inLibraries; // legacy-relative file -> libraries listing it
+    for ( const auto& [module, library] : libraries )
+    {
+        std::ifstream     in( projects / ( library + ".vcxproj" ) );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        ASSERT_FALSE( text.empty() ) << library << ".vcxproj is missing beside the others: regenerate";
+        for ( auto it = std::sregex_iterator( text.begin(), text.end(), kItem ); it != std::sregex_iterator();
+              ++it )
+        {
+            std::string item = ( *it )[1].str();
+            std::replace( item.begin(), item.end(), '\\', '/' );
+            const std::size_t at = item.find( marker );
+            if ( at != std::string::npos )
+                inLibraries[item.substr( at + marker.size() )].push_back( library );
+        }
+    }
+    for ( const std::string& file : LegacyFiles() )
+    {
+        // the Windows projects carry no macOS sources
+        if ( file.starts_with( "Platform/MacOS/" ) || file.ends_with( ".mm" ) )
+            continue;
+        const std::string& expected = libraries.at( Table().ModuleOfLegacy( file ) );
+        EXPECT_EQ( inLibraries[file], std::vector<std::string>{ expected } )
+             << file << " must be compiled by " << expected << " alone";
+    }
+    EXPECT_EQ( inLibraries["pch.cpp"].size(), libraries.size() ) << "every module library compiles pch.cpp";
+}
+
+// THE ARCHIVE LIMIT the split exists for: a static library over 4 GB is LNK1248, so every module library's
+// Debug archive stays under 3.5 GB. Reads build/Bin/Debug; skipped when no module library was built there.
+TEST( ModuleBoundary, NoModuleLibraryNearsTheArchiveLimit )
+{
+    constexpr std::uintmax_t kMargin  = 3584ull * 1024 * 1024;
+    const fs::path           bin      = RepoRoot() / "build" / "Bin" / "Debug";
+    int                      measured = 0;
+    for ( const auto& [module, library] : LegacyLibraries() )
+        for ( const fs::path archive : { bin / ( library + ".lib" ), bin / ( "lib" + library + ".a" ) } )
+            if ( fs::exists( archive ) )
+            {
+                ++measured;
+                const std::uintmax_t size = fs::file_size( archive );
+                std::cout << std::format( "{:>8} MB  {}\n", size / ( 1024 * 1024 ), archive.filename().string() );
+                EXPECT_LT( size, kMargin )
+                     << archive << " is within half a gigabyte of the 4 GB archive limit: split " << module
+                     << " (BuildScripts/DesertModules.lua)";
+            }
+    if ( measured == 0 )
+        GTEST_SKIP() << "no Debug module library under " << bin;
 }

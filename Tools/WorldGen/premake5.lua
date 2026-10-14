@@ -39,7 +39,7 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
-    dependson { "Desert" }
+    DesertModuleLibs.DependOnCodegen()
 
     -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
     -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).

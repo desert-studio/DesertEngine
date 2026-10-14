@@ -36,6 +36,14 @@ namespace Desert::HeaderTool
         // placement row naming an unknown module is the error, with the table's own message.
         static Common::ResultStr<ModuleTable> Load( const std::filesystem::path& tableFile );
 
+        // Runs the file as Load does and calls its function DesertModules.<function>( argument ) for each
+        // argument, returning the string results in order (a Lua error is the error). How the ModuleBoundary suite
+        // asks the Lua side - PlaceLegacy, the matcher premake places each file into its library with, and
+        // LegacyLibName - the same question the std::regex rows above answer.
+        static Common::ResultStr<std::vector<std::string>>
+        CallForEach( const std::filesystem::path& tableFile, const char* function,
+                     const std::vector<std::string>& arguments );
+
         [[nodiscard]] const std::vector<ModuleInfo>& Modules() const
         {
             return m_Modules;
