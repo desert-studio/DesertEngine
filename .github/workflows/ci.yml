@@ -1532,10 +1532,11 @@ jobs:
   # GATED ON vars.DESERT_GPU_RUNNER == 'true': with no runner registered a job on these labels would sit
   # queued for 24 h and then fail, so until the owner registers one the job is skipped, not red.
   #
-  # THE SCENE IS NOT IN GIT. GI_Bistro_Day and its imported meshes are untracked (task BISTRO-DAY edits them
-  # on disk), and actions/checkout cleans untracked files, so the runner keeps its own copy OUTSIDE the
-  # workspace and vars.DESERT_GPU_SHOT_SCENE names it (absolute path to the .desce, its project content
-  # beside it). The job refuses to run without that file rather than photograph another scene.
+  # THE DEFAULT SCENE IS COMMITTED: Projects/Desert/Content/Scenes/Clouds_Protocol.desce, so the job never
+  # depends on content outside git. vars.DESERT_GPU_SHOT_SCENE may name another (absolute path to a .desce,
+  # its project content beside it) - e.g. GI_Bistro_Day, whose 3.2 GB of imported meshes are untracked: the
+  # runner keeps that copy OUTSIDE the workspace, because actions/checkout cleans untracked files. A named
+  # scene that is missing fails the job rather than silently photographing the default.
   #
   # REGISTERING THE RUNNER (owner only; needs a registration token from GitHub):
   #   1. Repo Settings -> Actions -> Runners -> New self-hosted runner -> Windows x64; copy the token.
@@ -1547,8 +1548,9 @@ jobs:
   #      no display adapter for Vulkan's WSI and the editor window cannot be created.
   #   3. Install on that machine: Visual Studio 2022 Build Tools (v143, C++ desktop), Git, Python 3, the
   #      LunarG Vulkan SDK 1.3.296.0 (with the validation layer) and a current NVIDIA/AMD driver.
-  #   4. Copy the Bistro scene and its content to a folder outside the runner's _work directory.
-  #   5. Repo Settings -> Variables: DESERT_GPU_RUNNER=true, DESERT_GPU_SHOT_SCENE=<absolute .desce path>.
+  #   4. Optional: copy an untracked scene (Bistro) and its content to a folder outside the runner's _work.
+  #   5. Repo Settings -> Variables: DESERT_GPU_RUNNER=true; DESERT_GPU_SHOT_SCENE=<absolute .desce path> only
+  #      to photograph a scene other than the committed default.
   #
   # CHEAPER HALF, NOT IMPLEMENTED: the validation-only check could run on hosted windows-2022 with Mesa's
   # lavapipe ICD (VK_ICD_FILENAMES pointing at lvp_icd.x86_64.json) and the SDK's validation layer. It
@@ -1570,9 +1572,8 @@ jobs:
       - name: The scene exists on this runner
         shell: bash
         env:
-          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE }}
+          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE || format('{0}/Projects/Desert/Content/Scenes/Clouds_Protocol.desce', github.workspace) }}
         run: |
-          [ -n "$SCENE" ] || { echo "vars.DESERT_GPU_SHOT_SCENE is not set"; exit 1; }
           [ -f "$SCENE" ] || { echo "$SCENE does not exist on this runner; refusing to photograph another scene"; exit 1; }
 
       - name: Add MSBuild to PATH
@@ -1591,7 +1592,7 @@ jobs:
       - name: Photograph the scene headless
         shell: bash
         env:
-          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE }}
+          SCENE: ${{ vars.DESERT_GPU_SHOT_SCENE || format('{0}/Projects/Desert/Content/Scenes/Clouds_Protocol.desce', github.workspace) }}
         run: |
           mkdir -p "$RUNNER_TEMP/gpu-frame"
           cd Editor
