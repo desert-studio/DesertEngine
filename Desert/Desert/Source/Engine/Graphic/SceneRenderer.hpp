@@ -70,6 +70,7 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
 namespace Desert::Core
 {
@@ -844,6 +845,8 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
+        RayTracing::RayTracingSceneRenderer m_RayTracingScene;
         float                   m_GIIntensity   = 2.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from

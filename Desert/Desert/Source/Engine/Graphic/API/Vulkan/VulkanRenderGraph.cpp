@@ -131,6 +131,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( RdgHas( accessMask, Access::AccelStructBuildWrite ) || RdgHas( accessMask, Access::AccelStructRead ) )
             usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
                      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        // A build's scratch is written as AccelStructBuildWrite too, and Vulkan requires scratch memory to be a
+        // storage buffer (VkAccelerationStructureBuildGeometryInfoKHR::scratchData VUID-03674).
+        if ( RdgHas( accessMask, Access::AccelStructBuildWrite ) )
+            usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         return usage;
     }
 

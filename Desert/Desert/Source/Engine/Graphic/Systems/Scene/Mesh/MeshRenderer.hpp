@@ -40,6 +40,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -298,6 +299,18 @@ namespace Desert::Graphic::System
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
         [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+
+        // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
+        // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
+        [[nodiscard]] std::span<const StaticMeshRenderData> GetStaticQueue() const
+        {
+            return m_StaticQueue;
+        }
+        // This frame's skinned queue, rows assigned: counted by the TLAS as Skinned until a skin cache exists.
+        [[nodiscard]] std::span<const SkinnedMeshRenderData> GetSkinnedQueue() const
+        {
+            return m_SkinnedQueue;
+        }
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades

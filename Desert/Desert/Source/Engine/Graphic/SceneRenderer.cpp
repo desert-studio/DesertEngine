@@ -1147,6 +1147,19 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
+        // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            if ( const Common::BoolResultStr tlas = m_RayTracingScene.AddPasses(
+                      graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ), *meshes );
+                 !tlas )
+                LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
+                           "nothing this frame: {}",
+                           m_ViewResources.GetName(), tlas.GetError() );
+        }
+
         AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );

@@ -1,0 +1,183 @@
+#pragma once
+
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <span>
+#include <string_view>
+#include <vector>
+
+// THE VIEW'S TLAS (UE FRayTracingScene::Create + its build pass). Every frame whose resolved methods trace rays
+// (RayTracingSceneRequired) declares ONE graph pass, "RayTracingScene.TLAS", that builds the view's top-level
+// acceleration structure from this frame's instance list (RayTracingScene.hpp, BuildRayTracingInstances):
+//   * the instance rows are a graph buffer filled by Builder::QueueBufferUpload (AccelStructBuildInput);
+//   * the scratch is a graph transient (AccelStructBuildWrite), sized by the API for this frame's count;
+//   * the TLAS storage is the view's PERSISTENT acceleration structure, registered as a graph external
+//     (AccelStructBuildWrite) — kept across frames, rebuilt every frame (instances move), recreated only when the
+//     instance count outgrows it. A reader (RT-SHADOWS, ray-traced reflections / GI) declares AccelStructRead on
+//     RayTracingSceneFrame::Tlas and binds it through RDG::ShaderResourceKind::AccelerationStructure.
+// A frame whose methods trace no ray declares nothing: no pass, no buffer, no upload.
+//
+// Device-free: the API object behind the TLAS is a RayTracingSceneTarget (VulkanRayTracingScene); this file only
+// encodes the instance rows and declares the graph work, so the RenderGraphCompile suite can compile it.
+namespace Desert::Graphic::System
+{
+    class MeshRenderer;
+}
+
+namespace Desert::Graphic::RayTracing
+{
+    inline constexpr std::string_view kTlasPassName           = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kTlasInstancesName      = "RayTracingScene.Instances";
+    inline constexpr std::string_view kTlasScratchName        = "RayTracingScene.Scratch";
+    inline constexpr std::string_view kTlasStorageName        = "RayTracingScene.TLAS";
+    inline constexpr uint64_t         kInstanceRowBytes       = 64; // VkAccelerationStructureInstanceKHR
+    inline constexpr uint64_t         kInstanceTransformBytes = 48;
+
+    // What the API needs to build a TLAS of a given instance count (vkGetAccelerationStructureBuildSizesKHR).
+    struct TlasBuildSizes
+    {
+        uint64_t ScratchBytes = 0; // already includes the scratch-address alignment slack
+    };
+
+    // The API side of one view's TLAS: the acceleration structure and its storage, alive across frames.
+    class RayTracingSceneTarget
+    {
+    public:
+        virtual ~RayTracingSceneTarget() = default;
+
+        // Makes the TLAS able to hold @p instanceCount instances (recreating it when it cannot) and answers the
+        // scratch this frame's build needs. Errors: the device cannot build acceleration structures, or the
+        // storage could not be created.
+        [[nodiscard]] virtual Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount ) = 0;
+        // The TLAS storage as a graph external; it carries its own state across graphs.
+        [[nodiscard]] virtual RDG::ExternalBuffer& GetStorage() = 0;
+        // Records the build of @p instanceCount rows of @p instances into the TLAS, inside the pass's exec.
+        [[nodiscard]] virtual Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
+                                                                 const RDG::BufferBinding& instances,
+                                                                 const RDG::BufferBinding& scratch,
+                                                                 uint32_t                  instanceCount ) = 0;
+    };
+
+    // The API's TLAS object for one view (VulkanRayTracingScene).
+    [[nodiscard]] std::unique_ptr<RayTracingSceneTarget> CreateRayTracingSceneTarget();
+
+    // This frame's TLAS as the graph being built sees it. Refs are valid only for that graph.
+    struct RayTracingSceneFrame
+    {
+        bool           Built = false; // false: the frame traces no ray; the refs are invalid
+        RDG::BufferRef Tlas;
+        RDG::BufferRef Instances;
+        uint32_t       InstanceCount = 0;
+    };
+
+    // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
+    // transform, customIndex:24 | mask:8, sbtOffset:24 | flags:8, the BLAS device address. At least one row: a
+    // graph buffer cannot be empty, and an empty TLAS is built with a primitive count of 0 over it.
+    [[nodiscard]] inline std::vector<std::byte> EncodeInstanceRows( std::span<const RayTracingInstance> instances )
+    {
+        const std::size_t      rows = instances.empty() ? 1u : instances.size();
+        std::vector<std::byte> bytes( rows * kInstanceRowBytes );
+        for ( std::size_t i = 0; i < instances.size(); ++i )
+        {
+            const RayTracingInstance& instance = instances[i];
+            std::byte* const          row      = bytes.data() + i * kInstanceRowBytes;
+            std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
+            const uint32_t indexAndMask =
+                 ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
+            const uint32_t sbtAndFlags = 0; // one hit group; culling is the ray's choice, not the instance's
+            const uint64_t address =
+                 static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
+            std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );
+            std::memcpy( row + 52, &sbtAndFlags, sizeof( sbtAndFlags ) );
+            std::memcpy( row + 56, &address, sizeof( address ) );
+        }
+        return bytes;
+    }
+
+    // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
+    // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
+    // no TLAS, and a reader must not be declared).
+    [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
+    AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
+                            RayTracingSceneTarget& target )
+    {
+        RayTracingSceneFrame frame;
+        if ( !required )
+            return Common::MakeSuccess( frame );
+
+        frame.InstanceCount                           = static_cast<uint32_t>( list.Instances.size() );
+        const Common::ResultStr<TlasBuildSizes> sizes = target.Prepare( frame.InstanceCount );
+        if ( !sizes )
+            return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName, sizes.GetError() );
+
+        const std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
+        frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ rows.size() }, kTlasInstancesName );
+        graph.QueueBufferUpload( frame.Instances, rows );
+        const RDG::BufferRef scratch =
+             graph.CreateBuffer( RDG::BufferDesc{ sizes.GetValue().ScratchBytes }, kTlasScratchName );
+        frame.Tlas = graph.RegisterExternal( target.GetStorage(), kTlasStorageName );
+
+        const RDG::BufferRef instances = frame.Instances;
+        const RDG::BufferRef tlas      = frame.Tlas;
+        const uint32_t       count     = frame.InstanceCount;
+        graph.AddPass(
+             kTlasPassName, RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( instances, RDG::Access::AccelStructBuildInput );
+                 pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
+                 pass.Write( tlas, RDG::Access::AccelStructBuildWrite );
+             },
+             [&target, instances, scratch, tlas, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const auto instanceBinding = context.GetBuffer( instances, RDG::Access::AccelStructBuildInput );
+                 if ( !instanceBinding )
+                     return Common::MakeError( instanceBinding.GetError() );
+                 const auto scratchBinding = context.GetBuffer( scratch, RDG::Access::AccelStructBuildWrite );
+                 if ( !scratchBinding )
+                     return Common::MakeError( scratchBinding.GetError() );
+                 if ( const auto storage = context.GetBuffer( tlas, RDG::Access::AccelStructBuildWrite );
+                      !storage )
+                     return Common::MakeError( storage.GetError() );
+                 return target.RecordBuild( context, instanceBinding.GetValue(), scratchBinding.GetValue(),
+                                            count );
+             } );
+        frame.Built = true;
+        return Common::MakeSuccess( frame );
+    }
+    // One view's ray-tracing scene (SceneRenderer owns one per view): gathers the primitives MeshRenderer queued
+    // and gave a GPU-scene row, builds the instance list and declares the TLAS pass. The API target is created on
+    // the first frame that needs a TLAS and kept for the view's life.
+    class RayTracingSceneRenderer
+    {
+    public:
+        // Called once per frame per view, after MeshRenderer::BuildObjectMotions (the rows are the instances'
+        // custom indices) and before any pass that reads the TLAS is declared.
+        [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
+                                                       const System::MeshRenderer& meshes );
+
+        // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
+        [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
+        {
+            return m_Frame;
+        }
+        // This frame's instance list: its Skipped counts say how much of the queue the rays cannot see.
+        [[nodiscard]] const RayTracingInstanceList& GetInstances() const
+        {
+            return m_Instances;
+        }
+
+    private:
+        std::unique_ptr<RayTracingSceneTarget> m_Target;
+        std::vector<RayTracingPrimitive>       m_Primitives; // CPU scratch, capacity kept
+        RayTracingInstanceList                 m_Instances;
+        RayTracingSceneFrame                   m_Frame;
+    };
+} // namespace Desert::Graphic::RayTracing
