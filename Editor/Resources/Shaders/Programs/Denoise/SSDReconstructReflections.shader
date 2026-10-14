@@ -3,7 +3,7 @@ Shader "SSDReconstructReflections"
 {
     // The screen-space denoiser's RECONSTRUCTION of the reflections signal (UE ScreenSpaceDenoiser, reflections:
     // SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION), at full resolution from SSR's half-resolution trace.
-    // Each of the 3x3 trace texels around the pixel is one sample of THIS pixel's lobe - the RATIO ESTIMATOR
+    // Each of the 5x5 trace texels around the pixel is one sample of THIS pixel's lobe - the RATIO ESTIMATOR
     // (Stachowiak 2015, "Stochastic Screen-Space Reflections"; UE SSRT): the texel lends its HIT POINT and the
     // log2 pdf it drew its ray with (u_TraceRay); the direction is re-aimed from THIS pixel at that point, and the
     // sample weighs this pixel's BRDF * cos over the neighbour's pdf (Fresnel excluded: the lighting's split sum
@@ -13,8 +13,10 @@ Shader "SSDReconstructReflections"
     //    trace rotates through, SSR.shader): its distance off this pixel's tangent plane (UE POSITION_BASED) and
     //    the agreement of the two specular lobes (UE BILATERAL_TOKOYASHI) - a texel traced from another surface
     //    (the object in front, the wall behind) answers for a different lobe and lends neither radiance nor misses;
-    //  - a gaussian of the screen distance from this pixel to that source pixel, so the four pixels of a block do
-    //    not read one identical 3x3 set (the 2x2 blocks of a plain half-res upsample).
+    //  - a gaussian of the screen distance from this pixel to that source pixel (sigma kSpatialSigma pixels), so
+    //    the four pixels of a block do not read one identical set (the 2x2 blocks of a plain half-res upsample),
+    //    yet wide enough that every texel of the set counts (a narrow one leaves one or two samples: grain).
+    //    5x5 texels = UE's reconstruction footprint of 8-16 samples over the lobe; the BRDF keeps a mirror sharp.
     // rgb = sum(w * a * k * L) / sum(w * a * k) (k = Karis' inverse luminance), a = sum(w * a) / sum(w); written
     // premultiplied to u_Signal. u_HitDistance = sum(w * a * |hit - P|) / sum(w * a): what the temporal pass
     // reprojects the reflection through (the reflected point).
@@ -47,6 +49,9 @@ Shader "SSDReconstructReflections"
 
         LocalSize(8, 8, 1);
 
+        // The screen-distance gaussian's sigma, in pixels.
+        const float kSpatialSigma = 2.5;
+
         float SmithG1(float nDotX, float a2)
         {
         	return 2.0 * nDotX / (nDotX + sqrt(a2 + (1.0 - a2) * nDotX * nDotX));
@@ -78,10 +83,10 @@ Shader "SSDReconstructReflections"
         	const float        nDotV = max(dot(N, V), 1e-4);
         	const float        g1V   = SmithG1(nDotV, a2);
         	const vec4         lobe  = SSDRoughnessLobe(ref.Roughness, N, V);
-        	// A neighbour texel's source pixel is up to ~3 pixels away; the plane tolerates that many pixel radii.
+        	// A neighbour texel's source pixel is up to ~6 pixels away; the plane tolerates that many pixel radii.
         	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
         	                                              1.0 / size, u_InvJitteredViewProjection);
-        	const float maxPlaneDistance = max(pixelRadius * 4.0, 1e-3);
+        	const float maxPlaneDistance = max(pixelRadius * 6.0, 1e-3);
 
         	const ivec2 traceSize = textureSize(u_Trace, 0);
         	const ivec2 centre    = clamp(pixel / 2, ivec2(0), traceSize - 1);
@@ -92,8 +97,8 @@ Shader "SSDReconstructReflections"
         	float coverage    = 0.0;
         	float weightSum   = 0.0;
         	float hitDistance = 0.0;
-        	for (int y = -1; y <= 1; ++y)
-        		for (int x = -1; x <= 1; ++x)
+        	for (int y = -2; y <= 2; ++y)
+        		for (int x = -2; x <= 2; ++x)
         		{
         			const ivec2 t   = clamp(centre + ivec2(x, y), ivec2(0), traceSize - 1);
         			const vec4  ray = texelFetch(u_TraceRay, t, 0);
@@ -109,7 +114,7 @@ Shader "SSDReconstructReflections"
         			                        SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal,
         			                                                                 otherV));
         			const vec2  offset    = vec2(src - pixel);
-        			const float spatial   = exp(-dot(offset, offset) * (1.0 / (2.0 * 1.5 * 1.5)));
+        			const float spatial   = exp(-dot(offset, offset) * (1.0 / (2.0 * kSpatialSigma * kSpatialSigma)));
         			if (bilateral * spatial <= 0.0)
         				continue;
         			// Re-aimed from THIS pixel at the neighbour's hit point (UE SSRT).

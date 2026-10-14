@@ -9,7 +9,7 @@ Shader "SSDTemporalAccumulation"
     //     light d = 0: the surface point itself. The surface's own motion (its velocity less the camera's share)
     //     is added, so a moving surface carries its signal.
     //  2) REJECTION (UE HISTORY_REJECTION_VAR_BOUNDARIES): the history is clamped, in luma/chroma (YCoCg) and
-    //     coverage, to the mean +- 1.25 standard deviations of this frame's 3x3 neighbourhood; the further the
+    //     coverage, to the mean +- 1.25 standard deviations of this frame's neighbourhood (5x5, 2 px apart); the further the
     //     clamp moved it, the fewer of its samples are kept (UE's rejection factor: the log-luma change, the
     //     chroma change, the coverage change). A disoccluded or changed signal restarts instead of ghosting.
     //  3) ACCUMULATION BY SAMPLE COUNT (UE TargetedSampleCount): the history carries how many frames it holds
@@ -81,19 +81,22 @@ Shader "SSDTemporalAccumulation"
         	}
         	const vec4 current = texelFetch(u_Signal, pixel, 0);
 
-        	// --- The neighbourhood's first and second moments (UE CONFIG_REJECTION_SAMPLE_SET 3x3). ---
+        	// --- The neighbourhood's first and second moments: 5x5 taps two pixels apart. The reconstruction shares
+        	// most of its trace texels between adjacent pixels, so a 3x3 box of it (UE's rejection set, taken over
+        	// decorrelated samples) is spatially correlated: its spread is far below the frame-to-frame noise and
+        	// the box would reject converged history every frame. Taps that far apart read other texel sets. ---
         	vec4 m1 = vec4(0.0);
         	vec4 m2 = vec4(0.0);
-        	for (int y = -1; y <= 1; ++y)
-        		for (int x = -1; x <= 1; ++x)
+        	for (int y = -2; y <= 2; ++y)
+        		for (int x = -2; x <= 2; ++x)
         		{
         			const vec4 s = ToRejectionSpace(
-        			     texelFetch(u_Signal, clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1), 0));
+        			     texelFetch(u_Signal, clamp(pixel + ivec2(x, y) * 2, ivec2(0), viewSize - 1), 0));
         			m1 += s;
         			m2 += s * s;
         		}
-        	m1 /= 9.0;
-        	m2 /= 9.0;
+        	m1 /= 25.0;
+        	m2 /= 25.0;
         	const vec4 stdDev = sqrt(abs(m2 - m1 * m1));
         	const vec4 boxMin = m1 - 1.25 * stdDev;
         	const vec4 boxMax = m1 + 1.25 * stdDev;
