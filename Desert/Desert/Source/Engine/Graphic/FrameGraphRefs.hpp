@@ -47,6 +47,9 @@ namespace Desert::Graphic
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
         RDG::TextureRef Velocity;
+        // The view's responsive-AA mask (ViewRasterTargets.hpp CreateViewResponsiveAA): a colour slot of the scene
+        // target only, written by ResponsiveAA translucency (glass, particles)   -> TAA
+        RDG::TextureRef ResponsiveAA;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: cascade c (MeshRenderer's CSM map, invalid past the valid count), the scene environment's

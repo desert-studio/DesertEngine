@@ -9,6 +9,12 @@
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
+#ifdef DESERT_SURFACE_RESPONSIVE_AA
+// The scene target's responsive-AA slot (Graphic::kSceneTargetResponsiveAASlot): this surface covers the pixel
+// whole (it is written opaque), so the temporal resolve takes UE's responsive 1/4 of the current frame there - the
+// refracted scene behind glass moves with no velocity of its own.
+layout( location = 2 ) out vec4 oResponsiveAA;
+#endif
 
 struct DirectionLight
 {
@@ -79,4 +85,7 @@ void main()
                                        skyLook.Gain.rgb );
 
     oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
+#ifdef DESERT_SURFACE_RESPONSIVE_AA
+    oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
+#endif
 }

@@ -1134,6 +1134,11 @@ namespace Desert::Graphic
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
+            // After the velocity on the scene target (kSceneTargetResponsiveAASlot); the G-buffer has no such slot.
+            const ViewVelocity responsive = CreateViewResponsiveAA(
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
+            textures.Transients.ResponsiveAA = responsive.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor( responsive, target.Samples ) );
         }
         const auto values = std::make_shared<FrameValues>();
 
@@ -1818,6 +1823,7 @@ namespace Desert::Graphic
              .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
              .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
              .Velocity   = textures.Transients.Velocity,
+             .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
              .Exposure = exposure.IsValid() ? exposure : textures.System.White,
              .History  = histories };
@@ -1899,6 +1905,8 @@ namespace Desert::Graphic
         desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
         desc.Format      = ViewTargetFormats::kVelocity;
         overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
+        desc.Format          = ViewTargetFormats::kResponsiveAA;
+        overlay.ResponsiveAA = graph.CreateTexture( desc, "Overlay.ResponsiveAA" );
         desc.Format      = ViewTargetFormats::kSceneDepth;
         overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
         const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();
