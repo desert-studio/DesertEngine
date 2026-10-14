@@ -144,6 +144,7 @@ namespace Desert::Scripting
         ++impl.Generations[key];
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
         impl.StaleProperties.erase( key );
+        impl.SyncedOverrides.erase( key ); // the new sandbox starts from its declared defaults
 
         entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
         const entt::entity handle   = static_cast<entt::entity>( entity );
@@ -311,6 +312,43 @@ namespace Desert::Scripting
             }
             m_Impl->Runtime->SetProperty( target, p, world );
         }
+    }
+
+    void ScriptEngine::SyncProperties( uint32_t entity, uint32_t slot,
+                                       const std::vector<ScriptProperty>& overrides )
+    {
+        ApplyProperties( entity, slot, overrides );
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 )
+            return;
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( target );
+        if ( declared == nullptr )
+            return;
+
+        std::unordered_set<std::string> held;
+        for ( const ScriptProperty& p : overrides )
+            held.insert( p.Name );
+        std::unordered_set<std::string>& synced = m_Impl->SyncedOverrides[Impl::SlotKey( entity, slot )];
+        bool                             gone   = false;
+        for ( const std::string& name : synced )
+            gone = gone || !held.contains( name );
+        if ( gone )
+        {
+            Core::Scene* const      scene = m_Impl->Scene;
+            const LuauPropertyWorld world{ .Registry   = scene != nullptr ? &scene->GetRegistry() : nullptr,
+                                           .FindEntity = [scene]( std::uint64_t uuid ) -> entt::entity
+                                           {
+                                               if ( scene == nullptr )
+                                                   return entt::null;
+                                               const auto found = scene->FindEntityByID( Common::UUID( uuid ) );
+                                               return found ? static_cast<entt::entity>( found->get().GetHandle() )
+                                                            : entt::entity( entt::null );
+                                           } };
+            for ( const ScriptPropertyDecl& decl : *declared )
+                if ( synced.contains( decl.Name ) && !held.contains( decl.Name ) )
+                    m_Impl->Runtime->SetProperty( target, decl.Default, world );
+        }
+        synced = std::move( held );
     }
 
     void ScriptEngine::ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,

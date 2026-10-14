@@ -98,6 +98,12 @@ namespace Desert::Scripting
         // another kind, is not applied (reported once). Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
 
+        // The running slot's per-frame sync with the editor's overrides (Details edits a played world live):
+        // ApplyProperties, and a property that held an override on the previous sync but holds none now (its
+        // reset arrow, or an edit back to the default, removes it — ECS::ScriptSlot::Properties keeps only what
+        // differs) gets its declared default back, so the running script sees the value Details shows.
+        void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides );
+
         // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
         // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
         // not list it yet), so the slot holds the game state a save captures. Call after OnStart / OnUpdate. A

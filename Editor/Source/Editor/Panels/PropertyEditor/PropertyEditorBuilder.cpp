@@ -588,9 +588,9 @@ namespace Desert::Editor
             case FieldType::Int:
             {
                 int* v = static_cast<int*>( p );
-                changed = field.Meta.HasRange
-                              ? ImGui::SliderInt( "##v", v, (int)field.Meta.RangeMin, (int)field.Meta.RangeMax )
-                              : ImGui::DragInt( "##v", v );
+                changed = field.Meta.HasRange ? Utils::ImGuiUtilities::PropertySliderInt(
+                                                     "##v", v, (int)field.Meta.RangeMin, (int)field.Meta.RangeMax )
+                                              : ImGui::DragInt( "##v", v );
                 break;
             }
             case FieldType::UInt:

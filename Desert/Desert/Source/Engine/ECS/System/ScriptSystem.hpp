@@ -164,7 +164,7 @@ namespace Desert::ECS
                         ReadBackSaveGame( registry, entity, slot );
                     }
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
-                    m_Engine.ApplyProperties( id, slot, script.Properties );
+                    m_Engine.SyncProperties( id, slot, script.Properties );
                     m_Engine.CallUpdate( id, slot, ts.GetSeconds() );
                     // Re-fetched: the script may have reshaped the component pool `script` points into.
                     if ( registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&

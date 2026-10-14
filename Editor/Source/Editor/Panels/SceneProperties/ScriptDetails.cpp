@@ -571,9 +571,10 @@ namespace Desert::Editor
                 {
                     auto              v      = static_cast<int>( value.Number );
                     const std::string format = Format( "%d", meta );
-                    changed = meta.HasRange ? ImGui::SliderInt( "##v", &v, static_cast<int>( meta.RangeMin ),
-                                                                static_cast<int>( meta.RangeMax ), format.c_str() )
-                                            : ImGui::DragInt( "##v", &v, 0.2f, 0, 0, format.c_str() );
+                    changed                  = meta.HasRange ? ImGuiUtilities::PropertySliderInt(
+                                                   "##v", &v, static_cast<int>( meta.RangeMin ),
+                                                   static_cast<int>( meta.RangeMax ), format.c_str() )
+                                                             : ImGui::DragInt( "##v", &v, 0.2f, 0, 0, format.c_str() );
                     if ( changed )
                         value.Number = v;
                     break;
