@@ -39,6 +39,8 @@ namespace Desert::Graphic::System
             glm::uvec4 Step;  // x = stage, y = k, z = j
             glm::vec4  ViewOrigin;
             glm::vec4  ViewForward;
+            glm::uvec4 SourceLayout; // the emitter's ParticleSpriteSources row (SpriteSourceOf)
+            glm::uvec4 SourceStarts;
         };
         static_assert( sizeof( ParticleSortPush ) == kParticleSortPushBytes );
     } // namespace
@@ -355,10 +357,6 @@ namespace Desert::Graphic::System
         for ( const std::string& unbound : found->second->Sprite.Unbound )
             LOG_WARN( "[Particles] stack {} draws its sprites with the renderer default for {}", stack.ShaderName,
                       unbound );
-        LOG_ERROR(
-             "[Particles] stack {} simulates, its sprites are not drawn: the sprite vertex path reads the legacy "
-             "particle records, not the stack's layout (IsDrawn)",
-             stack.ShaderName );
         return found->second.get();
     }
 
@@ -510,15 +508,20 @@ namespace Desert::Graphic::System
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
             ve.Sorted       = true;
-            const ParticleSortBuffers buffers{ m_Pool.ParticlesRef, m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
-                                               m_SortedRef };
+            const ParticleSortBuffers            buffers{ m_Pool.ParticlesRef, m_Pool.FloatsRef, m_Pool.AliveRef,
+                                               ve.CountersRef,      m_SortKeysRef,    m_SortedRef };
+            const ParticleSpriteSourceGpu        source = SpriteSourceOf( ve );
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
                 const ParticleSortStage stage = stages[s];
                 const ParticleSortPush  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
-                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, 0u ), origin, forward };
+                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, 0u ),
+                     origin,
+                     forward,
+                     source.Layout,
+                     source.Starts };
                 graph.AddPass(
                      ParticleSortPassName( range.Emitter, s ), RDG::PassFlags::Compute,
                      [this, buffers, stage]( RDG::PassBuilder& pass )
@@ -538,12 +541,22 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
+    bool ParticleRenderer::IsDrawn( const ViewEmitter& ve ) const
     {
-        // A compiled stack's particles live in the pool's SoA components (ve.Program->Sprite says where); the
-        // sprite cell reads the legacy AoS Particles, so a stack emitter is simulated but not drawn until the
-        // vertex path reads the bindings (REMAINDER-VFX-03g).
-        return ve.Declared && ve.Sprite != nullptr && ve.Program == nullptr;
+        // A compiled stack is drawn through its source row (SpriteSourceOf) from the pool's float components, so
+        // the pool's Floats must be in the frame graph; a legacy emitter's row points the draw at its records.
+        return ve.Declared && ve.Sprite != nullptr && ( ve.Program == nullptr || m_Pool.FloatsRef.IsValid() );
+    }
+
+    ParticleSpriteSourceGpu ParticleRenderer::SpriteSourceOf( const ViewEmitter& ve )
+    {
+        if ( ve.Program == nullptr )
+            return ParticleSpriteSourceGpu{
+                 glm::uvec4( 0u, 0u, 0u, kParticleSpriteSourceRecord ),
+                 glm::uvec4( kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound, 0u ) };
+        // The numbers the stack's simulation program addresses its range with (VFXStackSimPush).
+        const VFXStackSimPush& push = ve.Frame->StackPush;
+        return ParticleSpriteSourceOf( ve.Program->Sprite, push.Bases.x, push.Counts.x, push.Counts.z );
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
@@ -652,6 +665,7 @@ namespace Desert::Graphic::System
                      SpriteDraw&             sprite = *ve.Sprite;
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
                      sprite.Material->SetMaterialIndex( ve.Row );
+                     sprite.Material->SetPrimitiveIndex( ve.Source );
                      sprite.Material->Bind( sprite.Instance.get() );
                      // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
                      // particle of alive half StepCount & 1 (the slot's FirstVertex).
@@ -678,7 +692,10 @@ namespace Desert::Graphic::System
             // the view's camera block, so the route fill is what the draws read.
             for ( auto& [cell, sprite] : m_Sprites )
                 if ( sprite )
+                {
                     sprite->Rows.clear();
+                    sprite->Sources.clear();
+                }
             for ( ViewEmitter& ve : m_ViewEmitters )
             {
                 if ( !IsDrawn( ve ) )
@@ -686,6 +703,8 @@ namespace Desert::Graphic::System
                 MaterialInstance* instance = ve.Instance != nullptr ? ve.Instance : ve.Sprite->Instance.get();
                 ve.Row                     = MeshRendererDetail::AppendRow(
                      ve.Sprite->Rows, MeshRendererDetail::EffectiveRow( ve.Sprite->Material.get(), instance ) );
+                ve.Source = static_cast<uint32_t>( ve.Sprite->Sources.size() );
+                ve.Sprite->Sources.push_back( SpriteSourceOf( ve ) );
             }
             for ( auto& [cell, sprite] : m_Sprites )
             {
@@ -694,6 +713,14 @@ namespace Desert::Graphic::System
                 if ( auto* sb = sprite->Material->Get<StorageBufferProperty>( "Materials" ) )
                     sb->SetRawData( sprite->Rows.data(),
                                     static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+                if ( auto* sources = sprite->Material->Get<StorageBufferProperty>( "ParticleSpriteSources" ) )
+                    sources->SetRawData(
+                         sprite->Sources.data(),
+                         static_cast<uint32_t>( sprite->Sources.size() * sizeof( ParticleSpriteSourceGpu ) ) );
+                else
+                    LOG_ERROR( "[Particles] sprite cell {} declares no ParticleSpriteSources: its emitters read "
+                               "source row 0",
+                               cell );
                 SceneCameraBind( sprite->Material.get(), *view );
             }
 
@@ -708,10 +735,10 @@ namespace Desert::Graphic::System
                 // A translucent / additive emitter reads its alive half back to front from this view's SortedAlive
                 // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
                 auto block =
-                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                    RDG::Access::StorageRead );
+                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() );
+                DeclareParticleSpriteDraw(
+                     block, ParticleSpriteDrawRefs{ m_Pool.ParticlesRef, m_Pool.FloatsRef, m_Pool.SlotsRef,
+                                                    ve.Sorted ? m_SortedRef : m_Pool.AliveRef } );
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
                     block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
                                    RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );

@@ -133,6 +133,9 @@ namespace Desert::Graphic::System
             Core::Formats::SurfaceBlendMode     Blend = Core::Formats::SurfaceBlendMode::Opaque;
             mutable ShaderBindingLayoutCache    Layout;
             std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
+            // This frame's ParticleSpriteSources rows, one per drawn emitter, indexed by the draw's
+            // PrimitiveIndex.
+            std::vector<ParticleSpriteSourceGpu> Sources;
         };
 
         // One emitter's material in this view: the asset its instance was built from, the runtime instance of
@@ -180,6 +183,7 @@ namespace Desert::Graphic::System
             SpriteDraw*                 Sprite   = nullptr;
             MaterialInstance*           Instance = nullptr; // the emitter's own (null = the cell's defaults)
             uint32_t                    Row      = 0;       // the emitter's row in Sprite->Rows this frame
+            uint32_t                    Source   = 0;       // the emitter's row in Sprite->Sources this frame
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
@@ -198,9 +202,11 @@ namespace Desert::Graphic::System
         };
 
         bool CreatePipelines();
+        // The emitter's ParticleSpriteSources row: a stack's range and sprite bindings, or the legacy record.
+        [[nodiscard]] static ParticleSpriteSourceGpu SpriteSourceOf( const ViewEmitter& ve );
         // Whether ParticlePass draws @p ve this frame - the one condition its Declare and its exec both walk the
         // emitters by, so the exec's n-th drawn emitter opens the n-th declared block.
-        static bool IsDrawn( const ViewEmitter& ve );
+        [[nodiscard]] bool IsDrawn( const ViewEmitter& ve ) const;
         // Whether step @p step's Dispatch Args and Spawn+Update nodes dispatch @p ve.
         bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).

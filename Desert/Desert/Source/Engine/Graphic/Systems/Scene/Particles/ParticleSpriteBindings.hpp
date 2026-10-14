@@ -2,6 +2,8 @@
 
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -30,6 +32,12 @@ namespace Desert::Graphic::System
 
     // The bound float start meaning "not in the layout: the renderer default".
     inline constexpr std::uint32_t kParticleSpriteUnbound = 0xFFFFFFFFu;
+
+    // The renderer defaults of an unbound attribute; Common/ParticleSpriteSource.glslh PARTICLE_SPRITE_DEFAULT_*
+    // spells the same values for the shader (a test holds the two texts together).
+    inline const glm::vec3 kParticleSpriteDefaultPosition{ 0.0f, 0.0f, 0.0f }; // cm
+    inline const glm::vec4 kParticleSpriteDefaultColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+    inline const glm::vec2 kParticleSpriteDefaultSize{ 10.0f, 10.0f }; // cm
 
     struct ParticleSpriteBindingSpec
     {
@@ -82,5 +90,29 @@ namespace Desert::Graphic::System
             bindings.FloatStart[a] = attribute->FloatStart;
         }
         return bindings;
+    }
+
+    // Common/ParticleSpriteSource.glslh's ParticleSpriteSource, field for field: one row per drawn emitter.
+    inline constexpr std::uint32_t kParticleSpriteSourceRecord = 0u; // a legacy ParticleEmitter's Particle record
+    inline constexpr std::uint32_t kParticleSpriteSourceStack  = 1u; // a compiled stack's SoA components
+
+    struct ParticleSpriteSourceGpu
+    {
+        glm::uvec4 Layout{ 0u }; // float base, range capacity, range pool base, kParticleSpriteSource*
+        glm::uvec4 Starts{ kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound, 0u };
+    };
+    static_assert( sizeof( ParticleSpriteSourceGpu ) == 32, "ParticleSpriteSource is two uvec4 rows" );
+
+    // A compiled stack's row: its range (float base, capacity, pool base: the same numbers its simulation
+    // program addresses the pool with) and its bindings' starts.
+    [[nodiscard]] inline ParticleSpriteSourceGpu ParticleSpriteSourceOf( const ParticleSpriteBindings& bindings,
+                                                                         const std::uint32_t           floatBase,
+                                                                         const std::uint32_t           capacity,
+                                                                         const std::uint32_t           rangeBase )
+    {
+        ParticleSpriteSourceGpu source;
+        source.Layout = glm::uvec4( floatBase, capacity, rangeBase, kParticleSpriteSourceStack );
+        source.Starts = glm::uvec4( bindings.FloatStart[0], bindings.FloatStart[1], bindings.FloatStart[2], 0u );
+        return source;
     }
 } // namespace Desert::Graphic::System

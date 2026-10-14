@@ -8,11 +8,13 @@
 // gl_VertexIndex / 6 is an entry of the alive list and every drawn particle is alive. Under a view sort the list
 // read is the view's sorted copy of the same entries — the same binding, a different buffer.
 #include <Common/CameraUB.glslh>
+#include <Common/ParticlePool.glslh>
+#include <Common/ParticleSpriteSource.glslh>
 #include <Common/ParticleState.glslh>
 #include <Common/VFXRandom.glslh>
 
 // Above the material row (Binding(2)) and below the forward family's slots this cell does not declare: the
-// sprite cell reads the scene's pool and the emitter's alive list and nothing else of the particle system.
+// sprite cell reads the scene's pool, the emitter's alive list and its source row, nothing else of the particles.
 layout( std430, binding = 9 ) readonly buffer Particles
 {
     Particle u_Particles[];
@@ -21,6 +23,24 @@ layout( std430, binding = 9 ) readonly buffer Particles
 layout( std430, binding = 10 ) readonly buffer AliveList
 {
     uint u_Alive[];
+};
+
+// A compiled stack's particles (VFX-03h): the pool's float components, read through the emitter's source row, and
+// the pool's slot states, whose Alive is the stack particle's liveness.
+layout( std430, binding = 11 ) readonly buffer Floats
+{
+    float u_Floats[];
+};
+
+layout( std430, binding = 12 ) readonly buffer Slots
+{
+    VFXSlotState u_SlotState[];
+};
+
+// One row per emitter this cell draws this frame (ParticleRenderer), indexed by the push block's PrimitiveIndex.
+layout( std430, binding = 13 ) readonly buffer ParticleSpriteSources
+{
+    ParticleSpriteSource u_SpriteSources[];
 };
 
 // The ONE engine push block, as the fragment stage's material row index reads it.
@@ -35,7 +55,38 @@ void main()
 {
     const uint     corner = uint( gl_VertexIndex ) % 6u;
     const uint     index  = u_Alive[uint( gl_VertexIndex ) / 6u];
-    const Particle p      = u_Particles[index];
+    const ParticleSpriteSource source = u_SpriteSources[m_PushConstants.PrimitiveIndex];
+
+    vec3  position;
+    vec4  color;
+    vec2  size;
+    float relativeTime;
+    uint  randomKey;
+    if ( source.Layout.w == PARTICLE_SPRITE_SOURCE_STACK )
+    {
+        // Through the emitter's bindings: each attribute at its start in the stack's layout, or the default.
+        position     = PARTICLE_SPRITE_VEC3( u_Floats, source, source.Starts.x, index,
+                                             PARTICLE_SPRITE_DEFAULT_POSITION );
+        color        = PARTICLE_SPRITE_VEC4( u_Floats, source, source.Starts.y, index, PARTICLE_SPRITE_DEFAULT_COLOR );
+        size         = PARTICLE_SPRITE_VEC2( u_Floats, source, source.Starts.z, index, PARTICLE_SPRITE_DEFAULT_SIZE );
+        relativeTime = 0.0; // the sprite renderer binds no age attribute (REMAINDER-VFX-03h)
+        randomKey    = u_SlotState[index].Id;
+        if ( u_SlotState[index].Alive == 0u )
+        {
+            // Killed by the simulation after the compact that listed it: a zero-area quad, nothing rasterised.
+            gl_Position = vec4( 0.0 );
+            return;
+        }
+    }
+    else
+    {
+        const Particle p = u_Particles[index];
+        position         = p.PosSize.xyz;
+        color            = p.Color;
+        size             = vec2( p.PosSize.w );
+        relativeTime     = p.VelLife.w > 0.0 ? clamp( p.Age.x / p.VelLife.w, 0.0, 1.0 ) : 0.0;
+        randomKey        = floatBitsToUint( p.VelLife.w );
+    }
 
     const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ), vec2( 1.0, -1.0 ),
                                      vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
@@ -46,13 +97,13 @@ void main()
     const vec3 right    = vec3( cameraUB.View[0][0], cameraUB.View[1][0], cameraUB.View[2][0] );
     const vec3 up       = vec3( cameraUB.View[0][1], cameraUB.View[1][1], cameraUB.View[2][1] );
     const vec3 facing   = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
-    const vec3 worldPos = p.PosSize.xyz + ( right * c.x + up * c.y ) * ( p.PosSize.w * 0.5 );
+    const vec3 worldPos = position + ( right * ( c.x * size.x ) + up * ( c.y * size.y ) ) * 0.5;
 
     v_Surface.WorldPosition  = worldPos;
     v_Surface.Normal         = facing;
     v_Surface.UV0            = vec2( c.x * 0.5 + 0.5, 0.5 - c.y * 0.5 );
     v_Surface.UV1            = v_Surface.UV0;
-    v_Surface.VertexColor    = p.Color;
+    v_Surface.VertexColor    = color;
     v_Surface.TBN            = mat3( right, -up, facing );
     v_Surface.CameraPosition = cameraUB.CameraPos;
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
@@ -61,9 +112,8 @@ void main()
 
     // Relative time = age / lifetime; Random is drawn from the particle's pool slot and its lifetime, which is itself
     // drawn at spawn — constant over one life, different for the next particle that takes the slot.
-    v_ParticleColor      = p.Color;
-    v_ParticleTimeRandom = vec2( p.VelLife.w > 0.0 ? clamp( p.Age.x / p.VelLife.w, 0.0, 1.0 ) : 0.0,
-                                 VFXRandomFloat4( uvec4( index, floatBitsToUint( p.VelLife.w ), 0u, 0u ) ).x );
+    v_ParticleColor      = color;
+    v_ParticleTimeRandom = vec2( relativeTime, VFXRandomFloat4( uvec4( index, randomKey, 0u, 0u ) ).x );
 
     // Scene raster before the temporal resolve: jittered like every mesh.
     gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );

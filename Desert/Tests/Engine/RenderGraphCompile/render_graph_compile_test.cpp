@@ -391,12 +391,14 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
     const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
     const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const BufferRef  floats    = graph.CreateBuffer( BufferDesc{ 3380u * 12u * 4u }, "ParticleFloats" );
     const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
     graph.AddPass(
          "Particles: Compact 1", PassFlags::Compute,
          [&]( PassBuilder& pass )
          {
              pass.Write( particles, Access::StorageWrite );
+             pass.Write( floats, Access::StorageWrite );
              pass.Write( alive, Access::StorageWrite );
              pass.Write( counters, Access::StorageWrite );
          },
@@ -406,12 +408,13 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     const auto layout         = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSort",
                                       { { "Particles", ShaderResourceKind::StorageBuffer },
+                                        { "Floats", ShaderResourceKind::StorageBuffer },
                                         { "AliveList", ShaderResourceKind::StorageBuffer },
                                         { "Counters", ShaderResourceKind::StorageBuffer },
                                         { "SortKeys", ShaderResourceKind::StorageBuffer },
                                         { "SortedAlive", ShaderResourceKind::StorageBuffer } },
                               Sys::kParticleSortPushBytes } );
-    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    const Sys::ParticleSortBuffers buffers{ particles, floats, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     for ( const Sys::ParticleSortRange& range : plan.Ranges )
     {
@@ -587,6 +590,116 @@ TEST( RenderGraphCompile, AVFXComponentOnlySceneRunsEachEmittersStackAsItsOwnSim
         ASSERT_NE( it, result.Passes.end() ) << name << " is culled: the stack emitters declare no node";
         const int at = static_cast<int>( it - result.Passes.begin() );
         EXPECT_GT( at, previous ) << name << " runs out of order";
+        previous = at;
+    }
+}
+
+// VFX-03h. A VFXComponent-only scene is DRAWN, not only simulated: its translucent stack emitter gets the view
+// sort (reading the stack's Position from the pool's Floats) and its sprite draw declares the pool reads the
+// sprite vertex path makes for a stack (Floats + Slots through the emitter's source row) on the cell's layout. Red
+// when ParticleRenderer still keeps a stack emitter out of IsDrawn or the sort / draw stop going through
+// SpriteSourceOf / DeclareParticleSpriteDraw (the source half), when the sort or the draw leaves a slot of its
+// layout undeclared (a declaration fault: the vertex path or ParticleSort.shader added a binding the declaration
+// misses), or when a sort node is culled or runs outside Compact 1 .. ParticlePass.
+TEST( RenderGraphCompile, AVFXComponentOnlySceneSortsAndDrawsItsStackEmittersThroughTheirBindings )
+{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    namespace Sys = Desert::Graphic::System;
+    {
+        std::ifstream file(
+             ( RepoRoot() / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" )
+                  .string() );
+        ASSERT_TRUE( file.is_open() );
+        const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        EXPECT_EQ( source.find( "ve.Program == nullptr;" ), std::string::npos )
+             << "IsDrawn still keeps a compiled stack's emitter out of the sort and the draw";
+        EXPECT_EQ( source.find( "its sprites are not drawn" ), std::string::npos );
+        EXPECT_NE( source.find( "DeclareParticleSpriteDraw(" ), std::string::npos );
+        EXPECT_NE( source.find( "SpriteSourceOf( ve );" ), std::string::npos )
+             << "the sort push and the draw's source row are not the emitter's bindings";
+        EXPECT_NE( source.find( "SetPrimitiveIndex( ve.Source );" ), std::string::npos );
+    }
+
+    const std::vector<Sys::ParticleSortEmitter> emitters = { { 0, SurfaceBlendMode::Translucent, 256, 0, 0 } };
+    const Sys::ParticleSortPlan                 plan     = Sys::PlanParticleSort( emitters );
+    ASSERT_EQ( plan.Ranges.size(), 1u );
+
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "vfx stack draw" );
+    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 256u * 64u }, "ParticlePool" );
+    const BufferRef  floats    = graph.CreateBuffer( BufferDesc{ 256u * 12u * 4u }, "ParticleFloats" );
+    const BufferRef  slots     = graph.CreateBuffer( BufferDesc{ 256u * 8u }, "ParticleSlots" );
+    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 256u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Compact 1", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             // Stands in for the uploads, the stack's Spawn+Update and the last compact.
+             for ( const BufferRef buffer : { particles, floats, slots, alive, counters } )
+                 pass.Write( buffer, Access::StorageWrite );
+         },
+         Ok );
+
+    const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 256u * 4u );
+    const auto sortLayout     = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "ParticleSort",
+                                  { { "Particles", ShaderResourceKind::StorageBuffer },
+                                    { "Floats", ShaderResourceKind::StorageBuffer },
+                                    { "AliveList", ShaderResourceKind::StorageBuffer },
+                                    { "Counters", ShaderResourceKind::StorageBuffer },
+                                    { "SortKeys", ShaderResourceKind::StorageBuffer },
+                                    { "SortedAlive", ShaderResourceKind::StorageBuffer } },
+                              Sys::kParticleSortPushBytes } );
+    const Sys::ParticleSortBuffers buffers{ particles, floats, alive, counters, keys, sorted };
+    std::vector<std::string>       sortNames;
+    const auto                     stages = Sys::ParticleSortStages( plan.Ranges[0].Length );
+    for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
+    {
+        const Sys::ParticleSortStageKind kind = stages[s].Kind;
+        sortNames.push_back( Sys::ParticleSortPassName( 0, s ) );
+        graph.AddPass(
+             sortNames.back(), PassFlags::Compute, [&, kind]( PassBuilder& pass )
+             { Sys::DeclareParticleSortStage( pass, sortLayout, {}, buffers, kind ); }, Ok );
+    }
+    // The sprite cell's pool reads (Vertex_ParticleSprite.glslh); its material's own buffers are route-filled.
+    const auto spriteLayout = std::make_shared<const ShaderBindingLayout>(
+         ShaderBindingLayout{ "ParticleSpriteDefault/ParticleSprite.Forward",
+                              { { "Particles", ShaderResourceKind::StorageBuffer },
+                                { "Floats", ShaderResourceKind::StorageBuffer },
+                                { "Slots", ShaderResourceKind::StorageBuffer },
+                                { "AliveList", ShaderResourceKind::StorageBuffer } },
+                              112u } );
+    graph.AddPass(
+         "ParticlePass", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             auto block = pass.Bindings( spriteLayout, {} );
+             Sys::DeclareParticleSpriteDraw( block,
+                                             Sys::ParticleSpriteDrawRefs{ particles, floats, slots, sorted } );
+             pass.Read( counters, Access::IndirectArgs );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
+    auto position = [&]( const std::string& name )
+    {
+        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
+                                      [&]( const auto& pass ) { return pass.Name == name; } );
+        return it == result.Passes.end() ? -1 : static_cast<int>( it - result.Passes.begin() );
+    };
+    const int draw = position( "ParticlePass" );
+    ASSERT_GE( draw, 0 ) << "the stack emitter's draw is culled";
+    int previous = position( "Particles: Compact 1" );
+    ASSERT_GE( previous, 0 );
+    for ( const std::string& name : sortNames )
+    {
+        const int at = position( name );
+        EXPECT_GT( at, previous ) << name << " is culled or out of order";
+        EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
         previous = at;
     }
 }

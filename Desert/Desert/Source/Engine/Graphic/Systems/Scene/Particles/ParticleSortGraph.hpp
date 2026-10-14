@@ -28,8 +28,9 @@ namespace Desert::Graphic::System
         return Core::Formats::IsTranslucentBlend( blend );
     }
 
-    // ParticleSort.shader's push block: u_Range, u_Step, u_ViewOrigin, u_ViewForward (four 16-byte rows).
-    inline constexpr std::uint32_t kParticleSortPushBytes = 64;
+    // ParticleSort.shader's push block: u_Range, u_Step, u_ViewOrigin, u_ViewForward, u_SourceLayout,
+    // u_SourceStarts (six 16-byte rows).
+    inline constexpr std::uint32_t kParticleSortPushBytes = 96;
 
     // One emitter as the sort sees it: its index in the view's emitter list, its cell's blend mode, its range's
     // capacity (MaxParticles) and where its drawn alive half and draw slot are.
@@ -77,15 +78,37 @@ namespace Desert::Graphic::System
         return std::format( "Particles: Sort {} {}", emitter, stage );
     }
 
-    // The buffers one sort stage binds: the pool's three (imported) and the view's two (transient).
+    // The buffers one sort stage binds: the pool's four (imported) and the view's two (transient).
     struct ParticleSortBuffers
     {
         RDG::BufferRef Particles;
+        RDG::BufferRef Floats; // a compiled stack's Position components (VFX-03h)
         RDG::BufferRef Alive;
         RDG::BufferRef Counters; // the emitter's draw slots
         RDG::BufferRef Keys;
         RDG::BufferRef Sorted;
     };
+
+    // The pool buffers one emitter's sprite draw reads (ParticlePass): the legacy records, a stack's float
+    // components and slot states (Common/ParticleSpriteSource.glslh says which by the emitter's source row) and
+    // the alive list it walks (the view's SortedAlive for a sorted emitter). One declaration for the renderer and
+    // the graph test, so a slot the vertex path adds is declared in both or red in the test.
+    struct ParticleSpriteDrawRefs
+    {
+        RDG::BufferRef Particles;
+        RDG::BufferRef Floats;
+        RDG::BufferRef Slots;
+        RDG::BufferRef Alive;
+    };
+
+    template <typename Block>
+    void DeclareParticleSpriteDraw( Block& block, const ParticleSpriteDrawRefs& refs )
+    {
+        block.Storage( "Particles", refs.Particles, RDG::Access::StorageRead );
+        block.Storage( "Floats", refs.Floats, RDG::Access::StorageRead );
+        block.Storage( "Slots", refs.Slots, RDG::Access::StorageRead );
+        block.Storage( "AliveList", refs.Alive, RDG::Access::StorageRead );
+    }
 
     // The view's transient sort buffers: SortKeys (one uvec2 per key of every sorted emitter) and SortedAlive
     // (the alive list's size, so a sorted emitter's indices sit at the same offset the draw's FirstVertex names).
@@ -99,7 +122,7 @@ namespace Desert::Graphic::System
         return { keys, sorted };
     }
 
-    // One stage's block. Every stage binds all five slots (one layout); the keys are written by every stage but
+    // One stage's block. Every stage binds all six slots (one layout); the keys are written by every stage but
     // the last, which reads them and writes the sorted indices. SortedAlive is declared written by every stage so
     // the graph never sees a read of a transient nobody produced and keeps the stages in their declared order.
     inline void DeclareParticleSortStage( RDG::PassBuilder&                                      pass,
@@ -110,6 +133,7 @@ namespace Desert::Graphic::System
         const bool writesSorted = kind == ParticleSortStageKind::Write;
         pass.Bindings( layout, std::move( fill ) )
              .Storage( "Particles", buffers.Particles, RDG::Access::StorageRead )
+             .Storage( "Floats", buffers.Floats, RDG::Access::StorageRead )
              .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
              .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )
              .Storage( "SortKeys", buffers.Keys,

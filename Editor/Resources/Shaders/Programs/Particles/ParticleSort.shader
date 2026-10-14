@@ -20,6 +20,7 @@ Shader "ParticleSort"
         #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
         #include <Common/ParticleSortKey.glslh>
+        #include <Common/ParticleSpriteSource.glslh>
 
         Buffer(0) Particles
         {
@@ -46,12 +47,21 @@ Shader "ParticleSort"
             uint u_Sorted[];
         };
 
+        // A compiled stack's positions (VFX-03h): the pool's float components, read through u_Source.
+        ReadBuffer(5) Floats
+        {
+            float u_Floats[];
+        };
+
         PushConstant PushConstants
         {
             uvec4 u_Range;       // x = the alive half's offset in AliveList, y = the draw slot, z = key base, w = N
             uvec4 u_Step;        // x = stage, y = k, z = j
             vec4  u_ViewOrigin;  // xyz = the view's position (cm)
             vec4  u_ViewForward; // xyz = the view's forward axis (unit)
+            // Where the emitter's Position is (Common/ParticleSpriteSource.glslh): the same row its draw reads.
+            uvec4 u_SourceLayout;
+            uvec4 u_SourceStarts;
         };
 
         shared uvec2 s_Keys[1024];
@@ -89,8 +99,14 @@ Shader "ParticleSort"
                 uvec2 key = uvec2( PARTICLE_SORT_PAD_KEY, 0u );
                 if ( t < alive )
                 {
-                    uint  index = u_Alive[u_Range.x + t];
-                    float depth = dot( u_Particles[index].PosSize.xyz - u_ViewOrigin.xyz, u_ViewForward.xyz );
+                    uint                 index  = u_Alive[u_Range.x + t];
+                    ParticleSpriteSource source = ParticleSpriteSource( u_SourceLayout, u_SourceStarts );
+                    vec3                 position =
+                         source.Layout.w == PARTICLE_SPRITE_SOURCE_STACK
+                                           ? PARTICLE_SPRITE_VEC3( u_Floats, source, source.Starts.x, index,
+                                                                   PARTICLE_SPRITE_DEFAULT_POSITION )
+                                           : u_Particles[index].PosSize.xyz;
+                    float depth = dot( position - u_ViewOrigin.xyz, u_ViewForward.xyz );
                     key         = uvec2( ParticleSortKey( depth ), index );
                 }
                 u_Keys[keyBase + t] = key;

@@ -1,0 +1,56 @@
+// WHERE A DRAWN EMITTER'S SPRITE ATTRIBUTES ARE READ FROM (VFX-03h; UE: the sprite renderer's attribute bindings
+// over the emitter's FNiagaraDataSet). One row per drawn emitter, written by ParticleRenderer from
+// Graphic::System::ParticleSpriteSourceOf (Particles/ParticleSpriteBindings.hpp, the C++ statement of this
+// struct and of the defaults below) and read by the sprite vertex path (Mesh/Surface/Vertex_ParticleSprite.glslh)
+// and the view sort (Programs/Particles/ParticleSort.shader).
+//
+// A compiled stack's particle lives PER ATTRIBUTE in the pool's float components (VFXSimulationProgram.hpp):
+//
+//   float component c of attribute start s, pool slot i : Floats[FloatBase + (s + c) * Capacity + (i - RangeBase)]
+//
+// An attribute its layout does not hold has start PARTICLE_SPRITE_UNBOUND and reads the renderer default.
+
+#ifndef PARTICLE_SPRITE_SOURCE_GLSLH
+#define PARTICLE_SPRITE_SOURCE_GLSLH
+
+#define PARTICLE_SPRITE_UNBOUND 0xFFFFFFFFu
+#define PARTICLE_SPRITE_SOURCE_RECORD 0u
+#define PARTICLE_SPRITE_SOURCE_STACK 1u
+
+// The renderer defaults of an unbound attribute (ParticleSpriteBindings.hpp kParticleSpriteDefault*).
+#define PARTICLE_SPRITE_DEFAULT_POSITION vec3( 0.0 )
+#define PARTICLE_SPRITE_DEFAULT_COLOR vec4( 1.0 )
+#define PARTICLE_SPRITE_DEFAULT_SIZE vec2( 10.0 ) // cm
+
+struct ParticleSpriteSource
+{
+    // x = float base, y = range capacity, z = range pool base, w = PARTICLE_SPRITE_SOURCE_STACK (the pool's SoA
+    // components) or PARTICLE_SPRITE_SOURCE_RECORD (a legacy ParticleEmitter's Particle record, until it runs as
+    // its own compiled layout: REMAINDER-VFX-03h piece 3)
+    uvec4 Layout;
+    uvec4 Starts; // x = Position, y = Color, z = SpriteSize float starts (PARTICLE_SPRITE_UNBOUND = default), w = 0
+};
+
+// Float component c of the attribute at `start` for pool slot `slot`, from the float array `F`.
+#define PARTICLE_SPRITE_FLOAT( F, source, start, c, slot )                                                          \
+    F[( source ).Layout.x + ( ( start ) + ( c ) ) * ( source ).Layout.y + ( ( slot ) - ( source ).Layout.z )]
+
+#define PARTICLE_SPRITE_VEC3( F, source, start, slot, fallback )                                                     \
+    ( ( start ) == PARTICLE_SPRITE_UNBOUND ? ( fallback )                                                            \
+                                           : vec3( PARTICLE_SPRITE_FLOAT( F, source, start, 0u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 1u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 2u, slot ) ) )
+
+#define PARTICLE_SPRITE_VEC4( F, source, start, slot, fallback )                                                     \
+    ( ( start ) == PARTICLE_SPRITE_UNBOUND ? ( fallback )                                                            \
+                                           : vec4( PARTICLE_SPRITE_FLOAT( F, source, start, 0u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 1u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 2u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 3u, slot ) ) )
+
+#define PARTICLE_SPRITE_VEC2( F, source, start, slot, fallback )                                                     \
+    ( ( start ) == PARTICLE_SPRITE_UNBOUND ? ( fallback )                                                            \
+                                           : vec2( PARTICLE_SPRITE_FLOAT( F, source, start, 0u, slot ),              \
+                                                   PARTICLE_SPRITE_FLOAT( F, source, start, 1u, slot ) ) )
+
+#endif // PARTICLE_SPRITE_SOURCE_GLSLH
