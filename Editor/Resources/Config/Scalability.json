@@ -178,12 +178,12 @@
             },
             "High": {
                 "GlobalIllumination.Samples": 32,
-                "GlobalIllumination.DistanceFieldPoolMiB": 192,
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.RayTracing": "None"
             },
             "Epic": {
                 "GlobalIllumination.Samples": 48,
-                "GlobalIllumination.DistanceFieldPoolMiB": 256,
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.RayTracing": "None"
             },
             "Cinematic": {

@@ -86,8 +86,8 @@ namespace
     "GlobalIllumination": {
       "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.DistanceFieldPoolMiB": 64, "GlobalIllumination.RayTracing": "None" },
       "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.RayTracing": "None" },
-      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.DistanceFieldPoolMiB": 192, "GlobalIllumination.RayTracing": "None" },
-      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.DistanceFieldPoolMiB": 256, "GlobalIllumination.RayTracing": "None" },
+      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.RayTracing": "None" },
+      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.RayTracing": "None" },
       "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.RayTracing": "None" }
     },
     "Reflections": {
