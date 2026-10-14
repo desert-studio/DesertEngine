@@ -14,11 +14,13 @@ Shader "TemporalAA"
         //      the camera (unjittered inverse view-projection, previous view-projection);
         //   3. the CURRENT frame filtered from K's 3x3: each sample weighted by its distance to PPCo (UE's
         //      1 - 1.9x^2 + 0.905x^4 kernel, one output pixel wide, widened when the history is missing or the
-        //      pixel moves, never narrower than the render scale) and by its HdrWeight. Under TAAU the output
-        //      pixel's own temporal weight is the same kernel at its distance to the nearest sample: an output
-        //      pixel no sample landed near this frame keeps its history (that IS the reconstruction);
+        //      pixel moves, never wider than one render pixel) and by its HdrWeight. Under TAAU the output
+        //      pixel's own temporal weight is the same kernel at its distance to the nearest sample, times u2
+        //      (UE ComputePixelWeigth): an output pixel no sample landed near this frame keeps its history (that
+        //      IS the reconstruction);
         //   4. history at uv - velocity * (0.5, -0.5) (View/Velocity.hpp), rejected against K's neighbourhood
-        //      (TAA_QUALITY below); off screen or no valid history: the filtered current alone;
+        //      (TAA_QUALITY below; under TAAU UE's sample-distance / plus+diagonal min/max clamp, Catmull-Rom
+        //      fetch at every quality); off screen or no valid history: the filtered current alone;
         //   5. blend: UE r.TemporalAA.CurrentFrameWeight 4 %, raised toward 20 % with the output-pixel motion
         //      (1/40 px), at least the anti-flicker minimum, and toward UE's responsive 1/4 by the responsive-AA
         //      mask (translucency that writes no velocity of its own: glass, particles); in a tonemapped weight
@@ -102,9 +104,10 @@ Shader "TemporalAA"
             return texelFetch(u_SceneColor, clamp(p, ivec2(0), ivec2(u_RenderSize) - 1), 0).rgb;
         }
 
-        #if TAA_QUALITY >= 2
-        // 5-tap Catmull-Rom (the 4x4 kernel folded onto bilinear taps, corners dropped).
-        vec3 SampleHistory(vec2 uv)
+        // 5-tap Catmull-Rom (the 4x4 kernel folded onto bilinear taps, corners dropped). TAA_QUALITY 2, and every
+        // TAAU quality (UE MainUpsampling sets AA_BICUBIC at every quality: a bilinear history fetch re-blurs the
+        // upscaled history every frame it moves).
+        vec3 SampleHistoryCatmullRom(vec2 uv)
         {
             const vec2 size     = vec2(textureSize(u_History, 0));
             const vec2 position = uv * size;
@@ -127,12 +130,15 @@ Shader "TemporalAA"
             const float weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
             return max(sum / weight, vec3(0.0));
         }
-        #else
-        vec3 SampleHistory(vec2 uv)
+
+        vec3 SampleHistory(vec2 uv, bool upsample)
         {
-            return textureLod(u_History, uv, 0.0).rgb;
-        }
+        #if TAA_QUALITY >= 2
+            return SampleHistoryCatmullRom(uv);
+        #else
+            return upsample ? SampleHistoryCatmullRom(uv) : textureLod(u_History, uv, 0.0).rgb;
         #endif
+        }
 
         // Pulls @p history toward @p center until it lies inside the box of half-size @p extents (clip, not clamp:
         // the hue of the history survives).
@@ -200,8 +206,10 @@ Shader "TemporalAA"
             const float exposure   = 1.0 / max(adaptedLum, 1e-4);
 
             // 3. The filtered current frame and the neighbourhood statistics of K's 3x3. The filter scale (UE
-            // InvFilterScaleFactor): 1, 0 without history (as wide as the kernel goes), narrowed by the motion,
-            // never below the render scale (the input is not blurred more than its own resolution).
+            // InvFilterScaleFactor, TemporalAA.usf :2203-2220): 1, 0 without history (as wide as the kernel goes),
+            // LOWERED by the motion — a lower scale is a WIDER kernel, UE "blur input according to input pixel
+            // velocity to reduce blocky filtering caused by narrow filter on low screen percentage" — and never below
+            // the screen percentage (the input is not blurred more than its own resolution). At 1x it is a no-op.
             const float screenPercentage = 1.0 / upscale;
             float       filterScale      = ignoreHistory ? 0.0 : 1.0;
             filterScale                  = max(filterScale - velocityPixels * upscale * 0.1, screenPercentage);
@@ -213,6 +221,17 @@ Shader "TemporalAA"
             vec3  m2             = vec3(0.0);
             vec3  lo             = vec3(1e30);
             vec3  hi             = vec3(-1e30);
+            // TAAU history box (UE ComputeNeighborhoodBoundingbox under AA_UPSAMPLE): only the samples NEAR the
+            // output pixel bound its history. K's whole 3x3 spans six output pixels at 50 %, so on a one-texel
+            // window frame it holds both the frame and the wall behind it and lets any history through: every
+            // output pixel keeps whatever the reprojection last smeared into it, the zipper on thin vertical edges
+            // under horizontal motion. High: UE HISTORY_CLAMPING_BOX_SAMPLE_DISTANCE (the samples within
+            // lerp(1.51, 1.3, upscale - 1) render pixels of PPCo, K always); Low/Medium: UE MIN_MAX with
+            // AA_SAMPLES 6 (the plus and the diagonal toward PPCo). A clamp, as UE's (AA_CLIP 0).
+            vec3        upLo          = vec3(1e30);
+            vec3        upHi          = vec3(-1e30);
+            const float distThreshold = mix(1.51, 1.3, clamp(upscale - 1.0, 0.0, 1.0));
+            const ivec2 fifthOffset   = ivec2(dKO.x < 0.0 ? -1 : 1, dKO.y < 0.0 ? -1 : 1);
             for (int y = -1; y <= 1; ++y)
             {
                 for (int x = -1; x <= 1; ++x)
@@ -230,23 +249,41 @@ Shader "TemporalAA"
                         lo = min(lo, s);
                         hi = max(hi, s);
                     }
+                    const vec2 dPP = vec2(x, y) - dKO;
+        #if TAA_QUALITY >= 2
+                    const bool inUpsampleBox = (x == 0 && y == 0) || dot(dPP, dPP) < distThreshold * distThreshold;
+        #else
+                    const bool inUpsampleBox = abs(x) + abs(y) <= 1 || ivec2(x, y) == fifthOffset;
+        #endif
+                    if (inUpsampleBox)
+                    {
+                        upLo = min(upLo, s);
+                        upHi = max(upHi, s);
+                    }
                 }
             }
             const vec3 filtered = filteredWeight > 1e-6 ? filteredSum / filteredWeight
                                                         : max(FetchRender(renderPixel), vec3(0.0));
-            // Under TAAU the output pixel's own weight this frame: how near the nearest sample landed.
-            const float temporalWeight = upsample ? KernelWeight(dKO, u2) : 1.0;
+            // Under TAAU the output pixel's own weight this frame: how near the nearest sample landed, times u2
+            // (UE ComputePixelWeigth: "multiply pixel weight ^ 2 by upscale factor because have only a probability
+            // = screen percentage ^ 2 to return 1" — without it a TAAU pixel converges upscale^2 times slower than
+            // TAA and the stale reprojected history dominates every moving edge).
+            const float temporalWeight = upsample ? u2 * KernelWeight(dKO, u2) : 1.0;
 
             vec3 result = filtered;
             if (!ignoreHistory)
             {
-                vec3 history = SampleHistory(historyUv);
+                vec3 history = SampleHistory(historyUv, upsample);
                 if (any(isnan(history)) || any(isinf(history)))
                     history = filtered;
                 const float lumaHistory = Luma(history);
 
                 // 4. Neighbourhood rejection in YCoCg.
                 const vec3 historyYCoCg = RGBToYCoCg(history);
+                if (upsample)
+                    history = YCoCgToRGB(clamp(historyYCoCg, upLo, upHi));
+                else
+                {
         #if TAA_QUALITY == 0
                 history = YCoCgToRGB(clamp(historyYCoCg, lo, hi));
         #else
@@ -254,6 +291,7 @@ Shader "TemporalAA"
                 const vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
                 history = YCoCgToRGB(ClipToBox(historyYCoCg, mean, kClipGamma * sigma));
         #endif
+                }
                 history = max(history, vec3(0.0));
 
                 // 5. The current frame's share.
