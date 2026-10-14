@@ -226,8 +226,8 @@ Shader "DeferredLighting"
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
         #include <Mesh/LocalLightShadowView.glslh>
-        Uniform(22) sampler2D u_LocalShadowAtlas;
-        ReadBuffer(23) LocalShadowViewsUB
+        Uniform(13) sampler2D u_LocalShadowAtlas; // 13/14: freed by the cascade array (22/23 are the captures)
+        ReadBuffer(14) LocalShadowViewsUB
         {
         	LocalShadowView localShadowViews[];
         };
