@@ -137,8 +137,9 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         uint64_t            Key      = 0; // ParticleEmitterKey
         ParticleEmitterGpu* Gpu      = nullptr;
-        // Null: a ParticleEmitterComponent, simulated by ParticleSimulate with Push. Set: a VFXComponent emitter,
-        // simulated by its stack's program (ShaderService::AcquireSimulationProgram) with StackPush.
+        // Every emitter's compiled stack (a ParticleEmitterComponent's is VFX::ParticleEmitterSystem's, VFX-03i),
+        // simulated by its program (ShaderService::AcquireSimulationProgram) with StackPush. Push is dead with
+        // ParticleSimulate (REMAINDER-VFX-03i).
         std::shared_ptr<const VFX::VFXCompiledEmitter> Stack;
         ParticleSimPush                                Push;
         VFXStackSimPush                                StackPush;

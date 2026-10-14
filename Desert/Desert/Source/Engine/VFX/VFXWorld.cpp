@@ -23,6 +23,73 @@ namespace Desert::VFX
         constexpr std::uint32_t kWholeComponent = 0xFFFFFFFFu;
     } // namespace
 
+    namespace
+    {
+        Assets::Serialization::VFXModuleInput ValueInput( const char* name, const VFXValueType type,
+                                                          const glm::vec4& value )
+        {
+            Assets::Serialization::VFXModuleInput input;
+            input.Name   = name;
+            input.Type   = type;
+            input.Source = Assets::Serialization::VFXInputSource::Value;
+            input.Value  = value;
+            return input;
+        }
+
+        Assets::Serialization::VFXModuleInput FloatInput( const char* name, const float value )
+        {
+            return ValueInput( name, VFXValueType::Float, glm::vec4( value, 0.0f, 0.0f, 0.0f ) );
+        }
+
+        Assets::Serialization::VFXModuleInput Vec3Input( const char* name, const glm::vec3& value )
+        {
+            return ValueInput( name, VFXValueType::Vec3, glm::vec4( value, 0.0f ) );
+        }
+    } // namespace
+
+    Assets::Serialization::VFXSystemData ParticleEmitterSystem( const ECS::ParticleEmitterData& d,
+                                                                const glm::vec3&                emitterCm )
+    {
+        glm::vec3 direction = d.Direction;
+        if ( glm::dot( direction, direction ) < 1e-6f )
+            direction = glm::vec3( 0.0f, 1.0f, 0.0f );
+        direction = glm::normalize( direction );
+
+        Assets::Serialization::VFXModuleUse spawn;
+        spawn.Module = "engine:ParticleEmitterSpawn";
+        spawn.Inputs = { Vec3Input( "EmitterPosition", emitterCm ),
+                         Vec3Input( "Direction", direction ),
+                         FloatInput( "ConeAngle", glm::radians( d.ConeAngle ) ),
+                         FloatInput( "StartSpeed", d.StartSpeed ),
+                         FloatInput( "SpeedVariance", d.SpeedVariance ),
+                         FloatInput( "Lifetime", d.Lifetime ),
+                         FloatInput( "LifetimeVariance", d.LifetimeVariance ) };
+
+        Assets::Serialization::VFXModuleUse update;
+        update.Module = "engine:ParticleEmitterUpdate";
+        update.Inputs = { Vec3Input( "EmitterPosition", emitterCm ),
+                          Vec3Input( "Gravity", d.Gravity ),
+                          ValueInput( "LocalSpace", VFXValueType::Bool,
+                                      glm::vec4( d.WorldSpace ? 0.0f : 1.0f, 0.0f, 0.0f, 0.0f ) ),
+                          ValueInput( "StartColor", VFXValueType::Vec4, glm::vec4( d.StartColor, d.StartAlpha ) ),
+                          ValueInput( "EndColor", VFXValueType::Vec4, glm::vec4( d.EndColor, d.EndAlpha ) ),
+                          FloatInput( "StartSize", d.StartSize ),
+                          FloatInput( "EndSize", d.EndSize ),
+                          FloatInput( "SizeCurvePower", d.SizeCurvePower ) };
+
+        Assets::Serialization::VFXEmitterData emitter;
+        emitter.Name     = "ParticleEmitter";
+        emitter.Space    = d.WorldSpace ? Assets::Serialization::VFXSimulationSpace::World
+                                        : Assets::Serialization::VFXSimulationSpace::Local;
+        emitter.Capacity = static_cast<std::uint32_t>( std::max( d.MaxParticles, 0 ) );
+        emitter.Stack.ParticleSpawn.push_back( std::move( spawn ) );
+        emitter.Stack.ParticleUpdate.push_back( std::move( update ) );
+
+        Assets::Serialization::VFXSystemData system;
+        system.Emitters.push_back( std::move( emitter ) );
+        return system;
+    }
+
     bool VFXWorld::FirstReport( const EmitterKey& key )
     {
         return m_Reported.insert( key ).second;
@@ -157,6 +224,41 @@ namespace Desert::VFX
                  const glm::vec3 emitterCm =
                       transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
                  PlanEmitterSteps( instance, plan, m_Plan.StepCount, stepSeconds, m_Channels, emitterCm );
+
+                 // It runs as its built-in stack (ParticleEmitterSystem): one compile per world, this tick's
+                 // fields as the parameter rows.
+                 const Assets::Serialization::VFXSystemData system = ParticleEmitterSystem( d, emitterCm );
+                 if ( !m_ComponentStackTried )
+                 {
+                     m_ComponentStackTried = true;
+                     auto stack            = CompileEmitterStack( system, 0, EngineModuleDir() );
+                     auto atlas            = BuildCurveAtlas( system );
+                     if ( !stack || !atlas )
+                         LOG_ERROR( "[VFX] The ParticleEmitter components' built-in stack does not compile; no "
+                                    "ParticleEmitter simulates: {}",
+                                    !stack ? stack.GetError() : atlas.GetError() );
+                     else
+                     {
+                         m_ComponentStack =
+                              std::make_shared<const VFXCompiledEmitter>( std::move( stack.GetValue() ) );
+                         m_ComponentCurves = std::move( atlas.GetValue() );
+                     }
+                 }
+                 if ( !m_ComponentStack )
+                     return;
+                 auto params = BuildEmitterParams( *m_ComponentStack, system, 0, m_ComponentCurves );
+                 if ( !params )
+                 {
+                     if ( FirstReport( EmitterKey{ uuid, kComponentEmitterIndex, false } ) )
+                         LOG_ERROR(
+                              "[VFX] Entity {}: its ParticleEmitter sits out, its parameters do not build: {}",
+                              uuid, params.GetError() );
+                     return;
+                 }
+                 instance.Stack    = m_ComponentStack;
+                 instance.Params   = std::move( params.GetValue() );
+                 instance.Curves   = m_ComponentCurves.Floats;
+                 instance.Capacity = system.Emitters[0].Capacity;
              } );
 
         // A VFXComponent plays its system's enabled emitters, instance (entity, emitter index) each. Not

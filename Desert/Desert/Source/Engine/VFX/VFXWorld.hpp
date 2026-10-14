@@ -17,6 +17,11 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+
+namespace Desert::ECS
+{
+    struct ParticleEmitterData;
+}
 #include <vector>
 
 namespace Desert::VFX
@@ -58,9 +63,9 @@ namespace Desert::VFX
         VFXChannelSpawnReport               ChannelReport;
         std::uint64_t                       ChannelOverflowTotal = 0;
 
-        // A VFXComponent emitter's compiled stack and what its simulation program reads (null / empty for a
-        // ParticleEmitterComponent, which ParticleSimulate runs): the parameter rows (BuildEmitterParams, this
-        // tick's values), the system's curve atlas and the particles its range of the pool holds.
+        // The emitter's compiled stack (a VFXComponent emitter's, or a ParticleEmitterComponent's built-in one:
+        // ParticleEmitterSystem) and what its simulation program reads: the parameter rows (BuildEmitterParams,
+        // this tick's values), the system's curve atlas and the particles its range of the pool holds.
         std::shared_ptr<const VFXCompiledEmitter> Stack;
         std::vector<glm::vec4>                    Params;
         std::vector<float>                        Curves;
@@ -75,6 +80,15 @@ namespace Desert::VFX
     /// reserved for every spawn, channel spawns included.
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
                            double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
+
+    /// A ParticleEmitterComponent as the system it is (VFX-03i): ONE emitter whose stack is the built-in pair
+    /// engine:ParticleEmitterSpawn (ParticleSpawn) and engine:ParticleEmitterUpdate (ParticleUpdate), every input
+    /// a Value taken from @p data's fields this tick, the emitter at @p emitterCm. It compiles to the component's
+    /// own layout (Position, Velocity, LocalOffset, Age, Lifetime, NormalizedAge, Color, SpriteSize) and runs on
+    /// the stack path like any `.dfx` emitter. The structure never depends on the values, so every component
+    /// shares one program.
+    [[nodiscard]] Assets::Serialization::VFXSystemData ParticleEmitterSystem( const ECS::ParticleEmitterData& data,
+                                                                              const glm::vec3& emitterCm );
 
     // THE EFFECTS WORLD OF ONE SCENE (plan 02 §3.3-1): owns the effects clock and the per-instance
     // administration, and is ticked once per scene update — not once per view. Simulation is a function
@@ -220,6 +234,11 @@ namespace Desert::VFX
             VFXCurveAtlas                               Curves;
         };
         std::unordered_map<EmitterKey, CompiledStack, EmitterKeyHash> m_Stacks;
+        // The ParticleEmitterComponents' built-in stack (ParticleEmitterSystem): one structure for every
+        // component, compiled on the first tick that plays one; null until then or when it does not compile.
+        std::shared_ptr<const VFXCompiledEmitter>          m_ComponentStack;
+        VFXCurveAtlas                                      m_ComponentCurves;
+        bool                                               m_ComponentStackTried = false;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;

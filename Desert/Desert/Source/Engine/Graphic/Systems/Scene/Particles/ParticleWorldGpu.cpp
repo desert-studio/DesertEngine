@@ -96,7 +96,7 @@ namespace Desert::Graphic::System
         const uint32_t      entityId = ParticleEmitterKey::Entity( key );
         const uint32_t      emitter  = ParticleEmitterKey::Emitter( key );
         ParticleEmitterGpu& gpu      = GetOrCreate( key, stepCapacity );
-        if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs || !gpu.ChannelSpawns )
+        if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs )
             return nullptr;
 
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -129,48 +129,6 @@ namespace Desert::Graphic::System
                 stepCount = 0;
             }
         }
-
-        // This tick's Spawn from Channel particles, one record per particle (VFX-10): step s's spawn t <
-        // ChannelCount reads record ChannelFirst + t. Grown x2 when a tick brings more. Only ParticleSimulate
-        // binds them; a compiled stack spawns from a channel through its own module.
-        std::vector<ParticleChannelSpawnGpu> channel;
-        if ( !instance.Stack )
-            for ( const VFX::VFXChannelSpawnRequest& r : instance.ChannelSpawns )
-                for ( uint32_t k = 0; k < r.Count; ++k )
-                    channel.push_back( { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
-                                         glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
-                                         r.HasColor ? r.Color : glm::vec4( 1.0f ),
-                                         glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f,
-                                                    r.HasColor ? 1.0f : 0.0f, r.HasLifetime ? 1.0f : 0.0f ) } );
-        if ( stepCount > 0 && !channel.empty() )
-        {
-            const auto needed = static_cast<uint32_t>( channel.size() );
-            if ( needed > gpu.ChannelCapacity )
-            {
-                gpu.ChannelCapacity = std::max( needed, gpu.ChannelCapacity * 2u );
-                gpu.ChannelSpawns   = ShaderResources::StorageBuffer::Create(
-                     "ParticleChannelSpawns", gpu.ChannelCapacity * kParticleChannelSpawnStride, 1 );
-            }
-            if ( !gpu.ChannelSpawns )
-            {
-                LOG_ERROR( "[Particles] emitter {} of entity {} sits out this tick, the buffer of its {} channel "
-                           "spawns was not created",
-                           emitter, entityId, needed );
-                return nullptr;
-            }
-            const auto uploaded =
-                 gpu.ChannelSpawns->SetData( channel.data(), needed * kParticleChannelSpawnStride );
-            if ( !uploaded.IsSuccess() )
-            {
-                LOG_ERROR(
-                     "[Particles] emitter {} of entity {} does not simulate this tick, its {} channel spawns "
-                     "did not upload: {}",
-                     emitter, entityId, needed, uploaded.GetError() );
-                stepCount = 0;
-            }
-        }
-        if ( !gpu.ChannelSpawns )
-            return nullptr;
 
         // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no history
         // (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its start.
@@ -268,55 +226,46 @@ namespace Desert::Graphic::System
         m_FloatRanges.ReleaseUnless( live );
         m_IntRanges.ReleaseUnless( live );
 
-        auto view = reg.view<const ECS::ParticleEmitterComponent, const ECS::TransformComponent,
-                             const ECS::UUIDComponent>();
-        view.each(
-             [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter,
-                  const ECS::TransformComponent& transform, const ECS::UUIDComponent& id )
+        // Every emitter runs its compiled stack (VFX-03): a VFXComponent's system emitters, (entity, emitter
+        // index) each, and a ParticleEmitterComponent's built-in stack (VFX::ParticleEmitterSystem); the world
+        // compiled each stack and built its rows this tick.
+        const auto addStack = [&]( const uint32_t entityId, const uint64_t key,
+                                   const VFX::EmitterInstance& instance, const Common::AssetHandle& material )
+        {
+            uint32_t            stepCount = 0;
+            ParticleEmitterGpu* gpu = PrepareEmitter( key, instance, instance.Capacity, stepCapacity, stepCount );
+            if ( gpu == nullptr || !PrepareStack( key, *gpu, instance ) )
+                return;
+            // The age the first of this tick's steps starts at; step s adds s steps (ParticleRenderer::Simulate).
+            const double firstAge =
+                 instance.Spawn.Age - static_cast<double>( instance.Steps.size() ) * clock.StepSeconds;
+            ParticleFrameEmitter fe;
+            fe.EntityId  = entityId;
+            fe.Key       = key;
+            fe.Gpu       = gpu;
+            fe.Stack     = instance.Stack;
+            fe.Material  = material;
+            fe.StepCount = stepCount;
+            fe.StackPush.Time =
+                 glm::vec4( stepSeconds, static_cast<float>( std::max( 0.0, firstAge ) ), 0.0f, 0.0f );
+            fe.StackPush.Counts = glm::uvec4( gpu->Range.Count, 0u, gpu->Range.Base, 0u );
+            fe.StackPush.Bases  = glm::uvec4( gpu->FloatRange.Base, gpu->IntRange.Base, 0u, 0u );
+            m_FrameEmitters.push_back( fe );
+        };
+
+        reg.view<const ECS::ParticleEmitterComponent, const ECS::UUIDComponent>().each(
+             [&]( entt::entity entity, const ECS::ParticleEmitterComponent& emitter, const ECS::UUIDComponent& id )
              {
                  const auto& d = emitter.Data;
                  if ( !d.Enabled || d.MaxParticles <= 0 )
                      return;
-
                  const VFX::EmitterInstance* instance = world.FindEmitter( static_cast<uint64_t>( id.UUID ) );
-                 if ( instance == nullptr )
+                 if ( instance == nullptr || !instance->Stack || instance->Capacity == 0 )
                      return;
-
-                 const auto          entityId  = static_cast<uint32_t>( entity );
-                 const uint64_t      key       = ParticleEmitterKey::Make( entityId, 0u, false );
-                 uint32_t            stepCount = 0;
-                 ParticleEmitterGpu* gpu = PrepareEmitter( key, *instance, static_cast<uint32_t>( d.MaxParticles ),
-                                                           stepCapacity, stepCount );
-                 if ( gpu == nullptr )
-                     return;
-
-                 const glm::vec3 worldPos = glm::vec3( transform.GetTransform()[3] );
-                 glm::vec3       dir      = d.Direction;
-                 if ( glm::dot( dir, dir ) < 1e-6f )
-                     dir = glm::vec3( 0.0f, 1.0f, 0.0f );
-                 dir = glm::normalize( dir );
-
-                 const ParticlePoolRange range = gpu->Range;
-                 ParticleFrameEmitter    fe;
-                 fe.EntityId        = entityId;
-                 fe.Key             = key;
-                 fe.Gpu             = gpu;
-                 fe.Material        = d.Material;
-                 fe.StepCount       = stepCount;
-                 fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
-                 fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
-                 fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
-                 fe.Push.Params     = glm::vec4( d.StartSpeed, d.SpeedVariance, d.Lifetime, d.LifetimeVariance );
-                 fe.Push.StartColor = glm::vec4( d.StartColor, d.StartAlpha );
-                 fe.Push.EndColor   = glm::vec4( d.EndColor, d.EndAlpha );
-                 fe.Push.Sizes      = glm::vec4( d.StartSize, d.EndSize, d.SizeCurvePower, 0.0f );
-                 fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, d.WorldSpace ? 0u : 1u );
-
-                 m_FrameEmitters.push_back( fe );
+                 const auto entityId = static_cast<uint32_t>( entity );
+                 addStack( entityId, ParticleEmitterKey::Make( entityId, 0u, false ), *instance, d.Material );
              } );
 
-        // A VFXComponent plays its system's planned emitters, (entity, emitter index) each, through the compiled
-        // stacks' programs (VFX-03): the world compiled each stack and built its rows this tick.
         std::unordered_map<uint64_t, entt::entity> systemEntities;
         reg.view<const ECS::VFXComponent, const ECS::UUIDComponent>().each(
              [&]( entt::entity entity, const ECS::VFXComponent&, const ECS::UUIDComponent& id )
@@ -328,31 +277,9 @@ namespace Desert::Graphic::System
             const auto owner = systemEntities.find( emitterKey.Uuid );
             if ( owner == systemEntities.end() )
                 continue;
-
-            const auto          entityId  = static_cast<uint32_t>( owner->second );
-            const uint64_t      key       = ParticleEmitterKey::Make( entityId, emitterKey.Emitter, true );
-            uint32_t            stepCount = 0;
-            ParticleEmitterGpu* gpu = PrepareEmitter( key, instance, instance.Capacity, stepCapacity, stepCount );
-            if ( gpu == nullptr || !PrepareStack( key, *gpu, instance ) )
-                continue;
-
-            // The age the first of this tick's steps starts at; step s adds s steps (ParticleRenderer::Simulate).
-            const double firstAge =
-                 instance.Spawn.Age - static_cast<double>( instance.Steps.size() ) * clock.StepSeconds;
-
-            ParticleFrameEmitter fe;
-            fe.EntityId  = entityId;
-            fe.Key       = key;
-            fe.Gpu       = gpu;
-            fe.Stack     = instance.Stack;
-            fe.StepCount = stepCount;
-            fe.StackPush.Time =
-                 glm::vec4( stepSeconds, static_cast<float>( std::max( 0.0, firstAge ) ), 0.0f, 0.0f );
-            fe.StackPush.Counts = glm::uvec4( gpu->Range.Count, 0u, gpu->Range.Base, 0u );
-            fe.StackPush.Bases  = glm::uvec4( gpu->FloatRange.Base, gpu->IntRange.Base, 0u, 0u );
-            m_FrameEmitters.push_back( fe );
+            const auto entityId = static_cast<uint32_t>( owner->second );
+            addStack( entityId, ParticleEmitterKey::Make( entityId, emitterKey.Emitter, true ), instance, {} );
         }
-
         if ( !m_FrameEmitters.empty() &&
              !EnsurePoolCapacity( m_Ranges.End(), m_FloatRanges.End(), m_IntRanges.End() ) )
             m_FrameEmitters.clear();
