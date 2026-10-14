@@ -27,8 +27,11 @@ namespace Desert::Graphic::System
         Position   = 0, // vec3, cm, world space
         Color      = 1, // vec4, linear RGBA
         SpriteSize = 2, // vec2, cm
+        // float, 0..1: the sprite's relative time (the material's particle time). Optional (VFX-03i): a stack
+        // without it draws at the renderer default, and that is not reported as unbound.
+        NormalizedAge = 3,
     };
-    inline constexpr std::uint32_t kParticleSpriteAttributeCount = 3;
+    inline constexpr std::uint32_t kParticleSpriteAttributeCount = 4;
 
     // The bound float start meaning "not in the layout: the renderer default".
     inline constexpr std::uint32_t kParticleSpriteUnbound = 0xFFFFFFFFu;
@@ -38,11 +41,13 @@ namespace Desert::Graphic::System
     inline const glm::vec3 kParticleSpriteDefaultPosition{ 0.0f, 0.0f, 0.0f }; // cm
     inline const glm::vec4 kParticleSpriteDefaultColor{ 1.0f, 1.0f, 1.0f, 1.0f };
     inline const glm::vec2 kParticleSpriteDefaultSize{ 10.0f, 10.0f }; // cm
+    inline constexpr float kParticleSpriteDefaultNormalizedAge = 0.0f;
 
     struct ParticleSpriteBindingSpec
     {
         std::string_view Name;
         std::uint32_t    Components = 0;
+        bool             Optional   = false; // absent = the default, not reported
     };
 
     inline constexpr std::array<ParticleSpriteBindingSpec, kParticleSpriteAttributeCount>
@@ -50,13 +55,14 @@ namespace Desert::Graphic::System
               ParticleSpriteBindingSpec{ "Position", 3u },
               ParticleSpriteBindingSpec{ "Color", 4u },
               ParticleSpriteBindingSpec{ "SpriteSize", 2u },
+              ParticleSpriteBindingSpec{ "NormalizedAge", 1u, true },
     };
 
     struct ParticleSpriteBindings
     {
         // Float component start per ParticleSpriteAttribute, kParticleSpriteUnbound = the renderer default.
         std::array<std::uint32_t, kParticleSpriteAttributeCount> FloatStart{
-             kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound };
+             kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound };
         // One line per unbound attribute: what the layout lacks and why ("Color: not in the layout").
         std::vector<std::string> Unbound;
 
@@ -76,6 +82,8 @@ namespace Desert::Graphic::System
             const VFX::VFXAttributeLayout*   attribute = layout.Find( spec.Name );
             if ( attribute == nullptr )
             {
+                if ( spec.Optional )
+                    continue;
                 bindings.Unbound.push_back( std::string( spec.Name ) + ": not in the layout" );
                 continue;
             }
@@ -99,7 +107,7 @@ namespace Desert::Graphic::System
     struct ParticleSpriteSourceGpu
     {
         glm::uvec4 Layout{ 0u }; // float base, range capacity, range pool base, kParticleSpriteSource*
-        glm::uvec4 Starts{ kParticleSpriteUnbound, kParticleSpriteUnbound, kParticleSpriteUnbound, 0u };
+        glm::uvec4 Starts{ kParticleSpriteUnbound }; // Position, Color, SpriteSize, NormalizedAge
     };
     static_assert( sizeof( ParticleSpriteSourceGpu ) == 32, "ParticleSpriteSource is two uvec4 rows" );
 
@@ -112,7 +120,8 @@ namespace Desert::Graphic::System
     {
         ParticleSpriteSourceGpu source;
         source.Layout = glm::uvec4( floatBase, capacity, rangeBase, kParticleSpriteSourceStack );
-        source.Starts = glm::uvec4( bindings.FloatStart[0], bindings.FloatStart[1], bindings.FloatStart[2], 0u );
+        source.Starts = glm::uvec4( bindings.FloatStart[0], bindings.FloatStart[1], bindings.FloatStart[2],
+                                    bindings.FloatStart[3] );
         return source;
     }
 } // namespace Desert::Graphic::System

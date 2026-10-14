@@ -69,7 +69,9 @@ void main()
                                              PARTICLE_SPRITE_DEFAULT_POSITION );
         color        = PARTICLE_SPRITE_VEC4( u_Floats, source, source.Starts.y, index, PARTICLE_SPRITE_DEFAULT_COLOR );
         size         = PARTICLE_SPRITE_VEC2( u_Floats, source, source.Starts.z, index, PARTICLE_SPRITE_DEFAULT_SIZE );
-        relativeTime = 0.0; // the sprite renderer binds no age attribute (REMAINDER-VFX-03h)
+        relativeTime = source.Starts.w == PARTICLE_SPRITE_UNBOUND
+                           ? PARTICLE_SPRITE_DEFAULT_NORMALIZED_AGE
+                           : PARTICLE_SPRITE_FLOAT( u_Floats, source, source.Starts.w, 0u, index );
         randomKey    = u_SlotState[index].Id;
         if ( u_SlotState[index].Alive == 0u )
         {

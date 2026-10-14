@@ -21,6 +21,7 @@
 #define PARTICLE_SPRITE_DEFAULT_POSITION vec3( 0.0 )
 #define PARTICLE_SPRITE_DEFAULT_COLOR vec4( 1.0 )
 #define PARTICLE_SPRITE_DEFAULT_SIZE vec2( 10.0 ) // cm
+#define PARTICLE_SPRITE_DEFAULT_NORMALIZED_AGE 0.0
 
 struct ParticleSpriteSource
 {
@@ -28,7 +29,8 @@ struct ParticleSpriteSource
     // components) or PARTICLE_SPRITE_SOURCE_RECORD (a legacy ParticleEmitter's Particle record, until it runs as
     // its own compiled layout: REMAINDER-VFX-03h piece 3)
     uvec4 Layout;
-    uvec4 Starts; // x = Position, y = Color, z = SpriteSize float starts (PARTICLE_SPRITE_UNBOUND = default), w = 0
+    uvec4 Starts; // x = Position, y = Color, z = SpriteSize, w = NormalizedAge float starts (PARTICLE_SPRITE_UNBOUND =
+                  // the default)
 };
 
 // Float component c of the attribute at `start` for pool slot `slot`, from the float array `F`.

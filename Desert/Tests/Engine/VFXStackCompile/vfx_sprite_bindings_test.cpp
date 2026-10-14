@@ -134,8 +134,11 @@ TEST( VFXSpriteBindings, TheSpriteVertexPathAndTheSortReadAStackThroughItsBindin
 
     // The row a stack draws with: its range and its starts, in the glslh's field order.
     Sys::ParticleSpriteBindings bindings;
-    bindings.FloatStart                    = { 8u, Sys::kParticleSpriteUnbound, 3u };
+    bindings.FloatStart                    = { 8u, Sys::kParticleSpriteUnbound, 3u, 5u };
     const Sys::ParticleSpriteSourceGpu row = Sys::ParticleSpriteSourceOf( bindings, 640u, 256u, 1024u );
     EXPECT_EQ( row.Layout, glm::uvec4( 640u, 256u, 1024u, Sys::kParticleSpriteSourceStack ) );
-    EXPECT_EQ( row.Starts, glm::uvec4( 8u, Sys::kParticleSpriteUnbound, 3u, 0u ) );
+    EXPECT_EQ( row.Starts, glm::uvec4( 8u, Sys::kParticleSpriteUnbound, 3u, 5u ) );
+    // VFX-03i: the relative time is the NormalizedAge binding (Starts.w), the renderer default when unbound.
+    EXPECT_NE( source.find( "#define PARTICLE_SPRITE_DEFAULT_NORMALIZED_AGE 0.0" ), std::string::npos );
+    EXPECT_EQ( Sys::kParticleSpriteDefaultNormalizedAge, 0.0f );
 }
