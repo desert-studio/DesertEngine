@@ -6,7 +6,8 @@
 //     sampler2D u_LocalShadowAtlas;                         (R32F, standard-Z depth of each view's casters)
 //     ReadBuffer LocalShadowViewsUB { LocalShadowView localShadowViews[]; };
 // (the row struct is Mesh/LocalLightShadowView.glslh, included BEFORE the buffer) and includes this AFTER
-// them, the way Mesh/CascadedShadow.glslh is included.
+// them, the way Mesh/CascadedShadow.glslh is included. The lights' contact shadows (their ContactShadowLength)
+// are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs.
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
 
@@ -97,7 +98,9 @@ DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, ve
     DesertLight light = DesertPointLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
-        light.Shadow = PointLightShadow(source, worldPosition, N);
+        light.Shadow = PointLightShadow(source, worldPosition, N) *
+                       ContactShadowFactor(worldPosition, light.L, source.contactShadowLength,
+                                           source.contactShadowInWorld != 0);
     return light;
 }
 
@@ -106,7 +109,9 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
     DesertLight light = DesertSpotLightAt(source, worldPosition);
     // A receiver the light does not reach (past its radius, outside its cone) pays no filter.
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
-        light.Shadow = SpotLightShadow(source, worldPosition, N);
+        light.Shadow = SpotLightShadow(source, worldPosition, N) *
+                       ContactShadowFactor(worldPosition, light.L, source.contactShadowLength,
+                                           source.contactShadowInWorld != 0);
     return light;
 }
 

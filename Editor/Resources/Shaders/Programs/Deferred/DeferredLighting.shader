@@ -101,7 +101,15 @@ Shader "DeferredLighting"
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
+        	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
+        	vec4 u_ContactShadowView;         // x = ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
+        	vec4 u_SunContactShadow;          // x = the sun's ContactShadowLength, y = in world space (>0.5)
         };
+
+        // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
+        // u_GBufferDepth. Included after the block above, which names its inputs; Mesh/LocalLightShadow.glslh
+        // below applies it to the point and spot lights, the sun's is applied in main().
+        #include <Common/ContactShadow.glslh>
 
         float ssgiHash(vec2 p)
         {
@@ -323,7 +331,11 @@ Shader "DeferredLighting"
         	int   cascade  = -1;
         	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
-        	float shadow   = DesertReceivesSunShadows(word) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	// The sun's contact shadow joins its cascades: it is the near-contact part of the same occlusion.
+        	float shadow   = DesertReceivesSunShadows(word)
+        	                     ? ShadowFactor(worldPos, N, L, cascade) *
+        	                           ContactShadowFactor(worldPos, L, u_SunContactShadow.x, u_SunContactShadow.y > 0.5)
+        	                     : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 

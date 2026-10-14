@@ -148,6 +148,8 @@ namespace Desert::Graphic
                                                        .Distribution = light.ShadowCascadeBiasDistribution };
             result.Shadows.CascadeSplitLambda      = light.CascadeSplitLambda;
             result.Shadows.SourceAngleDegrees      = light.SourceAngle;
+            result.Shadows.ContactShadowLength             = light.ContactShadowLength;
+            result.Shadows.ContactShadowLengthInWorldSpace = light.ContactShadowLengthInWorldSpace;
         }
 
         return result;

@@ -855,6 +855,12 @@ namespace Desert::Graphic
         int m_SSRMaxSteps = 32;
         int m_GISamples   = 32;
         int m_SSAOSamples = 16;
+        // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
+        // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
+        // and handed to the deferred composite (Common/ContactShadow.glslh).
+        int   m_ContactShadowSteps                 = 12;
+        float m_SunContactShadowLength             = 0.0f;
+        bool  m_SunContactShadowLengthInWorldSpace = false;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

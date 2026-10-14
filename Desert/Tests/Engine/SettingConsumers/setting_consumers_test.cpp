@@ -602,6 +602,8 @@ namespace
          { "ShadowCascadeBiasDistribution", kViewSettings },
          { "CascadeSplitLambda", kViewSettings },
          { "SourceAngle", kViewSettings },
+         { "ContactShadowLength", kViewSettings },
+         { "ContactShadowLengthInWorldSpace", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -613,12 +615,20 @@ namespace
          // An EDITOR-ONLY visualisation flag, deliberately: it draws the radius gizmo and reaches no
          // shader at all, so the gizmo renderer is the honest consumer to name.
          { "ShowRadius", kLightGizmo },
+         { "ContactShadowLength", kPointLight },
+         { "ContactShadowLengthInWorldSpace", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
-         { "Color", kSpotLight },          { "Intensity", kSpotLight },      { "Range", kSpotLight },
-         { "InnerConeAngle", kSpotLight }, { "OuterConeAngle", kSpotLight }, { "Falloff", kSpotLight },
+         { "Color", kSpotLight },
+         { "Intensity", kSpotLight },
+         { "Range", kSpotLight },
+         { "InnerConeAngle", kSpotLight },
+         { "OuterConeAngle", kSpotLight },
+         { "Falloff", kSpotLight },
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
+         { "ContactShadowLength", kSpotLight },
+         { "ContactShadowLengthInWorldSpace", kSpotLight },
     };
 
     constexpr Row kParticleRows[] = {

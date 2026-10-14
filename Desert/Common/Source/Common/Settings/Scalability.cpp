@@ -45,6 +45,9 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
              { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+             { P::ShadowContactSteps, G::Shadows, "Shadows.ContactShadowSteps", 0, 32, CL::None,
+               "SceneRenderer::BeginScene -> DeferredLighting.shader contact-shadow march "
+               "(u_ContactShadowView.x)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 64, CL::None,
                "SSRRenderer trace push constant maxSteps (SceneRenderer SSR pass)" },
              { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,

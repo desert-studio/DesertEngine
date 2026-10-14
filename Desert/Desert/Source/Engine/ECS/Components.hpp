@@ -982,6 +982,21 @@ namespace Desert::ECS
                   Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
                            "the same part." ) )
         float CascadeSplitLambda = 0.6f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the sun: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
     };
 
     struct DirectionLightComponent
@@ -1050,6 +1065,21 @@ namespace Desert::ECS
                   Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
     };
 
     struct PointLightComponent
@@ -1112,6 +1142,21 @@ namespace Desert::ECS
                   Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
     };
 
     struct SpotLightComponent

@@ -422,6 +422,15 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+        // Contact shadows (Common/ContactShadow.glslh): the march's view and the sun's length. The projection's
+        // [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        const DeferredContactShadowInput contact{
+             .JitteredViewProjection = frame.JitteredViewProjection,
+             .Steps                  = m_ContactShadowSteps,
+             .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
+             .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
+             .SunLength              = m_SunContactShadowLength,
+             .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -440,7 +449,7 @@ namespace Desert::Graphic
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
                                          shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
-                                         cloudShadow, environment );
+                                         cloudShadow, environment, contact );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },

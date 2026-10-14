@@ -32,6 +32,19 @@ namespace Desert::Graphic
         float            SourceTanHalf        = 0.0f;
     };
 
+    // THE CONTACT SHADOWS' VIEW (Common/ContactShadow.glslh): the screen-space ray every light with a
+    // ContactShadowLength marches through the G-buffer depth. The point and spot lights carry their own length in
+    // their payloads; the sun's arrives here, beside the view values the march needs.
+    struct DeferredContactShadowInput
+    {
+        glm::mat4 JitteredViewProjection{ 1.0f }; // the matrix the G-buffer depth was rasterised with
+        int       Steps           = 0;            // Scalability Shadows.ContactShadowSteps; 0 = no march at all
+        float     TanHalfFovY     = 1.0f;         // turns a screen-fraction length into centimetres at a depth
+        uint32_t  DitherFrame     = 0;            // 0..7, UE's StateFrameIndexMod8
+        float     SunLength       = 0.0f;         // DirectionalLightData::ContactShadowLength (0 = none)
+        bool      SunInWorldSpace = false;        // ...InWorldSpace
+    };
+
     // CloudShadowInput — the cloud layer's shadow, a SECOND independent occluder of the same sun — used
     // to be declared right here, which is precisely why nothing but this pass ever received it. It now
     // lives beside the uniform block it packs into (Engine/Graphic/Clouds/CloudShadowPayload.hpp), where
@@ -80,7 +93,7 @@ namespace Desert::Graphic
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                          uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
                          bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
-                         const DeferredEnvironmentInput& environment )
+                         const DeferredEnvironmentInput& environment, const DeferredContactShadowInput& contact )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
             // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
@@ -100,6 +113,13 @@ namespace Desert::Graphic
             // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
             SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( giMode ) ) );
+
+            // The contact shadows (Common/ContactShadow.glslh): the march's view, and the sun's length.
+            SetJitteredViewProjection( contact.JitteredViewProjection );
+            SetContactShadowView( glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
+                                             static_cast<float>( contact.DitherFrame ), 0.0f ) );
+            SetSunContactShadow(
+                 glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f, 0.0f, 0.0f ) );
 
             UploadShadow( shadow );
             UploadCloudShadow( cloudShadow );
@@ -159,6 +179,9 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, Params,     "u_Params",     ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::mat4, JitteredViewProjection, "u_JitteredViewProjection", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::vec4, ContactShadowView, "u_ContactShadowView", ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::vec4, SunContactShadow, "u_SunContactShadow", ( glm::vec4( 0.0f ) ) )
 
     private:
     };

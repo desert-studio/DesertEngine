@@ -117,14 +117,14 @@ namespace Desert::Graphic::System
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
                            bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
-                           const DeferredEnvironmentInput& environment )
+                           const DeferredEnvironmentInput& environment, const DeferredContactShadowInput& contact )
         {
             if ( !m_Material )
                 return;
             ReportEnvironmentGap( environment );
             m_Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
                                     pointCount, spotCount, shadow, giIntensity, ssaoEnabled, giMode, cloudShadow,
-                                    environment );
+                                    environment, contact );
         }
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and

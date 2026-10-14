@@ -786,6 +786,9 @@ namespace Desert::Graphic
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+        m_ContactShadowSteps                 = quality.As<int>( Parameter::ShadowContactSteps );
+        m_SunContactShadowLength             = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
+        m_SunContactShadowLengthInWorldSpace = shadows.ContactShadowLengthInWorldSpace;
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
