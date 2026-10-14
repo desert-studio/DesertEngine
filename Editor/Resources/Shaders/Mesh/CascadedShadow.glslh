@@ -39,10 +39,14 @@
 //     Uniform(d) sampler2D u_ShadowMap3;
 //     Uniform(e) ShadowUB {
 //         mat4 u_LightViewProj[4];
-//         vec4 u_ShadowParams;      // x reserved (0), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+//         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
 //         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
 //         vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
+//         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
 //     };
+//
+// The maps are D32F DEPTH images (ViewTargetFormats::kShadowDepth), read raw — never through a comparison
+// sampler — by textureGather, which needs no linear-filter support of the depth format.
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
 // Graphic::SceneShadowBind, which is the single C++ writer of the block and of all four maps, and
@@ -55,13 +59,14 @@
 // 1/z curve for the float exponent to cancel, so reversing it buys exactly zero. See
 // Core/Projection.hpp.
 
-// Runtime cascade index can't index a sampler array here, so branch over the 4 named maps.
-float sampleShadowMap(int c, vec2 uv)
+// Runtime cascade index can't index a sampler array here, so branch over the 4 named maps. The 2x2 depths
+// around uv (gather order: (0,1) (1,1) (1,0) (0,0) of the footprint).
+vec4 gatherShadowMap(int c, vec2 uv)
 {
-	if (c == 0) return texture(u_ShadowMap0, uv).r;
-	if (c == 1) return texture(u_ShadowMap1, uv).r;
-	if (c == 2) return texture(u_ShadowMap2, uv).r;
-	return texture(u_ShadowMap3, uv).r;
+	if (c == 0) return textureGather(u_ShadowMap0, uv, 0);
+	if (c == 1) return textureGather(u_ShadowMap1, uv, 0);
+	if (c == 2) return textureGather(u_ShadowMap2, uv, 0);
+	return textureGather(u_ShadowMap3, uv, 0);
 }
 ivec2 shadowMapSize(int c)
 {
@@ -93,8 +98,48 @@ int chooseCascade(vec3 worldPos)
 	return -1;
 }
 
-// PCF-samples ONE cascade at worldPos. Returns 1 (lit) when outside the cascade so the caller's
-// blend/fallback can take over. Factored out of ShadowFactor so cascades can be cross-faded.
+// ------------------------------------------------------------------------------------------------
+// SOFT SHADOWS FROM THE SUN'S SIZE — PCSS (UE: ShadowFilteringCommon.ush / the directional PCSS of
+// ShadowProjectionPixelShader.usf). The sun is a disc of angular diameter SourceAngle, so a shadow edge is a
+// penumbra whose half-width grows by tan(SourceAngle / 2) per centimetre between the occluder and the receiver:
+// sharp where an awning meets the wall, soft where its shadow lands metres away. Two steps:
+//   1. blocker search - the mean depth of the occluders inside the widest kernel the receiver could need;
+//   2. filter         - percentage-closer filtering with the kernel that mean gives.
+// Both walk a Vogel disc (golden-angle spiral) turned per pixel by interleaved gradient noise, so the taps of
+// neighbouring pixels interleave and the temporal filter blends them, instead of one fixed pattern banding.
+// Each tap is a bilinear 2x2 comparison from one gather.
+
+// UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
+const float kMaxSoftKernelTexels = 40.0;
+const int   kBlockerSearchTaps   = 16;
+const int   kFilterTaps          = 32;
+const float kGoldenAngle         = 2.39996323;
+
+// Jimenez 2014, the noise UE's shadow filters turn their discs by.
+float shadowInterleavedGradientNoise(vec2 pixel)
+{
+	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
+// Tap i of n on the unit disc, the disc turned by phi.
+vec2 shadowVogelDisk(int i, int n, float phi)
+{
+	float r     = sqrt((float(i) + 0.5) / float(n));
+	float theta = float(i) * kGoldenAngle + phi;
+	return r * vec2(cos(theta), sin(theta));
+}
+
+// Bilinear percentage-closer comparison at uv: 1 lit, 0 shadowed. `depth` is the receiver's.
+float shadowCompare2x2(int c, vec2 uv, vec2 size, float depth)
+{
+	vec4 d   = gatherShadowMap(c, uv);
+	vec4 lit = step(vec4(depth), d); // depth <= occluder: lit
+	vec2 f   = fract(uv * size - 0.5);
+	return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
+}
+
+// Samples ONE cascade at worldPos. Returns 1 (lit) when outside the cascade so the caller's blend/fallback can
+// take over. Factored out of ShadowFactor so cascades can be cross-faded.
 float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 {
 	// Normal-offset bias scaled by the cascade's world-per-texel (a few texels along the normal,
@@ -112,22 +157,55 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
 		return 1.0;
 
-	// NO DEPTH BIAS HERE. The caster wrote its depth already pushed back by the light's bias in world
+	// NO CONSTANT DEPTH BIAS HERE. The caster wrote its depth already pushed back by the light's bias in world
 	// centimetres (Graphic::CascadeCasterBias: constant through the caster matrix, slope in
 	// Mesh/Surface/Pass_ShadowDepth.glslh), as UE does in ShadowDepthVertexShader.usf. A bias in this
 	// cascade's NDC depth was a world length of bias * 4R - 26 cm in cascade 0, 10 m in cascade 3.
 	float currentDepth = ndc.z;
 
-	// 3x3 PCF for soft edges.
-	float shadow = 0.0;
-	vec2 texel = 1.0 / vec2(shadowMapSize(c));
-	for (int y = -1; y <= 1; ++y)
-		for (int x = -1; x <= 1; ++x)
-		{
-			float closest = sampleShadowMap(c, uv + vec2(x, y) * texel);
-			shadow += (currentDepth > closest) ? 0.0 : 1.0;
-		}
-	return shadow / 9.0;
+	vec2  size       = vec2(shadowMapSize(c));
+	vec2  texel      = 1.0 / size;
+	float depthRange = max(u_CascadeDepthRange[c], 1e-3);   // world cm per unit of map depth
+	float tanHalf    = u_ShadowParams.x;                     // tan(sun source angle / 2)
+	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy);
+
+	// THE RECEIVER PLANE across the kernel. A tap `r` centimetres from the centre reads a map texel of the
+	// receiver's own plane that lies r * tan(theta) nearer the sun at most (theta: the receiver's angle to the
+	// sun); that much, in map depth, is forgiven per tap, or a wide kernel shadows the lit surface it sits on.
+	float tanTheta = min(sqrt(max(1.0 - NdotL * NdotL, 0.0)) / max(NdotL, 1e-3), 4.0);
+
+	// 1. BLOCKER SEARCH, as wide as the farthest possible occluder could make the penumbra - capped by the kernel.
+	float searchTexels = 1.0;
+	if (tanHalf > 0.0)
+		searchTexels = clamp(tanHalf * currentDepth * depthRange / texelWorld, 1.0, kMaxSoftKernelTexels);
+	float blockerSum   = 0.0;
+	float blockerCount = 0.0;
+	for (int i = 0; i < kBlockerSearchTaps; ++i)
+	{
+		vec2  offset = shadowVogelDisk(i, kBlockerSearchTaps, phi) * searchTexels;
+		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
+		vec4  d      = gatherShadowMap(c, uv + offset * texel);
+		vec4  isBlocker = step(d, vec4(currentDepth - slack - 1e-6));
+		blockerSum   += dot(d, isBlocker);
+		blockerCount += dot(isBlocker, vec4(1.0));
+	}
+	if (blockerCount < 0.5)
+		return 1.0;
+	float blockerDepth = blockerSum / blockerCount;
+
+	// 2. THE PENUMBRA from the occluder-receiver distance, in texels of this cascade. At least one texel: the
+	// bilinear 2x2 taps over a one-texel disc are the contact-hard edge the map can resolve.
+	float distanceWorld  = max(currentDepth - blockerDepth, 0.0) * depthRange;
+	float penumbraTexels = clamp(tanHalf * distanceWorld / texelWorld, 1.0, kMaxSoftKernelTexels);
+
+	float lit = 0.0;
+	for (int i = 0; i < kFilterTaps; ++i)
+	{
+		vec2  offset = shadowVogelDisk(i, kFilterTaps, phi) * penumbraTexels;
+		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
+		lit += shadowCompare2x2(c, uv + offset * texel, size, currentDepth - slack);
+	}
+	return lit / float(kFilterTaps);
 }
 
 // N = world-space surface normal, L = world-space direction TOWARD the sun (both normalized).

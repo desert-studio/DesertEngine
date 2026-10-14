@@ -37,7 +37,6 @@ Shader "TerrainShadow"
     Fragment
     {
         In(0) vec2 v_TileSample;
-        Out(0) vec4 o_Depth;
 
         // The row the vertex stage read, named by the pushed MaterialIndex. This program has no Properties
         // block, so nothing injects the transport into this stage: it is included here, as the vertex stage does.
@@ -77,8 +76,9 @@ Shader "TerrainShadow"
                 if ( LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) ) )
                     discard;
             }
-            // Same encoding as Shadow.shader: the R32F-in-RGBA32F target the receivers sample.
-            o_Depth = vec4( biased, 0.0, 0.0, 1.0 );
+            // Depth only, as every caster writes it (Mesh/Surface/Pass_ShadowDepth.glslh): the receivers sample the
+            // D32F attachment itself.
+            gl_FragDepth = biased;
         }
     }
 }

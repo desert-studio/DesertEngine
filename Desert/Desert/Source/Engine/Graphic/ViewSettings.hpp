@@ -19,6 +19,7 @@ namespace Desert::Graphic
         bool  Enabled            = true;
         CascadeBiasSettings Bias; // ECS::DirectionalLightData::ShadowBias / ShadowSlopeBias / ...Distribution
         float CascadeSplitLambda = 0.6f;
+        float SourceAngleDegrees = 0.5357f; // ECS::DirectionalLightData::SourceAngle: the penumbra (PCSS)
     };
 
     // EVERYTHING A VIEW IS GRADED AND SHADOWED WITH, RESOLVED IN ONE PLACE — UE's FFinalPostProcessSettings.

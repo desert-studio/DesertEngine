@@ -28,11 +28,11 @@ namespace Desert::Graphic
     //
     // It exists because the three numbers are one decision and were three constants. A viewport of a
     // level wants 4 cascades at 2048 over 150 m; a 512-px asset preview showing one object on a floor
-    // wants none of that, and paying for it is not a nicety: four 2048 RGBA32F colour attachments plus
-    // their D24S8 depth is 320 MiB PER RENDERER (ShadowAttachmentBytes below is the one place that
-    // arithmetic lives), and this editor allows six live renderers at once. That is why the preview scene
-    // had shadows switched off outright (a floor with no shadow under the ball), and switching them back
-    // on as they stood would have been nearly 2 GiB of attachments for six open windows.
+    // wants none of that, and paying for it is not a nicety: four 2048 cascades of two D32F depth images
+    // each is 128 MiB PER RENDERER (ShadowAttachmentBytes below is the one place that arithmetic lives), and this
+    // editor allows six live renderers at once. That is why the preview scene had shadows switched off outright (a
+    // floor with no shadow under the ball), and switching them back on as they stood would have been nearly 2 GiB
+    // of attachments for six open windows.
     //
     // THE THREE MOVE TOGETHER OR THE RESULT IS A BLOB. Dropping to one cascade while keeping 150 m makes
     // the single map cover the whole distance, so a 1 m object's shadow lands in about seven texels of
@@ -78,17 +78,22 @@ namespace Desert::Graphic
     // of zero is a number the next reader has to work out is dead.
     inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f };
 
-    // WHAT A BUDGET COSTS IN ATTACHMENT MEMORY. Derived from the two formats MeshRenderer::SetupShadowPass
-    // actually pushes (ViewTargetFormats::kShadowColor + kShadowDepth, one of each per cascade) because
+    // HOW MANY DEPTH IMAGES ONE CASCADE HOLDS: the map the receivers sample, and the cache of its STATIC casters
+    // (UE: the cached shadow map of a directional light's cascades, r.Shadow.CSMCaching). The cache is drawn only
+    // when the cascade's matrix or one of its static casters changed; every frame the map is the cache copied,
+    // with the movable casters (skinned meshes, swaying foliage, the terrain) drawn over it.
+    inline constexpr uint32_t kShadowImagesPerCascade = 2;
+
+    // WHAT A BUDGET COSTS IN ATTACHMENT MEMORY. Derived from the format MeshRenderer::SetupShadowPass
+    // actually pushes (ViewTargetFormats::kShadowDepth, kShadowImagesPerCascade per cascade) because
     // this figure had two independent spellings (the renderer's log line and the test's own lambda) and a
     // third would have been written the next time somebody wanted it. Asked of CalculateImageSize, not
     // of a bytes-per-texel product, so the figure stays right whatever format either constant names.
     [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality )
     {
         const uint32_t side = quality.ShadowMapSize;
-        return static_cast<uint64_t>( quality.CascadeCount ) *
-               ( Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowColor ) +
-                 Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth ) );
+        return static_cast<uint64_t>( quality.CascadeCount ) * kShadowImagesPerCascade *
+               Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth );
     }
 
     // THE LIVE TOTAL ACROSS EVERY RENDERER, because the per-renderer figure alone does not say how many

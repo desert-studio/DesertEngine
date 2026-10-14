@@ -601,6 +601,7 @@ namespace
          { "ShadowSlopeBias", kViewSettings },
          { "ShadowCascadeBiasDistribution", kViewSettings },
          { "CascadeSplitLambda", kViewSettings },
+         { "SourceAngle", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {

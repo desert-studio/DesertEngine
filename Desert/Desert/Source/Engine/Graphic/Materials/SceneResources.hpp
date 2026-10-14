@@ -39,9 +39,10 @@ namespace Desert::Graphic::SceneResources
     struct ShadowUBData
     {
         glm::mat4 LightViewProj[kMaxCascades];
-        glm::vec4 Params;            // x = bias, y = enabled, z = debug mode, w = cascade count
+        glm::vec4 Params; // x = tan(sun source angle / 2), y = enabled, z = debug mode, w = cascade count
         glm::vec4 DebugParams;       // x = show normals, y = lighting debug
         glm::vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel
+        glm::vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (the PCSS penumbra)
     };
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";

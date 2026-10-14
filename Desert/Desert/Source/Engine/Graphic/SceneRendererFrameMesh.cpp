@@ -120,12 +120,31 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
     {
-        // One depth-only node per cascade, cascade 0 first, each clearing its own cascade target (to 1: standard
-        // Z). NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // The sun's cascades (MeshRenderer::ShadowCascadePasses): the static layers that went stale, each clearing
+        // its cache (to 1: standard Z); each rebuilt map copied from its cache; the movable casters LOADING the
+        // map over the copy. A cascade with none of the three keeps last frame's map.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
-            const std::vector<SystemRasterPass> cascades = mesh->ShadowCascadePasses();
-            AddSystemRasters( graph, textures, cascades, true );
+            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses();
+            AddSystemRasters( graph, textures, cascades.StaticPasses, true );
+            for ( const auto& copy : cascades.Copies )
+            {
+                const RDG::TextureRef from = textures.Import( copy.From, copy.Name + ".Cache" );
+                const RDG::TextureRef to   = textures.Import( copy.To, copy.Name + ".Map" );
+                if ( !from.IsValid() || !to.IsValid() )
+                    continue;
+                graph.AddPass(
+                     copy.Name, RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( from, RDG::Access::CopySrc );
+                         pass.Write( to, RDG::Access::CopyDst );
+                     },
+                     [source = copy.From, target = copy.To]( RDG::PassContext& ) -> Common::BoolResultStr
+                     { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); } );
+            }
+            AddSystemRasters( graph, textures, cascades.MovablePasses, false );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
             const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();

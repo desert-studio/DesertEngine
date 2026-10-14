@@ -68,6 +68,8 @@ namespace Desert::Graphic
         // by hand behaves as every snapshot did before the budget existed.
         uint32_t  CascadeCount = SceneResources::kMaxCascades;
         glm::vec4 CascadeTexelWorld{ 0.0f };
+        glm::vec4 CascadeDepthRange{ 1.0f }; // MeshRenderer::GetCascadeDepthRange
+        float     SunSourceTanHalf = 0.0f;   // MeshRenderer::GetSunSourceTanHalf
         bool      ShadowsEnabled  = true;
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;

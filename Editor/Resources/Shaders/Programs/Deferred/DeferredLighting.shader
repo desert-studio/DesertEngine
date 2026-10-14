@@ -186,9 +186,10 @@ Shader "DeferredLighting"
         Uniform(15) sampler2D u_ShadowMap3;
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
-        	vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+        	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
         	vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
         	vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
+        	vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
         };
 
         #include <Mesh/CascadedShadow.glslh>

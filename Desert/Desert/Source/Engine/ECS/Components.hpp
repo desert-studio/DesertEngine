@@ -944,6 +944,16 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
         bool CastShadows = true;
 
+        // THE SUN'S ANGULAR DIAMETER (UE: UDirectionalLightComponent::LightSourceAngle, the same default). It is
+        // what makes a shadow soft: the penumbra grows by tan(angle / 2) per centimetre between the occluder and
+        // the receiver, so a shadow is contact-sharp where the caster meets the ground and widens with distance
+        // (the cascades' PCSS, Mesh/CascadedShadow.glslh).
+        PROPERTY( DisplayName( "Source Angle" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 10.0f ),
+                  Units( "deg" ),
+                  Tooltip( "Angular diameter of the sun in degrees. Larger = softer shadows away from their "
+                           "casters; 0 = hard shadows everywhere." ) )
+        float SourceAngle = 0.5357f;
+
         // THE CASTER'S DEPTH BIAS, IN WORLD CENTIMETRES (UE: ULightComponent::ShadowBias / ShadowSlopeBias,
         // UDirectionalLightComponent::ShadowCascadeBiasDistribution). Applied where the caster writes its
         // depth (MeshRenderer::FitShadowCascades -> the caster matrix and CameraUB.ShadowSlopeBias), never

@@ -400,6 +400,8 @@ namespace Desert::Graphic
             shadow.Count                = meshRenderer->GetValidCascadeCount();
             shadow.Enabled              = meshRenderer->AreShadowsEnabled();
             shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
+            shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
+            shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
         }
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;

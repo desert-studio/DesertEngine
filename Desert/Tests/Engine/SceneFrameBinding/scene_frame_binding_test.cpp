@@ -412,8 +412,8 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 3 x vec4. Spelt out so a silently added member is visible as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 3u * 16u;
+    // 4 x mat4 + 4 x vec4. Spelt out so a silently added member is visible as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 4u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )
@@ -544,7 +544,7 @@ namespace
 void main() { gl_Position = vec4( 0.0 ); }
 )";
     constexpr const char* kMockFragment = R"(#version 450
-layout( set = 0, binding = 2 ) uniform ShadowUB { mat4 LightViewProj[4]; vec4 Params; vec4 DebugParams; vec4 CascadeTexelWorld; };
+layout( set = 0, binding = 2 ) uniform ShadowUB { mat4 LightViewProj[4]; vec4 Params; vec4 DebugParams; vec4 CascadeTexelWorld; vec4 CascadeDepthRange; };
 layout( set = 0, binding = 3 ) uniform sampler2D u_ShadowMap0;
 layout( set = 0, binding = 4 ) uniform sampler2D u_ShadowMap1;
 layout( set = 0, binding = 5 ) uniform sampler2D u_ShadowMap2;

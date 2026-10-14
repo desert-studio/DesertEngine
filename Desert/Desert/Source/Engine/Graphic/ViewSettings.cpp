@@ -147,6 +147,7 @@ namespace Desert::Graphic
                                                        .SlopeBiasCm  = light.ShadowSlopeBias,
                                                        .Distribution = light.ShadowCascadeBiasDistribution };
             result.Shadows.CascadeSplitLambda      = light.CascadeSplitLambda;
+            result.Shadows.SourceAngleDegrees      = light.SourceAngle;
         }
 
         return result;

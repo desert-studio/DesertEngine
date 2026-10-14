@@ -1,4 +1,5 @@
-// Surface cell pass: shadow depth, the R32F target Programs/Shadow/Shadow*.shader write. An opaque template's
+// Surface cell pass: shadow depth, DEPTH ONLY (ViewTargetFormats::kShadowDepth, D32F; no colour target — UE's
+// ShadowDepthPixelShader.usf writes depth and nothing else). The receivers sample the depth attachment itself. An opaque template's
 // cell reads no varyings and evaluates no surface — its layout is Shadow*'s; a Masked one evaluates the surface
 // only for its clip, so it carries the surface's bindings and the varyings.
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -6,8 +7,6 @@ DESERT_SURFACE_VARYINGS( in )
 #endif
 
 #include <Common/CameraUB.glslh>
-
-layout( location = 0 ) out vec4 o_Depth;
 
 void main()
 {
@@ -25,5 +24,6 @@ void main()
                               v_Surface.VertexColor, gl_FrontFacing ) );
     DESERT_SURFACE_CLIP( s );
 #endif
-    o_Depth = vec4( biased, 0.0, 0.0, 1.0 );
+    // The biased depth IS the depth tested and stored: the map the receivers read is this attachment.
+    gl_FragDepth = biased;
 }

@@ -80,7 +80,10 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
                                                                                    std::nullopt, kRSMEmissive };
 
-    // MeshRenderer::SetupShadowPass, one of each per cascade.
-    inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;
-    inline constexpr ImageFormat kShadowDepth = ImageFormat::DEPTH24STENCIL8;
+    // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
+    // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,
+    // MeshRenderer::SetupShadowPass) and the local lights' atlas (MeshRenderer::UpdateLocalShadows). It used to be
+    // an R32F colour copy of the depth next to a D24S8 attachment: twice the bandwidth for the same number, and a
+    // 24-bit depth test under a 32-bit sampled value. The receivers read this image itself.
+    inline constexpr ImageFormat kShadowDepth = ImageFormat::DEPTH32F;
 } // namespace Desert::Graphic::ViewTargetFormats

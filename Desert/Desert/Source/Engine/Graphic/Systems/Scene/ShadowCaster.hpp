@@ -41,6 +41,11 @@ namespace Desert::Graphic::System
     public:
         virtual ~IShadowCaster() = default;
 
+        // Whether this caster has anything to draw into the cascades this frame (asked before the graph is built,
+        // after the frame's draws were submitted). A non-mesh caster is drawn in the cascades' MOVABLE layer,
+        // every frame it casts, so a caster that casts nothing must say so or no cascade could ever stay cached.
+        [[nodiscard]] virtual bool CastsShadowThisFrame() const = 0;
+
         // SETUP: declares on the cascade node one binding block per material this caster draws the cascade with
         // (the shader's reflected layout and the material's route fill), so ValidatePassBindings judges the
         // caster before anything is recorded. The blocks follow the ones already declared on the node; returns
