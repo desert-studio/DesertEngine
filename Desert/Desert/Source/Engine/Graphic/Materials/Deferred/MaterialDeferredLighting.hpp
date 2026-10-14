@@ -122,7 +122,7 @@ namespace Desert::Graphic
             FlushFieldFilledUniformBuffers();
         }
 
-        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowMap0..3 are graph textures, bound by
+        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowCascades are a graph texture, bound by
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {

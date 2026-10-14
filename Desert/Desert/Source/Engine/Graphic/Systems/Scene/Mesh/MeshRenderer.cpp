@@ -417,9 +417,7 @@ namespace Desert::Graphic::System
         // UpdateCascades. The two differ whenever the fit does not run or degenerates (no sun in the
         // scene, most commonly), and publishing the allocation then sends the shader through matrices no
         // frame ever wrote.
-        frame.CascadeCount = GetValidCascadeCount();
-        for ( uint32_t c = 0; c < frame.CascadeCount; ++c )
-            frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetDepthAttachmentImage().get() : nullptr;
+        frame.CascadeCount      = GetValidCascadeCount();
         frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
         frame.CascadeDepthRange = m_CascadeDepthRange;
         frame.SunSourceTanHalf  = GetSunSourceTanHalf();

@@ -432,8 +432,9 @@ namespace Desert::Graphic
             return m_DirectionLights;
         }
 
-        // CSM debug: the per-cascade shadow depth maps (for the editor's cascade viewer).
-        std::shared_ptr<Image2D> GetShadowCascadeImage( uint32_t cascade );
+        // CSM debug: a cascade's static-caster cache (MeshRenderer::GetCascadeCacheImage), for the editor's
+        // cascade viewer; the sampled maps are layers of one graph array, which ImGui does not show.
+        std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade );
         uint32_t                 GetShadowCascadeCount();
 
         const std::shared_ptr<Image2D>      GetFinalImage();
@@ -768,7 +769,7 @@ namespace Desert::Graphic
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
-        void ImportSceneViewTextures( FrameTextures& textures );
+        void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );

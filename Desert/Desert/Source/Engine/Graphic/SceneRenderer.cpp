@@ -1106,7 +1106,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
-        ImportSceneViewTextures( textures );
+        ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
@@ -1777,10 +1777,10 @@ namespace Desert::Graphic
         return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeImage( uint32_t cascade )
+    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->GetCascadeShadowImage( cascade );
+             ->GetCascadeCacheImage( cascade );
     }
 
     uint32_t SceneRenderer::GetShadowCascadeCount()

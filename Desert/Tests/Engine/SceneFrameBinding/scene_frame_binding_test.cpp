@@ -212,8 +212,7 @@ namespace
              // The look the two environment cubes are read with; SceneEnvironmentBind writes it with them.
              Desert::Graphic::kSkyLookBlockName,
         };
-        for ( const char* shadowMap : SceneResources::kShadowMapNames )
-            names.emplace_back( shadowMap );
+        names.emplace_back( SceneResources::kShadowMapName );
         return names;
     }
 
@@ -479,8 +478,7 @@ namespace
     std::vector<std::string> CascadeBindingNames()
     {
         std::vector<std::string> names{ SceneResources::kShadowBlockName };
-        for ( const char* shadowMap : SceneResources::kShadowMapNames )
-            names.emplace_back( shadowMap );
+        names.emplace_back( SceneResources::kShadowMapName );
         return names;
     }
 } // namespace
@@ -545,18 +543,14 @@ void main() { gl_Position = vec4( 0.0 ); }
 )";
     constexpr const char* kMockFragment = R"(#version 450
 layout( set = 0, binding = 2 ) uniform ShadowUB { mat4 LightViewProj[4]; vec4 Params; vec4 DebugParams; vec4 CascadeTexelWorld; vec4 CascadeDepthRange; };
-layout( set = 0, binding = 3 ) uniform sampler2D u_ShadowMap0;
-layout( set = 0, binding = 4 ) uniform sampler2D u_ShadowMap1;
-layout( set = 0, binding = 5 ) uniform sampler2D u_ShadowMap2;
-layout( set = 0, binding = 6 ) uniform sampler2D u_ShadowMap3;
+layout( set = 0, binding = 3 ) uniform sampler2DArray u_ShadowCascades;
 layout( set = 0, binding = 7 ) uniform samplerCube u_EnvIrradianceTex;
 layout( set = 0, binding = 8 ) uniform samplerCube u_EnvSpecularTex;
 layout( set = 0, binding = 9 ) uniform sampler2D u_BRDFLUTTexture;
 layout( location = 0 ) out vec4 o_Color;
 void main()
 {
-    o_Color = Params + texture( u_ShadowMap0, vec2( 0.5 ) ) + texture( u_ShadowMap1, vec2( 0.5 ) ) +
-              texture( u_ShadowMap2, vec2( 0.5 ) ) + texture( u_ShadowMap3, vec2( 0.5 ) ) +
+    o_Color = Params + texture( u_ShadowCascades, vec3( 0.5, 0.5, 0.0 ) ) +
               texture( u_EnvIrradianceTex, vec3( 0.0, 1.0, 0.0 ) ) + texture( u_EnvSpecularTex, vec3( 0.0, 1.0, 0.0 ) ) +
               texture( u_BRDFLUTTexture, vec2( 0.5 ) );
 }
@@ -583,7 +577,7 @@ TEST( SceneFrameCapability, ANonStandardTemplateReadingShadowAndIBLIsHandedThem 
     const SceneRead groups = SceneFrameBinding::Groups( cell.Layout );
 
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Shadow ) )
-         << "a template sampling u_ShadowMap* and declaring ShadowUB was not handed the cascades";
+         << "a template sampling u_ShadowCascades and declaring ShadowUB was not handed the cascades";
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Environment ) )
          << "a template sampling the IBL cubes and the BRDF LUT was not handed the environment";
     EXPECT_EQ( groups, SceneRead::Shadow | SceneRead::Environment )
@@ -656,8 +650,8 @@ TEST_F( SceneFrameBindingShaderRoot, MaterialTexturesAreThePropertiesTexturesAnd
     const auto standard = MaterialTextureNames( "Surface/StandardSurface.shader" );
     for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
         EXPECT_TRUE( Has( standard, own ) ) << own;
-    for ( const char* pass :
-          { "u_ShadowMap0", "u_EnvSpecularTex", "u_EnvIrradianceTex", "u_BRDFLUTTexture", "u_CloudShadowMap" } )
+    for ( const char* pass : { "u_ShadowCascades", "u_EnvSpecularTex", "u_EnvIrradianceTex", "u_BRDFLUTTexture",
+                               "u_CloudShadowMap" } )
         EXPECT_FALSE( Has( standard, pass ) ) << pass << " is a pass parameter";
 
     for ( const char* terrain :

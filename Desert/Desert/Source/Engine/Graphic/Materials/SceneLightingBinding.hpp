@@ -130,8 +130,8 @@ namespace Desert::Graphic
     }
 
     /// The cascaded directional shadow maps (D32F light-space depth) and their per-cascade light
-    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3. No depth
-    /// bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
+    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus the u_ShadowCascades array. No
+    /// depth bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
     /// tan(SourceAngle / 2) and CascadeDepthRange each cascade's depth span: the soft shadow's penumbra
     /// (Mesh/CascadedShadow.glslh).
     inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,

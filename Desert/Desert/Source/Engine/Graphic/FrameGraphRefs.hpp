@@ -23,8 +23,8 @@ namespace Desert::Graphic
     // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
     // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
     // The struct is rebuilt with every graph and dies with it.
-    // The shadow cascades a lit pass samples (u_ShadowMap0..3); SceneResources::kMaxCascades is asserted equal
-    // where both are visible (MeshRendererInternal.hpp).
+    // The most shadow cascades a lit pass samples (the layers of u_ShadowCascades); SceneResources::kMaxCascades
+    // is asserted equal where both are visible (MeshRendererInternal.hpp).
     inline constexpr uint32_t kSceneViewShadowCascades = 4;
 
     struct FrameTransients
@@ -49,10 +49,12 @@ namespace Desert::Graphic
         RDG::TextureRef Velocity;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
-        // node is added: cascade c (MeshRenderer's CSM map, invalid past the valid count), the scene environment's
+        // node is added: the sun's cascade array (MeshRenderer::AcquireCascadeMaps, layer c = cascade c; a cleared
+        // one-layer array when the view has no cascades - the shader's sampler2DArray takes no 2D stand-in), the
+        // scene environment's
         // two cubes (invalid when the scene has no baked sky) and the renderer's split-sum BRDF LUT. Never read
         // directly: a pass takes SceneViewInputsOf, which states the neutral texture for each one that is absent.
-        std::array<RDG::TextureRef, kSceneViewShadowCascades> ShadowCascades;
+        RDG::TextureRef ShadowCascades;
         // The view's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: the renderer owns
         // it and keeps cached tiles in it across frames). Invalid while no light of the view has cast a shadow.
         RDG::TextureRef                                       LocalShadowAtlas;
@@ -97,7 +99,7 @@ namespace Desert::Graphic
     // deferred composite take this ONE value, declare its reads (Refs) and bind it (BindSceneViewInputs).
     struct SceneViewInputs
     {
-        std::array<RDG::TextureRef, kSceneViewShadowCascades> ShadowMaps;    // cascade c, or System.White
+        RDG::TextureRef ShadowCascades; // the cascade array (always one: ImportSceneViewTextures)
         RDG::TextureRef                                       EnvIrradiance; // diffuse cube, or System.BlackCube
         RDG::TextureRef                                       EnvSpecular; // prefiltered cube, or System.BlackCube
         RDG::TextureRef                                       BrdfLut;     // split-sum LUT, or System.Black
@@ -119,8 +121,7 @@ namespace Desert::Graphic
                 if ( ref.IsValid() && std::find( refs.begin(), refs.end(), ref ) == refs.end() )
                     refs.push_back( ref );
             };
-            for ( const RDG::TextureRef map : ShadowMaps )
-                add( map );
+            add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes,
                     LocalShadowAtlas } )
@@ -131,8 +132,7 @@ namespace Desert::Graphic
 
     // The shader names the inputs are bound under (Mesh/CascadedShadow.glslh, Mesh/AmbientIBL.glslh, the cloud
     // shadow receiver).
-    inline constexpr std::array<std::string_view, kSceneViewShadowCascades> kSceneViewShadowMapNames = {
-         "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2", "u_ShadowMap3" };
+    inline constexpr std::string_view kSceneViewShadowCascadesName   = "u_ShadowCascades";
     inline constexpr std::string_view kSceneViewEnvIrradianceName  = "u_EnvIrradianceTex";
     inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
@@ -145,8 +145,7 @@ namespace Desert::Graphic
     {
         const FrameTransients& t = refs.Transients;
         SceneViewInputs        inputs;
-        for ( uint32_t c = 0; c < kSceneViewShadowCascades; ++c )
-            inputs.ShadowMaps[c] = t.ShadowCascades[c].IsValid() ? t.ShadowCascades[c] : refs.System.White;
+        inputs.ShadowCascades         = t.ShadowCascades;
         inputs.EnvIrradiance  = t.EnvIrradiance.IsValid() ? t.EnvIrradiance : refs.System.BlackCube;
         inputs.EnvSpecular    = t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube;
         inputs.BrdfLut        = t.BrdfLut.IsValid() ? t.BrdfLut : refs.System.Black;
@@ -192,8 +191,8 @@ namespace Desert::Graphic
                     block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                    sampler );
             };
-            for ( uint32_t c = 0; c < kSceneViewShadowCascades; ++c )
-                bind( kSceneViewShadowMapNames[c], inputs.ShadowMaps[c], RDG::SamplerDesc::LinearRepeat() );
+            if ( inputs.ShadowCascades.IsValid() )
+                bind( kSceneViewShadowCascadesName, inputs.ShadowCascades, RDG::SamplerDesc::LinearRepeat() );
             bind( kSceneViewEnvIrradianceName, inputs.EnvIrradiance, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLutName, inputs.BrdfLut, RDG::SamplerDesc::LinearClamp() );
@@ -208,12 +207,9 @@ namespace Desert::Graphic
         template <typename Samples>
         [[nodiscard]] bool SamplesAny( const Samples& samples )
         {
-            for ( const std::string_view name : kSceneViewShadowMapNames )
-                if ( samples( name ) )
-                    return true;
-            return samples( kSceneViewEnvIrradianceName ) || samples( kSceneViewEnvSpecularName ) ||
-                   samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName ) ||
-                   samples( kSceneViewLocalShadowAtlasName );
+            return samples( kSceneViewShadowCascadesName ) || samples( kSceneViewEnvIrradianceName ) ||
+                   samples( kSceneViewEnvSpecularName ) || samples( kSceneViewBrdfLutName ) ||
+                   samples( kSceneViewCloudShadowMapName ) || samples( kSceneViewLocalShadowAtlasName );
         }
     } // namespace SceneViewDetail
 
@@ -236,7 +232,7 @@ namespace Desert::Graphic
     // SETUP: declares on @p block (RenderPassDeclaration::BlockDeclaration or RDG::BindingBlockBuilder) every
     // input
     // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
-    // block would fault the pass in ValidatePassBindings ("'u_ShadowMap0' is not a resource of shader ...").
+    // block would fault the pass in ValidatePassBindings ("'u_ShadowCascades' is not a resource of shader ...").
     // A block entry IS the read: the node does not also declare inputs.Refs().
     template <typename Block>
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )

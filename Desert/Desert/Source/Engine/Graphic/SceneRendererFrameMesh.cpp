@@ -95,7 +95,7 @@ namespace Desert::Graphic
         for ( const SystemRasterPass& pass : passes )
         {
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
-            if ( !pass.TargetFramebuffer || !pass.ExecuteFunc )
+            if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
                 continue;
             const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
             const bool                          clears = clearFirst && target != previous;
@@ -126,23 +126,24 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
-            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses();
+            // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
+            const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
+            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses( maps );
             AddSystemRasters( graph, textures, cascades.StaticPasses, true );
             for ( const auto& copy : cascades.Copies )
             {
                 const RDG::TextureRef from = textures.Import( copy.From, copy.Name + ".Cache" );
-                const RDG::TextureRef to   = textures.Import( copy.To, copy.Name + ".Map" );
-                if ( !from.IsValid() || !to.IsValid() )
+                if ( !from.IsValid() )
                     continue;
                 graph.AddPass(
                      copy.Name, RDG::PassFlags::Copy,
                      [&]( RDG::PassBuilder& pass )
                      {
                          pass.Read( from, RDG::Access::CopySrc );
-                         pass.Write( to, RDG::Access::CopyDst );
+                         pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( copy.Layer ) );
                      },
-                     [source = copy.From, target = copy.To]( RDG::PassContext& ) -> Common::BoolResultStr
-                     { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); } );
+                     [from, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphDepthToLayer( context, from, maps, layer ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
@@ -256,7 +257,16 @@ namespace Desert::Graphic
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
                                      const OverlayTargets& overlay )
     {
-        auto targets = TargetsOf( textures, target, debugName, pass.Name );
+        // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
+        const bool                   layered = pass.TargetDepthArray.IsValid();
+        std::optional<RasterTargets> targets;
+        if ( layered )
+        {
+            targets.emplace();
+            targets->Depth = pass.TargetDepthArray;
+        }
+        else
+            targets = TargetsOf( textures, target, debugName, pass.Name );
         if ( !targets )
             return;
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
@@ -293,7 +303,8 @@ namespace Desert::Graphic
                  for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
                      node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
                  if ( targets->Depth.IsValid() )
-                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly );
+                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly,
+                                       layered ? pass.TargetLayer : RDG::kAllRemaining );
                  DeclareResolves( node, targets->Resolves );
              },
              [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](

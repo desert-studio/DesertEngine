@@ -61,11 +61,10 @@ namespace Desert::Graphic
         const ShaderProtocols::DirectionLight* DirectionLights = nullptr;
 
         const glm::mat4* CascadeViewProj = nullptr; // SceneResources::kMaxCascades entries
-        Image2D*         CascadeMaps[SceneResources::kMaxCascades] = {};
-        // How many of the two above are REAL. The producing renderer's own shadow budget
-        // (Graphic::ShadowQuality), not the ceiling: an asset preview allocates one cascade, and the
-        // shader's cascade loop is driven by this number. It defaults to the ceiling so a snapshot built
-        // by hand behaves as every snapshot did before the budget existed.
+        // How many of the matrices above are REAL (the cascade array's layers are bound through the graph). The
+        // producing renderer's own shadow budget (Graphic::ShadowQuality), not the ceiling: an asset preview
+        // allocates one cascade, and the shader's cascade loop is driven by this number. It defaults to the
+        // ceiling so a snapshot built by hand behaves as every snapshot did before the budget existed.
         uint32_t  CascadeCount = SceneResources::kMaxCascades;
         glm::vec4 CascadeTexelWorld{ 0.0f };
         glm::vec4 CascadeDepthRange{ 1.0f }; // MeshRenderer::GetCascadeDepthRange

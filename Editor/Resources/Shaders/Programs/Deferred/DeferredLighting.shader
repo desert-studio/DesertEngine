@@ -192,13 +192,10 @@ Shader "DeferredLighting"
         	return indirect / float(SAMPLES);
         }
 
-        // The cascaded shadow's five bindings, at slots free in THIS layout. The text that reads them is
+        // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
-        Uniform(5) sampler2D u_ShadowMap0;
-        Uniform(13) sampler2D u_ShadowMap1;
-        Uniform(14) sampler2D u_ShadowMap2;
-        Uniform(15) sampler2D u_ShadowMap3;
+        Uniform(5) sampler2DArray u_ShadowCascades; // one layer per cascade
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
         	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count

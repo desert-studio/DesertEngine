@@ -28,6 +28,8 @@ namespace Desert::Graphic
         class Builder;
         class IPhysicalTexture;
         class PassBindings;
+        class PassContext;
+        struct TextureRef;
         struct ExternalTexture;
         struct ExternalBuffer;
     } // namespace RDG
@@ -144,6 +146,10 @@ namespace Desert::Graphic
         // Copy the depth aspect of @p src into @p dst (Deferred: G-buffer depth -> scene target depth so
         // depth-tested overlays occlude against static geometry). Call outside a render pass.
         static Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst );
+        // RendererAPI::CopyGraphDepthToLayer: a graph depth into one layer of a graph depth array.
+        static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                            RDG::TextureRef source, RDG::TextureRef target,
+                                                            uint32_t targetLayer );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );

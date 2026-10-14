@@ -131,7 +131,6 @@ namespace Desert::Graphic::System
         Renderer::GetInstance().WaitDeviceIdle();
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
         {
-            m_CascadeFB[i].reset();
             m_CascadeStaticFB[i].reset();
             m_CascadeCache[i] = CascadeCacheState{};
         }
@@ -143,6 +142,9 @@ namespace Desert::Graphic::System
         }
         // The local lights' atlas is sized by the same budget (LocalShadowAtlasSize): it is made again, at the
         // new size, by the first light that casts after this, and every light's tiles and cache go with it.
+        // The array is made again at the new size by the next frame (AcquireCascadeMaps); the device is idle.
+        m_CascadeMaps      = RDG::ExternalTexture{};
+        m_CascadeMapsBuilt = false;
         m_LocalAtlasFB.reset();
         m_LocalAtlas.Reset( 0 );
         m_LocalLights.clear();
@@ -194,11 +196,6 @@ namespace Desert::Graphic::System
         const auto allocStart = std::chrono::steady_clock::now();
         for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
         {
-            FramebufferSpecification shadowSpec;
-            shadowSpec.DebugName = std::format( "ShadowCascade{}", i );
-            shadowSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
-            m_CascadeFB[i] = Graphic::Framebuffer::Create( shadowSpec );
-            m_CascadeFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
             FramebufferSpecification cacheSpec;
             cacheSpec.DebugName = std::format( "ShadowCascade{}.StaticCache", i );
             cacheSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
@@ -235,7 +232,7 @@ namespace Desert::Graphic::System
         spec.Shader   = m_ShadowShader;
         // All cascade framebuffers share the same attachment formats, so one pipeline is render-pass
         // compatible with all of them.
-        spec.Framebuffer = m_CascadeFB[0];
+        spec.Framebuffer = m_CascadeStaticFB[0];
 
         const auto shadow = GraphicsPipeline::Create( spec );
         if ( !shadow )
@@ -468,7 +465,7 @@ namespace Desert::Graphic::System
         for ( uint32_t c = 0; c < count; ++c )
         {
             CascadeCacheState& state = m_CascadeCache[c];
-            if ( !m_CascadeFB[c] || !m_CascadeStaticFB[c] )
+            if ( !m_CascadeStaticFB[c] )
                 continue;
             bool          movable = castersMove;
             SignatureHash key;
@@ -1107,7 +1104,35 @@ namespace Desert::Graphic::System
                         } } );
         }
     }
-    MeshRenderer::ShadowCascadeFrame MeshRenderer::ShadowCascadePasses()
+    RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
+    {
+        if ( m_Shadow.CascadeCount == 0 || !m_CascadeStaticFB[0] )
+            return {};
+        if ( m_CascadeMapsBuilt )
+            return graph.RegisterExternal( m_CascadeMaps, "CSM.Cascades" );
+
+        const RDG::TextureRef created = graph.CreateTexture(
+             RDG::TextureDesc{ .Size   = { .Width = m_Shadow.ShadowMapSize, .Height = m_Shadow.ShadowMapSize },
+                               .Format = ViewTargetFormats::kShadowDepth,
+                               .Layers = m_Shadow.CascadeCount,
+                               .Dim    = RDG::TextureDim::Tex2DArray },
+             "CSM.Cascades" );
+        graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics );
+        m_CascadeMapsBuilt = true;
+        // A fresh array holds nothing: every cascade fitted this frame is rebuilt into it (its cache copied, its
+        // movable casters drawn), and one not fitted now redraws its cache the frame it is.
+        const uint32_t fitted = GetValidCascadeCount();
+        for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+        {
+            if ( c < fitted )
+                m_CascadeCache[c].Rebuild = true;
+            else
+                m_CascadeCache[c].StaticKey.reset();
+        }
+        return created;
+    }
+
+    MeshRenderer::ShadowCascadeFrame MeshRenderer::ShadowCascadePasses( const RDG::TextureRef maps )
     {
         // Same guard as the geometry pass: the cascade pass reads m_ShadowPipeline's spec, and
         // SetupShadowPass can now refuse. No caster pipeline means no cascade passes and an unshadowed
@@ -1122,7 +1147,7 @@ namespace Desert::Graphic::System
         for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
         {
             const CascadeCacheState& state = m_CascadeCache[c];
-            if ( !m_CascadeFB[c] || !m_CascadeStaticFB[c] || !state.Rebuild )
+            if ( !maps.IsValid() || !m_CascadeStaticFB[c] || !state.Rebuild )
                 continue;
 
             if ( state.RedrawStatic )
@@ -1145,9 +1170,9 @@ namespace Desert::Graphic::System
                 frame.StaticPasses.push_back( std::move( pass ) );
             }
 
-            frame.Copies.push_back( { .From = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
-                                      .To   = m_CascadeFB[c]->GetDepthAttachmentImage(),
-                                      .Name = std::format( "MeshShadowCascade{}.FromCache", c ) } );
+            frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+                                      .Layer = c,
+                                      .Name  = std::format( "MeshShadowCascade{}.FromCache", c ) } );
 
             if ( !state.Movable )
                 continue;
@@ -1179,7 +1204,8 @@ namespace Desert::Graphic::System
                      }
                      return BOOLSUCCESS;
                  },
-                 .TargetFramebuffer = m_CascadeFB[c] };
+                 .TargetDepthArray = maps,
+                 .TargetLayer      = c };
             pass.Declare = [this, c, view]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 m_CascadeMovableDraws[c].Clear();

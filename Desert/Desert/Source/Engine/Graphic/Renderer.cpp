@@ -5,6 +5,7 @@
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -240,6 +241,14 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::CopyDepthImage( Image2D* src, Image2D* dst )
     {
         return s_RendererAPI->CopyDepthImage( src, dst );
+    }
+
+    Common::BoolResultStr Renderer::CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                           const RDG::TextureRef   source,
+                                                           const RDG::TextureRef   target,
+                                                           const uint32_t          targetLayer )
+    {
+        return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer );
     }
 
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )

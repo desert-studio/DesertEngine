@@ -33,10 +33,7 @@
 // mesh shaders' 8/9/10), the mesh shaders share one layout with the G-buffer pass, and a shader-graph
 // material's layout is generated. The includer must declare, at whatever slots are free in ITS layout:
 //
-//     Uniform(a) sampler2D u_ShadowMap0;
-//     Uniform(b) sampler2D u_ShadowMap1;
-//     Uniform(c) sampler2D u_ShadowMap2;
-//     Uniform(d) sampler2D u_ShadowMap3;
+//     Uniform(a) sampler2DArray u_ShadowCascades; // layer c = cascade c
 //     Uniform(e) ShadowUB {
 //         mat4 u_LightViewProj[4];
 //         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
@@ -45,11 +42,13 @@
 //         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
 //     };
 //
-// The maps are D32F DEPTH images (ViewTargetFormats::kShadowDepth), read raw — never through a comparison
+// The cascades are the layers of ONE D32F DEPTH array (ViewTargetFormats::kShadowDepth; UE: the whole-scene
+// shadow atlas of a directional light), so the shader indexes the cascade at run time and the lit passes spend
+// one sampler slot on them, not four (MoltenVK caps a stage at 16). They are read raw — never through a comparison
 // sampler — by textureGather, which needs no linear-filter support of the depth format.
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
-// Graphic::SceneShadowBind, which is the single C++ writer of the block and of all four maps, and
+// Graphic::SceneShadowBind, which is the single C++ writer of the block and of the cascade array, and
 // SceneResources::ShadowUBData, whose layout Desert/Tests/Engine/SceneFrameBinding asserts against the
 // reflected GLSL block. The array length above is SceneResources::kMaxCascades and is not restated
 // here as a number the includer may pick.
@@ -59,21 +58,14 @@
 // 1/z curve for the float exponent to cancel, so reversing it buys exactly zero. See
 // Core/Projection.hpp.
 
-// Runtime cascade index can't index a sampler array here, so branch over the 4 named maps. The 2x2 depths
-// around uv (gather order: (0,1) (1,1) (1,0) (0,0) of the footprint).
+// The 2x2 depths around uv in cascade c (gather order: (0,1) (1,1) (1,0) (0,0) of the footprint).
 vec4 gatherShadowMap(int c, vec2 uv)
 {
-	if (c == 0) return textureGather(u_ShadowMap0, uv, 0);
-	if (c == 1) return textureGather(u_ShadowMap1, uv, 0);
-	if (c == 2) return textureGather(u_ShadowMap2, uv, 0);
-	return textureGather(u_ShadowMap3, uv, 0);
+	return textureGather(u_ShadowCascades, vec3(uv, float(c)), 0);
 }
 ivec2 shadowMapSize(int c)
 {
-	if (c == 0) return textureSize(u_ShadowMap0, 0);
-	if (c == 1) return textureSize(u_ShadowMap1, 0);
-	if (c == 2) return textureSize(u_ShadowMap2, 0);
-	return textureSize(u_ShadowMap3, 0);
+	return textureSize(u_ShadowCascades, 0).xy; // every layer has the array's extent
 }
 vec3 cascadeDebugColor(int c)
 {

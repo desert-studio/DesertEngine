@@ -58,21 +58,34 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::ImportSceneViewTextures( FrameTextures& textures )
+    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
         if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            const auto*    mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
-            const uint32_t cascades =
-                 mesh != nullptr ? std::min( mesh->GetValidCascadeCount(), kSceneViewShadowCascades ) : 0u;
-            for ( uint32_t c = 0; c < cascades; ++c )
-                view.ShadowCascades[c] =
-                     textures.Import( mesh->GetCascadeShadowImage( c ), std::format( "CSM.Cascade{}", c ) );
+            auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
             if ( mesh != nullptr )
+            {
+                view.ShadowCascades = mesh->AcquireCascadeMaps( graph );
                 if ( const auto atlas = mesh->GetLocalShadowAtlasImage() )
                     view.LocalShadowAtlas = textures.Import( atlas, "LocalShadow.Atlas" );
+            }
+        }
+        // No cascades (shadows budgeted off, no mesh system): the lit shaders still declare a sampler2DArray,
+        // which takes no 2D stand-in, so the view gets a one-texel array cleared to the far plane - 1 under the
+        // cascades' standard Z, "no occluder" - and the shader's cascade count (0) never reads it anyway.
+        if ( !view.ShadowCascades.IsValid() )
+        {
+            view.ShadowCascades = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
+                                                                         .Format = ViewTargetFormats::kShadowDepth,
+                                                                         .Layers = 1,
+                                                                         .Dim    = RDG::TextureDim::Tex2DArray },
+                                                       "CSM.None" );
+            graph.AddPass(
+                 "CSM.None", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
+                 { pass.DepthTarget( view.ShadowCascades, RDG::LoadOp::ClearDepth( 1.0f ) ); },
+                 []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
         }
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )

@@ -330,14 +330,15 @@ namespace Desert::Graphic::System
         // THE SUN'S CASCADES FOR THIS FRAME, in the order SceneRenderer::AddFrameShadowDepths adds them (UE: the
         // cached shadow maps of a directional light). Per cascade:
         //   StaticPasses  - only when its static casters' cache is stale: clears the cache and draws them;
-        //   Copies        - the cache into the sampled map, when the map must be rebuilt this frame;
+        //   Copies        - the cache into the cascade's layer of the sampled array, when the map must be rebuilt
+        //                   this frame;
         //   MovablePasses - LOADS the map and draws the movable casters (skinned, swaying foliage, the terrain).
         // A cascade whose matrix and casters stood still and that holds no movable caster has no work at all: its
         // map is last frame's.
         struct CascadeCacheCopy
         {
             std::shared_ptr<Image2D> From;
-            std::shared_ptr<Image2D> To;
+            uint32_t                 Layer = 0; // the cascade: its layer of the array
             std::string              Name;
         };
         struct ShadowCascadeFrame
@@ -346,7 +347,14 @@ namespace Desert::Graphic::System
             std::vector<CascadeCacheCopy> Copies;
             std::vector<SystemRasterPass> MovablePasses;
         };
-        [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses();
+        // @p maps is this frame's AcquireCascadeMaps.
+        [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
+        // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
+        // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
+        // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the
+        // budget changed creates it, and every fitted cascade is then rebuilt into it. Invalid when this renderer
+        // has no cascades.
+        [[nodiscard]] RDG::TextureRef AcquireCascadeMaps( RDG::Builder& graph );
         // One depth-only pass per local shadow view whose cached depth is stale this frame, each into its own
         // tile of the atlas (it clears the tile, never the atlas). SceneRenderer::AddFrameShadowDepths adds them
         // after the cascades, LOADING the atlas.
@@ -571,12 +579,13 @@ namespace Desert::Graphic::System
         // from SceneRenderer::OnUpdate after the frame's draws were submitted and before the view graph records.
         void UpdateMorphTargets();
 
-        // Cascade depth map (for the editor's CSM debug viewer). Null if out of range / not yet created.
-        std::shared_ptr<Image2D> GetCascadeShadowImage( uint32_t cascade ) const
+        // A cascade's STATIC-caster cache (for the editor's CSM debug viewer): the cascade map without the
+        // movable casters, which the array layer adds over it. Null if out of range / not yet created.
+        std::shared_ptr<Image2D> GetCascadeCacheImage( uint32_t cascade ) const
         {
-            if ( cascade >= m_Shadow.CascadeCount || !m_CascadeFB[cascade] )
+            if ( cascade >= m_Shadow.CascadeCount || !m_CascadeStaticFB[cascade] )
                 return nullptr;
-            return m_CascadeFB[cascade]->GetDepthAttachmentImage();
+            return m_CascadeStaticFB[cascade]->GetDepthAttachmentImage();
         }
 
         // HOW MANY CASCADES THIS RENDERER ACTUALLY HAS — not the ceiling. It was `static constexpr`, and
@@ -628,10 +637,11 @@ namespace Desert::Graphic::System
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
 
-        // The target a non-mesh caster builds its pipeline against — every cascade's has the same formats.
+        // The target a non-mesh caster builds its pipeline against: the depth format of every cascade layer
+        // (the static caches are framebuffers of it; the array layers are drawn through the graph).
         [[nodiscard]] const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const
         {
-            return m_CascadeFB[0];
+            return m_CascadeStaticFB[0];
         }
 
         // A renderer that casts into the cascades from inside their passes (IShadowCaster says why). Held
@@ -866,9 +876,12 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         std::shared_ptr<Shader>           m_ShadowShader;
         std::unique_ptr<MaterialShadow>           m_ShadowMaterial[kMaxShadowViews];
-        std::shared_ptr<Framebuffer>      m_CascadeFB[kMaxCascades];
+        // The sampled cascade maps: ONE depth array, a layer per cascade, owned by this renderer across frames
+        // and handed to each frame's graph (AcquireCascadeMaps). Empty until the first frame after the budget.
+        RDG::ExternalTexture m_CascadeMaps;
+        bool                 m_CascadeMapsBuilt = false;
         // The cache of each cascade's static casters (depth only, the map's format): drawn when its key changes,
-        // copied into m_CascadeFB[c] whenever the map is rebuilt.
+        // copied into layer c of m_CascadeMaps whenever the map is rebuilt.
         std::shared_ptr<Framebuffer> m_CascadeStaticFB[kMaxCascades];
         struct CascadeCacheState
         {

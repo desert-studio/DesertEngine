@@ -28,11 +28,8 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
-// The cascaded shadow's five bindings; Mesh/CascadedShadow.glslh reads them by these names.
-layout( binding = 5 ) uniform sampler2D u_ShadowMap0;
-layout( binding = 13 ) uniform sampler2D u_ShadowMap1;
-layout( binding = 14 ) uniform sampler2D u_ShadowMap2;
-layout( binding = 15 ) uniform sampler2D u_ShadowMap3;
+// The cascaded shadow's two bindings; Mesh/CascadedShadow.glslh reads them by these names.
+layout( binding = 5 ) uniform sampler2DArray u_ShadowCascades;
 layout( binding = 7 ) uniform ShadowUB
 {
     mat4 u_LightViewProj[4];
