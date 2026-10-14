@@ -9,6 +9,7 @@
 // setting and removes the directory. The name carries a random part: several suites run in parallel and
 // must not remove each other's cache.
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 
 #include <atomic>
@@ -33,11 +34,16 @@ namespace Desert::TestSupport
                        std::to_string( sequence++ ) );
             std::error_code ec;
             std::filesystem::remove_all( m_Root, ec );
+            // Background derivations started under the previous root finish (or are dropped) before it moves.
+            Common::DDC::RetireRoot();
             Common::Settings::MachineSettings::Get().DerivedDataCachePath = m_Root.string();
         }
 
         ~DerivedDataSandbox()
         {
+            // No background derivation may still write into this root while it is removed (or, after the
+            // setting is restored, into the previous one).
+            Common::DDC::RetireRoot();
             // Moved, not copied: a copy may throw, and this runs in a destructor.
             Common::Settings::MachineSettings::Get().DerivedDataCachePath = std::move( m_Previous );
             std::error_code ec;

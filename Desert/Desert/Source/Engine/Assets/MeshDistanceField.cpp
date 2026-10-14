@@ -5,6 +5,7 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <cstring>
@@ -330,7 +331,9 @@ namespace Desert::Assets
     {
         struct DfQueuedWork
         {
-            std::shared_ptr<MeshDistanceFieldSlot> Slot;
+            // Weak: the queue does not keep a mesh's field alive. A slot nobody holds any more (the mesh was
+            // unloaded or reloaded, its service went away) cancels the work if it has not started.
+            std::weak_ptr<MeshDistanceFieldSlot>   Slot;
             std::string                            Asset;
             MeshDistanceFieldWork                  Work;
         };
@@ -343,30 +346,33 @@ namespace Desert::Assets
             std::deque<DfQueuedWork> Waiting;
             size_t                   Running = 0;
             bool                     Exiting = false;
+            // Signalled whenever Running drops: CancelMeshDistanceFields waits on it for the running work.
+            std::condition_variable Idle;
             // The current burst (from the first request into an idle queue until it drains), for its log line.
             std::chrono::steady_clock::time_point BurstStart;
             uint32_t                              FromCache = 0;
             uint32_t                              Built     = 0;
             uint32_t                              Failed    = 0;
+            uint32_t                              Cancelled = 0;
             double                                WorkMs    = 0.0;
         };
+
+        // Drops the waiting work and returns once none is running. @p exiting also refuses new work.
+        void DfQuiesce( bool exiting );
 
         DfQueue& DfQueueState()
         {
             static DfQueue* const s_Queue = []
             {
                 // The pool first, then the exit hook: atexit handlers run in reverse, so the waiting builds are
-                // dropped before the pool joins its workers - a closing editor does not finish a 1300-mesh burst.
+                // dropped and the running ones finished before the pool joins its workers - a closing editor
+                // does not finish a 1300-mesh burst, and no build outlives the statics it logs through.
                 (void)Common::JobSystem::Get();
                 auto* queue = new DfQueue();
-                std::atexit(
-                     []
-                     {
-                         DfQueue&                          q = DfQueueState();
-                         const std::lock_guard<std::mutex> lock( q.Mutex );
-                         q.Exiting = true;
-                         q.Waiting.clear();
-                     } );
+                std::atexit( [] { DfQuiesce( true ); } );
+                // Every write of this queue goes through the DDC: a root that moves (a suite's sandbox set up
+                // or torn down) first waits for the work started under it.
+                Common::DDC::AddRootRetireHook( [] { DfQuiesce( false ); } );
                 return queue;
             }();
             return *s_Queue;
@@ -379,6 +385,17 @@ namespace Desert::Assets
         }
 
         void DfRun( DfQueuedWork item );
+
+        void DfQuiesce( const bool exiting )
+        {
+            DfQueue&                     q = DfQueueState();
+            std::unique_lock<std::mutex> lock( q.Mutex );
+            if ( exiting )
+                q.Exiting = true;
+            q.Cancelled += static_cast<uint32_t>( q.Waiting.size() );
+            q.Waiting.clear();
+            q.Idle.wait( lock, [&q] { return q.Running == 0; } );
+        }
 
         // Starts waiting work while there is room. Called with the lock NOT held.
         void DfPump()
@@ -402,25 +419,34 @@ namespace Desert::Assets
 
         void DfRun( DfQueuedWork item )
         {
-            const auto   start = std::chrono::steady_clock::now();
-            bool         built = false;
-            auto         field = item.Work( built );
+            const auto start     = std::chrono::steady_clock::now();
+            bool       built     = false;
+            bool       cancelled = false;
+            Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>> field =
+                 Common::MakeSuccess<std::shared_ptr<const MeshDistanceFieldData>>( nullptr );
+            // The owner is gone: nothing would read the field, so it is neither read nor built.
+            if ( item.Slot.expired() )
+                cancelled = true;
+            else
+                field = item.Work( built );
             const double ms =
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
-            if ( field.IsSuccess() )
-                item.Slot->Publish( field.ExtractValue() );
-            else
+            if ( !field.IsSuccess() )
                 LOG_ERROR( "[MeshDistanceField] '{}': {}; the mesh is left out of every distance-field trace",
                            item.Asset, field.GetError() );
+            else if ( const auto slot = item.Slot.lock(); slot != nullptr && !cancelled )
+                slot->Publish( field.ExtractValue() );
 
             DfQueue& q         = DfQueueState();
             bool     drained   = false;
-            uint32_t fromCache = 0, builtCount = 0, failed = 0;
+            uint32_t fromCache = 0, builtCount = 0, failed = 0, dropped = 0;
             double   wallSeconds = 0.0, workMs = 0.0;
             {
                 const std::lock_guard<std::mutex> lock( q.Mutex );
                 --q.Running;
-                if ( !field.IsSuccess() )
+                if ( cancelled )
+                    ++q.Cancelled;
+                else if ( !field.IsSuccess() )
                     ++q.Failed;
                 else if ( built )
                     ++q.Built;
@@ -433,21 +459,24 @@ namespace Desert::Assets
                     fromCache  = q.FromCache;
                     builtCount = q.Built;
                     failed     = q.Failed;
+                    dropped    = q.Cancelled;
                     workMs     = q.WorkMs;
                     wallSeconds =
                          std::chrono::duration<double>( std::chrono::steady_clock::now() - q.BurstStart ).count();
-                    q.FromCache = q.Built = q.Failed = 0;
+                    q.FromCache = q.Built = q.Failed = q.Cancelled = 0;
                     q.WorkMs                         = 0.0;
                 }
             }
+            q.Idle.notify_all();
             // A burst of cache hits while a scene streams in drains many times in a few frames: those lines are
             // debug; a burst that built a field, failed one or took over a second is the line a load is read by.
             if ( drained && ( builtCount > 0 || failed > 0 || wallSeconds >= 1.0 ) )
             {
                 LOG_INFO( "[MeshDistanceField] async queue drained: {} field(s) - {} built, {} from the DDC, {} "
-                          "failed - in {:.1f} s wall ({:.1f} s of work on up to {} worker(s))",
-                          fromCache + builtCount + failed, builtCount, fromCache, failed, wallSeconds,
-                          workMs / 1000.0, DfConcurrency() );
+                          "failed, {} cancelled (owner gone or cache root retired) - in {:.1f} s wall ({:.1f} s "
+                          "of work on up to {} worker(s))",
+                          fromCache + builtCount + failed + dropped, builtCount, fromCache, failed, dropped,
+                          wallSeconds, workMs / 1000.0, DfConcurrency() );
             }
             else if ( drained )
             {
@@ -467,7 +496,10 @@ namespace Desert::Assets
             if ( q.Exiting )
                 return;
             if ( q.Running == 0 && q.Waiting.empty() )
+            {
                 q.BurstStart = std::chrono::steady_clock::now();
+                q.Cancelled  = 0; // dropped by a retire while idle: not this burst's
+            }
             q.Waiting.push_back( { std::move( slot ), std::move( asset ), std::move( work ) } );
         }
         DfPump();

@@ -120,7 +120,8 @@ namespace Desert::Assets
     // different bytes for the same input).
     inline constexpr Common::DDC::Deriver kMeshDistanceFieldDeriver{
          "MeshDistanceField", ".msdf", { 0x6E1D4B2A93C750F8ULL, 0xB47A0C3E5D9F2816ULL } };
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 2; // 2: two-sided triangles do not vote
+    // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace)
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 3;
 
     // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
     // sidedness -> this bucket's key.
@@ -162,6 +163,11 @@ namespace Desert::Assets
     // At most WorkerCount()-1 (at least one) builds run at once, so one worker always stays free for the rest of
     // the engine (texture cooks, asset reads); the others wait in this queue, not in the pool's. @p work must
     // own everything it reads (it runs after the caller returned). @p asset names the mesh in the log.
+    // THE WORK DOES NOT OUTLIVE ITS OWNERS: the queue holds the slot weakly, so work whose slot nobody holds
+    // any more (the mesh unloaded or reloaded, its service gone) is cancelled before it starts; a cache root
+    // that moves (Common::DDC::RetireRoot) drops the waiting work and waits for the running work, so no field
+    // is written into a root other than the one it was started under; process exit does the same before the
+    // JobSystem joins its workers.
     using MeshDistanceFieldWork =
          std::function<Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>( bool& built )>;
     void EnqueueMeshDistanceField( std::shared_ptr<MeshDistanceFieldSlot> slot, std::string asset,
