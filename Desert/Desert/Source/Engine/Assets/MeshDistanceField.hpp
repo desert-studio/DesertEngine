@@ -120,8 +120,9 @@ namespace Desert::Assets
     // different bytes for the same input).
     inline constexpr Common::DDC::Deriver kMeshDistanceFieldDeriver{
          "MeshDistanceField", ".msdf", { 0x6E1D4B2A93C750F8ULL, 0xB47A0C3E5D9F2816ULL } };
-    // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace)
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 3;
+    // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace);
+    // 4: the sign by UE's backface rays (98 per band sample) in place of the parity vote
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 4;
 
     // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
     // sidedness -> this bucket's key.

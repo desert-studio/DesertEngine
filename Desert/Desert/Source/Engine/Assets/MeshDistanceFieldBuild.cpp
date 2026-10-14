@@ -6,17 +6,16 @@
 // Embree here, so the distance is computed on the mip's sample lattice the way SDFGen does it (C. Batty, public
 // domain): exact point-triangle distances in a one-voxel band around every triangle, then fast sweeping that
 // carries each sample's closest triangle to its neighbours - bounded by the encoding band, so the cost follows the
-// surface and not the volume. The sign is a crossing-parity vote along the three lattice axes: a sample is inside
-// along an axis when an odd number of surfaces lies on BOTH sides of it on that axis line, and inside overall when
-// two of the three axes agree. An open one-sided sheet (a ground plane, a facade without a back) has nothing to
-// pair with, so within the band the side it faces away from is made inside by its closest triangle's normal
-// (BehindOneSidedFace), as UE's backface quarter makes it. A TWO-SIDED triangle (its
-// section's material is two-sided: foliage cards, leaves, awnings) never votes, as UE's IsHitTwoSided never counts
-// a backface: it bounds no volume, so the samples around it carry the distance to its surface and stay outside.
+// surface and not the volume. The sign is UE's (the rays, see DfInsideByRays): a sample within the band is inside
+// when more than a quarter of its 98 rays hit a backface first, traced against a triangle BVH in place of Embree's
+// scene. A TWO-SIDED triangle (its section's material is two-sided: foliage cards, leaves, awnings) stops a ray
+// but never counts as a backface, as UE's IsHitTwoSided: it bounds no volume. Samples beyond the band are not
+// traced and stay outside, as in UE (bTraceRays).
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace Desert::Assets
@@ -32,7 +31,7 @@ namespace Desert::Assets
             glm::dvec3           Voxel{ 1.0 };
             std::vector<float>   Distance; // unsigned, local units, capped at the trace distance
             std::vector<int>     Closest;  // triangle index, -1 = none within the band
-            std::vector<uint8_t> InsideVotes;
+            std::vector<uint8_t> Inside;   // 1 = inside by UE's ray vote (samples within the band only)
 
             [[nodiscard]] size_t Index( const int i, const int j, const int k ) const
             {
@@ -79,51 +78,6 @@ namespace Desert::Assets
             return glm::length( p - ClosestPointOnTriangle( p, a, b, c ) );
         }
 
-        // SDFGen's tie-broken orientation (makelevelset3.cpp): exactly one of two triangles sharing an edge claims
-        // a lattice line through that edge, so a crossing is never counted twice or not at all.
-        int Orientation( const double x1, const double y1, const double x2, const double y2, double& twiceArea )
-        {
-            twiceArea = y1 * x2 - x1 * y2;
-            if ( twiceArea > 0.0 )
-                return 1;
-            if ( twiceArea < 0.0 )
-                return -1;
-            if ( y2 > y1 )
-                return 1;
-            if ( y2 < y1 )
-                return -1;
-            if ( x1 > x2 )
-                return 1;
-            if ( x1 < x2 )
-                return -1;
-            return 0;
-        }
-
-        bool PointInTriangle2D( const double x0, const double y0, double x1, double y1, double x2, double y2,
-                                double x3, double y3, double& a, double& b, double& c )
-        {
-            x1 -= x0;
-            x2 -= x0;
-            x3 -= x0;
-            y1 -= y0;
-            y2 -= y0;
-            y3 -= y0;
-            const int signA = Orientation( x2, y2, x3, y3, a );
-            if ( signA == 0 )
-                return false;
-            if ( Orientation( x3, y3, x1, y1, b ) != signA )
-                return false;
-            if ( Orientation( x1, y1, x2, y2, c ) != signA )
-                return false;
-            const double sum = a + b + c;
-            if ( sum == 0.0 )
-                return false;
-            a /= sum;
-            b /= sum;
-            c /= sum;
-            return true;
-        }
-
         struct SdfMesh
         {
             std::vector<glm::dvec3> Positions;
@@ -138,30 +92,263 @@ namespace Desert::Assets
             return PointTriangleDistance( p, mesh.Positions[tri.x], mesh.Positions[tri.y], mesh.Positions[tri.z] );
         }
 
-        // BEHIND AN OPEN ONE-SIDED SHEET IS INSIDE (UE: a sample is inside when more than a quarter of its rays
-        // hit backfaces, so the side a ground plane or a backless facade faces away from is negative). The parity
-        // vote cannot see that - an open sheet has nothing on its far side to pair with - and left such a sheet
-        // UNSIGNED: |d| has no zero crossing, and resampled into a global clipmap whose voxels are coarser than
-        // the sheet's band its trilinear minimum is up to half a voxel, so wherever the sheet lies near the middle
-        // of a voxel the trace's half-voxel surface expansion missed it - contour rings of holes in a street seen
-        // from above. A sample within the band (it has a closest triangle) is inside here when that triangle is
-        // one- sided and the sample lies behind it, along its normal (within ~25 degrees: a seam between coplanar
-        // triangles qualifies, a sample off a sheet's border or a saddle vertex of a closed mesh does not, and
-        // keeps its parity sign).
-        bool BehindOneSidedFace( const SdfMesh& mesh, const int t, const glm::dvec3& p )
+        // THE SIGN, AS UE (MeshDistanceFieldUtilities.cpp:211-284, FSparseMeshDistanceFieldAsyncTask::DoWork): a
+        // sample within the band traces kDfSignRays rays of the band's length in a stratified sphere of directions
+        // and is inside when more than a quarter of them hit a BACKFACE first. Every surface the rays reach takes
+        // part - a sample under a pavement sheet's border next to a kerb's back counts both - so open sheets,
+        // sheets meeting at a kerb and closed meshes are signed by one rule. A two-sided triangle stops a ray and
+        // counts as a hit but never as a backface (UE IsHitTwoSided). Embree is replaced by a triangle BVH below.
+
+        // UE FRandomStream (seed 0): MutateSeed, then a float in [0, 1) from the seed's top 23 bits.
+        struct UeRandomStream
         {
-            if ( t < 0 || mesh.TwoSided[t] != 0 )
-                return false;
-            const glm::uvec3& tri = mesh.Triangles[t];
-            const glm::dvec3& a   = mesh.Positions[tri.x];
-            const glm::dvec3& b   = mesh.Positions[tri.y];
-            const glm::dvec3& c   = mesh.Positions[tri.z];
-            const glm::dvec3  n   = glm::cross( b - a, c - a );
-            const glm::dvec3  d   = p - ClosestPointOnTriangle( p, a, b, c );
-            const double      nl = glm::length( n ), dl = glm::length( d );
-            if ( nl <= 0.0 || dl <= 0.0 )
-                return false;
-            return glm::dot( n, d ) < -0.9 * nl * dl;
+            uint32_t Seed = 0;
+            float    GetFraction()
+            {
+                Seed                  = Seed * 196314165u + 907633515u;
+                const uint32_t bits   = 0x3F800000u | ( Seed >> 9 );
+                float          result = 0.0f;
+                std::memcpy( &result, &bits, sizeof( result ) );
+                return result - 1.0f;
+            }
+        };
+
+        // UE MeshUtilities::GenerateStratifiedUniformHemisphereSamples(49) twice, the second set mirrored in Z
+        // (GenerateSignedDistanceFieldVolumeData, bUsePointQuery): 7 x 7 jittered strata per hemisphere, each
+        // mapped by UniformSampleHemisphere (phi = 2 pi u, cos theta = v).
+        constexpr int           kDfSignSamplesPerHemisphere = 49;
+        std::vector<glm::dvec3> SignDirections()
+        {
+            const int dim = static_cast<int>( std::sqrt( static_cast<float>( kDfSignSamplesPerHemisphere ) ) );
+            UeRandomStream          random;
+            std::vector<glm::dvec3> directions;
+            for ( const double zSign : { 1.0, -1.0 } )
+                for ( int x = 0; x < dim; ++x )
+                    for ( int y = 0; y < dim; ++y )
+                    {
+                        const float  u1 = random.GetFraction();
+                        const float  u2 = random.GetFraction();
+                        const double phi =
+                             2.0 * 3.14159265358979323846 * ( ( x + u1 ) / static_cast<float>( dim ) );
+                        const double cosTheta = ( y + u2 ) / static_cast<float>( dim );
+                        const double sinTheta = std::sqrt( std::max( 0.0, 1.0 - cosTheta * cosTheta ) );
+                        directions.emplace_back( std::cos( phi ) * sinTheta, std::sin( phi ) * sinTheta,
+                                                 zSign * cosTheta );
+                    }
+            return directions;
+        }
+
+        // A bounding-volume hierarchy over the triangle soup (median split on the widest centroid axis, up to
+        // kDfLeafTriangles per leaf): what Embree's scene is to UE's builder. Closest hit only.
+        constexpr int kDfLeafTriangles = 4;
+        struct DfBvhNode
+        {
+            double Lo[3];
+            double Hi[3];
+            int    First = 0; // leaf: first entry in Order; inner: index of the left child (right = left + 1)
+            int    Count = 0; // > 0: leaf
+        };
+
+        struct DfBvh
+        {
+            std::vector<DfBvhNode>  Nodes;
+            std::vector<int>        Order;
+            std::vector<glm::dvec3> A, E1, E2, Normal; // per triangle: vertex a, b - a, c - a, (b - a) x (c - a)
+            // The leaves' triangles in leaf order, 9 doubles each (a, b - a, c - a): the ray loop reads them as
+            // plain scalars - it runs ~100 times per band sample and the editor's builds are unoptimised.
+            std::vector<double> Packed;
+        };
+
+        void DfBvhSplit( DfBvh& bvh, const std::vector<glm::dvec3>& centroids, const int node, const int first,
+                         const int count )
+        {
+            glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( std::numeric_limits<double>::lowest() );
+            glm::dvec3 clo = lo, chi = hi;
+            for ( int i = first; i < first + count; ++i )
+            {
+                const int t = bvh.Order[i];
+                for ( const glm::dvec3& p : { bvh.A[t], bvh.A[t] + bvh.E1[t], bvh.A[t] + bvh.E2[t] } )
+                {
+                    lo = glm::min( lo, p );
+                    hi = glm::max( hi, p );
+                }
+                clo = glm::min( clo, centroids[t] );
+                chi = glm::max( chi, centroids[t] );
+            }
+            for ( int c = 0; c < 3; ++c )
+            {
+                bvh.Nodes[node].Lo[c] = lo[c];
+                bvh.Nodes[node].Hi[c] = hi[c];
+            }
+            const glm::dvec3 spread = chi - clo;
+            const int axis = spread.x >= spread.y && spread.x >= spread.z ? 0 : ( spread.y >= spread.z ? 1 : 2 );
+            if ( count <= kDfLeafTriangles || spread[axis] <= 0.0 )
+            {
+                bvh.Nodes[node].First = first;
+                bvh.Nodes[node].Count = count;
+                return;
+            }
+            const int half = count / 2;
+            std::nth_element( bvh.Order.begin() + first, bvh.Order.begin() + first + half,
+                              bvh.Order.begin() + first + count, [&]( const int l, const int r )
+                              { return centroids[l][axis] < centroids[r][axis]; } );
+            const int left = static_cast<int>( bvh.Nodes.size() );
+            bvh.Nodes.resize( bvh.Nodes.size() + 2 );
+            bvh.Nodes[node].First = left;
+            bvh.Nodes[node].Count = 0;
+            DfBvhSplit( bvh, centroids, left, first, half );
+            DfBvhSplit( bvh, centroids, left + 1, first + half, count - half );
+        }
+
+        DfBvh DfBvhBuild( const SdfMesh& mesh )
+        {
+            DfBvh        bvh;
+            const size_t n = mesh.Triangles.size();
+            bvh.A.resize( n );
+            bvh.E1.resize( n );
+            bvh.E2.resize( n );
+            bvh.Normal.resize( n );
+            bvh.Order.resize( n );
+            std::vector<glm::dvec3> centroids( n );
+            for ( size_t t = 0; t < n; ++t )
+            {
+                const glm::uvec3& tri = mesh.Triangles[t];
+                bvh.A[t]              = mesh.Positions[tri.x];
+                bvh.E1[t]             = mesh.Positions[tri.y] - bvh.A[t];
+                bvh.E2[t]             = mesh.Positions[tri.z] - bvh.A[t];
+                bvh.Normal[t]         = glm::cross( bvh.E1[t], bvh.E2[t] );
+                centroids[t]          = bvh.A[t] + ( bvh.E1[t] + bvh.E2[t] ) / 3.0;
+                bvh.Order[t]          = static_cast<int>( t );
+            }
+            bvh.Nodes.reserve( 2 * n / kDfLeafTriangles + 2 );
+            bvh.Nodes.resize( 1 );
+            DfBvhSplit( bvh, centroids, 0, 0, static_cast<int>( n ) );
+            bvh.Packed.resize( n * 9 );
+            for ( size_t i = 0; i < n; ++i )
+            {
+                const int t = bvh.Order[i];
+                for ( int c = 0; c < 3; ++c )
+                {
+                    bvh.Packed[i * 9 + c]     = bvh.A[t][c];
+                    bvh.Packed[i * 9 + 3 + c] = bvh.E1[t][c];
+                    bvh.Packed[i * 9 + 6 + c] = bvh.E2[t][c];
+                }
+            }
+            return bvh;
+        }
+
+        // Slab test: the entry distance of the ray into the node's box, or a negative value when it misses within
+        // [0, tMax].
+        double DfBoxEntry( const DfBvhNode& node, const double o[3], const double inv[3], const double tMax )
+        {
+            double t0 = 0.0, t1 = tMax;
+            for ( int c = 0; c < 3; ++c )
+            {
+                const double l = ( node.Lo[c] - o[c] ) * inv[c];
+                const double h = ( node.Hi[c] - o[c] ) * inv[c];
+                const double n = l < h ? l : h;
+                const double f = l < h ? h : l;
+                t0             = n > t0 ? n : t0;
+                t1             = f < t1 ? f : t1;
+                if ( t0 > t1 )
+                    return -1.0;
+            }
+            return t0;
+        }
+
+        // The closest triangle the ray o + t d, t in [0, tMax], crosses from either side (Moller-Trumbore), or -1.
+        int DfClosestHit( const DfBvh& bvh, const double o[3], const double d[3], const double tMax )
+        {
+            const double inv[3] = { 1.0 / d[0], 1.0 / d[1], 1.0 / d[2] };
+            double       best   = tMax;
+            int          hit    = -1;
+            int          stack[64];
+            int          top = 0;
+            if ( DfBoxEntry( bvh.Nodes[0], o, inv, best ) < 0.0 )
+                return -1;
+            stack[top++] = 0;
+            while ( top > 0 )
+            {
+                const DfBvhNode& node = bvh.Nodes[stack[--top]];
+                if ( node.Count > 0 )
+                {
+                    const double* tri = bvh.Packed.data() + static_cast<size_t>( node.First ) * 9;
+                    for ( int i = 0; i < node.Count; ++i, tri += 9 )
+                    {
+                        const double* a  = tri;
+                        const double* e1 = tri + 3;
+                        const double* e2 = tri + 6;
+                        // p = d x e2, det = e1 . p
+                        const double px  = d[1] * e2[2] - d[2] * e2[1];
+                        const double py  = d[2] * e2[0] - d[0] * e2[2];
+                        const double pz  = d[0] * e2[1] - d[1] * e2[0];
+                        const double det = e1[0] * px + e1[1] * py + e1[2] * pz;
+                        if ( det == 0.0 )
+                            continue;
+                        const double invDet = 1.0 / det;
+                        const double sx = o[0] - a[0], sy = o[1] - a[1], sz = o[2] - a[2];
+                        const double u = ( sx * px + sy * py + sz * pz ) * invDet;
+                        if ( u < 0.0 || u > 1.0 )
+                            continue;
+                        // q = s x e1
+                        const double qx = sy * e1[2] - sz * e1[1];
+                        const double qy = sz * e1[0] - sx * e1[2];
+                        const double qz = sx * e1[1] - sy * e1[0];
+                        const double v  = ( d[0] * qx + d[1] * qy + d[2] * qz ) * invDet;
+                        if ( v < 0.0 || u + v > 1.0 )
+                            continue;
+                        const double tHit = ( e2[0] * qx + e2[1] * qy + e2[2] * qz ) * invDet;
+                        if ( tHit >= 0.0 && tHit <= best )
+                        {
+                            best = tHit;
+                            hit  = bvh.Order[node.First + i];
+                        }
+                    }
+                    continue;
+                }
+                const double l = DfBoxEntry( bvh.Nodes[node.First], o, inv, best );
+                const double r = DfBoxEntry( bvh.Nodes[node.First + 1], o, inv, best );
+                // Nearer child on top of the stack, so a close hit shrinks the farther child's test.
+                if ( l >= 0.0 && r >= 0.0 )
+                {
+                    stack[top++] = l <= r ? node.First + 1 : node.First;
+                    stack[top++] = l <= r ? node.First : node.First + 1;
+                }
+                else if ( l >= 0.0 )
+                    stack[top++] = node.First;
+                else if ( r >= 0.0 )
+                    stack[top++] = node.First + 1;
+            }
+            return hit;
+        }
+
+        // UE's vote for one sample: rays start pulled back by 1e-4 of the trace distance (a sample exactly on a
+        // triangle - box corners - still sees it) and reach the trace distance. Inside when Hit > 0 and HitBack >
+        // a quarter of the rays; the loop stops as soon as the remaining rays cannot change that outcome.
+        bool DfInsideByRays( const SdfMesh& mesh, const DfBvh& bvh, const std::vector<glm::dvec3>& directions,
+                             const glm::dvec3& p, const double trace )
+        {
+            const int total   = static_cast<int>( directions.size() );
+            int       hitBack = 0;
+            for ( int i = 0; i < total; ++i )
+            {
+                const glm::dvec3& dir  = directions[i];
+                const double      d[3] = { dir.x, dir.y, dir.z };
+                const double      pull = 1.0e-4 * trace;
+                const double      o[3] = { p.x - pull * d[0], p.y - pull * d[1], p.z - pull * d[2] };
+                const int         hit  = DfClosestHit( bvh, o, d, trace );
+                if ( hit >= 0 && mesh.TwoSided[hit] == 0 )
+                {
+                    const glm::dvec3& n = bvh.Normal[hit];
+                    if ( d[0] * n.x + d[1] * n.y + d[2] * n.z > 0.0 )
+                        ++hitBack;
+                }
+                if ( 4 * hitBack > total ) // HitBack > .25f * SampleDirections->Num()
+                    return true;
+                if ( 4 * ( hitBack + total - 1 - i ) <= total )
+                    return false;
+            }
+            return false;
         }
 
         void ExactBand( const SdfMesh& mesh, SdfLattice& lattice )
@@ -232,73 +419,6 @@ namespace Desert::Assets
                         CheckNeighbour( mesh, lattice, i, j, k, i, j - dj, k - dk, trace );
                         CheckNeighbour( mesh, lattice, i, j, k, i - di, j - dj, k - dk, trace );
                     }
-        }
-
-        // One axis of the parity vote: count the surface crossings of every lattice line along @p axis, then
-        // vote "inside" for each point with an odd count on both sides of it.
-        void VoteAxis( const SdfMesh& mesh, SdfLattice& lattice, const int axis )
-        {
-            const int u = ( axis + 1 ) % 3, v = ( axis + 2 ) % 3;
-            const int nu = lattice.N[u], nv = lattice.N[v], na = lattice.N[axis];
-            // crossings[(row) * (na + 1) + slot]: slot s counts crossings between lattice points s-1 and s.
-            std::vector<uint16_t> crossings( static_cast<size_t>( nu ) * nv * ( na + 1 ), 0 );
-            for ( size_t t = 0; t < mesh.Triangles.size(); ++t )
-            {
-                if ( mesh.TwoSided[t] != 0 )
-                    continue;
-                const glm::uvec3& tri  = mesh.Triangles[t];
-                const glm::dvec3  p[3] = { mesh.Positions[tri.x], mesh.Positions[tri.y], mesh.Positions[tri.z] };
-                const double     lu   = std::min( { p[0][u], p[1][u], p[2][u] } );
-                const double     hu   = std::max( { p[0][u], p[1][u], p[2][u] } );
-                const double     lv   = std::min( { p[0][v], p[1][v], p[2][v] } );
-                const double     hv   = std::max( { p[0][v], p[1][v], p[2][v] } );
-                const int        iu0 =
-                     std::max( 0, static_cast<int>( std::ceil( ( lu - lattice.Origin[u] ) / lattice.Voxel[u] ) ) );
-                const int iu1 = std::min(
-                     nu - 1, static_cast<int>( std::floor( ( hu - lattice.Origin[u] ) / lattice.Voxel[u] ) ) );
-                const int iv0 =
-                     std::max( 0, static_cast<int>( std::ceil( ( lv - lattice.Origin[v] ) / lattice.Voxel[v] ) ) );
-                const int iv1 = std::min(
-                     nv - 1, static_cast<int>( std::floor( ( hv - lattice.Origin[v] ) / lattice.Voxel[v] ) ) );
-                for ( int iv = iv0; iv <= iv1; ++iv )
-                    for ( int iu = iu0; iu <= iu1; ++iu )
-                    {
-                        const double pu = lattice.Origin[u] + iu * lattice.Voxel[u];
-                        const double pv = lattice.Origin[v] + iv * lattice.Voxel[v];
-                        double       a = 0.0, b = 0.0, c = 0.0;
-                        if ( !PointInTriangle2D( pu, pv, p[0][u], p[0][v], p[1][u], p[1][v], p[2][u], p[2][v], a,
-                                                 b, c ) )
-                            continue;
-                        const double at   = a * p[0][axis] + b * p[1][axis] + c * p[2][axis];
-                        const double s    = std::ceil( ( at - lattice.Origin[axis] ) / lattice.Voxel[axis] );
-                        const int    slot = static_cast<int>( std::clamp( s, 0.0, static_cast<double>( na ) ) );
-                        auto& count       = crossings[( static_cast<size_t>( iv ) * nu + iu ) * ( na + 1 ) + slot];
-                        if ( count < std::numeric_limits<uint16_t>::max() )
-                            ++count;
-                    }
-            }
-            for ( int iv = 0; iv < nv; ++iv )
-                for ( int iu = 0; iu < nu; ++iu )
-                {
-                    const uint16_t* row   = &crossings[( static_cast<size_t>( iv ) * nu + iu ) * ( na + 1 )];
-                    uint32_t        total = 0;
-                    for ( int s = 0; s <= na; ++s )
-                        total += row[s];
-                    if ( total == 0 )
-                        continue;
-                    uint32_t before = 0;
-                    for ( int ia = 0; ia < na; ++ia )
-                    {
-                        before += row[ia];
-                        if ( ( before & 1u ) == 0 || ( ( total - before ) & 1u ) == 0 )
-                            continue;
-                        glm::ivec3 ijk( 0 );
-                        ijk[axis] = ia;
-                        ijk[u]    = iu;
-                        ijk[v]    = iv;
-                        ++lattice.InsideVotes[lattice.Index( ijk.x, ijk.y, ijk.z )];
-                    }
-                }
         }
 
         uint8_t Quantize( const double localDistance, const double localToVolume, const glm::dvec2 scaleBias )
@@ -377,6 +497,8 @@ namespace Desert::Assets
         constexpr int    kBrick       = static_cast<int>( kDistanceFieldBrickSize );
         constexpr int    kBorder      = static_cast<int>( kDistanceFieldObjectBorder );
 
+        const DfBvh                   bvh        = DfBvhBuild( mesh );
+        const std::vector<glm::dvec3> directions = SignDirections();
         for ( uint32_t mipIndex = 0; mipIndex < kDistanceFieldNumMips; ++mipIndex )
         {
             const int        div  = 1 << mipIndex;
@@ -398,14 +520,22 @@ namespace Desert::Assets
             const size_t points = static_cast<size_t>( lattice.N.x ) * lattice.N.y * lattice.N.z;
             lattice.Distance.assign( points, static_cast<float>( trace ) );
             lattice.Closest.assign( points, -1 );
-            lattice.InsideVotes.assign( points, 0 );
             ExactBand( mesh, lattice );
             for ( const int dk : { 1, -1 } )
                 for ( const int dj : { 1, -1 } )
                     for ( const int di : { 1, -1 } )
                         Sweep( mesh, lattice, di, dj, dk, trace );
-            for ( int axis = 0; axis < 3; ++axis )
-                VoteAxis( mesh, lattice, axis );
+            lattice.Inside.assign( points, 0 );
+            for ( int k = 0; k < lattice.N.z; ++k )
+                for ( int j = 0; j < lattice.N.y; ++j )
+                    for ( int i = 0; i < lattice.N.x; ++i )
+                    {
+                        // UE traces only where the closest surface lies within the trace distance (bTraceRays).
+                        const size_t idx = lattice.Index( i, j, k );
+                        if ( lattice.Closest[idx] >= 0 )
+                            lattice.Inside[idx] =
+                                 DfInsideByRays( mesh, bvh, directions, lattice.Point( i, j, k ), trace ) ? 1 : 0;
+                    }
 
             SparseDistanceFieldMip& mip        = out.Mips[mipIndex];
             mip.IndirectionDimensions          = glm::uvec3( dims );
@@ -424,12 +554,7 @@ namespace Desert::Assets
                                 {
                                     const size_t idx =
                                          lattice.Index( bx * kUnique + x, by * kUnique + y, bz * kUnique + z );
-                                    const bool inside =
-                                         lattice.InsideVotes[idx] >= 2 ||
-                                         BehindOneSidedFace( mesh, lattice.Closest[idx],
-                                                             lattice.Point( bx * kUnique + x, by * kUnique + y,
-                                                                            bz * kUnique + z ) );
-                                    const double  sign = inside ? -1.0 : 1.0;
+                                    const double  sign = lattice.Inside[idx] != 0 ? -1.0 : 1.0;
                                     const uint8_t q =
                                          Quantize( sign * lattice.Distance[idx], localToVolume, scaleBias );
                                     brick[( z * kBrick + y ) * kBrick + x] = q;
