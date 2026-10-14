@@ -54,6 +54,11 @@ namespace Desert::Assets
         float    VoxelDensity         = 0.2f; // voxels per centimetre: one voxel per 5 cm
         uint32_t MaxPerMeshResolution = 256;  // voxels along the longest axis; half of it at ResolutionScale <= 1
         float    ResolutionScale      = 1.0f; // UE FMeshBuildSettings::DistanceFieldResolutionScale
+        // THE CHUNK VOXEL (centimetres). A mesh whose voxel under MaxPerMeshResolution would be larger than its
+        // thinnest box extent - a 160 m pavement 29 cm high gets 130 cm voxels, so the slab has no sample inside
+        // it and no zero crossing - is built as several SPATIAL VOLUMES of at most that cap each, at this voxel
+        // (or the density's, when that is coarser). See MeshDistanceFieldData::Volumes.
+        float ChunkVoxelSize = 8.0f;
     };
 
     // One mip of the sparse volume (UE FSparseDistanceFieldMip + its bulk data).
@@ -76,9 +81,11 @@ namespace Desert::Assets
         }
     };
 
-    struct MeshDistanceFieldData
+    // ONE VOLUME of a mesh's field: a box of mesh-local space with its own sparse mips (UE's whole
+    // FDistanceFieldVolumeData; here a mesh may have several, see MeshDistanceFieldData).
+    struct MeshDistanceFieldVolume
     {
-        // The mesh box the volume space normalizes (UE LocalSpaceMeshBounds): volume = (local - centre) / max
+        // The box the volume space normalizes (UE LocalSpaceMeshBounds): volume = (local - centre) / max
         // extent, so the volume spans [-VolumePositionExtent, VolumePositionExtent] with the largest axis at 1.
         Common::Math::AABB LocalSpaceMeshBounds{ glm::vec3( 0.0f ), glm::vec3( 0.0f ) };
         // Mip 0 is the finest; mip kDistanceFieldNumMips-1 the coarsest (UE's always-loaded mip).
@@ -87,6 +94,20 @@ namespace Desert::Assets
         [[nodiscard]] uint32_t  TotalBrickCount() const;
         [[nodiscard]] glm::vec3 VolumePositionExtent() const;
         [[nodiscard]] float     LocalToVolumeScale() const;
+    };
+
+    // A STATIC MESH'S FIELD: one volume over the mesh box (every mesh UE's per-mesh cap serves - UE stops here),
+    // or, for a mesh too large for the cap at its thinnest extent, several volumes over disjoint boxes of its
+    // space (MeshDistanceFieldBuildSettings::ChunkVoxelSize) - in UE so a 160 m kerb ring gets 130 cm voxels and
+    // rays pass through it (UE leaves it to artists to split the mesh). Each volume is built from every triangle
+    // within its coarsest mip's band, so the minimum over the volumes is the mesh's distance across their seams;
+    // the GPU scene places each volume as its own object (own box, own bricks, own mip streaming). Empty when
+    // the mesh has no triangles.
+    struct MeshDistanceFieldData
+    {
+        std::vector<MeshDistanceFieldVolume> Volumes;
+
+        [[nodiscard]] uint32_t TotalBrickCount() const;
     };
 
     // The triangles a field is built from: the mesh's LOD0 in mesh-local space, every submesh's own transform
@@ -110,9 +131,11 @@ namespace Desert::Assets
     BuildMeshDistanceField( const MeshDistanceFieldBuildInput&    input,
                             const MeshDistanceFieldBuildSettings& settings );
 
-    // THE DDC ENTRY'S CONTAINER: "DESTMSDF", a version, the bounds, then per mip its parameters, indirection
-    // table and bricks. Decode refuses any other magic or version by name.
-    inline constexpr uint32_t kMeshDistanceFieldFormatVersion = 1;
+    // THE DDC ENTRY'S CONTAINER: "DESTMSDF", a version, the mip count, the volume count, then per volume its
+    // bounds and per mip its parameters, indirection table and bricks. Decode refuses any other magic or version
+    // by name.
+    // 2: a list of volumes, each its bounds and mips
+    inline constexpr uint32_t kMeshDistanceFieldFormatVersion = 2;
     [[nodiscard]] std::string EncodeMeshDistanceField( const MeshDistanceFieldData& data );
     [[nodiscard]] Common::ResultStr<MeshDistanceFieldData> DecodeMeshDistanceField( std::string_view bytes );
 
@@ -121,8 +144,9 @@ namespace Desert::Assets
     inline constexpr Common::DDC::Deriver kMeshDistanceFieldDeriver{
          "MeshDistanceField", ".msdf", { 0x6E1D4B2A93C750F8ULL, 0xB47A0C3E5D9F2816ULL } };
     // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace);
-    // 4: the sign by UE's backface rays (98 per band sample) in place of the parity vote
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 4;
+    // 4: the sign by UE's backface rays (98 per band sample) in place of the parity vote; 5: a mesh too large for
+    // the cap at its thinnest extent is built as spatial volumes (ChunkVoxelSize)
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 5;
 
     // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
     // sidedness -> this bucket's key.

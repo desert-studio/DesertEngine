@@ -509,16 +509,25 @@ namespace Desert::Graphic
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
         // off-screen too (a trace leaves the frustum).
         std::vector<DistanceField::GlobalDistanceFieldObject> objects;
-        // A mesh whose field is still being derived (the asynchronous queue) is not in it yet.
+        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
+        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
+        // asynchronous queue) is not in it yet.
+        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                       const glm::mat4&                                            world )
+        {
+            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
+                objects.push_back(
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+        };
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
-                if ( auto field = draw.Mesh->GetDistanceField() )
-                    objects.push_back( { std::move( field ), draw.Transform } );
+                if ( const auto field = draw.Mesh->GetDistanceField() )
+                    place( field, draw.Transform );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        objects.push_back( { field, world } );
+                        place( field, world );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };

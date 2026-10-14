@@ -116,7 +116,7 @@ namespace Desert::Graphic::DistanceField
         // field without a single mip (a mesh with no triangles) has no record: nullopt, nothing to sample. An
         // error when not even the coarse mip fits the pool.
         [[nodiscard]] Common::ResultStr<std::optional<uint32_t>>
-        Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field, float distance );
+        Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field, float distance );
 
         // Streams the finer mips toward what this frame's distances want, inside the pool and the per-frame
         // upload budget. After every Acquire of the frame, before FlushUploads.
@@ -124,7 +124,7 @@ namespace Desert::Graphic::DistanceField
 
         // How many mips of @p field are resident (0 = not resident): part of an object's identity in the global
         // field, so a mip arriving or leaving recomposites the object.
-        [[nodiscard]] uint32_t ResidentMips( const Assets::MeshDistanceFieldData* field ) const;
+        [[nodiscard]] uint32_t ResidentMips( const Assets::MeshDistanceFieldVolume* field ) const;
 
         // Returns every field nothing holds any more to the free lists.
         void ReleaseUnused();
@@ -164,7 +164,7 @@ namespace Desert::Graphic::DistanceField
         };
         struct Resident
         {
-            std::weak_ptr<const Assets::MeshDistanceFieldData>     Field;
+            std::weak_ptr<const Assets::MeshDistanceFieldVolume>   Field;
             uint32_t                                               AssetIndex = 0;
             uint32_t                                               NumMips    = 0; // resident, coarsest first
             std::array<ResidentMip, Assets::kDistanceFieldNumMips> Mips{};
@@ -174,7 +174,7 @@ namespace Desert::Graphic::DistanceField
 
         // Makes the next finer mip of @p resident resident (slots, table, record row, queued bricks); false when
         // the pool has no room for it.
-        [[nodiscard]] bool AddMip( Resident& resident, const Assets::MeshDistanceFieldData& field );
+        [[nodiscard]] bool AddMip( Resident& resident, const Assets::MeshDistanceFieldVolume& field );
         // Drops the finest resident mip of @p resident.
         void DropMip( Resident& resident );
         void Release( Resident& resident );
@@ -184,7 +184,7 @@ namespace Desert::Graphic::DistanceField
         bool                                MakeRoom( float distance, uint32_t bricks, const Resident* except );
         [[nodiscard]] Common::BoolResultStr EnsureAtlas();
 
-        std::unordered_map<const Assets::MeshDistanceFieldData*, Resident> m_Resident;
+        std::unordered_map<const Assets::MeshDistanceFieldVolume*, Resident> m_Resident;
         BrickAllocator                                                     m_BrickSlots;
         RangeAllocator                                                     m_IndirectionSlots;
         RangeAllocator                                                     m_AssetSlots;
@@ -200,7 +200,7 @@ namespace Desert::Graphic::DistanceField
         struct PendingBrick
         {
             uint32_t                                             Slot = 0;
-            std::shared_ptr<const Assets::MeshDistanceFieldData> Field;
+            std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
             uint32_t                                             Mip   = 0;
             uint32_t                                             Brick = 0;
         };

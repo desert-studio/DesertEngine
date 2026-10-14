@@ -351,8 +351,14 @@ namespace Desert::Assets
             return false;
         }
 
-        void ExactBand( const SdfMesh& mesh, SdfLattice& lattice )
+        // A triangle outside the lattice but within the trace distance of it seeds the lattice's boundary samples
+        // (its index range is clamped), and the sweep carries it inwards: a volume that is one of several over
+        // the mesh (MeshDistanceFieldData::Volumes) sees its neighbours' surface across the seam. A triangle
+        // farther than that cannot reach a sample within the band and is skipped.
+        void ExactBand( const SdfMesh& mesh, SdfLattice& lattice, const double trace )
         {
+            const glm::dvec3 reachLo = lattice.Origin - glm::dvec3( trace );
+            const glm::dvec3 reachHi = lattice.Origin + glm::dvec3( lattice.N - 1 ) * lattice.Voxel + trace;
             for ( int t = 0; t < static_cast<int>( mesh.Triangles.size() ); ++t )
             {
                 const glm::uvec3& tri = mesh.Triangles[t];
@@ -360,6 +366,8 @@ namespace Desert::Assets
                      glm::min( glm::min( mesh.Positions[tri.x], mesh.Positions[tri.y] ), mesh.Positions[tri.z] );
                 glm::dvec3 hi =
                      glm::max( glm::max( mesh.Positions[tri.x], mesh.Positions[tri.y] ), mesh.Positions[tri.z] );
+                if ( glm::any( glm::greaterThan( lo, reachHi ) ) || glm::any( glm::lessThan( hi, reachLo ) ) )
+                    continue;
                 const glm::ivec3 i0 =
                      glm::clamp( glm::ivec3( glm::floor( ( lo - lattice.Origin ) / lattice.Voxel ) ) - 1,
                                  glm::ivec3( 0 ), lattice.N - 1 );
@@ -427,6 +435,108 @@ namespace Desert::Assets
             const double rescaled       = ( volumeDistance - scaleBias.y ) / scaleBias.x;
             return static_cast<uint8_t>( std::clamp( std::floor( rescaled * 255.0 + 0.5 ), 0.0, 255.0 ) );
         }
+        // ONE VOLUME over the box [lo, hi] of mesh space, mip0Dims bricks along each axis (UE
+        // GenerateSignedDistanceFieldVolumeData from the bounds on): per mip the lattice, its band, the sign by
+        // rays, the bricks that are not saturated, the volume -> virtual UV transform.
+        MeshDistanceFieldVolume BuildVolume( const SdfMesh& mesh, const DfBvh& bvh,
+                                             const std::vector<glm::dvec3>& directions, const glm::dvec3& lo,
+                                             const glm::dvec3& hi, const glm::ivec3& mip0Dims )
+        {
+            const glm::dvec3        extent        = ( hi - lo ) * 0.5;
+            const glm::dvec3        size          = hi - lo;
+            const double            localToVolume = 1.0 / std::max( { extent.x, extent.y, extent.z } );
+            MeshDistanceFieldVolume out;
+            out.LocalSpaceMeshBounds      = { glm::vec3( lo ), glm::vec3( hi ) };
+            const glm::dvec3 volumeExtent = extent * localToVolume;
+            constexpr int    kUnique      = static_cast<int>( kDistanceFieldUniqueBrickSize );
+            constexpr int    kBrick       = static_cast<int>( kDistanceFieldBrickSize );
+            constexpr int    kBorder      = static_cast<int>( kDistanceFieldObjectBorder );
+
+            for ( uint32_t mipIndex = 0; mipIndex < kDistanceFieldNumMips; ++mipIndex )
+            {
+                const int        div  = 1 << mipIndex;
+                const glm::ivec3 dims = ( mip0Dims + div - 1 ) / div;
+                // A one-voxel border around the mesh box, for gradients by central differences at its faces.
+                const glm::dvec3 texelSize   = size / glm::dvec3( dims * kUnique - 2 * kBorder );
+                const glm::dvec3 volumeMin   = lo - texelSize;
+                const glm::dvec3 volumeSize  = size + 2.0 * texelSize;
+                const glm::dvec3 indirection = volumeSize / glm::dvec3( dims );
+                const glm::dvec3 voxel       = indirection / static_cast<double>( kUnique );
+                const double maxEncoding = glm::length( voxel * localToVolume ) * kDistanceFieldBandSizeInVoxels;
+                const double trace       = maxEncoding / localToVolume;
+                const glm::dvec2 scaleBias( 2.0 * maxEncoding, -maxEncoding );
+
+                SdfLattice lattice;
+                lattice.N           = dims * kUnique + 1;
+                lattice.Origin      = volumeMin;
+                lattice.Voxel       = voxel;
+                const size_t points = static_cast<size_t>( lattice.N.x ) * lattice.N.y * lattice.N.z;
+                lattice.Distance.assign( points, static_cast<float>( trace ) );
+                lattice.Closest.assign( points, -1 );
+                ExactBand( mesh, lattice, trace );
+                for ( const int dk : { 1, -1 } )
+                    for ( const int dj : { 1, -1 } )
+                        for ( const int di : { 1, -1 } )
+                            Sweep( mesh, lattice, di, dj, dk, trace );
+                lattice.Inside.assign( points, 0 );
+                for ( int k = 0; k < lattice.N.z; ++k )
+                    for ( int j = 0; j < lattice.N.y; ++j )
+                        for ( int i = 0; i < lattice.N.x; ++i )
+                        {
+                            // UE traces only where the closest surface lies within the trace distance
+                            // (bTraceRays).
+                            const size_t idx = lattice.Index( i, j, k );
+                            if ( lattice.Closest[idx] >= 0 )
+                                lattice.Inside[idx] =
+                                     DfInsideByRays( mesh, bvh, directions, lattice.Point( i, j, k ), trace ) ? 1
+                                                                                                              : 0;
+                        }
+
+                SparseDistanceFieldMip& mip        = out.Mips[mipIndex];
+                mip.IndirectionDimensions          = glm::uvec3( dims );
+                mip.DistanceFieldToVolumeScaleBias = glm::vec2( scaleBias );
+                mip.IndirectionTable.assign( static_cast<size_t>( dims.x ) * dims.y * dims.z,
+                                             kDistanceFieldInvalidBrick );
+                std::vector<uint8_t> brick( kDistanceFieldBrickVoxels );
+                for ( int bz = 0; bz < dims.z; ++bz )
+                    for ( int by = 0; by < dims.y; ++by )
+                        for ( int bx = 0; bx < dims.x; ++bx )
+                        {
+                            uint8_t lowest = 255, highest = 0;
+                            for ( int z = 0; z < kBrick; ++z )
+                                for ( int y = 0; y < kBrick; ++y )
+                                    for ( int x = 0; x < kBrick; ++x )
+                                    {
+                                        const size_t idx =
+                                             lattice.Index( bx * kUnique + x, by * kUnique + y, bz * kUnique + z );
+                                        const double  sign = lattice.Inside[idx] != 0 ? -1.0 : 1.0;
+                                        const uint8_t q =
+                                             Quantize( sign * lattice.Distance[idx], localToVolume, scaleBias );
+                                        brick[( z * kBrick + y ) * kBrick + x] = q;
+                                        lowest                                 = std::min( lowest, q );
+                                        highest                                = std::max( highest, q );
+                                    }
+                            // UE keeps a brick only when it is not saturated at one end: all 255 is "outside, at
+                            // least the band away" and all 0 "inside, at least the band deep" - both read back as
+                            // the mip's maximum encoded distance without a brick.
+                            if ( lowest < 255 && highest > 0 )
+                            {
+                                mip.IndirectionTable[( static_cast<size_t>( bz ) * dims.y + by ) * dims.x + bx] =
+                                     mip.BrickCount();
+                                mip.BrickData.insert( mip.BrickData.end(), brick.begin(), brick.end() );
+                            }
+                        }
+                // Account for the border voxels: [-VolumePositionExtent, VolumePositionExtent] -> [uvMin, uvMin +
+                // uvSize].
+                const glm::dvec3 uvMin = glm::dvec3( kBorder ) / glm::dvec3( dims * kUnique );
+                const glm::dvec3 uvSize =
+                     glm::dvec3( dims * kUnique - 2 * kBorder ) / glm::dvec3( dims * kUnique );
+                const glm::dvec3 uvScale   = uvSize / ( 2.0 * volumeExtent );
+                mip.VolumeToVirtualUVScale = glm::vec3( uvScale );
+                mip.VolumeToVirtualUVAdd   = glm::vec3( volumeExtent * uvScale + uvMin );
+            }
+            return out;
+        }
     } // namespace
 
     Common::ResultStr<MeshDistanceFieldData>
@@ -441,10 +551,11 @@ namespace Desert::Assets
                  "distance field: {} two-sided flags for {} triangles", input.TriangleTwoSided.size(),
                  input.Indices.size() / 3 );
         if ( !( settings.VoxelDensity > 0.0f ) || settings.MaxPerMeshResolution < kDistanceFieldUniqueBrickSize ||
-             !( settings.ResolutionScale > 0.0f ) )
+             !( settings.ResolutionScale > 0.0f ) || !( settings.ChunkVoxelSize > 0.0f ) )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
-                 "distance field: settings out of range (density {}, max resolution {}, scale {})",
-                 settings.VoxelDensity, settings.MaxPerMeshResolution, settings.ResolutionScale );
+                 "distance field: settings out of range (density {}, max resolution {}, scale {}, chunk voxel {})",
+                 settings.VoxelDensity, settings.MaxPerMeshResolution, settings.ResolutionScale,
+                 settings.ChunkVoxelSize );
 
         SdfMesh mesh;
         mesh.Positions.reserve( input.Positions.size() );
@@ -464,120 +575,97 @@ namespace Desert::Assets
 
         MeshDistanceFieldData out;
         if ( mesh.Triangles.empty() )
-            return Common::MakeSuccess( std::move( out ) ); // no surface: every mip empty, nothing to sample
+            return Common::MakeSuccess( std::move( out ) ); // no surface: no volume, nothing to sample
 
-        glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( std::numeric_limits<double>::lowest() );
+        glm::dvec3 meshLo( std::numeric_limits<double>::max() ), meshHi( std::numeric_limits<double>::lowest() );
         for ( const glm::uvec3& tri : mesh.Triangles )
             for ( int c = 0; c < 3; ++c )
             {
-                lo = glm::min( lo, mesh.Positions[tri[c]] );
-                hi = glm::max( hi, mesh.Positions[tri[c]] );
+                meshLo = glm::min( meshLo, mesh.Positions[tri[c]] );
+                meshHi = glm::max( meshHi, mesh.Positions[tri[c]] );
             }
         // Positive extents, so a plane still has a volume (UE: extent at least one unit).
-        const glm::dvec3 centre = ( lo + hi ) * 0.5;
-        const glm::dvec3 extent = glm::max( ( hi - lo ) * 0.5, glm::dvec3( 1.0 ) );
-        lo                      = centre - extent;
-        hi                      = centre + extent;
-        const glm::dvec3 size   = hi - lo;
+        const auto positiveBox = []( glm::dvec3& lo, glm::dvec3& hi )
+        {
+            const glm::dvec3 centre = ( lo + hi ) * 0.5;
+            const glm::dvec3 extent = glm::max( ( hi - lo ) * 0.5, glm::dvec3( 1.0 ) );
+            lo                      = centre - extent;
+            hi                      = centre + extent;
+        };
+        glm::dvec3 lo = meshLo, hi = meshHi;
+        positiveBox( lo, hi );
+        const glm::dvec3 size = hi - lo;
 
+        constexpr int  kUnique = static_cast<int>( kDistanceFieldUniqueBrickSize );
+        constexpr int  kBorder = static_cast<int>( kDistanceFieldObjectBorder );
         const uint32_t perMeshMax =
              settings.ResolutionScale <= 1.0f ? settings.MaxPerMeshResolution / 2 : settings.MaxPerMeshResolution;
-        const int        maxBlocks     = static_cast<int>( std::min<uint32_t>(
-             ( perMeshMax + kDistanceFieldUniqueBrickSize / 2 ) / kDistanceFieldUniqueBrickSize,
-             kDistanceFieldMaxIndirectionDim - 1 ) );
+        const int maxBlocks =
+             std::max( 1, static_cast<int>( std::min<uint32_t>(
+                               ( perMeshMax + kDistanceFieldUniqueBrickSize / 2 ) / kDistanceFieldUniqueBrickSize,
+                               kDistanceFieldMaxIndirectionDim - 1 ) ) );
         const double     voxelsPerUnit = static_cast<double>( settings.VoxelDensity ) * settings.ResolutionScale;
-        const double     localToVolume = 1.0 / std::max( { extent.x, extent.y, extent.z } );
-        const glm::dvec3 desired  = size * voxelsPerUnit / static_cast<double>( kDistanceFieldUniqueBrickSize );
-        const glm::ivec3 mip0Dims = glm::clamp( glm::ivec3( glm::round( desired ) ), glm::ivec3( 1 ),
-                                                glm::ivec3( std::max( 1, maxBlocks ) ) );
-
-        out.LocalSpaceMeshBounds      = { glm::vec3( lo ), glm::vec3( hi ) };
-        const glm::dvec3 volumeExtent = extent * localToVolume;
-        constexpr int    kUnique      = static_cast<int>( kDistanceFieldUniqueBrickSize );
-        constexpr int    kBrick       = static_cast<int>( kDistanceFieldBrickSize );
-        constexpr int    kBorder      = static_cast<int>( kDistanceFieldObjectBorder );
+        const glm::dvec3 desired       = size * voxelsPerUnit / static_cast<double>( kUnique );
+        const glm::ivec3 mip0Dims =
+             glm::clamp( glm::ivec3( glm::round( desired ) ), glm::ivec3( 1 ), glm::ivec3( maxBlocks ) );
 
         const DfBvh                   bvh        = DfBvhBuild( mesh );
         const std::vector<glm::dvec3> directions = SignDirections();
-        for ( uint32_t mipIndex = 0; mipIndex < kDistanceFieldNumMips; ++mipIndex )
+
+        // The voxel the cap leaves this mesh (the coarsest axis) against its thinnest extent: a slab thinner than
+        // its voxel has no sample inside it, so its field never crosses zero and rays pass through it.
+        const glm::dvec3 cappedVoxel = size / glm::dvec3( mip0Dims * kUnique - 2 * kBorder );
+        const double     coarsest    = std::max( { cappedVoxel.x, cappedVoxel.y, cappedVoxel.z } );
+        const glm::dvec3 meshSize    = meshHi - meshLo;
+        const double     thinnest    = std::min( { meshSize.x, meshSize.y, meshSize.z } );
+        const double chunkVoxel = std::max( static_cast<double>( settings.ChunkVoxelSize ), 1.0 / voxelsPerUnit );
+        if ( !( coarsest > thinnest && coarsest > chunkVoxel ) )
         {
-            const int        div  = 1 << mipIndex;
-            const glm::ivec3 dims = ( mip0Dims + div - 1 ) / div;
-            // A one-voxel border around the mesh box, for gradients by central differences at its faces.
-            const glm::dvec3 texelSize   = size / glm::dvec3( dims * kUnique - 2 * kBorder );
-            const glm::dvec3 volumeMin   = lo - texelSize;
-            const glm::dvec3 volumeSize  = size + 2.0 * texelSize;
-            const glm::dvec3 indirection = volumeSize / glm::dvec3( dims );
-            const glm::dvec3 voxel       = indirection / static_cast<double>( kUnique );
-            const double     maxEncoding = glm::length( voxel * localToVolume ) * kDistanceFieldBandSizeInVoxels;
-            const double     trace       = maxEncoding / localToVolume;
-            const glm::dvec2 scaleBias( 2.0 * maxEncoding, -maxEncoding );
+            out.Volumes.push_back( BuildVolume( mesh, bvh, directions, lo, hi, mip0Dims ) );
+            return Common::MakeSuccess( std::move( out ) );
+        }
 
-            SdfLattice lattice;
-            lattice.N           = dims * kUnique + 1;
-            lattice.Origin      = volumeMin;
-            lattice.Voxel       = voxel;
-            const size_t points = static_cast<size_t>( lattice.N.x ) * lattice.N.y * lattice.N.z;
-            lattice.Distance.assign( points, static_cast<float>( trace ) );
-            lattice.Closest.assign( points, -1 );
-            ExactBand( mesh, lattice );
-            for ( const int dk : { 1, -1 } )
-                for ( const int dj : { 1, -1 } )
-                    for ( const int di : { 1, -1 } )
-                        Sweep( mesh, lattice, di, dj, dk, trace );
-            lattice.Inside.assign( points, 0 );
-            for ( int k = 0; k < lattice.N.z; ++k )
-                for ( int j = 0; j < lattice.N.y; ++j )
-                    for ( int i = 0; i < lattice.N.x; ++i )
+        // SPATIAL VOLUMES: a grid of cells over the mesh box, each at most the cap at the chunk voxel (with the
+        // border voxel on each side); a cell's volume is the part of the mesh box its triangles' boxes cover
+        // within it, and a cell no triangle reaches has none. Every volume is built from the whole mesh (ExactBand
+        // takes the triangles within its reach), so neighbouring volumes agree across their common face.
+        const double            cell   = static_cast<double>( maxBlocks * kUnique - 2 * kBorder ) * chunkVoxel;
+        const glm::ivec3        cells  = glm::max( glm::ivec3( glm::ceil( meshSize / cell ) ), glm::ivec3( 1 ) );
+        const size_t            nCells = static_cast<size_t>( cells.x ) * cells.y * cells.z;
+        std::vector<glm::dvec3> cellLo( nCells, glm::dvec3( std::numeric_limits<double>::max() ) );
+        std::vector<glm::dvec3> cellHi( nCells, glm::dvec3( std::numeric_limits<double>::lowest() ) );
+        for ( const glm::uvec3& tri : mesh.Triangles )
+        {
+            const glm::dvec3 tLo =
+                 glm::min( glm::min( mesh.Positions[tri.x], mesh.Positions[tri.y] ), mesh.Positions[tri.z] );
+            const glm::dvec3 tHi =
+                 glm::max( glm::max( mesh.Positions[tri.x], mesh.Positions[tri.y] ), mesh.Positions[tri.z] );
+            const glm::ivec3 c0 =
+                 glm::clamp( glm::ivec3( glm::floor( ( tLo - meshLo ) / cell ) ), glm::ivec3( 0 ), cells - 1 );
+            const glm::ivec3 c1 =
+                 glm::clamp( glm::ivec3( glm::floor( ( tHi - meshLo ) / cell ) ), glm::ivec3( 0 ), cells - 1 );
+            for ( int z = c0.z; z <= c1.z; ++z )
+                for ( int y = c0.y; y <= c1.y; ++y )
+                    for ( int x = c0.x; x <= c1.x; ++x )
                     {
-                        // UE traces only where the closest surface lies within the trace distance (bTraceRays).
-                        const size_t idx = lattice.Index( i, j, k );
-                        if ( lattice.Closest[idx] >= 0 )
-                            lattice.Inside[idx] =
-                                 DfInsideByRays( mesh, bvh, directions, lattice.Point( i, j, k ), trace ) ? 1 : 0;
+                        const size_t     c     = ( static_cast<size_t>( z ) * cells.y + y ) * cells.x + x;
+                        const glm::dvec3 boxLo = meshLo + glm::dvec3( x, y, z ) * cell;
+                        cellLo[c]              = glm::min( cellLo[c], glm::max( tLo, boxLo ) );
+                        cellHi[c]              = glm::max( cellHi[c], glm::min( tHi, boxLo + cell ) );
                     }
-
-            SparseDistanceFieldMip& mip        = out.Mips[mipIndex];
-            mip.IndirectionDimensions          = glm::uvec3( dims );
-            mip.DistanceFieldToVolumeScaleBias = glm::vec2( scaleBias );
-            mip.IndirectionTable.assign( static_cast<size_t>( dims.x ) * dims.y * dims.z,
-                                         kDistanceFieldInvalidBrick );
-            std::vector<uint8_t> brick( kDistanceFieldBrickVoxels );
-            for ( int bz = 0; bz < dims.z; ++bz )
-                for ( int by = 0; by < dims.y; ++by )
-                    for ( int bx = 0; bx < dims.x; ++bx )
-                    {
-                        uint8_t lowest = 255, highest = 0;
-                        for ( int z = 0; z < kBrick; ++z )
-                            for ( int y = 0; y < kBrick; ++y )
-                                for ( int x = 0; x < kBrick; ++x )
-                                {
-                                    const size_t idx =
-                                         lattice.Index( bx * kUnique + x, by * kUnique + y, bz * kUnique + z );
-                                    const double  sign = lattice.Inside[idx] != 0 ? -1.0 : 1.0;
-                                    const uint8_t q =
-                                         Quantize( sign * lattice.Distance[idx], localToVolume, scaleBias );
-                                    brick[( z * kBrick + y ) * kBrick + x] = q;
-                                    lowest                                 = std::min( lowest, q );
-                                    highest                                = std::max( highest, q );
-                                }
-                        // UE keeps a brick only when it is not saturated at one end: all 255 is "outside, at
-                        // least the band away" and all 0 "inside, at least the band deep" - both read back as
-                        // the mip's maximum encoded distance without a brick.
-                        if ( lowest < 255 && highest > 0 )
-                        {
-                            mip.IndirectionTable[( static_cast<size_t>( bz ) * dims.y + by ) * dims.x + bx] =
-                                 mip.BrickCount();
-                            mip.BrickData.insert( mip.BrickData.end(), brick.begin(), brick.end() );
-                        }
-                    }
-            // Account for the border voxels: [-VolumePositionExtent, VolumePositionExtent] -> [uvMin, uvMin +
-            // uvSize].
-            const glm::dvec3 uvMin     = glm::dvec3( kBorder ) / glm::dvec3( dims * kUnique );
-            const glm::dvec3 uvSize    = glm::dvec3( dims * kUnique - 2 * kBorder ) / glm::dvec3( dims * kUnique );
-            const glm::dvec3 uvScale   = uvSize / ( 2.0 * volumeExtent );
-            mip.VolumeToVirtualUVScale = glm::vec3( uvScale );
-            mip.VolumeToVirtualUVAdd   = glm::vec3( volumeExtent * uvScale + uvMin );
+        }
+        for ( size_t c = 0; c < nCells; ++c )
+        {
+            if ( cellLo[c].x > cellHi[c].x )
+                continue; // no triangle reaches this cell
+            glm::dvec3 vLo = cellLo[c], vHi = cellHi[c];
+            positiveBox( vLo, vHi );
+            // Enough bricks that no axis' voxel is coarser than the chunk voxel (rounding up, unlike the single
+            // volume's UE rounding - the chunk voxel is the guarantee these volumes exist for).
+            const glm::dvec3 voxels = ( vHi - vLo ) / chunkVoxel + 2.0 * kBorder;
+            const glm::ivec3 dims = glm::clamp( glm::ivec3( glm::ceil( voxels / static_cast<double>( kUnique ) ) ),
+                                                glm::ivec3( 1 ), glm::ivec3( maxBlocks ) );
+            out.Volumes.push_back( BuildVolume( mesh, bvh, directions, vLo, vHi, dims ) );
         }
         return Common::MakeSuccess( std::move( out ) );
     }

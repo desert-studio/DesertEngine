@@ -80,7 +80,7 @@ namespace Desert::Assets
         };
     } // namespace
 
-    uint32_t MeshDistanceFieldData::TotalBrickCount() const
+    uint32_t MeshDistanceFieldVolume::TotalBrickCount() const
     {
         uint32_t total = 0;
         for ( const auto& mip : Mips )
@@ -88,12 +88,20 @@ namespace Desert::Assets
         return total;
     }
 
-    glm::vec3 MeshDistanceFieldData::VolumePositionExtent() const
+    uint32_t MeshDistanceFieldData::TotalBrickCount() const
+    {
+        uint32_t total = 0;
+        for ( const auto& volume : Volumes )
+            total += volume.TotalBrickCount();
+        return total;
+    }
+
+    glm::vec3 MeshDistanceFieldVolume::VolumePositionExtent() const
     {
         return ( LocalSpaceMeshBounds.Max - LocalSpaceMeshBounds.Min ) * 0.5f * LocalToVolumeScale();
     }
 
-    float MeshDistanceFieldData::LocalToVolumeScale() const
+    float MeshDistanceFieldVolume::LocalToVolumeScale() const
     {
         const glm::vec3 extent  = ( LocalSpaceMeshBounds.Max - LocalSpaceMeshBounds.Min ) * 0.5f;
         const float     largest = std::max( { extent.x, extent.y, extent.z } );
@@ -147,24 +155,28 @@ namespace Desert::Assets
         DfPutBytes( out, kDfMagic, sizeof( kDfMagic ) );
         DfPutU32( out, kMeshDistanceFieldFormatVersion );
         DfPutU32( out, kDistanceFieldNumMips );
-        for ( int i = 0; i < 3; ++i )
-            DfPutF32( out, data.LocalSpaceMeshBounds.Min[i] );
-        for ( int i = 0; i < 3; ++i )
-            DfPutF32( out, data.LocalSpaceMeshBounds.Max[i] );
-        for ( const auto& mip : data.Mips )
+        DfPutU32( out, static_cast<uint32_t>( data.Volumes.size() ) );
+        for ( const MeshDistanceFieldVolume& volume : data.Volumes )
         {
             for ( int i = 0; i < 3; ++i )
-                DfPutU32( out, mip.IndirectionDimensions[i] );
-            DfPutU32( out, mip.BrickCount() );
-            DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.x );
-            DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.y );
+                DfPutF32( out, volume.LocalSpaceMeshBounds.Min[i] );
             for ( int i = 0; i < 3; ++i )
-                DfPutF32( out, mip.VolumeToVirtualUVScale[i] );
-            for ( int i = 0; i < 3; ++i )
-                DfPutF32( out, mip.VolumeToVirtualUVAdd[i] );
-            for ( const uint32_t entry : mip.IndirectionTable )
-                DfPutU32( out, entry );
-            DfPutBytes( out, mip.BrickData.data(), mip.BrickData.size() );
+                DfPutF32( out, volume.LocalSpaceMeshBounds.Max[i] );
+            for ( const auto& mip : volume.Mips )
+            {
+                for ( int i = 0; i < 3; ++i )
+                    DfPutU32( out, mip.IndirectionDimensions[i] );
+                DfPutU32( out, mip.BrickCount() );
+                DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.x );
+                DfPutF32( out, mip.DistanceFieldToVolumeScaleBias.y );
+                for ( int i = 0; i < 3; ++i )
+                    DfPutF32( out, mip.VolumeToVirtualUVScale[i] );
+                for ( int i = 0; i < 3; ++i )
+                    DfPutF32( out, mip.VolumeToVirtualUVAdd[i] );
+                for ( const uint32_t entry : mip.IndirectionTable )
+                    DfPutU32( out, entry );
+                DfPutBytes( out, mip.BrickData.data(), mip.BrickData.size() );
+            }
         }
         return out;
     }
@@ -175,7 +187,7 @@ namespace Desert::Assets
         char   magic[8]{};
         if ( !reader.Raw( magic, sizeof( magic ) ) || std::memcmp( magic, kDfMagic, sizeof( kDfMagic ) ) != 0 )
             return Common::MakeError<MeshDistanceFieldData>( "not a mesh distance field (magic is not DESTMSDF)" );
-        uint32_t version = 0, mipCount = 0;
+        uint32_t version = 0, mipCount = 0, volumeCount = 0;
         if ( !reader.U32( version ) || version != kMeshDistanceFieldFormatVersion )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
                  "mesh distance field version {} is not the supported {}", version,
@@ -183,43 +195,56 @@ namespace Desert::Assets
         if ( !reader.U32( mipCount ) || mipCount != kDistanceFieldNumMips )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
                  "mesh distance field states {} mips, the format has {}", mipCount, kDistanceFieldNumMips );
+        // A volume is at least its bounds and three mip headers: a count the bytes cannot hold is corrupt.
+        constexpr uint64_t kVolumeHeaderBytes = 24 + kDistanceFieldNumMips * 48;
+        if ( !reader.U32( volumeCount ) ||
+             static_cast<uint64_t>( volumeCount ) * kVolumeHeaderBytes > reader.Remaining() )
+            return Common::MakeFormattedError<MeshDistanceFieldData>(
+                 "mesh distance field states {} volumes, more than the {} bytes left hold", volumeCount,
+                 reader.Remaining() );
         MeshDistanceFieldData data;
-        bool                  ok = true;
-        for ( int i = 0; i < 3; ++i )
-            ok = ok && reader.F32( data.LocalSpaceMeshBounds.Min[i] );
-        for ( int i = 0; i < 3; ++i )
-            ok = ok && reader.F32( data.LocalSpaceMeshBounds.Max[i] );
-        for ( uint32_t m = 0; ok && m < kDistanceFieldNumMips; ++m )
+        data.Volumes.resize( volumeCount );
+        bool ok = true;
+        for ( uint32_t v = 0; ok && v < volumeCount; ++v )
         {
-            auto&    mip    = data.Mips[m];
-            uint32_t bricks = 0;
+            MeshDistanceFieldVolume& volume = data.Volumes[v];
             for ( int i = 0; i < 3; ++i )
-                ok = ok && reader.U32( mip.IndirectionDimensions[i] );
-            ok = ok && reader.U32( bricks ) && reader.F32( mip.DistanceFieldToVolumeScaleBias.x ) &&
-                 reader.F32( mip.DistanceFieldToVolumeScaleBias.y );
+                ok = ok && reader.F32( volume.LocalSpaceMeshBounds.Min[i] );
             for ( int i = 0; i < 3; ++i )
-                ok = ok && reader.F32( mip.VolumeToVirtualUVScale[i] );
-            for ( int i = 0; i < 3; ++i )
-                ok = ok && reader.F32( mip.VolumeToVirtualUVAdd[i] );
-            if ( !ok )
-                break;
-            const uint64_t cells = static_cast<uint64_t>( mip.IndirectionDimensions.x ) *
-                                   mip.IndirectionDimensions.y * mip.IndirectionDimensions.z;
-            const uint64_t brickBytes = static_cast<uint64_t>( bricks ) * kDistanceFieldBrickVoxels;
-            if ( cells * 4 + brickBytes > reader.Remaining() )
-                return Common::MakeFormattedError<MeshDistanceFieldData>(
-                     "mesh distance field mip {} states {} cells and {} bricks, more than the {} bytes left", m,
-                     cells, bricks, reader.Remaining() );
-            mip.IndirectionTable.resize( cells );
-            for ( auto& entry : mip.IndirectionTable )
+                ok = ok && reader.F32( volume.LocalSpaceMeshBounds.Max[i] );
+            for ( uint32_t m = 0; ok && m < kDistanceFieldNumMips; ++m )
             {
-                ok = ok && reader.U32( entry );
-                if ( ok && entry != kDistanceFieldInvalidBrick && entry >= bricks )
+                auto&    mip    = volume.Mips[m];
+                uint32_t bricks = 0;
+                for ( int i = 0; i < 3; ++i )
+                    ok = ok && reader.U32( mip.IndirectionDimensions[i] );
+                ok = ok && reader.U32( bricks ) && reader.F32( mip.DistanceFieldToVolumeScaleBias.x ) &&
+                     reader.F32( mip.DistanceFieldToVolumeScaleBias.y );
+                for ( int i = 0; i < 3; ++i )
+                    ok = ok && reader.F32( mip.VolumeToVirtualUVScale[i] );
+                for ( int i = 0; i < 3; ++i )
+                    ok = ok && reader.F32( mip.VolumeToVirtualUVAdd[i] );
+                if ( !ok )
+                    break;
+                const uint64_t cells = static_cast<uint64_t>( mip.IndirectionDimensions.x ) *
+                                       mip.IndirectionDimensions.y * mip.IndirectionDimensions.z;
+                const uint64_t brickBytes = static_cast<uint64_t>( bricks ) * kDistanceFieldBrickVoxels;
+                if ( cells * 4 + brickBytes > reader.Remaining() )
                     return Common::MakeFormattedError<MeshDistanceFieldData>(
-                         "mesh distance field mip {} names brick {} of {}", m, entry, bricks );
+                         "mesh distance field volume {} mip {} states {} cells and {} bricks, more than the {} "
+                         "bytes left",
+                         v, m, cells, bricks, reader.Remaining() );
+                mip.IndirectionTable.resize( cells );
+                for ( auto& entry : mip.IndirectionTable )
+                {
+                    ok = ok && reader.U32( entry );
+                    if ( ok && entry != kDistanceFieldInvalidBrick && entry >= bricks )
+                        return Common::MakeFormattedError<MeshDistanceFieldData>(
+                             "mesh distance field volume {} mip {} names brick {} of {}", v, m, entry, bricks );
+                }
+                mip.BrickData.resize( brickBytes );
+                ok = ok && reader.Raw( mip.BrickData.data(), mip.BrickData.size() );
             }
-            mip.BrickData.resize( brickBytes );
-            ok = ok && reader.Raw( mip.BrickData.data(), mip.BrickData.size() );
         }
         if ( !ok )
             return Common::MakeError<MeshDistanceFieldData>( "mesh distance field is truncated" );
@@ -239,6 +264,7 @@ namespace Desert::Assets
         DfPutF32( image, settings.VoxelDensity );
         DfPutU32( image, settings.MaxPerMeshResolution );
         DfPutF32( image, settings.ResolutionScale );
+        DfPutF32( image, settings.ChunkVoxelSize );
         // The materials' sidedness shapes the sign (UE keys the field on each section's bTwoSided): turning a
         // material two-sided re-derives every mesh drawing it, with no change to the mesh's render data.
         DfPutU32( image, static_cast<uint32_t>( submeshTwoSided.size() ) );

@@ -1,5 +1,5 @@
 // SAMPLING A MESH'S SIGNED DISTANCE FIELD from the GPU scene's brick atlas - the one GPU reading of
-// Assets::MeshDistanceFieldData. Ported from UE 5.8 Engine/Shaders/Private/DistanceFieldLightingShared.ush:74-95,
+// Assets::MeshDistanceFieldVolume. Ported from UE 5.8 Engine/Shaders/Private/DistanceFieldLightingShared.ush:74-95,
 // 381-475 (FDFAssetData, SampleSparseMeshSignedDistanceField, DistanceToMeshSurfaceStandalone) and
 // MeshDistanceFieldCommon.ush:9-38 (DistanceToNearestSurfaceForObject), adapted: GLSL, the asset and object
 // records unpacked from vec4 buffers laid out by Graphic/DistanceField/DistanceFieldSceneData, the brick index

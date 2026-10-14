@@ -174,8 +174,8 @@ namespace Desert::Graphic::DistanceField
     }
 
     Common::ResultStr<std::optional<uint32_t>>
-    DistanceFieldSceneData::Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                     const float                                                 distance )
+    DistanceFieldSceneData::Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field,
+                                     const float                                                   distance )
     {
         using Result = std::optional<uint32_t>;
         if ( !field )
@@ -221,7 +221,7 @@ namespace Desert::Graphic::DistanceField
         return Common::MakeSuccess<Result>( index );
     }
 
-    bool DistanceFieldSceneData::AddMip( Resident& resident, const Assets::MeshDistanceFieldData& field )
+    bool DistanceFieldSceneData::AddMip( Resident& resident, const Assets::MeshDistanceFieldVolume& field )
     {
         const uint32_t                        r      = resident.NumMips;
         const uint32_t                        source = Assets::kDistanceFieldNumMips - 1 - r;
@@ -253,7 +253,7 @@ namespace Desert::Graphic::DistanceField
         rows[1] = glm::vec4( mip.DistanceFieldToVolumeScaleBias, scale.x, scale.y );
         rows[2] = glm::vec4( scale.z, add );
 
-        const std::shared_ptr<const Assets::MeshDistanceFieldData> held = resident.Field.lock();
+        const std::shared_ptr<const Assets::MeshDistanceFieldVolume> held = resident.Field.lock();
         for ( uint32_t b = 0; b < slot.Bricks.size(); ++b )
             m_Pending.push_back( { slot.Bricks[b], held, source, b } );
         // The bricks are written by FlushUploads before any pass of this frame reads the record.
@@ -273,7 +273,7 @@ namespace Desert::Graphic::DistanceField
         m_IndirectionSlots.Free( slot.IndirectionOffset, slot.IndirectionCount );
         m_BrickSlots.Free( slot.Bricks );
         // The mip's bricks not yet written: by the field and mip they would come from.
-        const Assets::MeshDistanceFieldData* field  = resident.Field.lock().get();
+        const Assets::MeshDistanceFieldVolume* field  = resident.Field.lock().get();
         const uint32_t                       source = Assets::kDistanceFieldNumMips - 1 - r;
         std::erase_if( m_Pending, [field, source]( const PendingBrick& p )
                        { return p.Field.get() == field && p.Mip == source; } );
@@ -313,7 +313,7 @@ namespace Desert::Graphic::DistanceField
     void DistanceFieldSceneData::Stream()
     {
         // Out first: a field farther than its finer mips are worth gives them back.
-        std::vector<std::pair<Resident*, std::shared_ptr<const Assets::MeshDistanceFieldData>>> requests;
+        std::vector<std::pair<Resident*, std::shared_ptr<const Assets::MeshDistanceFieldVolume>>> requests;
         for ( auto& [key, resident] : m_Resident )
         {
             const uint32_t wanted = resident.Used ? DfWantedMips( resident.Distance ) : 1u;
@@ -364,7 +364,7 @@ namespace Desert::Graphic::DistanceField
         }
     }
 
-    uint32_t DistanceFieldSceneData::ResidentMips( const Assets::MeshDistanceFieldData* field ) const
+    uint32_t DistanceFieldSceneData::ResidentMips( const Assets::MeshDistanceFieldVolume* field ) const
     {
         const auto it = m_Resident.find( field );
         return it != m_Resident.end() ? it->second.NumMips : 0u;

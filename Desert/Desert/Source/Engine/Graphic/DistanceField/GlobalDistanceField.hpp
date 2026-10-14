@@ -53,10 +53,11 @@ namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
 
-    // One object the field is composited from: a mesh's field placed in the world.
+    // One object the field is composited from: one volume of a mesh's field placed in the world (a mesh whose
+    // field has several volumes - Assets::MeshDistanceFieldData::Volumes - is that many objects).
     struct GlobalDistanceFieldObject
     {
-        std::shared_ptr<const Assets::MeshDistanceFieldData> Field;
+        std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
         glm::mat4                                            World = glm::mat4( 1.0f );
     };
 
