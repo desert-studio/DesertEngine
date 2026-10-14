@@ -347,7 +347,7 @@ TEST( ModuleBoundary, EveryLegacyFileIsInExactlyItsModulesLibrary )
               ++it )
         {
             std::string item = ( *it )[1].str();
-            std::replace( item.begin(), item.end(), '\', '/' );
+            std::replace( item.begin(), item.end(), '\\', '/' );
             const std::size_t at = item.find( marker );
             if ( at != std::string::npos )
                 inLibraries[item.substr( at + marker.size() )].push_back( library );
