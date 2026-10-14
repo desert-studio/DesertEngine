@@ -48,7 +48,7 @@ namespace Common::Scalability
     // and sg.ResolutionQuality. Order is the UI order and the JSON order.
     enum class Group : int
     {
-        Textures = 0, // sg.TextureQuality — streaming pool, mip bias, cooked-size cap
+        Textures = 0, // sg.TextureQuality — mip bias (no streaming pool exists, so no pool row)
         Filtering,    // texture filter + anisotropy (UE folds this into Textures; split because players tune it
                       // alone)
         Shadows,      // sg.ShadowQuality — shadow map resolution, cascades, filter taps, RT shadows
@@ -122,7 +122,6 @@ namespace Common::Scalability
         FoliageDensityPercent,      // share of a foliage field's instances drawn at all. 25..100
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
-        TextureStreamingPoolMiB,      // Textures: resident texture budget
         ShadowRayTracing,             // Shadows: RayTracingMode
         GlobalIlluminationRayTracing, // GlobalIllumination: RayTracingMode
         ReflectionRayTracing,         // Reflections: RayTracingMode

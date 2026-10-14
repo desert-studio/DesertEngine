@@ -68,8 +68,6 @@ namespace Common::Scalability
              { P::FoliageDensityPercent, G::ViewDistance, "ViewDistance.FoliageDensityPercent", 25, 100, CL::None,
                "Graphic::FoliageQualityFor -> MeshRenderer::SetFoliageQuality -> CollectIsmInstances density" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
-             { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
-               std::nullopt },
              { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
                std::nullopt },
              { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,

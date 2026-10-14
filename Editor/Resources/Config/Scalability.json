@@ -133,24 +133,19 @@
         },
         "Textures": {
             "Low": {
-                "Textures.MipBias": 100,
-                "Textures.StreamingPoolMiB": 512
+                "Textures.MipBias": 100
             },
             "Medium": {
-                "Textures.MipBias": 0,
-                "Textures.StreamingPoolMiB": 1024
+                "Textures.MipBias": 0
             },
             "High": {
-                "Textures.MipBias": 0,
-                "Textures.StreamingPoolMiB": 2048
+                "Textures.MipBias": 0
             },
             "Epic": {
-                "Textures.MipBias": 0,
-                "Textures.StreamingPoolMiB": 4096
+                "Textures.MipBias": 0
             },
             "Cinematic": {
-                "Textures.MipBias": 0,
-                "Textures.StreamingPoolMiB": 8192
+                "Textures.MipBias": 0
             }
         },
         "Shadows": {

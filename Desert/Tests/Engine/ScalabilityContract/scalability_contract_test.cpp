@@ -72,11 +72,11 @@ namespace
       "Cinematic": { "Effects.CloudLightSamples": 64, "Effects.CloudShadowMapPercent": 100, "Effects.CloudStopTransmittancePerMille": 0 }
     },
     "Textures": {
-      "Low":       { "Textures.MipBias": 100, "Textures.StreamingPoolMiB": 512 },
-      "Medium":    { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 1024 },
-      "High":      { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 2048 },
-      "Epic":      { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 4096 },
-      "Cinematic": { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 8192 }
+      "Low":       { "Textures.MipBias": 100 },
+      "Medium":    { "Textures.MipBias": 0 },
+      "High":      { "Textures.MipBias": 0 },
+      "Epic":      { "Textures.MipBias": 0 },
+      "Cinematic": { "Textures.MipBias": 0 }
     },
     "Shadows": {
       "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.RayTracing": "None" },
@@ -259,6 +259,19 @@ TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
     EXPECT_NE( parsed.GetError().find( "Effects.CloudLightSamples" ), std::string::npos );
     // Each error names where it sits in the file.
     EXPECT_NE( parsed.GetError().find( "Groups.Effects.Medium" ), std::string::npos ) << parsed.GetError();
+}
+
+// No texture streaming pool exists (AM2's per-frame upload budget is not a resident pool), so the
+// Textures.StreamingPoolMiB row was deleted rather than kept as a value nothing reads: a table that still
+// carries it is refused as an unknown key.
+TEST( ScalabilityContract, TheTextureStreamingPoolRowIsGone )
+{
+    std::string withPool( kTable );
+    withPool.replace( withPool.find( "{ \"Textures.MipBias\": 100 }" ), 27,
+                      "{ \"Textures.MipBias\": 100, \"Textures.StreamingPoolMiB\": 512 }" );
+    const auto parsed = ScalabilityTable::Parse( withPool );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "Textures.StreamingPoolMiB" ), std::string::npos ) << parsed.GetError();
 }
 
 // AntiAliasing.Samples is the MSAA count only; TAA's quality is its own (placeholder) row, 0..2.
