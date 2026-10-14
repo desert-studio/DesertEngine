@@ -729,6 +729,9 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& rsm,
                                            System::MeshRenderer* meshRenderer, const ViewFrame& frame,
                                            const glm::vec4& lightColor );
+        // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
+        // FrameTransients::Lights — before the first lit node, on both paths.
+        void            AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,

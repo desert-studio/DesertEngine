@@ -3,8 +3,9 @@
 
 // THE VIEW'S LIGHT GRID (UE LightGridCommon.ush): the view frustum cut into froxels — square screen tiles of
 // zParams.w pixels times logarithmic depth slices — each holding the indices of the point and spot lights whose
-// bounds touch it. Built by Programs/Deferred/LightGridBuild.shader ("Deferred: LightGrid"), read by the
-// deferred composite, which shades a pixel with the lights of ITS cell only. Binding-free: the includer declares
+// bounds touch it. Built by Programs/Deferred/LightGridBuild.shader ("LightGrid"), read by the
+// deferred composite and the forward cell (Mesh/Surface/Pass_Forward.glslh), which shade a pixel with the lights of
+// ITS cell only. Binding-free: the includer declares
 // the buffers (the parameters as `lightGrid`, the cells as `lightGridCells[]`).
 //
 // One index space for both kinds: i < Counts.x is point light i, otherwise spot light (i - Counts.x). The builder

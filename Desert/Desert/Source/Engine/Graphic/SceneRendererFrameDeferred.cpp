@@ -358,6 +358,38 @@ namespace Desert::Graphic
         return accum;
     }
 
+    void SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        if ( deferred == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGrid: no DeferredLightingSystem, the view has no light grid" );
+            return;
+        }
+        // The grid is cut over the view's render extent (the scene target and the G-buffer are both drawn at it),
+        // with the matrices the geometry is rasterised with (the jittered projection: a pixel's cell is the one
+        // its depth sample fell in), on BOTH paths: the forward meshes read it as the deferred composite does.
+        const LightGridParamsPayload grid = MakeLightGridParams(
+             frame.View, frame.JitteredProjection, frame.NearPlane, frame.Split.Render.Width,
+             frame.Split.Render.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
+        // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.ShadowViews" /
+        // "Upload: Lights.GridParams", ordered before the nodes that read them.
+        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
+             graph, GetPointLights(), GetSpotLights(),
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
+        textures.Transients.Lights = lights;
+
+        // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
+        // it, before any lit node reads the lists.
+        graph.AddPass(
+             "LightGrid", RDG::PassFlags::Compute,
+             [deferred, lights]( RDG::PassBuilder& pass ) { deferred->DeclareGridBindings( pass, lights ); },
+             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordGrid( context, cells ); } );
+    }
+
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
@@ -423,33 +455,15 @@ namespace Desert::Graphic
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
-        // The view's light grid is cut over the render target the G-buffer was drawn at, with the matrices it was
-        // rasterised with (the jittered projection: a pixel's cell is the one its depth sample fell in).
-        const auto gbufferDesc = graph.GetTextureDesc( gbuffer[0] );
-        if ( !gbufferDesc )
+        // The lights and the light grid were made by AddFrameLightGrid, before any lit node.
+        const ViewLightBuffers& lights = refs.Transients.Lights;
+        if ( !lights.GridCells.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: LightGrid: {}", gbufferDesc.GetError() );
+            LOG_ERROR( "[SceneRenderer] Deferred: Composite: the view's light grid was not built this frame" );
             return;
         }
-        const LightGridParamsPayload grid = MakeLightGridParams(
-             frame.View, frame.JitteredProjection, frame.NearPlane, gbufferDesc.GetValue().Size.Width,
-             gbufferDesc.GetValue().Size.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
-        // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.GridParams", ordered before the
-        // LightGrid and Composite nodes that read them.
-        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
-             graph, GetPointLights(), GetSpotLights(),
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
-
-        // UE LightGridInjection: every froxel lists the lights that reach it, before the composite reads the
-        // lists.
-        graph.AddPass(
-             "Deferred: LightGrid", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass ) { deferred->DeclareGridBindings( pass, lights ); },
-             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return deferred->RecordGrid( context, cells ); } );
 
         graph.AddPass(
              "Deferred: Composite", RDG::PassFlags::Raster,

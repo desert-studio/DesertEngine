@@ -294,21 +294,17 @@ Shader "DeferredLighting"
         	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); return; }                 // Roughness
         	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); return; }                 // Ambient Occlusion
 
-        	// Light Complexity: count how many point/spot light VOLUMES cover this pixel (by radius/range +
-        	// cone), then map the count to a heat colour. Cheap in deferred — the light data is already bound.
+        	// Light Complexity: the number of point/spot lights the lighting below shades this pixel with — its froxel's
+        	// count in the view's light grid (UE's clustered "light count" view), so the picture is the cost actually
+        	// paid, not a separate estimate. An overflowed cell is shaded by every light and shows that total.
+        	// Normalized by a fixed budget (8 lights = full red) so the scale is stable.
         	if (dbg == 7)
         	{
-        		uint lights = 0u;
-        		for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        			if (distance(pointLights[i].position, worldPos) < pointLights[i].radius)
-        				lights++;
-        		for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		{
-        			vec3  toL = spotLights[i].position - worldPos;
-        			if (length(toL) < spotLights[i].range && SpotConeFactor(spotLights[i], normalize(toL)) > 0.0)
-        				lights++;
-        		}
-        		// Normalize by a fixed budget (8 overlapping lights = full red) so the scale is stable.
+        		const uint cell   = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        		const uint count  = lightGridCells[cell];
+        		const uint lights = LightGridCellOverflowed(lightGrid, count)
+        		                        ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
+        		                        : count;
         		oColor = vec4(HeatColor(float(lights) / 8.0), 1.0);
         		return;
         	}

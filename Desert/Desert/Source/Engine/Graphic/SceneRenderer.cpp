@@ -1166,6 +1166,9 @@ namespace Desert::Graphic
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
         AddFrameShadowDepths( graph, textures );
+        // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
+        // deferred composite, the glass).
+        AddFrameLightGrid( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
