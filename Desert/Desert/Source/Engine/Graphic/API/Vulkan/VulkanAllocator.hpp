@@ -150,6 +150,13 @@ namespace Desert::Graphic::API::Vulkan
 
         void Init( const std::shared_ptr<VulkanLogicalDevice>& device, VkInstance instance );
 
+        /// The capability rows of the device this allocator serves (copied at Init): what a buffer's usage
+        /// may name (MeshBufferUsage) is decided by what that device enabled.
+        [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
+        {
+            return m_DeviceCaps;
+        }
+
         void Shutdown();
 
         static VmaAllocator& GetVMAAllocator();
@@ -173,6 +180,7 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The device this allocator was created for. See Init() for why it is held rather than looked up.
         VkDevice m_Device = VK_NULL_HANDLE;
+        DeviceCaps m_DeviceCaps;
 
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;

@@ -40,6 +40,12 @@ namespace Desert::Graphic::API::Vulkan
         allocatorInfo.physicalDevice         = device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
         allocatorInfo.device                 = device->GetVulkanLogicalDevice();
         allocatorInfo.instance               = instance;
+        m_DeviceCaps                         = device->GetPhysicalDevice()->GetDeviceCaps();
+        // A buffer created with SHADER_DEVICE_ADDRESS (a BLAS build input, an acceleration structure, its
+        // scratch) must be bound to memory allocated with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT; VMA adds it
+        // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
+        if ( m_DeviceCaps.Has( Capability::BufferDeviceAddress ) )
+            allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
         VK_CHECK_RESULT( vmaCreateAllocator( &allocatorInfo, &s_VmaAllocator ) );
 
