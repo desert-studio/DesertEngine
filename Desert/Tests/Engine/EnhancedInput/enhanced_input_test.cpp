@@ -112,7 +112,8 @@ namespace
 
     Common::Content::AssetGuid ContextGuid( const InputMappingContextData& context )
     {
-        return Common::Content::AssetGuidFromText( context.Header->Guid ).GetValue();
+        const auto guid = Common::Content::AssetGuidFromText( context.Header->Guid );
+        return guid.GetValue();
     }
 
     RawInputFrame Keys( std::vector<Common::KeyCode> down )
