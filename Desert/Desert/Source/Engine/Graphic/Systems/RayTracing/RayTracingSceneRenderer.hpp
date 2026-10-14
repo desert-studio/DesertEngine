@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Core.hpp> // BOOLSUCCESS (the .cpp, VulkanRayTracingScene.cpp and the tests)
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
