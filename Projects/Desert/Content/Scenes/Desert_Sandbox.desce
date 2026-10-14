@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d1866666b352131a53d8c117532fd739",
         "Versions": {
-            "SCNE": 52,
+            "SCNE": 53,
             "UNIT": 1
         },
         "Dependencies": [
@@ -42,7 +42,11 @@
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
-                "ShowRadius": false
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0
             }
         },
         {
@@ -295,7 +299,11 @@
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
-                "ShowRadius": false
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0
             }
         },
         {
