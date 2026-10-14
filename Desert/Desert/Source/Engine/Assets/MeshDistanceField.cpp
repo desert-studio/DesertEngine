@@ -432,8 +432,10 @@ namespace Desert::Assets
             const double ms =
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
             if ( !field.IsSuccess() )
+            {
                 LOG_ERROR( "[MeshDistanceField] '{}': {}; the mesh is left out of every distance-field trace",
                            item.Asset, field.GetError() );
+            }
             else if ( const auto slot = item.Slot.lock(); slot != nullptr && !cancelled )
                 slot->Publish( field.ExtractValue() );
 
