@@ -35,18 +35,22 @@ Shader "SSR"
         layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
         Uniform(7) sampler2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
+        Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+        // The traced texel's representative ray, for the resolve's neighbour reuse (SSRResolveTiled.shader):
+        // xyz = the unit direction the texel's estimate stands for, w = log2 of the VNDF pdf of that direction.
+        layout(binding = 9, rgba16f) writeonly uniform image2D u_TraceRay;  // half resolution, like u_Trace
         #include <Common/HZBTrace.glslh>
 
         // Filled on the CPU from the view's matrices once per view frame (SSRRenderer::UploadTraceUniforms).
         // u_InvJitteredViewProjection = inverse of the matrix the G-buffer depth was rasterised with
         // (Common/ReconstructPosition.glslh); u_JitteredViewProjection = that matrix (rays are projected with it,
-        // so a ray and the depth it is tested against are in one space); u_PrevViewProjection = last frame's
-        // (ViewFrame::PrevViewProjection), where a hit is looked up in u_SceneColor.
+        // so a ray and the depth it is tested against are in one space). Where a hit was on last frame's screen
+        // is the hit pixel's VELOCITY, not a camera reprojection: a moving reflected object is read where it
+        // was, not where the still world behind it was (UE SSRT: the hit is reprojected through the velocity).
         Uniform(6) SSRTraceUB
         {
         	mat4 u_InvJitteredViewProjection;
         	mat4 u_JitteredViewProjection;
-        	mat4 u_PrevViewProjection;
         };
 
         PushConstant PushConstants
@@ -105,6 +109,21 @@ Shader "SSR"
         	return normalize(vec3(alpha * nh.x, alpha * nh.y, max(0.0, nh.z)));
         }
 
+        // log2 of the pdf with which SampleGGXVNDF + reflect draws the direction Lt (tangent space) for the view
+        // Ve: D(H) * G1(V) / (4 * N.V) (Heitz 2018 eq. 17 through the reflection Jacobian). The resolve divides
+        // its own BRDF by it to reuse this texel's estimate (Stachowiak 2015). log2: the pdf of a smooth lobe
+        // exceeds half-float range.
+        float Log2VNDFReflectionPdf(vec3 Ve, vec3 Lt, float alpha)
+        {
+        	const vec3  H   = normalize(Ve + Lt);
+        	const float a2  = alpha * alpha;
+        	const float d   = H.z * H.z * (a2 - 1.0) + 1.0;
+        	const float D   = a2 / (kPi * d * d);
+        	const float nDotV = max(Ve.z, 1e-4);
+        	const float G1V = 2.0 * nDotV / (nDotV + sqrt(a2 + (1.0 - a2) * nDotV * nDotV));
+        	return log2(max(D * G1V / (4.0 * nDotV), 1e-30));
+        }
+
         // Smith's masking term for GGX, G1(l) - the separable Smith G2 / G1(v) that is left of BRDF * cos / pdf once
         // the visible-normal pdf has cancelled D and G1(v) (Heitz 2018 eq. 19), Fresnel excluded (the split sum's).
         float SmithG1(float nDotL, float alpha)
@@ -150,9 +169,13 @@ Shader "SSR"
         }
 
         // The traced texel gPix (HALF RESOLUTION: one G-buffer pixel of a 2x2 block, rotating every frame).
-        // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header).
-        vec4 TraceFrom(ivec2 gPix, ivec2 gSize)
+        // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
+        // texel's representative ray for the resolve (u_TraceRay): the weighted mean direction of the rays that
+        // hit (of all rays when none did) and the log2 pdf of drawing it. A texel with no ray: pdf 0 (log -126),
+        // which the resolve reads as "nothing to reuse".
+        vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
         {
+        	ray = vec4(0.0, 0.0, 1.0, -126.0);
         	if (u_SSRParams2.y < 0.5)
         		return vec4(0.0); // no previous frame to reflect: all to the next source
 
@@ -190,6 +213,8 @@ Shader "SSR"
         	float hitWeight = 0.0;       // sum of w * conf, Karis-weighted (the radiance's normaliser)
         	float coverage  = 0.0;       // sum of w * conf
         	float weightSum = 0.0;       // sum of w over every ray
+        	vec3  hitDir    = vec3(0.0); // sum of w * conf * Lt (tangent space): the representative ray of the hits
+        	vec3  rayDir    = vec3(0.0); // sum of w * Lt over every ray: the representative ray when nothing hit
         	for (int r = 0; r < rays; ++r)
         	{
         		const vec3 H = SampleGGXVNDF(Ve, alpha, RayRandom(rotation, seed * uint(rays) + uint(r)));
@@ -199,6 +224,7 @@ Shader "SSR"
         		const vec3  L = normalize(Lt.x * T + Lt.y * B + Lt.z * N);
         		const float w = SmithG1(Lt.z, alpha);
         		weightSum += w;
+        		rayDir    += w * Lt;
 
         		// The screen direction: the ray's end a short way along (a quarter of the origin's view depth, cut
         		// short of the camera plane), projected. The walk extends it to the screen edge.
@@ -216,17 +242,16 @@ Shader "SSR"
         		if (confidence <= 0.0)
         			continue;
 
-        		// The hit's radiance: where the surface point was on LAST frame's screen.
-        		const ivec2 dSize  = textureSize(u_GBufferDepth, 0);
-        		const ivec2 dTexel = clamp(ivec2(walk.Position.xy * vec2(dSize)), ivec2(0), dSize - 1);
-        		const vec3  hitWorld =
-        		     ReconstructWorldPosition(walk.Position.xy, texelFetch(u_GBufferDepth, dTexel, 0).r,
-        		                              u_InvJitteredViewProjection);
-        		vec3 prevScreen;
-        		if (!ProjectToScreen(u_PrevViewProjection, hitWorld, prevScreen) ||
-        		    any(lessThan(prevScreen.xy, vec2(0.0))) || any(greaterThan(prevScreen.xy, vec2(1.0))))
+        		// The hit's radiance: where the surface point was on LAST frame's screen - the hit pixel minus its
+        		// velocity (uv = ndc * (0.5, -0.5) under the engine's flipped viewport, View/Velocity.hpp). The
+        		// velocity carries the object's own motion as well as the camera's, so a car passing in a shop window
+        		// is read where the car was, not where the street behind it was: no trail behind moving objects.
+        		const ivec2 vSize  = textureSize(u_Velocity, 0);
+        		const ivec2 vTexel = clamp(ivec2(walk.Position.xy * vec2(vSize)), ivec2(0), vSize - 1);
+        		const vec2  prevUV = walk.Position.xy - texelFetch(u_Velocity, vTexel, 0).xy * vec2(0.5, -0.5);
+        		if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0))))
         			continue;
-        		const vec3 L_i = textureLod(u_SceneColor, prevScreen.xy, 0.0).rgb;
+        		const vec3 L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb;
 
         		// Karis' inverse-luminance weight inside the estimator: a single ray onto a sun-lit wall does not
         		// become a firefly the temporal resolve has to average away over many frames.
@@ -234,8 +259,13 @@ Shader "SSR"
         		radiance  += L_i * (w * confidence * karis);
         		hitWeight += w * confidence * karis;
         		coverage  += w * confidence;
+        		hitDir    += (w * confidence) * Lt;
         	}
-        	if (weightSum <= 0.0 || hitWeight <= 0.0)
+        	if (weightSum <= 0.0)
+        		return vec4(0.0);
+        	const vec3 Lr = normalize(dot(hitDir, hitDir) > 0.0 ? hitDir : rayDir);
+        	ray = vec4(normalize(Lr.x * T + Lr.y * B + Lr.z * N), Log2VNDFReflectionPdf(Ve, Lr, alpha));
+        	if (hitWeight <= 0.0)
         		return vec4(0.0);
 
         	const float fade = SSRRoughnessFade(roughness) * u_SSRParams.z;
@@ -287,7 +317,10 @@ Shader "SSR"
         	ivec2 src = min(q * 2 + ivec2(frame & 1, (frame >> 1) & 1), full - 1);
         	if (ivec2(floor((vec2(src) + 0.5) / scale)) != tile)
         		return;
-        	imageStore(u_Trace, q, tileReflects ? TraceFrom(src, full) : vec4(0.0));
+        	vec4 ray   = vec4(0.0, 0.0, 1.0, -126.0);
+        	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
+        	imageStore(u_Trace, q, trace);
+        	imageStore(u_TraceRay, q, ray);
         }
     }
 }

@@ -371,7 +371,8 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SceneRenderer.cpp", F::kSSRTrace, width, height } );
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
             add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )

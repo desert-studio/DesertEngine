@@ -69,8 +69,10 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
 {
     using T = Desert::Graphic::System::SSRRenderer::TraceUniforms;
     ExpectTwin( "SSR.shader", "SSRTraceUB",
-                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } }, sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 64u );
+                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 128u );
 }
 
 TEST( UniformBlockLayout, SSRResolveUBIsTheResolveMaterialsStructInBothVariants )

@@ -32,15 +32,16 @@ namespace Desert::Graphic::System
     //     qualities), from a block pixel that rotates every frame so the temporal resolve sees all four:
     //     Reflections.RaysPerPixel GGX-VNDF rays per texel, each walked over the closest-depth HZB
     //     (HZBRenderer, Common/HZBTrace.glslh), combined with the ratio estimator (rgb = radiance of the hits,
-    //     a = the share of the lobe they answered). A hit's radiance is LAST frame's lit scene, reprojected: the
-    //     scene colour history this renderer owns, which this frame's scene copy refills (UE: the previous frame's
-    //     scene colour). The passes below draw a grid of tile quads whose vertex stage drops unmarked tiles
-    //     (Common/SSRTiles.glslh), so their cost follows the reflecting share of the screen - UE's
-    //     roughness-classified SSR tiles.
-    //  2) RESOLVE (the denoiser), at full resolution, reading the half-resolution trace bilinearly - the
-    //     upscale: alpha-weighted spatial filter + TEMPORAL accumulation — this
-    //     pixel's world position is reprojected through last frame's camera and the previous resolved
-    //     result is blended in (AABB-clamped against the current neighbourhood so it can't ghost).
+    //     a = the share of the lobe they answered) and written with the texel's representative ray (direction +
+    //     pdf) for the resolve. A hit's radiance is LAST frame's lit scene where the hit pixel's VELOCITY says it
+    //     was (a moving object is read where it was - no trail): the scene colour history this renderer owns,
+    //     which this frame's scene copy refills (UE: the previous frame's scene colour). The passes below draw a
+    //     grid of tile quads whose vertex stage drops unmarked tiles (Common/SSRTiles.glslh), so their cost
+    //     follows the reflecting share of the screen - UE's roughness-classified SSR tiles.
+    //  2) RESOLVE, at full resolution - the upscale: the RATIO ESTIMATOR over the 3x3 neighbouring trace texels
+    //     (each texel's ray reweighted by this pixel's BRDF over the pdf that drew it, Stachowiak 2015) +
+    //     TEMPORAL accumulation - the previous resolved result where this pixel was (its velocity) is blended
+    //     in, AABB-clamped against the current neighbourhood so it can't ghost.
     //     Ping-pongs between two accumulation targets; the one written this frame is what the lighting reads.
     // Runs in the manual chain after the G-buffer and the HZB, BEFORE the deferred lighting.
     class SSRRenderer final : public RenderSystem
@@ -122,6 +123,7 @@ namespace Desert::Graphic::System
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
+            RDG::TextureDesc TraceRay; // the trace texels' representative rays (SSR.shader u_TraceRay)
             RDG::TextureDesc TileMask;
         };
 
@@ -149,6 +151,8 @@ namespace Desert::Graphic::System
             return TraceTargets{
                  .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
                                                .Format = ViewTargetFormats::kSSRTrace },
+                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                                               .Format = ViewTargetFormats::kSSRTraceRay },
                  .TileMask = RDG::TextureDesc{ .Size   = { .Width = TileGrid( w ), .Height = TileGrid( h ) },
                                                .Format = ViewTargetFormats::kSSRTileMask },
             };
@@ -157,7 +161,8 @@ namespace Desert::Graphic::System
         // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
         // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
         // depth at 0/1/2); sceneHistory = GetSceneColorHistoryImage(), imported (last frame's lit opaque scene);
-        // hzb = this frame's closest-depth hierarchy (HZBRenderer).
+        // hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
+        // (FrameTransients::Velocity, written by the G-buffer pass): where a hit was on last frame's screen.
         // The G-buffer textures the three passes sample, as graph textures: albedo, normal, depth (world positions
         // are reconstructed from it, Common/ReconstructPosition.glslh).
         using GBufferInputs = std::array<RDG::TextureRef, 3>;
@@ -170,24 +175,23 @@ namespace Desert::Graphic::System
             glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's
         };
 
-        // The trace's uniform block (SSR.shader SSRTraceUB, std140: three mat4), from the ViewFrame once per view
+        // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
         // frame on the CPU - never inverted per workgroup in the shader. InvJitteredViewProjection keeps the name
         // every reconstructing reader uses (SSRResolveUB, DeferredUB) so the camera block can take it over.
+        // Last frame's screen position of a hit is the velocity target's, not a matrix's (SSR.shader).
         struct TraceUniforms
         {
             glm::mat4 InvJitteredViewProjection;
             glm::mat4 JitteredViewProjection;
-            glm::mat4 PrevViewProjection;
         };
 
         // GRAPH BUILD (before "Deferred: SSR"): this frame's TraceUniforms as a graph buffer, uploaded by the
         // graph's upload pass (Builder::QueueBufferUpload) so the trace is ordered after it.
-        // The three are ViewFrame's InvJitteredViewProjection, JitteredViewProjection and PrevViewProjection.
+        // The two are ViewFrame's InvJitteredViewProjection and JitteredViewProjection.
         static RDG::BufferRef UploadTraceUniforms( RDG::Builder& graph, const glm::mat4& invJitteredViewProjection,
-                                                   const glm::mat4& jitteredViewProjection,
-                                                   const glm::mat4& prevViewProjection )
+                                                   const glm::mat4& jitteredViewProjection )
         {
-            const TraceUniforms  uniforms{ invJitteredViewProjection, jitteredViewProjection, prevViewProjection };
+            const TraceUniforms  uniforms{ invJitteredViewProjection, jitteredViewProjection };
             const RDG::BufferRef buffer =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( TraceUniforms ) }, "SSR.TraceUB" );
             graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const TraceUniforms>( &uniforms, 1 ) ) );
@@ -199,8 +203,9 @@ namespace Desert::Graphic::System
         // them with (the images' own: linear, REPEAT; the deferred composite reads the same G-buffer with it), @p
         // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
-        void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
-                                   const GBufferInputs& gbuffer, RDG::TextureRef sceneHistory, RDG::TextureRef hzb,
+        void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
+                                   RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
+                                   RDG::TextureRef sceneHistory, RDG::TextureRef hzb,
                                    RDG::BufferRef uniforms ) const
         {
             if ( !m_TracePipeline )
@@ -214,7 +219,10 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearClamp() )
                  .Sampled( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
+                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
                  .Uniform( "SSRTraceUB", uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
@@ -251,15 +259,17 @@ namespace Desert::Graphic::System
                                                             TileGrid( Height() ), 1 );
         }
 
-        // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial + temporal
-        // resolve of @p trace (read bilinearly - the upscale) over @p history (GetHistoryImage(), imported),
-        // drawn over the tiles @p tiles marks.
+        // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial (ratio
+        // estimator over @p trace and @p traceRay) + temporal resolve over @p history (GetHistoryImage(),
+        // imported, reprojected through @p velocity), drawn over the tiles @p tiles marks.
         //
-        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT, u_GBufferDepth point
-        // CLAMP, u_Trace (the bilinear upscale) linear CLAMP, u_SSRTileMask point CLAMP, mip 0 of both - the
-        // samplers the exec bound before; the resolve material is the other route.
-        void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef tiles,
-                                     RDG::TextureRef history, const GBufferInputs& gbuffer ) const
+        // SETUP of "Deferred: SSRResolve": its one block (block 0) - u_History linear REPEAT; point CLAMP for the
+        // G-buffer depth and normal, the velocity, the trace and its rays (read texel by texel: the ratio
+        // estimator reuses each neighbour texel's ray, SSRResolveTiled.shader) and u_SSRTileMask, mip 0 of the
+        // transients; the resolve material is the other route.
+        void DeclareResolveBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
+                                     RDG::TextureRef tiles, RDG::TextureRef history, const GBufferInputs& gbuffer,
+                                     RDG::TextureRef velocity ) const
         {
             if ( !m_ResolvePipeline || !m_ResolveMaterial )
                 return;
@@ -269,8 +279,14 @@ namespace Desert::Graphic::System
                            RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
-                           RDG::SamplerDesc::LinearClamp() )
+                           RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_TraceRay", traceRay, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
+                           RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
                            RDG::SamplerDesc::PointClamp() );
         }

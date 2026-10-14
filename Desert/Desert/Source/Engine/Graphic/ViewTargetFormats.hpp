@@ -60,6 +60,8 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // Screen-space reflections and RSM global illumination.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
+    // The trace texel's representative ray (SSR.shader u_TraceRay): xyz = unit direction, w = log2 pdf.
+    inline constexpr ImageFormat kSSRTraceRay = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.

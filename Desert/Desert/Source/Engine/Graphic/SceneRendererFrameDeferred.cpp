@@ -579,14 +579,24 @@ namespace Desert::Graphic
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
         if ( !traceTargets )
             return {};
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: SSR needs the view's velocity (where a hit was last frame), the "
+                       "frame has none" );
+            return {};
+        }
         const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
         if ( !hzb.IsValid() )
             return {};
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled resolve.
-        const RDG::TextureRef trace   = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
-        const RDG::TextureRef tiles   = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
-        // A lost trace reflects nothing; a lost tile mask marks no tile (RDG-FAULT1).
+        const RDG::TextureRef trace    = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
+        const RDG::TextureRef traceRay = graph.CreateTexture( traceTargets->TraceRay, "SSR.TraceRay" );
+        const RDG::TextureRef tiles    = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
+        // A lost trace reflects nothing; a lost tile mask marks no tile (RDG-FAULT1). A lost ray (a zero
+        // direction) is skipped by the resolve's estimator.
         graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
+        graph.SetFaultDefault( traceRay, RDG::FaultDefault::Black );
         graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
         const RDG::TextureRef accum   = textures.Import( ssr.GetAccumImage(), "SSR" );
         const RDG::TextureRef history = textures.Import( ssr.GetHistoryImage(), "SSR.History" );
@@ -597,7 +607,7 @@ namespace Desert::Graphic
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
                                                          textures.Depth( m_GBuffer, "GBuffer" ) };
         const RDG::BufferRef                     traceUniforms = System::SSRRenderer::UploadTraceUniforms(
-             graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection, frame.PrevViewProjection );
+             graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection );
         // Build time, after Prepare (see GITemporal).
         const bool                         ssrHistoryReadable   = ssr.HistoryReadableIn( frame );
         const bool                         sceneHistoryReadable = ssr.SceneColorHistoryReadableIn( frame );
@@ -611,7 +621,8 @@ namespace Desert::Graphic
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 ssr.DeclareTraceBindings( pass, trace, tiles, inputs, sceneHistory, hzb, traceUniforms );
+                 ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                           traceUniforms );
                  // The G-buffer colours the trace does not sample stay declared as before.
                  ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                  ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
@@ -623,7 +634,7 @@ namespace Desert::Graphic
              "Deferred: SSRResolve", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 ssr.DeclareResolveBindings( pass, trace, tiles, history, inputs );
+                 ssr.DeclareResolveBindings( pass, trace, traceRay, tiles, history, inputs, velocity );
                  // Every G-buffer colour stays declared as before (the block samples only the depth).
                  ReadAll( pass, { gbuffer.begin(), gbuffer.end() }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
