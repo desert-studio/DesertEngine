@@ -8,9 +8,8 @@
 // carries each sample's closest triangle to its neighbours - bounded by the encoding band, so the cost follows the
 // surface and not the volume. The sign is a crossing-parity vote along the three lattice axes: a sample is inside
 // along an axis when an odd number of surfaces lies on BOTH sides of it on that axis line, and inside overall when
-// two of the three axes agree. An open one-sided sheet (a ground plane, a facade without a back) has nothing to
-// pair with, so within the band the side it faces away from is made inside by its closest triangle's normal
-// (BehindOneSidedFace), as UE's backface quarter makes it. A TWO-SIDED triangle (its
+// two of the three axes agree - which keeps an open sheet (a facade without a back, a ground plane) from turning
+// the half-space behind it negative, the case UE's backface quarter guards against. A TWO-SIDED triangle (its
 // section's material is two-sided: foliage cards, leaves, awnings) never votes, as UE's IsHitTwoSided never counts
 // a backface: it bounds no volume, so the samples around it carry the distance to its surface and stay outside.
 #include <Engine/Assets/MeshDistanceField.hpp>
@@ -45,38 +44,32 @@ namespace Desert::Assets
         };
 
         // Ericson, Real-Time Collision Detection 5.1.5: the closest point of triangle abc to p.
-        glm::dvec3 ClosestPointOnTriangle( const glm::dvec3& p, const glm::dvec3& a, const glm::dvec3& b,
-                                           const glm::dvec3& c )
+        double PointTriangleDistance( const glm::dvec3& p, const glm::dvec3& a, const glm::dvec3& b,
+                                      const glm::dvec3& c )
         {
             const glm::dvec3 ab = b - a, ac = c - a, ap = p - a;
             const double     d1 = glm::dot( ab, ap ), d2 = glm::dot( ac, ap );
             if ( d1 <= 0.0 && d2 <= 0.0 )
-                return a;
+                return glm::length( ap );
             const glm::dvec3 bp = p - b;
             const double     d3 = glm::dot( ab, bp ), d4 = glm::dot( ac, bp );
             if ( d3 >= 0.0 && d4 <= d3 )
-                return b;
+                return glm::length( bp );
             const double vc = d1 * d4 - d3 * d2;
             if ( vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 )
-                return a + ab * ( d1 / ( d1 - d3 ) );
+                return glm::length( p - ( a + ab * ( d1 / ( d1 - d3 ) ) ) );
             const glm::dvec3 cp = p - c;
             const double     d5 = glm::dot( ab, cp ), d6 = glm::dot( ac, cp );
             if ( d6 >= 0.0 && d5 <= d6 )
-                return c;
+                return glm::length( cp );
             const double vb = d5 * d2 - d1 * d6;
             if ( vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 )
-                return a + ac * ( d2 / ( d2 - d6 ) );
+                return glm::length( p - ( a + ac * ( d2 / ( d2 - d6 ) ) ) );
             const double va = d3 * d6 - d5 * d4;
             if ( va <= 0.0 && ( d4 - d3 ) >= 0.0 && ( d5 - d6 ) >= 0.0 )
-                return b + ( c - b ) * ( ( d4 - d3 ) / ( ( d4 - d3 ) + ( d5 - d6 ) ) );
+                return glm::length( p - ( b + ( c - b ) * ( ( d4 - d3 ) / ( ( d4 - d3 ) + ( d5 - d6 ) ) ) ) );
             const double denom = 1.0 / ( va + vb + vc );
-            return a + ab * ( vb * denom ) + ac * ( vc * denom );
-        }
-
-        double PointTriangleDistance( const glm::dvec3& p, const glm::dvec3& a, const glm::dvec3& b,
-                                      const glm::dvec3& c )
-        {
-            return glm::length( p - ClosestPointOnTriangle( p, a, b, c ) );
+            return glm::length( p - ( a + ab * ( vb * denom ) + ac * ( vc * denom ) ) );
         }
 
         // SDFGen's tie-broken orientation (makelevelset3.cpp): exactly one of two triangles sharing an edge claims
@@ -136,32 +129,6 @@ namespace Desert::Assets
         {
             const glm::uvec3& tri = mesh.Triangles[t];
             return PointTriangleDistance( p, mesh.Positions[tri.x], mesh.Positions[tri.y], mesh.Positions[tri.z] );
-        }
-
-        // BEHIND AN OPEN ONE-SIDED SHEET IS INSIDE (UE: a sample is inside when more than a quarter of its rays
-        // hit backfaces, so the side a ground plane or a backless facade faces away from is negative). The parity
-        // vote cannot see that - an open sheet has nothing on its far side to pair with - and left such a sheet
-        // UNSIGNED: |d| has no zero crossing, and resampled into a global clipmap whose voxels are coarser than
-        // the sheet's band its trilinear minimum is up to half a voxel, so wherever the sheet lies near the middle
-        // of a voxel the trace's half-voxel surface expansion missed it - contour rings of holes in a street seen
-        // from above. A sample within the band (it has a closest triangle) is inside here when that triangle is
-        // one- sided and the sample lies behind it, along its normal (within ~25 degrees: a seam between coplanar
-        // triangles qualifies, a sample off a sheet's border or a saddle vertex of a closed mesh does not, and
-        // keeps its parity sign).
-        bool BehindOneSidedFace( const SdfMesh& mesh, const int t, const glm::dvec3& p )
-        {
-            if ( t < 0 || mesh.TwoSided[t] != 0 )
-                return false;
-            const glm::uvec3& tri = mesh.Triangles[t];
-            const glm::dvec3& a   = mesh.Positions[tri.x];
-            const glm::dvec3& b   = mesh.Positions[tri.y];
-            const glm::dvec3& c   = mesh.Positions[tri.z];
-            const glm::dvec3  n   = glm::cross( b - a, c - a );
-            const glm::dvec3  d   = p - ClosestPointOnTriangle( p, a, b, c );
-            const double      nl = glm::length( n ), dl = glm::length( d );
-            if ( nl <= 0.0 || dl <= 0.0 )
-                return false;
-            return glm::dot( n, d ) < -0.9 * nl * dl;
         }
 
         void ExactBand( const SdfMesh& mesh, SdfLattice& lattice )
@@ -424,12 +391,7 @@ namespace Desert::Assets
                                 {
                                     const size_t idx =
                                          lattice.Index( bx * kUnique + x, by * kUnique + y, bz * kUnique + z );
-                                    const bool inside =
-                                         lattice.InsideVotes[idx] >= 2 ||
-                                         BehindOneSidedFace( mesh, lattice.Closest[idx],
-                                                             lattice.Point( bx * kUnique + x, by * kUnique + y,
-                                                                            bz * kUnique + z ) );
-                                    const double  sign = inside ? -1.0 : 1.0;
+                                    const double  sign = lattice.InsideVotes[idx] >= 2 ? -1.0 : 1.0;
                                     const uint8_t q =
                                          Quantize( sign * lattice.Distance[idx], localToVolume, scaleBias );
                                     brick[( z * kBrick + y ) * kBrick + x] = q;
