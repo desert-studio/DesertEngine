@@ -32,7 +32,7 @@ namespace Desert::Graphic::API::Vulkan
     } // namespace
 
     Common::ResultStr<std::shared_ptr<VulkanRayTracingGeometry>>
-    VulkanRayTracingGeometry::BuildStatic( Mesh& mesh )
+    VulkanRayTracingGeometry::BuildStatic( Mesh& mesh, const uint64_t hiddenSubmeshes )
     {
 
         const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
@@ -48,7 +48,7 @@ namespace Desert::Graphic::API::Vulkan
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 
-        const auto segments = RayTracing::DescribeStaticMeshGeometry( mesh.GetSubmeshes() );
+        const auto segments = RayTracing::DescribeStaticMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
         if ( segments.empty() )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 

@@ -34,7 +34,7 @@ namespace
 TEST( RayTracingBlasInput, OneGeometryAndRangePerSegmentWithTheSubmeshRange )
 {
     const std::vector<Submesh> submeshes = { MakeSubmesh( 0, 4, 0, 6 ), MakeSubmesh( 4, 8, 6, 12 ) };
-    const auto                 segments  = DescribeStaticMeshGeometry( submeshes );
+    const auto                 segments  = DescribeStaticMeshGeometry( submeshes, 0 );
     const VulkanBlasBuildInput input     = TranslateBlasGeometry( segments, kVertexAddress, kIndexAddress );
 
     ASSERT_EQ( input.Geometries.size(), 2u );
@@ -57,7 +57,7 @@ TEST( RayTracingBlasInput, TrianglesReadTheMeshPositionsAndIndicesAsOpaque )
 {
     const std::vector<Submesh> submeshes = { MakeSubmesh( 10, 5, 0, 3 ) };
     const VulkanBlasBuildInput input =
-         TranslateBlasGeometry( DescribeStaticMeshGeometry( submeshes ), kVertexAddress, kIndexAddress );
+         TranslateBlasGeometry( DescribeStaticMeshGeometry( submeshes, 0 ), kVertexAddress, kIndexAddress );
     ASSERT_EQ( input.Geometries.size(), 1u );
 
     const VkAccelerationStructureGeometryKHR& geometry = input.Geometries[0];
@@ -82,7 +82,7 @@ TEST( RayTracingBlasInput, BuildInfoIsABottomLevelBuildOfTheGeometriesAndScratch
 {
     const std::vector<Submesh> submeshes = { MakeSubmesh( 0, 3, 0, 3 ), MakeSubmesh( 3, 3, 3, 3 ) };
     const VulkanBlasBuildInput input =
-         TranslateBlasGeometry( DescribeStaticMeshGeometry( submeshes ), kVertexAddress, kIndexAddress );
+         TranslateBlasGeometry( DescribeStaticMeshGeometry( submeshes, 0 ), kVertexAddress, kIndexAddress );
     const VkAccelerationStructureBuildGeometryInfoKHR info = MakeBlasBuildInfo( input );
 
     EXPECT_EQ( info.type, VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR );

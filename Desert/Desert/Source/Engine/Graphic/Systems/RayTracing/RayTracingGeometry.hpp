@@ -39,18 +39,32 @@ namespace Desert::Graphic::RayTracing
         RayTracingIndexType IndexType = RayTracingIndexType::UInt32;
         uint32_t            IndexByteOffset = 0; // primitiveOffset: bytes into the index buffer
         uint32_t            PrimitiveCount  = 0; // triangles
+        // The submesh this geometry is: what a hit's geometry index maps back to (its material slot). Not the
+        // segment's position, because a hidden submesh contributes no segment and shifts the ones after it.
+        uint32_t SubmeshIndex = 0;
     };
 
-    // Every submesh with at least one triangle at LOD 0, in submesh order. A submesh with no LOD chain (procedural
-    // meshes) uses its own index range, which IS its LOD 0 (Submesh::LODs comment). A trailing partial triangle
-    // (IndexCount not a multiple of 3) is not a triangle and is not counted.
+    // Is submesh @p index hidden by @p hiddenSubmeshes (MeshComponent::HiddenSubmeshes: bit i = submesh i hidden)?
+    // The mask holds 64 submeshes; one past that cannot be hidden and is visible, as at draw.
+    [[nodiscard]] constexpr bool IsSubmeshHidden( const uint64_t hiddenSubmeshes, const std::size_t index )
+    {
+        return index < 64u && ( hiddenSubmeshes >> index & 1ull ) != 0;
+    }
+
+    // Every submesh with at least one triangle at LOD 0 that @p hiddenSubmeshes does not hide, in submesh order
+    // (UE: a section hidden in ray tracing has no segment, so a ray passes where the raster draws nothing). A
+    // submesh with no LOD chain (procedural meshes) uses its own index range, which IS its LOD 0 (Submesh::LODs
+    // comment). A trailing partial triangle (IndexCount not a multiple of 3) is not a triangle and is not counted.
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes )
+    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
     {
         std::vector<RayTracingGeometrySegment> segments;
         segments.reserve( submeshes.size() );
-        for ( const Submesh& submesh : submeshes )
+        for ( std::size_t index = 0; index < submeshes.size(); ++index )
         {
+            if ( IsSubmeshHidden( hiddenSubmeshes, index ) )
+                continue;
+            const Submesh& submesh     = submeshes[index];
             const uint32_t indexOffset = submesh.LODs.empty() ? submesh.IndexOffset : submesh.LODs[0].IndexOffset;
             const uint32_t indexCount  = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
             const uint32_t triangles   = indexCount / 3u;
@@ -66,6 +80,7 @@ namespace Desert::Graphic::RayTracing
             segment.IndexType       = RayTracingIndexType::UInt32;
             segment.IndexByteOffset = indexOffset * static_cast<uint32_t>( sizeof( uint32_t ) );
             segment.PrimitiveCount  = triangles;
+            segment.SubmeshIndex    = static_cast<uint32_t>( index );
             segments.push_back( segment );
         }
         return segments;

@@ -28,8 +28,10 @@ namespace Desert::Graphic::API::Vulkan
         // the build (the upload path is blocking, like the buffer copies before it). Null result value: the
         // device has no acceleration structures, the mesh is skinned, or it has no triangle — no BLAS by design.
         // An error: the device can build one and the build failed.
+        // @p hiddenSubmeshes (bit i = submesh i) are left out of the build: 0 for the mesh's own BLAS, the
+        // instance's mask for the variant an instance hiding some of them traces.
         [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanRayTracingGeometry>>
-        BuildStatic( Mesh& mesh );
+        BuildStatic( Mesh& mesh, uint64_t hiddenSubmeshes );
 
         ~VulkanRayTracingGeometry() override;
 

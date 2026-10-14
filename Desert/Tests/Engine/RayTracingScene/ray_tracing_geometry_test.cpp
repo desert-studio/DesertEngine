@@ -28,7 +28,7 @@ namespace
 TEST( RayTracingGeometry, ASubmeshDescribesTheMeshVertexLayoutAndItsIndexRangeInBytes )
 {
     const std::vector<Submesh> submeshes{ MakeSubmesh( 100, 24, 36, 60 ) };
-    const auto                 segments = DescribeStaticMeshGeometry( submeshes );
+    const auto                 segments = DescribeStaticMeshGeometry( submeshes, 0 );
     ASSERT_EQ( segments.size(), 1u );
     const RayTracingGeometrySegment& s = segments[0];
     EXPECT_EQ( s.VertexFormat, RayTracingVertexFormat::Float3 );
@@ -47,7 +47,7 @@ TEST( RayTracingGeometry, TheBuildReadsLodZeroOfAChainedSubmesh )
 {
     Submesh submesh     = MakeSubmesh( 0, 8, 0, 36 );
     submesh.LODs        = { { 600, 30 }, { 900, 12 } };
-    const auto segments = DescribeStaticMeshGeometry( std::vector<Submesh>{ submesh } );
+    const auto segments = DescribeStaticMeshGeometry( std::vector<Submesh>{ submesh }, 0 );
     ASSERT_EQ( segments.size(), 1u );
     EXPECT_EQ( segments[0].IndexByteOffset, 600u * 4u );
     EXPECT_EQ( segments[0].PrimitiveCount, 10u );
@@ -59,10 +59,36 @@ TEST( RayTracingGeometry, EmptySubmeshesAndPartialTrianglesAreNotGeometry )
 {
     const std::vector<Submesh> submeshes{ MakeSubmesh( 0, 3, 0, 2 ), MakeSubmesh( 3, 0, 2, 0 ),
                                           MakeSubmesh( 3, 4, 2, 7 ) };
-    const auto                 segments = DescribeStaticMeshGeometry( submeshes );
+    const auto                 segments = DescribeStaticMeshGeometry( submeshes, 0 );
     ASSERT_EQ( segments.size(), 1u );
     EXPECT_EQ( segments[0].FirstVertex, 3u );
     EXPECT_EQ( segments[0].PrimitiveCount, 2u );
+}
+
+// Red if a hidden submesh still contributes a segment (a ray hits what the raster does not draw), if a visible one
+// is dropped, if a segment's SubmeshIndex is its position rather than its submesh (the hit's material would
+// shift), or if a submesh past the mask's 64 bits reads a wrapped bit and disappears.
+TEST( RayTracingGeometry, HiddenSubmeshesContributeNoSegmentAndTheRestKeepTheirSubmeshIndex )
+{
+    std::vector<Submesh> submeshes;
+    for ( uint32_t i = 0; i < 66; ++i )
+        submeshes.push_back( MakeSubmesh( i * 3u, 3, i * 3u, 3 ) );
+
+    const uint64_t hidden   = ( 1ull << 0 ) | ( 1ull << 2 ) | ( 1ull << 63 );
+    const auto     segments = DescribeStaticMeshGeometry( submeshes, hidden );
+    ASSERT_EQ( segments.size(), 63u );
+    EXPECT_EQ( segments[0].SubmeshIndex, 1u );
+    EXPECT_EQ( segments[0].FirstVertex, 3u );
+    EXPECT_EQ( segments[1].SubmeshIndex, 3u );
+    EXPECT_EQ( segments[1].IndexByteOffset, 9u * 4u );
+    EXPECT_EQ( segments[60].SubmeshIndex, 62u );
+    EXPECT_EQ( segments[61].SubmeshIndex, 64u );
+    EXPECT_EQ( segments[62].SubmeshIndex, 65u );
+
+    const auto all = DescribeStaticMeshGeometry( submeshes, 0 );
+    ASSERT_EQ( all.size(), 66u );
+    for ( std::size_t i = 0; i < all.size(); ++i )
+        EXPECT_EQ( all[i].SubmeshIndex, i );
 }
 
 // Red if the BLAS or the TLAS lands under a kind that is not its own (or under the same one), if the bytes are not
