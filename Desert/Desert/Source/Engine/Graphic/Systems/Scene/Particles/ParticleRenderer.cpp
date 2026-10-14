@@ -435,18 +435,19 @@ namespace Desert::Graphic::System
             {
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
-                // The legacy program reads its Spawn from Channel particles; a compiled stack its parameter rows
-                // and curve atlas.
-                const bool            stack  = ve.Program != nullptr;
-                Common::BoolResultStr extra  = BOOLSUCCESS;
-                Common::BoolResultStr curves = BOOLSUCCESS;
+                // Every program reads its Spawn from Channel rows; a compiled stack also its parameter rows and
+                // curve atlas.
+                const bool            stack   = ve.Program != nullptr;
+                Common::BoolResultStr extra   = BOOLSUCCESS;
+                Common::BoolResultStr curves  = BOOLSUCCESS;
+                Common::BoolResultStr channel = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
                 if ( stack )
                 {
                     extra  = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
                     curves = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
                 }
-                else
-                    extra = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
+                if ( !channel )
+                    extra = channel;
                 if ( !steps || !args || !extra || !curves )
                 {
                     LOG_ERROR( "[Particles] emitter {} sits out this frame, its step table, dispatch arguments, "
@@ -462,9 +463,8 @@ namespace Desert::Graphic::System
                     ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "ParticleParams{}", i ) );
                     ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "ParticleCurves{}", i ) );
                 }
-                else
-                    ve.ChannelRef =
-                         graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
+                ve.ChannelRef =
+                     graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef  = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
             }

@@ -33,7 +33,7 @@ namespace Desert::Graphic::System
         RDG::BufferRef Steps;
         RDG::BufferRef Counters;
         RDG::BufferRef Args;
-        RDG::BufferRef Channel; // the legacy program's Spawn from Channel particles
+        RDG::BufferRef Channel; // this tick's Spawn from Channel rows (engine:SpawnFromChannel)
         RDG::BufferRef Params;  // a compiled stack's parameter rows
         RDG::BufferRef Curves;  // a compiled stack's curve atlas
         bool           Stack = false;
@@ -57,6 +57,7 @@ namespace Desert::Graphic::System
                  .Storage( "AliveList", pool.Alive, RDG::Access::StorageWrite )
                  .Storage( "Counters", emitter.Counters, RDG::Access::StorageRead )
                  .Storage( "Slots", pool.Slots, RDG::Access::StorageWrite )
+                 .Storage( "ChannelSpawns", emitter.Channel, RDG::Access::StorageRead )
                  .PushConstantBytes( emitter.PushBytes );
         }
         else

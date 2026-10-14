@@ -33,6 +33,17 @@ struct VFXSim
     uint  Step;
     bool  Spawned;
     bool  Kill;
+    uint  Channel; // VFX-10: 1 + the Spawn from Channel row this spawn reads (VFX_ChannelSpawn); 0 = none
+};
+
+// One Spawn from Channel particle (VFX::VFXChannelSpawnRow, Engine/VFX/VFXDataChannel.hpp): the entry's fields the
+// emitter's engine:SpawnFromChannel binds. A w (or Scalars flag) of 1 = bound.
+struct VFXChannelSpawn
+{
+    vec4 Position;  // xyz world cm, w = bound
+    vec4 Direction; // xyz velocity direction, w = bound
+    vec4 Color;     // linear rgba, multiplies Color when Scalars.z = 1
+    vec4 Scalars;   // x = lifetime s, y = size scale, z = colour bound, w = lifetime bound
 };
 
 vec4  VFX_Param( uint slot );
@@ -41,6 +52,8 @@ int   VFX_ReadInt( uint particle, uint component );
 void  VFX_WriteFloat( uint particle, uint component, float value );
 void  VFX_WriteInt( uint particle, uint component, int value );
 float VFX_CurveLUT( uint index );
+// The host's row sim.Channel - 1 of this step's Spawn from Channel particles (only read when sim.Channel > 0).
+VFXChannelSpawn VFX_ChannelSpawn( uint row );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

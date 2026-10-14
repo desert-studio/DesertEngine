@@ -83,16 +83,6 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( ParticleStepGpu ) == kParticleStepStride );
 
-    // One Spawn from Channel particle (ParticleSimulate `struct VFXChannelSpawn`), the payload bound to it.
-    struct ParticleChannelSpawnGpu
-    {
-        glm::vec4 Position  = glm::vec4( 0.0f ); // xyz world cm, w = 1 when the module binds a Position field
-        glm::vec4 Direction = glm::vec4( 0.0f ); // xyz start velocity direction, w = 1 when bound
-        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> the particle's Tint when Scalars.z = 1
-        glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, z = 1 colour bound, w = 1 lifetime bound
-    };
-    static_assert( sizeof( ParticleChannelSpawnGpu ) == kParticleChannelSpawnStride );
-
     // One slot of an emitter's Counters (Common/ParticlePool.glslh ParticleDrawSlot); the first four members are
     // the VkDrawIndirectCommand the billboard draw reads.
     struct ParticleDrawSlotGpu
@@ -114,7 +104,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> Steps;        // this tick's step table
         std::shared_ptr<ShaderResources::StorageBuffer> Counters;     // two draw slots, uploaded per tick
         std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs; // Spawn+Update's and the next compact's
-        std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
+        std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's VFX::VFXChannelSpawnRow rows
 
         ParticlePoolRange Range;
         // A compiled stack's state (VFXComponent emitters): its parameter rows and curve atlas, and where its

@@ -229,4 +229,24 @@ namespace Desert::VFX
     [[nodiscard]] VFXChannelSpawnBatch GatherChannelSpawns( const VFXChannelSpawnModule& module,
                                                             const VFXDataChannel*        channel,
                                                             const glm::vec3&             emitterCm );
+
+    /// One Spawn from Channel PARTICLE as a compiled stack's simulation program reads it (Common/
+    /// VFXParticleContract.glslh `VFXChannelSpawn`, the GPU half of engine:SpawnFromChannel,
+    /// VFX/Modules/SpawnFromChannel.shader): spawn t < EmitterStep::ChannelCount of a step reads row
+    /// ChannelFirst + t. A w (or Scalars flag) of 1 says the module binds that field; an unbound one leaves the
+    /// attribute the spawn group gave.
+    struct VFXChannelSpawnRow
+    {
+        glm::vec4 Position  = glm::vec4( 0.0f ); ///< xyz world cm -> Position, w = bound
+        glm::vec4 Direction = glm::vec4( 0.0f ); ///< xyz -> the velocity's direction, w = bound
+        glm::vec4 Color     = glm::vec4( 1.0f ); ///< linear rgba, multiplies Color when Scalars.z = 1
+        glm::vec4 Scalars   = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f ); ///< x lifetime s, y size scale, z colour
+                                                                   ///< bound, w lifetime bound
+    };
+    inline constexpr std::uint32_t kVFXChannelSpawnRowStride = 64;
+    static_assert( sizeof( VFXChannelSpawnRow ) == kVFXChannelSpawnRowStride );
+
+    /// @p requests expanded per particle (each request's Count rows), in order: what the stack's spawn reads.
+    [[nodiscard]] std::vector<VFXChannelSpawnRow>
+    ExpandChannelSpawns( const std::vector<VFXChannelSpawnRequest>& requests );
 } // namespace Desert::VFX

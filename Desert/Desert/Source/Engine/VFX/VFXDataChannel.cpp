@@ -387,4 +387,17 @@ namespace Desert::VFX
         }
         return batch;
     }
+
+    std::vector<VFXChannelSpawnRow> ExpandChannelSpawns( const std::vector<VFXChannelSpawnRequest>& requests )
+    {
+        std::vector<VFXChannelSpawnRow> rows;
+        for ( const VFXChannelSpawnRequest& r : requests )
+            for ( std::uint32_t k = 0; k < r.Count; ++k )
+                rows.push_back( { glm::vec4( r.Position, r.HasPosition ? 1.0f : 0.0f ),
+                                  glm::vec4( r.Direction, r.HasDirection ? 1.0f : 0.0f ),
+                                  r.HasColor ? r.Color : glm::vec4( 1.0f ),
+                                  glm::vec4( r.Lifetime, r.HasSize ? r.Size : 1.0f, r.HasColor ? 1.0f : 0.0f,
+                                             r.HasLifetime ? 1.0f : 0.0f ) } );
+        return rows;
+    }
 } // namespace Desert::VFX

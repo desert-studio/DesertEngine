@@ -37,8 +37,8 @@ namespace Desert::Graphic::System
         if ( !e.ChannelSpawns )
         {
             e.ChannelCapacity = 1;
-            e.ChannelSpawns =
-                 ShaderResources::StorageBuffer::Create( "ParticleChannelSpawns", kParticleChannelSpawnStride, 1 );
+            e.ChannelSpawns   = ShaderResources::StorageBuffer::Create( "ParticleChannelSpawns",
+                                                                        VFX::kVFXChannelSpawnRowStride, 1 );
         }
         if ( e.StepCapacity != stepCapacity || !e.Steps )
         {
@@ -96,7 +96,7 @@ namespace Desert::Graphic::System
         const uint32_t      entityId = ParticleEmitterKey::Entity( key );
         const uint32_t      emitter  = ParticleEmitterKey::Emitter( key );
         ParticleEmitterGpu& gpu      = GetOrCreate( key, stepCapacity );
-        if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs )
+        if ( !gpu.Steps || !gpu.Counters || !gpu.DispatchArgs || !gpu.ChannelSpawns )
             return nullptr;
 
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -126,6 +126,38 @@ namespace Desert::Graphic::System
                      "[Particles] emitter {} of entity {} does not simulate this tick, its step table did not "
                      "upload: {}",
                      emitter, entityId, uploaded.GetError() );
+                stepCount = 0;
+            }
+        }
+
+        // This tick's Spawn from Channel particles, one row per particle (VFX-10): step s's spawn t < ChannelCount
+        // reads row ChannelFirst + t through engine:SpawnFromChannel's particle half. Grown x2 when a tick brings
+        // more.
+        const std::vector<VFX::VFXChannelSpawnRow> channel = VFX::ExpandChannelSpawns( instance.ChannelSpawns );
+        if ( stepCount > 0 && !channel.empty() )
+        {
+            const auto needed = static_cast<uint32_t>( channel.size() );
+            if ( needed > gpu.ChannelCapacity )
+            {
+                gpu.ChannelCapacity = std::max( needed, gpu.ChannelCapacity * 2u );
+                gpu.ChannelSpawns   = ShaderResources::StorageBuffer::Create(
+                     "ParticleChannelSpawns", gpu.ChannelCapacity * VFX::kVFXChannelSpawnRowStride, 1 );
+            }
+            if ( !gpu.ChannelSpawns )
+            {
+                LOG_ERROR( "[Particles] emitter {} of entity {} sits out this tick, the buffer of its {} channel "
+                           "spawns was not created",
+                           emitter, entityId, needed );
+                return nullptr;
+            }
+            const auto uploaded =
+                 gpu.ChannelSpawns->SetData( channel.data(), needed * VFX::kVFXChannelSpawnRowStride );
+            if ( !uploaded.IsSuccess() )
+            {
+                LOG_ERROR(
+                     "[Particles] emitter {} of entity {} does not simulate this tick, its {} channel spawns "
+                     "did not upload: {}",
+                     emitter, entityId, needed, uploaded.GetError() );
                 stepCount = 0;
             }
         }
