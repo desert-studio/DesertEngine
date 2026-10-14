@@ -54,24 +54,4 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
     };
-
-    // Composite half of SSR: blurs the traced reflection buffer (radius scaled by G-buffer roughness)
-    // and blends it over the scene. Drives SSRComposite.glsl.frag. Header-only.
-    class MaterialSSRComposite final : public Material
-    {
-    public:
-        MaterialSSRComposite() : Material( "MaterialSSRComposite", "SSRComposite" )
-        {
-            // u_SSR (the resolved accumulation target, imported), u_SSRTileMask and u_GBufferNormal are textures
-            // of the frame graph, bound through RDG::PassBindings (SSRRenderer::RecordComposite).
-        }
-
-        // The SSRCompositeUB values: the material carries no texture.
-        void BindValues( const glm::vec2& texelSize )
-        {
-            const glm::vec4 params( texelSize.x, texelSize.y, 0.0f, 0.0f );
-            if ( auto* ub = Get<UniformBufferProperty>( "SSRCompositeUB" ) )
-                ub->SetRawData( reinterpret_cast<const std::byte*>( &params ), sizeof( params ) );
-        }
-    };
 } // namespace Desert::Graphic

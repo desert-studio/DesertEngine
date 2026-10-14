@@ -92,6 +92,10 @@ Shader "DeferredLighting"
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
         Uniform(23) samplerCubeArray u_ReflectionCaptureCubes;
+        // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
+        // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
+        // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe. Slot 24: the next free one.
+        Uniform(24) sampler2D u_SSR;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -110,7 +114,7 @@ Shader "DeferredLighting"
         	vec4 u_LightDir;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
-        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
+        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         };
 
@@ -380,8 +384,13 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, DesertSampleAmbient(surface, indirect, ao),
-        	                                                 surface, payload);
+        	// The specular radiance along the reflection is the traced one where SSR answered, the reflection
+        	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
+        	// captures, then the split-sum Fresnel of both together).
+        	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	if (u_CameraPos.w > 0.5)
+        		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
+        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.

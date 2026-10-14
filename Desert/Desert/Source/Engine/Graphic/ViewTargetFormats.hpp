@@ -64,6 +64,10 @@ namespace Desert::Graphic::ViewTargetFormats
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
+    // The closest-depth hierarchy (HZBRenderer): one 32-bit float per texel, the reversed-Z device depth exactly
+    // as the depth attachment stores it (a 16-bit depth would quantise the far half of the scene into a few
+    // hundred values).
+    inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
     // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output

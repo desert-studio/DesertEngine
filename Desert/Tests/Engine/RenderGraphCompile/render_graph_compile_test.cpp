@@ -2456,6 +2456,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
          "Deferred: SSAO",
+         "Deferred: SSR",
+         "Deferred: SSRResolve",
          "Deferred: RSM",
          "Deferred: GIResolve",
          "Deferred: GITemporal",
@@ -2463,9 +2465,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Generic",
          "Deferred: Skinned",
          "Deferred: SceneCopy",
-         "Deferred: SSR",
-         "Deferred: SSRResolve",
-         "Deferred: SSRComposite",
          "Deferred: Water",
          "Deferred: Glass",
          "Scene: DepthResolve",
@@ -2631,14 +2630,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // their block, not refs captured from the setup. GBUF1: the third G-buffer input is the depth the positions
     // are reconstructed from. TAA1: the trace's inverse view-projection is a CPU-filled graph uniform buffer
     // (SSRTraceUB) bound by the trace block - the ViewFrame's one copy of the inverse, never recomputed.
-    declares( "AddFrameSSR",
-              { "PassFlags::Compute", "DeclareTraceBindings(pass,trace,tiles,inputs,sceneCopy,traceUniforms)",
-                "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection)",
-                "LoadTarget(pass,target,loads)",
-                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
-                "ssr->DeclareResolveBindings(pass,trace,tiles,history,inputs)",
-                "ssr->DeclareCompositeBindings(pass,accum,tiles,inputs)",
-                "RecordResolve(context,prevViewProj,invViewProj,readable)", "RecordComposite(context,index)" } );
+    declares( "AddFrameSSR", { "PassFlags::Compute",
+                               "DeclareTraceBindings(pass,trace,tiles,inputs,sceneHistory,hzb,traceUniforms)",
+                               "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection,"
+                               "frame.JitteredViewProjection,frame.PrevViewProjection)",
+                               "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
+                               "ssr.DeclareResolveBindings(pass,trace,tiles,history,inputs)",
+                               "RecordResolve(context,prevViewProj,invViewProj,readable,index)" } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )

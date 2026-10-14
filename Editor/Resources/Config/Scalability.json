@@ -189,28 +189,33 @@
         },
         "Reflections": {
             "Low": {
-                "Reflections.MaxSteps": 12,
+                "Reflections.MaxSteps": 24,
                 "Reflections.CaptureSize": 64,
+                "Reflections.RaysPerPixel": 1,
                 "Reflections.RayTracing": "None"
             },
             "Medium": {
-                "Reflections.MaxSteps": 20,
+                "Reflections.MaxSteps": 32,
                 "Reflections.CaptureSize": 128,
+                "Reflections.RaysPerPixel": 1,
                 "Reflections.RayTracing": "None"
             },
             "High": {
-                "Reflections.MaxSteps": 32,
+                "Reflections.MaxSteps": 48,
                 "Reflections.CaptureSize": 128,
+                "Reflections.RaysPerPixel": 2,
                 "Reflections.RayTracing": "None"
             },
             "Epic": {
-                "Reflections.MaxSteps": 48,
+                "Reflections.MaxSteps": 64,
                 "Reflections.CaptureSize": 128,
+                "Reflections.RaysPerPixel": 4,
                 "Reflections.RayTracing": "None"
             },
             "Cinematic": {
-                "Reflections.MaxSteps": 64,
+                "Reflections.MaxSteps": 96,
                 "Reflections.CaptureSize": 256,
+                "Reflections.RaysPerPixel": 8,
                 "Reflections.RayTracing": "None"
             }
         },

@@ -103,14 +103,15 @@ namespace Common::Scalability
         ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
+        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
-        DepthOfFieldQuality,   // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
-        ReflectionCaptureSize, // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
-                               // 2^n
+        DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
+                                // 2^n
+        ReflectionRaysPerPixel, // SSR GGX-VNDF rays per traced texel (UE r.SSR.Quality's ray count). 1..12
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,               // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB,      // Textures: resident texture budget

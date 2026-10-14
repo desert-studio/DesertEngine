@@ -58,6 +58,7 @@
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
+#include "Systems/Scene/Deferred/HZBRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
@@ -736,18 +737,29 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                           RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame );
-        // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
-        // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
-        // (no copy system, no scene colour, its desc refused - logged).
+        // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
+        // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
+        // colour, its desc refused - logged). @p into: the imported image to copy into (SSR's scene colour
+        // history, which next frame's trace reads), or invalid for a per-frame transient; @p recorded runs in the
+        // copy's exec once the copy was recorded (the history's stamp), may be empty.
         static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                   const std::vector<RDG::TextureRef>& sceneColor,
-                                                  System::CopyRenderer*               copy );
-        // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
-        void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                          const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
-                          const ViewFrame& frame );
+                                                  System::CopyRenderer* copy, RDG::TextureRef into,
+                                                  std::function<void()> recorded );
+        // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
+        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
+        // SSR's HZB + trace + resolve, before the lighting. Resolved: the reflection the lighting composes
+        // (u_SSR); SceneHistory: SSR's scene colour history as imported here (last frame's lit scene, which this
+        // frame's scene copy refills). Both invalid when SSR did not run.
+        struct FrameSSR
+        {
+            RDG::TextureRef Resolved;
+            RDG::TextureRef SceneHistory;
+        };
+        FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
@@ -859,6 +871,8 @@ namespace Desert::Graphic
         // values, so one pipeline serves every level. The initialisers are the High column, only read before
         // the first BeginScene.
         int m_SSRMaxSteps = 32;
+        // Reflections.RaysPerPixel (Scalability), refreshed per frame like m_SSRMaxSteps.
+        int m_SSRRaysPerPixel = 1;
         int m_GISamples   = 32;
         int m_SSAOSamples = 16;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).

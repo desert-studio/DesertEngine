@@ -91,11 +91,11 @@ namespace
       "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.RayTracing": "None" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.CaptureSize": 64, "Reflections.RayTracing": "None" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 256, "Reflections.RayTracing": "None" }
+      "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.RayTracing": "None" },
+      "Medium":    { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 1, "Reflections.RayTracing": "None" },
+      "High":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 2, "Reflections.RayTracing": "None" },
+      "Epic":      { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 4, "Reflections.RayTracing": "None" },
+      "Cinematic": { "Reflections.MaxSteps": 96, "Reflections.CaptureSize": 256, "Reflections.RaysPerPixel": 8, "Reflections.RayTracing": "None" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
@@ -693,7 +693,7 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
     // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
-    constexpr ParameterValue kOldSSRSteps  = 32;
+    constexpr ParameterValue kOldSSRSteps  = 48; // HZB traversal iterations since SSR2 (was 32 linear march steps)
     constexpr ParameterValue kOldSSAOTaps  = 16;
     constexpr ParameterValue kOldGITaps    = 32;
     constexpr ParameterValue kOldBloomMips = 6;
