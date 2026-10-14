@@ -12,6 +12,11 @@
 #include <optional>
 #include <unordered_map>
 
+namespace Desert::Graphic::RayTracing
+{
+    class RayTracingGeometryResource;
+}
+
 namespace Desert
 {
     class Mesh
@@ -64,6 +69,20 @@ namespace Desert
             return m_IndexBuffer;
         }
 
+        // THE MESH'S BOTTOM-LEVEL ACCELERATION STRUCTURE (UE FRayTracingGeometry on the render data), built from
+        // the same vertex and index buffers by the uploader where the device traces rays; null everywhere else
+        // (no RT device, a skinned mesh, not uploaded yet). It lives and dies with the mesh, so it is released on
+        // the frame-retire rule the mesh's buffers follow (MeshService::RetireEvicted drops the last reference).
+        [[nodiscard]] const std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource>&
+        GetRayTracingGeometry() const
+        {
+            return m_RayTracingGeometry;
+        }
+        void SetRayTracingGeometry( std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> geometry )
+        {
+            m_RayTracingGeometry = std::move( geometry );
+        }
+
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
 
         // THE GPU BUFFERS ARE THE RENDERER'S COPY OF THE CPU GEOMETRY, BUILT WHERE A RENDERER EXISTS. A mesh
@@ -88,6 +107,8 @@ namespace Desert
         void MarkGpuStale()
         {
             m_GpuStale = true;
+            // A BLAS built from the old positions would let rays hit geometry the raster no longer draws.
+            m_RayTracingGeometry.reset();
         }
         bool m_GpuStale = false;
 
@@ -102,6 +123,7 @@ namespace Desert
 
         // Protected data accessible by derived classes
         std::shared_ptr<Graphic::VertexBuffer>  m_VertexBuffer;
+        std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> m_RayTracingGeometry;
         std::shared_ptr<Graphic::VertexBuffer>  m_StreamBuffer;
 
         void CreateStreamBuffer( const std::vector<MeshVertexStreams>& streams )

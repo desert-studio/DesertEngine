@@ -69,4 +69,16 @@ namespace Desert::Graphic::RayTracing
         }
         return segments;
     }
+
+    // A built BLAS as the renderer sees it: the address a TLAS instance row points at. The API object behind it
+    // (VulkanRayTracingGeometry) owns the acceleration structure and its storage and releases them on the
+    // frame-retire rule when the last mesh reference drops.
+    class RayTracingGeometryResource
+    {
+    public:
+        virtual ~RayTracingGeometryResource() = default;
+
+        // VkAccelerationStructureInstanceKHR::accelerationStructureReference. Never 0 for a built resource.
+        [[nodiscard]] virtual uint64_t GetDeviceAddress() const = 0;
+    };
 } // namespace Desert::Graphic::RayTracing

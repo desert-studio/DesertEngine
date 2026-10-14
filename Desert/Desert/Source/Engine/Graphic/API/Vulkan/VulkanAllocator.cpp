@@ -266,6 +266,15 @@ namespace Desert::Graphic::API::Vulkan
         m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
     }
 
+    void VulkanAllocator::RT_DestroyAccelerationStructure( VkAccelerationStructureKHR accelerationStructure,
+                                                           PFN_vkDestroyAccelerationStructureKHR destroy )
+    {
+        if ( accelerationStructure == VK_NULL_HANDLE || destroy == nullptr )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, frameIndex } );
+    }
+
     void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
     {
         if ( descriptorPool == VK_NULL_HANDLE )
@@ -362,6 +371,19 @@ namespace Desert::Graphic::API::Vulkan
             return 0;
 
         std::size_t destroyed = 0;
+        // FIRST: an acceleration structure is destroyed before the buffer it lives in (queued on the same frame).
+        for ( auto it = m_AccelerationStructureDeletionQueue.begin();
+              it != m_AccelerationStructureDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                it->Destroy( device, it->AccelerationStructure, nullptr );
+                it = m_AccelerationStructureDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
 
         for ( auto it = m_BufferDeletionQueue.begin(); it != m_BufferDeletionQueue.end(); )
         {
@@ -470,7 +492,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
                m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
-               m_DescriptorPoolDeletionQueue.size();
+               m_AccelerationStructureDeletionQueue.size() + m_DescriptorPoolDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()
