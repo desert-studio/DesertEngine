@@ -18,8 +18,7 @@ Shader "SSDReconstructReflections"
     //    yet wide enough that every texel of the set counts (a narrow one leaves one or two samples: grain).
     //    5x5 texels = UE's reconstruction footprint of 8-16 samples over the lobe; the BRDF keeps a mirror sharp.
     // rgb = sum(w * a * k * L) / sum(w * a * k) (k = Karis' inverse luminance), a = sum(w * a) / sum(w); written
-    // premultiplied to u_Signal. u_HitDistance = sum(w * a * |hit - P|) / sum(w * a): what the temporal pass
-    // reprojects the reflection through (the reflected point).
+    // premultiplied to u_Signal.
     // Tiles the trace marked as reflecting nothing (u_TileMask) write 0 and stop.
 
     Compute
@@ -32,7 +31,6 @@ Shader "SSDReconstructReflections"
         Uniform(4) sampler2D u_TraceRay;        // half resolution: xyz = hit point, w = log2 pdf (SSR.shader)
         Uniform(5) sampler2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
         layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal;     // premultiplied (rgb * a, a)
-        layout(binding = 7, r32f) writeonly uniform image2D u_HitDistance;   // world distance to what is reflected
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
         Uniform(0) DenoiserViewUB
@@ -69,7 +67,6 @@ Shader "SSDReconstructReflections"
         	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
-        		imageStore(u_HitDistance, pixel, vec4(0.0));
         		return;
         	}
         	const vec2         size  = vec2(viewSize);
@@ -96,7 +93,6 @@ Shader "SSDReconstructReflections"
         	float hitWeight   = 0.0;
         	float coverage    = 0.0;
         	float weightSum   = 0.0;
-        	float hitDistance = 0.0;
         	for (int y = -2; y <= 2; ++y)
         		for (int x = -2; x <= 2; ++x)
         		{
@@ -136,20 +132,16 @@ Shader "SSDReconstructReflections"
         			const float k     = SSDKarisWeight(trace.rgb);
         			weightSum   += w;
         			coverage    += w * trace.a;
-        			hitDistance += w * trace.a * dist;
         			radiance    += trace.rgb * (w * trace.a * k);
         			hitWeight   += w * trace.a * k;
         		}
-        	vec4  signal   = vec4(0.0);
-        	float reflectedDistance = 0.0;
+        	vec4 signal = vec4(0.0);
         	if (weightSum > 0.0 && hitWeight > 0.0)
         	{
         		const float a = coverage / weightSum;
         		signal        = vec4(radiance / hitWeight * a, a);
-        		reflectedDistance = hitDistance / coverage;
         	}
         	imageStore(u_Signal, pixel, signal);
-        	imageStore(u_HitDistance, pixel, vec4(reflectedDistance));
         }
     }
 }

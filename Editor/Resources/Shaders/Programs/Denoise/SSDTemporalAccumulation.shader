@@ -4,7 +4,8 @@ Shader "SSDTemporalAccumulation"
     // The screen-space denoiser's TEMPORAL ACCUMULATION, every signal (UE SSDTemporalAccumulation.usf).
     //  1) REPROJECTION. The history is read where the pixel's signal was last frame. For reflections that is the
     //     REFLECTED point (UE's reflection reprojection): what lies d beyond the surface along the view ray (the
-    //     virtual image a mirror forms, d = u_HitDistance), projected through last frame's camera - a reflection
+    //     virtual image a mirror forms; d = the coverage-weighted distance to the hit points of the 2x2 trace
+    //     texels nearest the pixel, u_Trace / u_TraceRay), projected through last frame's camera - a reflection
     //     stays on what it reflects while the camera moves; with nothing hit, the point at infinity. For diffuse
     //     light d = 0: the surface point itself. The surface's own motion (its velocity less the camera's share)
     //     is added, so a moving surface carries its signal.
@@ -26,7 +27,8 @@ Shader "SSDTemporalAccumulation"
         Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
         Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
         Uniform(3) sampler2D u_Signal;          // this frame's reconstruction, premultiplied
-        Uniform(4) sampler2D u_HitDistance;     // world distance to what the pixel reflects (diffuse: 0)
+        Uniform(4) sampler2D u_Trace;           // reflections: SSR's half-res trace (a = coverage); diffuse: black
+        Uniform(6) sampler2D u_TraceRay;        // reflections: its hit points (xyz); diffuse: black
         Uniform(5) sampler2D u_History;         // last frame's accumulation, premultiplied (linear)
         Uniform(7) sampler2D u_HistoryCount;    // last frame's sample count (nearest)
         Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
@@ -124,7 +126,23 @@ Shader "SSDTemporalAccumulation"
         	vec4  history      = vec4(0.0);
         	if (u_Params.x > 0.5)
         	{
-        		const float d         = texelFetch(u_HitDistance, pixel, 0).r;
+        		// The distance to what the pixel reflects: the hits of the 2x2 trace texels around it, weighed by
+        		// their coverage (diffuse: no trace, d = 0 - the surface itself).
+        		float       d         = 0.0;
+        		{
+        			const ivec2 traceSize = textureSize(u_Trace, 0);
+        			const vec2  t0        = vec2(pixel) * (vec2(traceSize) / size) - 0.5;
+        			float       dSum = 0.0, aSum = 0.0;
+        			for (int j = 0; j <= 1; ++j)
+        				for (int i = 0; i <= 1; ++i)
+        				{
+        					const ivec2 t = clamp(ivec2(floor(t0)) + ivec2(i, j), ivec2(0), traceSize - 1);
+        					const float a = texelFetch(u_Trace, t, 0).a;
+        					dSum += a * distance(texelFetch(u_TraceRay, t, 0).xyz, ref.Position);
+        					aSum += a;
+        				}
+        			d = aSum > 0.0 ? dSum / aSum : 0.0;
+        		}
         		const vec4  reflected = signal == kSSDSignalReflections && current.a <= 0.0
         		                             ? vec4(-V, 0.0)
         		                             : vec4(ref.Position - V * d, 1.0);

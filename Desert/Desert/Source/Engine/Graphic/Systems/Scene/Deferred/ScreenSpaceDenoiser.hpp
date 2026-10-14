@@ -84,8 +84,9 @@ namespace Desert::Graphic::System
                 m_ReconstructShader = shaders->GetByName( "SSDReconstructReflections" );
                 if ( !m_ReconstructShader )
                     return Common::MakeError( "Denoiser: shader SSDReconstructReflections not found" );
-                const auto pipeline = ComputePipeline::Create(
-                     { .Shader = m_ReconstructShader, .DebugName = "SSDReconstructReflections" } );
+                const ComputePipelineSpecification pipelineSpec{ .Shader    = m_ReconstructShader,
+                                                                 .DebugName = "SSDReconstructReflections" };
+                const auto                         pipeline = ComputePipeline::Create( pipelineSpec );
                 if ( !pipeline )
                     return Common::MakeError( pipeline.GetError() );
                 m_ReconstructPipeline = pipeline.GetValue();
@@ -95,8 +96,9 @@ namespace Desert::Graphic::System
                 m_ReconstructShader = shaders->GetByName( "SSDReconstructDiffuse" );
                 if ( !m_ReconstructShader )
                     return Common::MakeError( "Denoiser: shader SSDReconstructDiffuse not found" );
-                const auto pipeline = ComputePipeline::Create(
-                     { .Shader = m_ReconstructShader, .DebugName = "SSDReconstructDiffuse" } );
+                const ComputePipelineSpecification pipelineSpec{ .Shader    = m_ReconstructShader,
+                                                                 .DebugName = "SSDReconstructDiffuse" };
+                const auto                         pipeline = ComputePipeline::Create( pipelineSpec );
                 if ( !pipeline )
                     return Common::MakeError( pipeline.GetError() );
                 m_ReconstructPipeline = pipeline.GetValue();
@@ -105,8 +107,9 @@ namespace Desert::Graphic::System
             m_TemporalShader = shaders->GetByName( "SSDTemporalAccumulation" );
             if ( !m_TemporalShader )
                 return Common::MakeError( "Denoiser: shader SSDTemporalAccumulation not found" );
-            const auto temporal =
-                 ComputePipeline::Create( { .Shader = m_TemporalShader, .DebugName = "SSDTemporalAccumulation" } );
+            const ComputePipelineSpecification temporalSpec{ .Shader    = m_TemporalShader,
+                                                             .DebugName = "SSDTemporalAccumulation" };
+            const auto                         temporal = ComputePipeline::Create( temporalSpec );
             if ( !temporal )
                 return Common::MakeError( temporal.GetError() );
             m_TemporalPipeline = temporal.GetValue();
@@ -114,8 +117,9 @@ namespace Desert::Graphic::System
             m_ConvolutionShader = shaders->GetByName( "SSDHistoryConvolution" );
             if ( !m_ConvolutionShader )
                 return Common::MakeError( "Denoiser: shader SSDHistoryConvolution not found" );
-            const auto convolution = ComputePipeline::Create(
-                 { .Shader = m_ConvolutionShader, .DebugName = "SSDHistoryConvolution" } );
+            const ComputePipelineSpecification convolutionSpec{ .Shader    = m_ConvolutionShader,
+                                                                .DebugName = "SSDHistoryConvolution" };
+            const auto                         convolution = ComputePipeline::Create( convolutionSpec );
             if ( !convolution )
                 return Common::MakeError( convolution.GetError() );
             m_ConvolutionPipeline = convolution.GetValue();
@@ -143,10 +147,7 @@ namespace Desert::Graphic::System
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
-            const RDG::TextureRef hitDistance =
-                 graph.CreateTexture( Desc( width, height, kHitDistanceFormat ), "SSD.HitDistance" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            graph.SetFaultDefault( hitDistance, RDG::FaultDefault::Black );
             graph.AddPass(
                  "Denoise: Reflections Reconstruction", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -164,7 +165,6 @@ namespace Desert::Graphic::System
                           .Sampled( "u_TileMask", in.TileMask, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Storage( "u_HitDistance", hitDistance, RDG::Access::StorageWrite )
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
@@ -177,7 +177,8 @@ namespace Desert::Graphic::System
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
-            return AddTemporalAndConvolution( graph, signal, hitDistance, scene, frame, uniforms, width, height );
+            return AddTemporalAndConvolution( graph, signal, in.Trace, in.TraceRay, scene, frame, uniforms, width,
+                                              height );
         }
 
         // UE IScreenSpaceDenoiser::DenoiseDiffuseIndirect. As DenoiseReflections, for diffuse light (the history
@@ -216,7 +217,8 @@ namespace Desert::Graphic::System
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
-            return AddTemporalAndConvolution( graph, signal, scene.Black, scene, frame, uniforms, width, height );
+            return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
+                                              width, height );
         }
 
         // The view-independent constants of a signal (UE's per-signal TARGETED_SAMPLE_COUNT): the most frames a
@@ -228,7 +230,6 @@ namespace Desert::Graphic::System
 
         // The formats of the denoiser's images (ViewMemory counts them).
         static constexpr Core::Formats::ImageFormat kSignalFormat      = ViewTargetFormats::kDenoiserSignal;
-        static constexpr Core::Formats::ImageFormat kHitDistanceFormat = ViewTargetFormats::kDenoiserHitDistance;
         static constexpr Core::Formats::ImageFormat kSampleCountFormat = ViewTargetFormats::kDenoiserSampleCount;
 
         // The DenoiserViewUB block every pass declares (std140: three mat4), from the ViewFrame once per frame.
@@ -294,8 +295,10 @@ namespace Desert::Graphic::System
             return { accumulation, count };
         }
 
+        // @p trace / @p traceRay: the reflections' half-res trace and hit points, from which the temporal pass
+        // estimates the distance to the reflected point (diffuse: the black texture - the surface itself).
         RDG::TextureRef AddTemporalAndConvolution( RDG::Builder& graph, const RDG::TextureRef signal,
-                                                   const RDG::TextureRef        hitDistance,
+                                                   const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
                                                    const uint32_t height )
@@ -333,8 +336,10 @@ namespace Desert::Graphic::System
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                           .Sampled( "u_Signal", signal, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                                     RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_HitDistance", hitDistance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "u_Trace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ),
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "u_TraceRay", traceRay, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
                           .Sampled( "u_History", history[0], RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
                           .Sampled( "u_HistoryCount", history[1], RDG::Access::SampledCompute,

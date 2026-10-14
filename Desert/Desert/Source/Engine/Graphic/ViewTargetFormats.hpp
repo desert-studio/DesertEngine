@@ -72,11 +72,9 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     // The screen-space denoiser (System::ScreenSpaceDenoiser), every signal: the reconstructed signal, its
-    // accumulation history and its output (premultiplied / straight rgb + coverage); the distance to what a
-    // reflection reflects (the reflected point it is reprojected through: a world distance in centimetres) and
-    // the history's sample count, one 32-bit float each (R32F: the storage format every device writes).
+    // accumulation history and its output (premultiplied / straight rgb + coverage); the history's sample count,
+    // one 32-bit float (R32F: the single-channel storage format every device writes).
     inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
-    inline constexpr ImageFormat kDenoiserHitDistance = ImageFormat::R32F;
     inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::R32F;
     // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
     // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
