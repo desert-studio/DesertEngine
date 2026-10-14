@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a7a7fbc78b784f33b3de5c93b70f477d","Versions":{"SHDR":1},"Dependencies":[]}
 // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, UE "Global DistanceField"
 // visualization, DistanceFieldVisualization.usf): every pixel sphere-traces the clipmaps with the shared
 // TraceGlobalDistanceField and shows the hit lit by its gradient, tinted by the clipmap that answered, with the

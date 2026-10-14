@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"f84db15352c7451890d5593b07157669","Versions":{"SHDR":1},"Dependencies":[]}
 // THE GLOBAL DISTANCE FIELD'S UPDATE: one 8^3 workgroup per update brick of one clipmap, every voxel the minimum
 // over the objects culled to that brick of their mesh distance field, clamped to the influence radius. Ported from
 // UE 5.8 Engine/Shaders/Private/DistanceField/GlobalDistanceFieldCompositeObjects.usf (the per-voxel min over the
