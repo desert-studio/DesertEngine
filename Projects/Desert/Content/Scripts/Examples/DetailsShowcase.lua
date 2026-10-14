@@ -36,7 +36,8 @@ function Respawn()
 end
 
 function OnStart()
-    baseX, baseY, baseZ = self:getPosition()
+    local p = self:getPosition()
+    baseX, baseY, baseZ = p.x, p.y, p.z
 end
 
 function OnUpdate( dt )
