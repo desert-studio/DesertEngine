@@ -313,8 +313,8 @@ namespace Desert::Graphic
                  gbuffer.size(), rsm.size() );
             return {};
         }
-        // The raw gather lives within this graph (UE: a transient from the scene textures' desc); the
-        // accumulation pair is history and stays external.
+        // The raw gather lives within this graph (UE: a transient from the scene textures' desc); the denoiser
+        // keeps its own history.
         auto desc = graph.GetTextureDesc( gbuffer[0] );
         if ( !desc )
         {
@@ -329,8 +329,6 @@ namespace Desert::Graphic
         const RDG::TextureRef gather  = graph.CreateTexture( gatherDesc, "GI.Gather" );
         // A lost GI gather adds no bounce light (RDG-FAULT1).
         graph.SetFaultDefault( gather, RDG::FaultDefault::Black );
-        const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
-        const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
         textures.Transients.GIResolve = gather;
         const RDG::TextureRef        gbufferDepth = textures.Depth( m_GBuffer, "GBuffer" );
         const System::GIGatherInputs inputs{ .GBufferNormal = gbuffer[1],
@@ -354,21 +352,20 @@ namespace Desert::Graphic
                  return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), invViewProj, lightColor,
                                           giIntensity, giSamples );
              } );
-        // Decided now, at build time, after Prepare (which invalidates the stamp when it recreated the images):
-        // the exec runs after the frame was built and must not consult a stamp a later frame may have written.
-        const bool giHistoryReadable = gi->HistoryReadableIn( frame );
-        graph.AddPass(
-             "Deferred: GITemporal", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 gi->DeclareTemporalBindings( pass, gather, history, gbufferDepth );
-                 pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-             },
-             [gi, prevViewProj = frame.PrevViewProjection, invViewProj = frame.InvJitteredViewProjection,
-              readable = giHistoryReadable,
-              index    = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return gi->RecordTemporal( context, prevViewProj, invViewProj, readable, index ); } );
-        return accum;
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: GI needs the view's velocity (the denoiser reprojects its history "
+                 "through it), the frame has none" );
+            return {};
+        }
+        return gi->Denoise( graph, gather,
+                            System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                                           .GBufferDepth  = gbufferDepth,
+                                                           .Velocity      = velocity,
+                                                           .Black         = textures.GraphRefs().System.Black },
+                            frame );
     }
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
@@ -594,12 +591,10 @@ namespace Desert::Graphic
         const RDG::TextureRef traceRay = graph.CreateTexture( traceTargets->TraceRay, "SSR.TraceRay" );
         const RDG::TextureRef tiles    = graph.CreateTexture( traceTargets->TileMask, "SSR.TileMask" );
         // A lost trace reflects nothing; a lost tile mask marks no tile (RDG-FAULT1). A lost ray (a zero
-        // direction) is skipped by the resolve's estimator.
+        // direction) is skipped by the reconstruction's estimator.
         graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
         graph.SetFaultDefault( traceRay, RDG::FaultDefault::Black );
         graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
-        const RDG::TextureRef accum   = textures.Import( ssr.GetAccumImage(), "SSR" );
-        const RDG::TextureRef history = textures.Import( ssr.GetHistoryImage(), "SSR.History" );
         const RDG::TextureRef sceneHistory =
              textures.Import( ssr.GetSceneColorHistoryImage(), "SSR.SceneColorHistory" );
         // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
@@ -608,9 +603,10 @@ namespace Desert::Graphic
                                                          textures.Depth( m_GBuffer, "GBuffer" ) };
         const RDG::BufferRef                     traceUniforms = System::SSRRenderer::UploadTraceUniforms(
              graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection );
-        // Build time, after Prepare (see GITemporal).
-        const bool                         ssrHistoryReadable   = ssr.HistoryReadableIn( frame );
+        // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
+        // frame may have written.
         const bool                         sceneHistoryReadable = ssr.SceneColorHistoryReadableIn( frame );
+        const uint32_t                     seed                 = ssr.NextTraceSeed();
         System::SSRRenderer::TraceSettings settings;
         settings.RaysPerPixel = m_SSRRaysPerPixel;
         settings.Iterations   = m_SSRMaxSteps;
@@ -627,22 +623,18 @@ namespace Desert::Graphic
                  ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                  ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
              },
-             [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-              sceneHistoryReadable]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable ); } );
-        graph.AddPass(
-             "Deferred: SSRResolve", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 ssr.DeclareResolveBindings( pass, trace, traceRay, tiles, history, inputs, velocity );
-                 // Every G-buffer colour stays declared as before (the block samples only the depth).
-                 ReadAll( pass, { gbuffer.begin(), gbuffer.end() }, RDG::Access::SampledGraphics );
-                 pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-             },
-             [ssrPtr = &ssr, viewProj = frame.ViewProjection, prevViewProj = frame.PrevViewProjection,
-              invViewProj = frame.InvJitteredViewProjection, readable = ssrHistoryReadable,
-              index = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssrPtr->RecordResolve( context, viewProj, prevViewProj, invViewProj, readable, index ); } );
-        return FrameSSR{ .Resolved = accum, .SceneHistory = sceneHistory };
+             [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
+              seed]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+        const RDG::TextureRef resolved =
+             ssr.Denoise( graph,
+                          System::ReflectionsDenoiserInputs{
+                               .Trace = trace, .TraceRay = traceRay, .TileMask = tiles, .TraceSeed = seed },
+                          System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                                         .GBufferDepth  = inputs[2],
+                                                         .Velocity      = velocity,
+                                                         .Black         = textures.GraphRefs().System.Black },
+                          frame );
+        return FrameSSR{ .Resolved = resolved, .SceneHistory = sceneHistory };
     }
 } // namespace Desert::Graphic

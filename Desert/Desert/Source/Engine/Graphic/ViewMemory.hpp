@@ -373,12 +373,27 @@ namespace Desert::Graphic
         {
             add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
             add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
-            add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
+            // ScreenSpaceDenoiser::DenoiseReflections: reconstruction + hit distance + output (transients), the
+            // history pair (accumulation + sample count, two slots).
+            add( { "SSD.Reflections.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height,
+                   1, 2 } );
+            add( { "SSD.Reflections.HitDistance", "ScreenSpaceDenoiser.hpp", F::kDenoiserHitDistance, width,
+                   height } );
+            add( { "SSD.Reflections.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Reflections.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
         {
             add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
-            add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
+            // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
+            add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
             // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
             // row).

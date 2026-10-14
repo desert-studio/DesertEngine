@@ -1,0 +1,119 @@
+// The screen-space denoiser's shared kernel (UE ScreenSpaceDenoise: SSDSignalFramework.ush, SSDSpatialKernel.ush,
+// SSDTemporalAccumulation.usf), included by the four passes of System::ScreenSpaceDenoiser:
+//   Programs/Denoise/SSDReconstructReflections.shader - reflections: ratio estimator over the half-res trace
+//   Programs/Denoise/SSDReconstructDiffuse.shader     - diffuse indirect: bilateral spatial reconstruction
+//   Programs/Denoise/SSDTemporalAccumulation.shader   - both signals: reprojection, variance rejection, counting
+//   Programs/Denoise/SSDHistoryConvolution.shader     - both signals: bilateral post filter by the sample count
+// A signal is (rgb, a): rgb = the radiance where the signal answered, a = the share it answered (the COVERAGE;
+// 1 - a is answered by the next source). Between the passes it travels PREMULTIPLIED (rgb * a, a): blending and
+// clamping straight colour would weigh a texel that answered nothing like one that answered everything.
+#include <Common/ReconstructPosition.glslh>
+#include <Common/SSRGate.glslh>
+
+const float kSSDPi = 3.14159265358979;
+
+// ScreenSpaceDenoiser.hpp DenoiserSignal - the push constant's signal id.
+const int kSSDSignalReflections     = 0;
+const int kSSDSignalDiffuseIndirect = 1;
+
+// Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
+// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect: every surface pixel.
+bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
+{
+	if (signal == kSSDSignalReflections)
+		return SSRPixelCanReflect(gbufferNormal);
+	return dot(gbufferNormal.rgb, gbufferNormal.rgb) > 0.001;
+}
+
+// The scene data a bilateral weight compares (UE FSSDSampleSceneInfos): world position, normal, roughness.
+struct SSDSceneInfo
+{
+	vec3  Position;
+	vec3  Normal;
+	float Roughness;
+};
+
+SSDSceneInfo SSDLoadSceneInfo(sampler2D gbufferNormal, sampler2D gbufferDepth, mat4 invJitteredViewProjection,
+                              ivec2 pixel, vec2 viewSize)
+{
+	const vec4   gb = texelFetch(gbufferNormal, pixel, 0);
+	SSDSceneInfo info;
+	info.Normal    = dot(gb.rgb, gb.rgb) > 0.0 ? normalize(gb.rgb) : vec3(0.0);
+	info.Roughness = gb.a;
+	info.Position  = ReconstructWorldPosition((vec2(pixel) + 0.5) / viewSize, texelFetch(gbufferDepth, pixel, 0).r,
+	                                          invJitteredViewProjection);
+	return info;
+}
+
+// Toward the camera from @p position at @p uv: the pixel's own ray to its near-plane point (reversed-Z, 1 = near:
+// Core/Projection.hpp) - the camera is on that line, so no camera uniform is needed (orthographic too).
+vec3 SSDViewVector(vec2 uv, vec3 position, mat4 invJitteredViewProjection)
+{
+	return normalize(ReconstructWorldPosition(uv, 1.0, invJitteredViewProjection) - position);
+}
+
+// The world size of one pixel at the pixel (UE ComputeWorldBluringRadiusCausedByPixelSize): the distance to the
+// position the neighbouring pixel's ray reaches at the same device depth.
+float SSDPixelWorldRadius(vec2 uv, float deviceDepth, vec3 position, vec2 texel, mat4 invJitteredViewProjection)
+{
+	return distance(ReconstructWorldPosition(uv + vec2(texel.x, 0.0), deviceDepth, invJitteredViewProjection),
+	                position);
+}
+
+// UE BILATERAL_POSITION_BASED(2): how far the neighbour is off the reference's tangent plane, against the world
+// distance the kernel tolerates.
+float SSDPlaneWeight(SSDSceneInfo ref, vec3 neighbourPosition, float maxWorldDistance)
+{
+	return clamp(1.0 - abs(dot(ref.Normal, neighbourPosition - ref.Position)) / maxWorldDistance, 0.0, 1.0);
+}
+
+// UE BILATERAL_NORMAL.
+float SSDNormalWeight(vec3 refNormal, vec3 neighbourNormal)
+{
+	const float noN = max(dot(refNormal, neighbourNormal), 0.0);
+	return (noN * noN) * (noN * noN);
+}
+
+// The specular lobe as a spherical gaussian (UE ComputeRoughnessLobe): xyz = reflection axis, w = sharpness.
+vec4 SSDRoughnessLobe(float roughness, vec3 N, vec3 V)
+{
+	const float a   = max(roughness * roughness, 0.001);
+	const float a2  = a * a;
+	const float noV = clamp(abs(dot(N, V)) + 1e-5, 0.0, 1.0);
+	return vec4(2.0 * noV * N - V, 0.5 / (a2 * max(noV, 0.1)));
+}
+
+// [ Tokoyashi 2015, "Specular Lobe-Aware Filtering and Upsampling for Interactive Indirect Illumination" ] -
+// UE BILATERAL_TOKOYASHI: the lobes' sharpness agreement times their axes' agreement.
+float SSDLobeSimilarity(vec4 ref, vec4 neighbour)
+{
+	const float beta         = 32.0;
+	const float invSharpness = 1.0 / (ref.w + neighbour.w);
+	const float lobe         = pow(2.0 * sqrt(ref.w * neighbour.w) * invSharpness, beta);
+	const float axes = exp(-(beta * (ref.w * neighbour.w) * invSharpness) *
+	                       clamp(1.0 - dot(ref.xyz, neighbour.xyz), 0.0, 1.0));
+	return lobe * axes;
+}
+
+// The specular lobe's footprint on the screen at infinity, in pixels (UE ProjectSpecularLobeToScreenSpace's
+// major/minor radii): the GGX lobe's half-width (about 2 alpha around the reflection axis) over the angle one
+// pixel subtends; the major axis stretches with the grazing angle.
+vec2 SSDLobePixelRadii(float roughness, float noV, float pixelWorldRadius, float viewDistance)
+{
+	const float alpha      = max(roughness * roughness, 0.001);
+	const float pixelAngle = max(pixelWorldRadius / max(viewDistance, 1e-3), 1e-6);
+	const float minor      = 2.0 * alpha / pixelAngle;
+	return vec2(minor / max(noV, 0.1), minor);
+}
+
+// UE's history reweighting space (REFLECTIONS_REJECTION_COLOR_SPACE): luma + chroma.
+vec3 SSDRGBToYCoCg(vec3 c)
+{
+	return vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0.0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
+}
+
+// Karis' inverse-luminance weight: one firefly cannot drag a neighbourhood (UE COLOR_SPACE_KARIS_WEIGHTING).
+float SSDKarisWeight(vec3 c)
+{
+	return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722)));
+}

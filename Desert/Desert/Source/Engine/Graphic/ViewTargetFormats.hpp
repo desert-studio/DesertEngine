@@ -63,7 +63,6 @@ namespace Desert::Graphic::ViewTargetFormats
     // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
     // by 4 cm at 50 m, too coarse to re-aim a mirror's ray from a neighbour), w = log2 of its pdf.
     inline constexpr ImageFormat kSSRTraceRay = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
@@ -72,7 +71,13 @@ namespace Desert::Graphic::ViewTargetFormats
     // hundred values).
     inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
-    inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
+    // The screen-space denoiser (System::ScreenSpaceDenoiser), every signal: the reconstructed signal, its
+    // accumulation history and its output (premultiplied / straight rgb + coverage); the distance to what a
+    // reflection reflects (the reflected point it is reprojected through: a world distance in centimetres) and
+    // the history's sample count, one 32-bit float each (R32F: the storage format every device writes).
+    inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kDenoiserHitDistance = ImageFormat::R32F;
+    inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::R32F;
     // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
     // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
     // them.

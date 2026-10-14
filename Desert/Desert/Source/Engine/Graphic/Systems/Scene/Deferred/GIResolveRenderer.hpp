@@ -7,8 +7,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
-#include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp> // MaterialSSRResolve (shared temporal resolve)
-#include <Engine/Graphic/View/PassHistory.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -27,14 +26,15 @@ namespace Desert::Graphic::System
         RDG::TextureRef RSMDepth;      // the RSM depth: the VPL world positions are reconstructed from it
     };
 
-    // One-bounce RSM GI, two passes:
+    // One-bounce RSM GI:
     //  1) GATHER: fullscreen jittered VPL gather into a per-frame graph transient (FrameTransients::GIResolve).
     //     The jitter seed changes EVERY frame.
-    //  2) RESOLVE: the SAME temporal+spatial denoiser SSR uses (SSRResolve shader) — 5x5 alpha-weighted
-    //     spatial filter + reprojected, AABB-clamped exponential history (ping-pong targets). Close-up
+    //  2) DENOISE: the screen-space denoiser's diffuse-indirect signal
+    //  (ScreenSpaceDenoiser::DenoiseDiffuseIndirect)
+    //     - bilateral reconstruction, reprojected history with variance rejection, history convolution. Close-up
     //     camera angles make the per-pixel VPL variance huge; only accumulation over frames converges it.
-    // The deferred lighting then blur-reads the RESOLVED buffer. The target framebuffer is the scene target:
-    // only its size is read (the accumulation pair follows it).
+    // The deferred lighting reads the denoised result. The target framebuffer is the scene target: only its size
+    // is read.
     class GIResolveRenderer final : public RenderSystem
     {
     public:
@@ -42,23 +42,9 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Shader        = Runtime::ResourceRegistry::GetShaderService()->GetByName( "GIResolve" );
-            m_ResolveShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRResolve" );
-            if ( !m_Shader || !m_ResolveShader )
-                return Common::MakeError( "GIResolve/SSRResolve shader not found" );
-
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "GI: the scene target framebuffer is missing" );
-
-            for ( uint32_t i = 0; i < 2; ++i )
-            {
-                FramebufferSpecification accumSpec;
-                accumSpec.DebugName = "GIAccum" + std::to_string( i );
-                accumSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIAccum );
-                m_AccumFB[i] = Framebuffer::Create( accumSpec );
-                m_AccumFB[i]->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
-            }
+            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "GIResolve" );
+            if ( !m_Shader )
+                return Common::MakeError( "GIResolve shader not found" );
 
             GraphicsPipelineSpecification spec;
             spec.DebugName         = "GIResolve";
@@ -73,58 +59,29 @@ namespace Desert::Graphic::System
                 return Common::MakeError( pipeline.GetError() );
             m_Pipeline = pipeline.GetValue();
 
-            GraphicsPipelineSpecification resolveSpec;
-            resolveSpec.DebugName         = "GITemporalResolve";
-            resolveSpec.Framebuffer       = m_AccumFB[0]; // render-pass compatible with both accum targets
-            resolveSpec.Shader            = m_ResolveShader;
-            resolveSpec.DepthTestEnabled  = false;
-            resolveSpec.DepthWriteEnabled = false;
-            const auto resolvePipeline    = Graphic::GraphicsPipeline::Create( resolveSpec );
-            if ( !resolvePipeline )
-                return Common::MakeError( resolvePipeline.GetError() );
-            m_ResolvePipeline = resolvePipeline.GetValue();
-
-            m_Material        = std::make_unique<MaterialGIResolve>();
-            m_ResolveMaterial = std::make_unique<MaterialSSRResolve>();
-            return BOOLSUCCESS;
+            m_Material = std::make_unique<MaterialGIResolve>();
+            return m_Denoiser.Initialize();
         }
 
-        // The accumulated indirect light is a reprojection of the previous frame, and the previous frame is
-        // now a different world — see IRenderSystem::OnSceneReplaced, kind 1. The blend weight is 0.92, so
-        // without this the first scene's bounce light survives in the second for tens of frames wherever the
-        // neighbourhood clamp does not reject it. A resize invalidates it for the same reason; this is the
-        // other event that does.
+        // The denoiser's history is a reprojection of the previous frame, and the previous frame is now a
+        // different world — see IRenderSystem::OnSceneReplaced, kind 1.
         void OnSceneReplaced() override
         {
-            m_History.Invalidate();
+            m_Denoiser.InvalidateHistory();
         }
 
-        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
-        // and the history ping-pong parity, so it restarts with the history rather than carrying the count
-        // of whatever frames came before the cut.
+        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed, so
+        // it restarts with the history rather than carrying the count of whatever frames came before the cut.
         void OnTemporalHistoryReset() override
         {
-            m_FrameIndex   = 0;
-            m_History.Invalidate();
+            m_FrameIndex = 0;
+            m_Denoiser.InvalidateHistory();
         }
 
-        // The frame graph declares the images below before any pass runs, so the accumulation targets follow
-        // the scene target here (a resize invalidates the history), not inside a pass. False: nothing to draw.
-        bool Prepare()
+        // Called while the frame graph is built. False: nothing to draw.
+        [[nodiscard]] bool Prepare() const
         {
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !m_Pipeline || !m_ResolvePipeline || !m_Material || !m_ResolveMaterial ||
-                 !m_AccumFB[0] || !m_AccumFB[1] )
-                return false;
-            const uint32_t w = target->GetFramebufferWidth();
-            const uint32_t h = target->GetFramebufferHeight();
-            if ( m_AccumFB[0]->GetFramebufferWidth() != w || m_AccumFB[0]->GetFramebufferHeight() != h )
-            {
-                m_AccumFB[0]->Resize( w, h );
-                m_AccumFB[1]->Resize( w, h );
-                m_History.Invalidate();
-            }
-            return true;
+            return !m_TargetFramebuffer.expired() && m_Pipeline && m_Material;
         }
 
         // Pass 1, inside the render pass the graph opens on the gather transient (cleared to 0): jittered VPL
@@ -141,6 +98,7 @@ namespace Desert::Graphic::System
             m_Material->BindInputs( rsmViewProj, invJitteredViewProjection, sunColorIntensity, giIntensity,
                                     static_cast<float>( m_FrameIndex % 1024u ), samples );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            ++m_FrameIndex;
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }
@@ -169,84 +127,27 @@ namespace Desert::Graphic::System
             depth( "u_RSMDepth", inputs.RSMDepth );
         }
 
-        // SETUP of pass 2: the node's one block (block 0) - u_Trace / u_History (linear, REPEAT, as the material
-        // route sampled them) and u_GBufferDepth (nearest), the resolve material as the other route.
-        void DeclareTemporalBindings( RDG::PassBuilder& pass, RDG::TextureRef gather, RDG::TextureRef history,
-                                      RDG::TextureRef gbufferDepth ) const
-        {
-            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            pass.Bindings( m_ResolveLayout.Get( m_ResolvePipeline->GetShader() ),
-                           m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_GBufferDepth", gbufferDepth, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
-        }
-
-        // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).
-        // Asked while the graph is built, before this frame's RecordTemporal stamps it.
-        [[nodiscard]] bool HistoryReadableIn( const ViewFrame& frame ) const
-        {
-            return m_History.ReadableIn( frame );
-        }
-
-        // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
-        // accumulation (shared SSRResolve denoiser) of the gather over the history (GetHistoryImage, imported).
-        // Advances the ping-pong; the graph imported both accumulation images before this runs.
-        // @p prevViewProjection: ViewFrame::PrevViewProjection (unjittered); @p invJitteredViewProjection:
-        // ViewFrame::InvJitteredViewProjection (the pixel's world position from the G-buffer depth);
-        // @p historyReadable: HistoryReadableIn of the frame; @p viewFrameIndex: its FrameIndex, stamped on the
-        // history this draw writes.
-        [[nodiscard]] Common::BoolResultStr RecordTemporal( const RDG::PassContext& context,
-                                                            const glm::mat4&        prevViewProjection,
-                                                            const glm::mat4&        invJitteredViewProjection,
-                                                            const bool              historyReadable,
-                                                            const uint64_t          viewFrameIndex )
+        // Pass 2 (GRAPH BUILD): the screen-space denoiser over @p gather - see ScreenSpaceDenoiser. Returns the
+        // denoised indirect light the lighting reads (a transient of @p graph); invalid: not initialised.
+        [[nodiscard]] RDG::TextureRef Denoise( RDG::Builder& graph, const RDG::TextureRef gather,
+                                               const DenoiserSceneTextures& scene, const ViewFrame& frame )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
-                return Common::MakeError( "Deferred: GITemporal: the scene target framebuffer is gone" );
-            const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
-                                   1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
-            m_ResolveMaterial->BindValues( prevViewProjection, invJitteredViewProjection, texel,
-                                           historyReadable ? 0.92f : 0.0f );
-            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            const auto drawn = Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline,
-                                                                       m_ResolveMaterial->GetMaterialExecutor() );
-
-            m_History.Stamp( viewFrameIndex );
-            m_AccumIndex = 1u - m_AccumIndex;
-            ++m_FrameIndex;
-            return drawn;
-        }
-
-        // Before RecordTemporal: the target it writes this frame, the one it reprojects.
-        [[nodiscard]] std::shared_ptr<Image2D> GetAccumImage() const
-        {
-            return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-        [[nodiscard]] std::shared_ptr<Image2D> GetHistoryImage() const
-        {
-            const uint32_t prv = 1u - m_AccumIndex;
-            return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
+                return {};
+            return m_Denoiser.DenoiseDiffuseIndirect( graph, DiffuseIndirectDenoiserInputs{ .Signal = gather },
+                                                      scene, frame, target->GetFramebufferWidth(),
+                                                      target->GetFramebufferHeight() );
         }
 
     private:
         std::shared_ptr<Shader>             m_Shader;
-        std::shared_ptr<Shader>             m_ResolveShader;
         std::shared_ptr<GraphicsPipeline>   m_Pipeline;
-        std::shared_ptr<GraphicsPipeline>   m_ResolvePipeline;
         std::unique_ptr<MaterialGIResolve>  m_Material;
-        std::unique_ptr<MaterialSSRResolve> m_ResolveMaterial;
-        // The two block layouts, derived from each pipeline shader's reflection once per compile (not per frame).
+        // The gather's block layout, derived from the pipeline shader's reflection once per compile.
         mutable ShaderBindingLayoutCache    m_GatherLayout;
-        mutable ShaderBindingLayoutCache    m_ResolveLayout;
-        std::shared_ptr<Framebuffer>        m_AccumFB[2];
+        ScreenSpaceDenoiser                 m_Denoiser{ DenoiserSignal::DiffuseIndirect };
 
-        PassHistoryStamp m_History; // which view frame wrote GetHistoryImage()
-        uint32_t         m_AccumIndex = 0;
         uint32_t         m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

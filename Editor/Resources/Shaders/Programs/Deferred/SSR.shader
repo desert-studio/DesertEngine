@@ -2,9 +2,9 @@
 Shader "SSR"
 {
     // Screen-space reflections: tile classification and the half-resolution trace, in ONE compute dispatch.
-    // One workgroup per screen tile (Common/SSRTiles.glslh: grid = ceil(size / 8), tiles stretched over the
+    // One workgroup per screen tile (grid = ceil(size / 8), tiles stretched over the
     // target). The workgroup first decides whether any pixel of its tile passes the trace's G-buffer gate
-    // (Common/SSRGate.glslh) and writes that verdict to the tile mask the tiled resolve reads;
+    // (Common/SSRGate.glslh) and writes that verdict to the tile mask the denoiser's reconstruction reads;
     // then it traces the half-resolution texels whose source pixel the tile owns - or writes 0 for them when
     // nothing in the tile can reflect. Every trace texel is written every frame, so the target needs no clear,
     // and the classify costs no pass of its own (it used to be a dispatch, and before that a render pass).
@@ -36,8 +36,8 @@ Shader "SSR"
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
         Uniform(7) sampler2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
         Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
-        // The traced texel's ray, for the resolve's neighbour reuse (SSRResolveTiled.shader, UE SSRT): xyz = the
-        // WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
+        // The traced texel's ray, for the reconstruction's neighbour reuse (Denoise/SSDReconstructReflections.shader,
+        // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
         // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
         layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // half resolution, like u_Trace
         #include <Common/HZBTrace.glslh>
@@ -80,7 +80,7 @@ Shader "SSR"
 
         // The R2 low-discrepancy sequence (Roberts 2018): sample n of a 2D sequence that fills the square evenly
         // for every prefix length, offset per pixel by a Cranley-Patterson rotation. Frames and rays share one index,
-        // so the temporal resolve accumulates successive, well-spread lobe samples.
+        // so the denoiser's temporal accumulation gathers successive, well-spread lobe samples.
         vec2 RayRandom(vec2 rotation, uint index)
         {
         	return fract(rotation + vec2(0.7548776662, 0.5698402910) * float(index));
@@ -114,7 +114,7 @@ Shader "SSR"
         }
 
         // log2 of the pdf with which SampleGGXVNDF + reflect draws the direction Lt (tangent space) for the view
-        // Ve: D(H) * G1(V) / (4 * N.V) (Heitz 2018 eq. 17 through the reflection Jacobian). The resolve divides
+        // Ve: D(H) * G1(V) / (4 * N.V) (Heitz 2018 eq. 17 through the reflection Jacobian). The reconstruction divides
         // its own BRDF by it to reuse this texel's estimate (Stachowiak 2015). log2: the pdf of a smooth lobe
         // exceeds half-float range.
         float Log2VNDFReflectionPdf(vec3 Ve, vec3 Lt, float alpha)
@@ -176,10 +176,10 @@ Shader "SSR"
 
         // The traced texel gPix (HALF RESOLUTION: one G-buffer pixel of a 2x2 block, rotating every frame).
         // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
-        // texel's ray for the resolve (u_TraceRay): xyz = the point it hit (the weighted mean of the hit points;
+        // texel's ray for the reconstruction (u_TraceRay): xyz = the point it hit (the weighted mean of the hit points;
         // when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
         // the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
-        // A texel with no ray: pdf 0 (log -126), which the resolve reads as "nothing to reuse".
+        // A texel with no ray: pdf 0 (log -126), which the reconstruction reads as "nothing to reuse".
         vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
         {
         	ray = vec4(0.0, 0.0, 0.0, -126.0);
@@ -262,7 +262,7 @@ Shader "SSR"
         		const vec3 L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb;
 
         		// Karis' inverse-luminance weight inside the estimator: a single ray onto a sun-lit wall does not
-        		// become a firefly the temporal resolve has to average away over many frames.
+        		// become a firefly the temporal accumulation has to average away over many frames.
         		const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
         		radiance  += L_i * (w * confidence * karis);
         		hitWeight += w * confidence * karis;
