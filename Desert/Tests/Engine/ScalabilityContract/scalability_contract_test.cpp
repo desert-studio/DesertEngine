@@ -91,11 +91,11 @@ namespace
       "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.RayTracing": "None" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.RayTracing": "None" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.RayTracing": "None" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.RayTracing": "None" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.RayTracing": "None" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.RayTracing": "None" }
+      "Low":       { "Reflections.MaxSteps": 12, "Reflections.CaptureSize": 64, "Reflections.RayTracing": "None" },
+      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
+      "High":      { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
+      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.RayTracing": "None" },
+      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 256, "Reflections.RayTracing": "None" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },

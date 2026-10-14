@@ -35,6 +35,7 @@
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <functional>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -84,6 +85,7 @@ namespace Desert::Graphic
     }
     class FrameTextures;
     struct FrameValues;
+    class ReflectionCaptureRenderer;
 
     class SceneRenderer final
     {
@@ -206,6 +208,15 @@ namespace Desert::Graphic
         void OnUpdate( const UpdateInfo& sceneRenderInfo );
 
         [[nodiscard]] Common::BoolResultStr EndScene();
+
+        // THE REFLECTION CAPTURES (ReflectionCaptures/ReflectionCaptureRenderer.hpp) are the scene's; a view only
+        // reads them. Whether this view's profile does (ViewProfile::ReflectionCaptures), and the identity of the
+        // sky bake it holds (0 before it has one) - the scene recaptures when it changes.
+        [[nodiscard]] bool     ReadsReflectionCaptures() const;
+        [[nodiscard]] uint64_t GetEnvironmentIdentity();
+        // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
+        // reflection capture resamples into its cube. Null before the targets exist.
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
@@ -803,6 +814,9 @@ namespace Desert::Graphic
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
+        // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
+        // views): published into this view's graph by OnUpdate, cleared by EndScene.
+        ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

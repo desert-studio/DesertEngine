@@ -1,0 +1,31 @@
+#ifndef REFLECTION_CAPTURE_MIP_GLSLH
+#define REFLECTION_CAPTURE_MIP_GLSLH
+
+// THE ONE ROUGHNESS <-> MIP RAMP of every prefiltered cube this engine reads: the sky's prefiltered environment
+// (Programs/Compute/PrefilterEnvMap.shader, read by Mesh/AmbientIBL.glslh) and the reflection captures
+// (Programs/ReflectionCapture/ReflectionCaptureFilter.shader, read by Common/ReflectionEnvironment.glslh). The
+// filter writes mip M at RoughnessFromMip(M) and the lighting reads roughness R at MipFromRoughness(R) - the two
+// are each other's inverse, so a capture and the sky it blends into answer one roughness at one blur.
+//
+// UE's ReflectionEnvironmentShared.ush (ComputeReflectionCaptureMipFromRoughness /
+// ComputeReflectionCaptureRoughnessFromMip): a log ramp counted from the 1x1 mip, so the roughest lobe (roughness
+// 1) lands REFLECTION_CAPTURE_ROUGHEST_MIP above the 1x1 mip whatever the face size, and the mirror end gets
+// more mips than a linear ramp gives it. @p cubemapMaxMip is the cube's last mip index (mip count - 1).
+
+#define REFLECTION_CAPTURE_ROUGHEST_MIP 1.0
+#define REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE 1.2
+
+float ComputeReflectionCaptureMipFromRoughness(float roughness, float cubemapMaxMip)
+{
+	const float levelFrom1x1 =
+	     REFLECTION_CAPTURE_ROUGHEST_MIP - REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE * log2(max(roughness, 0.001));
+	return cubemapMaxMip - 1.0 - levelFrom1x1;
+}
+
+float ComputeReflectionCaptureRoughnessFromMip(float mip, float cubemapMaxMip)
+{
+	const float levelFrom1x1 = cubemapMaxMip - 1.0 - mip;
+	return exp2((REFLECTION_CAPTURE_ROUGHEST_MIP - levelFrom1x1) / REFLECTION_CAPTURE_ROUGHNESS_MIP_SCALE);
+}
+
+#endif // REFLECTION_CAPTURE_MIP_GLSLH

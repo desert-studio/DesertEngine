@@ -42,6 +42,8 @@
 #include <string_view>
 #include <vector>
 
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+
 namespace Desert::Graphic
 {
     void SceneRenderer::Init()
@@ -715,6 +717,8 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+        // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
+        m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1102,6 +1106,9 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The reflection captures, before any lit node reads them (SceneViewInputs).
+        if ( m_FrameReflectionCaptures )
+            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1329,7 +1336,8 @@ namespace Desert::Graphic
         m_SpotLight.SpotLights.clear();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
-        m_FrameExtensions = nullptr;
+        m_FrameExtensions         = nullptr;
+        m_FrameReflectionCaptures = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1905,6 +1913,24 @@ namespace Desert::Graphic
              [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return populate->Record( context ); } );
         return overlay;
+    }
+
+    bool SceneRenderer::ReadsReflectionCaptures() const
+    {
+        return m_ViewProfile.ReflectionCaptures;
+    }
+
+    uint64_t SceneRenderer::GetEnvironmentIdentity()
+    {
+        if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
+            return ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
+                   env->PreFilteredMap.Value.Generation;
+        return 0;
+    }
+
+    std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
+    {
+        return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()

@@ -41,6 +41,7 @@
 namespace Desert::Graphic
 {
     class SceneRenderer;
+    class ReflectionCaptureRenderer;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -540,6 +541,14 @@ namespace Desert::Core
             return m_ExtensionPasses;
         }
 
+        // THE SCENE'S REFLECTION CAPTURES (UE: FScene's FReflectionEnvironmentSceneData): one set, rendered once
+        // per frame before the views (OnUpdate) and read by every view of this scene. Renderer state cached on
+        // the scene, not its data: a view that renders a const scene publishes them into its own graph.
+        [[nodiscard]] Graphic::ReflectionCaptureRenderer& GetReflectionCaptures() const
+        {
+            return *m_ReflectionCaptures;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -653,6 +662,9 @@ namespace Desert::Core
         // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
+
+        // See GetReflectionCaptures. Never null: made by both constructors.
+        std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

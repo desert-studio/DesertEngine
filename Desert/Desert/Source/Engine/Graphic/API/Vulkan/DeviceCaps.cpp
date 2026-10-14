@@ -23,6 +23,9 @@ namespace Desert::Graphic::API::Vulkan
              // differ (VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605). Universal on desktop and
              // MoltenVK.
              { C::IndependentBlend, "independentBlend", N::Required, V10, {} },
+             // The reflection captures live in one cube array (samplerCubeArray / imageCubeArray). Universal on
+             // desktop and MoltenVK.
+             { C::ImageCubeArray, "imageCubeArray", N::Required, V10, {} },
              { C::Swapchain, "swapchain", N::Required, 0, VK_KHR_SWAPCHAIN_EXTENSION_NAME },
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },

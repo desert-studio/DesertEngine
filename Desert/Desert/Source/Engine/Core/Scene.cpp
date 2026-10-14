@@ -2,6 +2,7 @@
 #include <Engine/Core/PlayerStart.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -372,14 +373,15 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene()
+    Scene::Scene() : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
     }
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
-         : m_SceneName( std::move( sceneName ) )
+         : m_SceneName( std::move( sceneName ) ),
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -740,6 +742,24 @@ namespace Desert::Core
         // the world is identical; only the camera each renderer was opened with differs.
         {
             DESERT_PROFILE_SCOPE( "Scene: Views" );
+            // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
+            // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
+            // by is the one the first such view holds (every view bakes the one sky of this scene).
+            for ( auto& view : m_Views.All() )
+            {
+                if ( !view.Renderer->ReadsReflectionCaptures() )
+                    continue;
+                m_ReflectionCaptures->RenderCaptureViews(
+                     *this,
+                     [this]( Graphic::SceneRenderer& face )
+                     {
+                         for ( const auto& buffer : m_SystemCommandBuffers )
+                             buffer->ExecuteAll( face );
+                     },
+                     sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
+                     view.Renderer->GetEnvironmentIdentity() );
+                break;
+            }
             for ( auto& view : m_Views.All() )
             {
                 // ONE VIEW, ONE COMPLETE SEQUENCE — open, record, render, close — AND THE SEQUENCES MUST
