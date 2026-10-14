@@ -150,6 +150,10 @@ namespace Desert::Graphic
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );
+        // One rectangle of the open render pass's target: draw into it / clear it (RendererAPI says how).
+        void SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height );
+        void ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width, uint32_t height,
+                          const glm::vec4& color, float depth );
 
         // Carries the backend's own result: a failed submit or present is what a lost device looks like
         // from here, and Application::Run ends the run on it. See Renderer.cpp for why it was void, and

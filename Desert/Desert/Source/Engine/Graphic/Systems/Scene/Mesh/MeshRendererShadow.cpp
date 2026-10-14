@@ -128,12 +128,20 @@ namespace Desert::Graphic::System
         // user-driven, so the whole device is drained rather than each object's release deferred.
         Renderer::GetInstance().WaitDeviceIdle();
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
-        {
             m_CascadeFB[i].reset();
+        for ( uint32_t i = 0; i < kMaxShadowViews; ++i )
+        {
             m_ShadowMaterial[i].reset();
             m_ShadowInstancedMaterial[i].reset();
             m_ShadowSkinnedMaterial[i].reset();
         }
+        // The local lights' atlas is sized by the same budget (LocalShadowAtlasSize): it is made again, at the
+        // new size, by the first light that casts after this, and every light's tiles and cache go with it.
+        m_LocalAtlasFB.reset();
+        m_LocalAtlas.Reset( 0 );
+        m_LocalLights.clear();
+        m_LocalShadowRows.clear();
+        m_LocalRedraws.clear();
         m_ShadowPipeline.reset();
         m_ShadowInstancedPipeline.reset();
         m_ShadowSkinnedPipeline.reset();

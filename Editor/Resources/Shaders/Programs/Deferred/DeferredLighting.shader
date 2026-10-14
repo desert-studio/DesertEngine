@@ -209,6 +209,17 @@ Shader "DeferredLighting"
         // Included after the two bindings above because it names them.
         #include <Common/CloudShadowReceiver.glslh>
 
+        // THE POINT AND SPOT LIGHTS' SHADOWS: the view's local shadow atlas and the table of its views
+        // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
+        // The row struct first, then the two bindings, then the reader, which names them.
+        #include <Mesh/LocalLightShadowView.glslh>
+        Uniform(22) sampler2D u_LocalShadowAtlas;
+        ReadBuffer(23) LocalShadowViewsUB
+        {
+        	LocalShadowView localShadowViews[];
+        };
+        #include <Mesh/LocalLightShadow.glslh>
+
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
         vec3 HeatColor(float t)
@@ -320,15 +331,16 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit (not shadowed yet).
+        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
+        	// atlas views when it casts shadows.
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertPointLightAt(pointLights[i], worldPos), surface,
-        		                                     payload);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N),
+        		                                     surface, payload);
 
-        	// Spot lights (street lamps / headlights).
+        	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
         	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertSpotLightAt(spotLights[i], worldPos), surface,
-        		                                     payload);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
+        		                                     surface, payload);
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only

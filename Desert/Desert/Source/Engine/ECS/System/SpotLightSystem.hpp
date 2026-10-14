@@ -73,7 +73,16 @@ namespace Desert::ECS
                      light.CosOuter  = glm::cos( outer );
                      light.Falloff   = static_cast<int32_t>( spotlight.Data.Falloff );
 
-                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light );
+                     // What the light asks of its shadow, and who it is (its tiles stay its own while it and
+                     // its casters stand still: MeshRenderer::UpdateLocalShadows).
+                     const Graphic::LocalLightShadowSettings shadow{
+                          .CastShadows     = spotlight.Data.CastShadows,
+                          .DepthBias       = spotlight.Data.ShadowBias,
+                          .SlopeBias       = spotlight.Data.ShadowSlopeBias,
+                          .ResolutionScale = spotlight.Data.ShadowResolutionScale,
+                          .SourceId        = static_cast<uint32_t>( entity ) + 1u };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow );
                  } );
         }
     };
