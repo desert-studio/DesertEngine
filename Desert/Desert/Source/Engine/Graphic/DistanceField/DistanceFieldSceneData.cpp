@@ -33,19 +33,28 @@ namespace Desert::Graphic::DistanceField
         // would be drawn but absent from the field.
         constexpr uint32_t kDfStreamBricksPerFrame = 8192;
 
-        // The mips a field wants at @p distance (cm) from the camera: all of them inside the finest global
-        // clipmap, one fewer per clipmap level farther out, never fewer than the coarse one. The finest mip is
-        // detail only the finest clipmap (and the near-camera traces that start in it) can resolve.
-        uint32_t DfWantedMips( const float distance )
+        // The mips a field wants at @p separation (cm): the largest per-axis gap between the camera and the box of
+        // the nearest object drawn with it. Ported from UE ComputeDistanceFieldAssetWantedMipsCS
+        // (DistanceFieldStreaming.usf:132-165, extents set in DistanceFieldStreaming.cpp:1240-1245): every mip for
+        // a box overlapping the box of global clipmap NumClipmaps/2 - 1 around the camera, two for one
+        // overlapping the coarsest clipmap's box, the coarse mip beyond. The mips follow the CLIPMAPS because
+        // each clipmap voxel is composited from them: a clipmap must never read a mesh field coarser than it
+        // can resolve. Requesting one clipmap level finer (all mips inside clipmap 0 only) left the street seen
+        // from 30 m up - clipmap 1 - composited from the ground meshes' middle mip, whose voxels on a 100 m
+        // ground sheet are 1.6 m; trilinear interpolation over an open sheet edge (a kerb, a cut-out around a
+        // bollard) overestimated the distance by more than clipmap 1's half-voxel surface expansion, and the
+        // trace saw through the ground there.
+        uint32_t DfWantedMips( const float separation )
         {
-            uint32_t level  = 0;
-            float    extent = DFShared::GDF_CLIPMAP0_EXTENT;
-            while ( level + 1 < Assets::kDistanceFieldNumMips && distance > extent )
-            {
-                ++level;
-                extent *= 2.0f;
-            }
-            return Assets::kDistanceFieldNumMips - level;
+            static_assert( Assets::kDistanceFieldNumMips == 3, "the policy below names three mips, as UE's" );
+            const float allMipsExtent =
+                 DFShared::GDF_CLIPMAP0_EXTENT *
+                 static_cast<float>( 1 << std::max( DFShared::GDF_NUM_CLIPMAPS / 2 - 1, 0 ) );
+            const float twoMipsExtent =
+                 DFShared::GDF_CLIPMAP0_EXTENT * static_cast<float>( 1 << ( DFShared::GDF_NUM_CLIPMAPS - 1 ) );
+            if ( separation <= allMipsExtent )
+                return 3;
+            return separation <= twoMipsExtent ? 2 : 1;
         }
         constexpr uint32_t kDfAssetStride        = static_cast<uint32_t>( DFShared::DF_ASSET_STRIDE );
 

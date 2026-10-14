@@ -7,11 +7,11 @@
 //
 // RESIDENCY FOLLOWS USE AND DISTANCE (UE DistanceFieldStreaming). A field becomes resident the first time an
 // object draws with it (Acquire), with its COARSEST mip only - the always-loaded one; the finer mips stream in by
-// the distance from the camera to the nearest object using the field (Stream), the finest where the finest global
-// clipmap is, and out again when the camera leaves; all of it inside the pool the Scalability parameter
-// GlobalIllumination.DistanceFieldPoolMiB sets, nearest first, a bounded number of bricks uploaded per frame. A
-// field leaves when nothing holds it any more (ReleaseUnused, from the weak pointer each entry keeps) - its brick
-// slots, table ranges and asset record go back to the free lists.
+// the distance from the camera to the nearest object using the field (Stream) - all of them where a clipmap that
+// reads them is (UE's policy, DfWantedMips) - and out again when the camera leaves; all of it inside the pool the
+// Scalability parameter GlobalIllumination.DistanceFieldPoolMiB sets, nearest first, a bounded number of bricks
+// uploaded per frame. A field leaves when nothing holds it any more (ReleaseUnused, from the weak pointer each
+// entry keeps) - its brick slots, table ranges and asset record go back to the free lists.
 //
 // The record lists the resident mips COARSEST FIRST (UE's reversed mip index), so a finer mip arriving or leaving
 // only changes the record's mip count and one row; Mips[] of the asset stays finest first.
@@ -87,7 +87,8 @@ namespace Desert::Graphic::DistanceField
         void BeginFrame();
 
         // The asset record index of @p field, making it resident (coarsest mip) on first use, and the distance in
-        // centimetres from the camera to an object drawn with it (the nearest of a frame's objects counts). A
+        // centimetres from the camera to an object drawn with it - the largest per-axis gap to its box, the
+        // measure of the camera-centred clipmap boxes (the nearest of a frame's objects counts). A
         // field without a single mip (a mesh with no triangles) has no record: nullopt, nothing to sample. An
         // error when not even the coarse mip fits the pool.
         [[nodiscard]] Common::ResultStr<std::optional<uint32_t>>

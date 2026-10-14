@@ -245,8 +245,10 @@ namespace Desert::Graphic::DistanceField
         {
             const Common::Math::AABB bounds =
                  Geometry::TransformBounds( object.World, object.Field->LocalSpaceMeshBounds );
-            const glm::vec3 nearest = glm::clamp( camera, bounds.Min, bounds.Max );
-            auto            index   = m_SceneData.Acquire( object.Field, glm::length( nearest - camera ) );
+            // The largest per-axis gap between the camera and the box: the camera-centred clipmap box of that
+            // half-extent is the smallest one the object overlaps (UE ComputeSquaredDistanceBetweenAABBs <= 0).
+            const glm::vec3 gap   = glm::abs( glm::clamp( camera, bounds.Min, bounds.Max ) - camera );
+            auto            index = m_SceneData.Acquire( object.Field, std::max( { gap.x, gap.y, gap.z } ) );
             if ( !index )
                 return Common::MakeError<FrameField>( index.GetError() );
             if ( !index.GetValue().has_value() )

@@ -891,7 +891,7 @@ namespace
         const char* KeyedOn;
     };
 
-    constexpr std::array<ResolverRow, 5> kDependencyResolvers = {
+    constexpr std::array<ResolverRow, 6> kDependencyResolvers = {
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
@@ -901,6 +901,14 @@ namespace
                       "outlives Unload by construction, and the resolver loads the rig's bones back "
                       "before it counts as bound; this suite's "
                       "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth pins that." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
+                      "every submesh's MATERIAL, by GUID - the mesh file's per-submesh MaterialGuid, folded to "
+                      "the handle the material adopted from its header (HandleForGuid) or created from its "
+                      "registry row (ResolveMaterialTwoSided). Read once, for the distance field's sidedness, "
+                      "and COPIED into the field's build input: nothing of the material is held, so a sweep "
+                      "releasing it later cannot unbind the mesh. The GUIDs are the mesh's own payload and go "
+                      "with it: Unload clears them together with the render data and the field slot, Load "
+                      "reads them back and EnsureLoaded runs this resolver again." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
                       "a noise volume, by PATH. A path is identity: eviction releases payloads and is "
                       "forbidden to touch identity, so this resolver cannot lose its target." },
