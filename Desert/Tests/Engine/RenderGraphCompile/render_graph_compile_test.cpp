@@ -2322,6 +2322,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     collect( body, 0 );
 
     const std::vector<std::string> frameOrder = {
+         // REFL-CAPTURE: the scene's reflection captures (IReflectionCaptures::AddPasses) re-capture before any
+         // node, so every lit node after them reads this frame's cube array.
+         "temporal[m_FrameReflectionCaptures]",
          "ClearMainFramebuffer",
          // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
          // next compact.
@@ -2336,6 +2339,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // mask (cleared).
          "system[mesh->ShadowCascadePasses()]",
          "rasters[cascades,true]",
+         // SHADOW-LOCAL: the point/spot shadow views of the local-light atlas, LOADING it: each clears and
+         // draws only its own stale tile.
+         "system[mesh->LocalShadowPasses()]",
+         "rasters[local,false]",
          "system[sky->SkyPass()]",
          "system[mesh->GeometryPass()]",
          "system[terrain->GeometryPass()]",
@@ -3393,7 +3400,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
@@ -3405,7 +3412,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
                std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    EXPECT_NE( particles.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
                                ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
@@ -3761,7 +3768,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)" },
+           ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -4292,7 +4299,8 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
+    EXPECT_NE( declaration.find( ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)"
+                                 ".Storage(\"DrawLayout\",ve.DrawLayoutRef,RDG::Access::StorageRead)"
                                  ".Storage(\"AliveList\",ve.Sorted?m_SortedRef:m_Pool.AliveRef,"
                                  "RDG::Access::StorageRead);" ),
                std::string::npos );
@@ -4504,8 +4512,17 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
-    EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
-         << "SceneViewInputs::Refs() must name every input it binds, the cloud map included";
+    // Matched with whitespace removed: clang-format wraps the list.
+    std::string refsFlat = refs;
+    refsFlat.erase( std::remove_if( refsFlat.begin(), refsFlat.end(),
+                                    []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                    refsFlat.end() );
+    EXPECT_NE( refsFlat.find( "{EnvIrradiance,EnvSpecular,BrdfLut,CloudShadowMap,LocalShadowAtlas,"
+                              "ReflectionCaptureCubes}" ),
+               std::string::npos )
+         << "SceneViewInputs::Refs() must name every input it binds: the cloud map, the local shadow atlas and "
+            "the "
+            "reflection capture cubes included";
 
     std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     composite.erase( std::remove_if( composite.begin(), composite.end(),

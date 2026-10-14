@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 #include <Engine/Reflection/Value.hpp>
 
@@ -53,8 +54,9 @@ namespace Desert::Libraries
         REFLECT( ScriptName( "level" ) )
 
         FUNCTION( ScriptCallable, ScriptName( "open" ),
-                  Tooltip( "Requests travel to a level; false (logged) when refused." ) )
-        static bool Open( const std::string& level );
+                  Tooltip( "Requests travel to a level (none: the project's default map). Ok, or false and the "
+                           "reason." ) )
+        static Common::BoolResultStr Open( const std::string& level = "" );
     };
 
     /// Game-time timers of the running script's world (Core::TimerManager through Core::WorldContext) — UE's

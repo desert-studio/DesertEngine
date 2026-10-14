@@ -45,12 +45,10 @@ namespace Desert::Libraries
         return Project::CurrentGameSettings().Company;
     }
 
-    bool LevelLibrary::Open( const std::string& level )
+    Common::BoolResultStr LevelLibrary::Open( const std::string& level )
     {
-        const Common::BoolResultStr opened = Core::OpenLevel( level );
-        if ( !opened )
-            LOG_ERROR( "[Script] level.open('{}'): {}", level, opened.GetError() );
-        return static_cast<bool>( opened );
+        // Core::OpenLevel logs its refusal; the script hears it as (false, reason).
+        return Core::OpenLevel( level );
     }
 
     void TimerLibrary::After( float seconds, const Reflection::Callable& callback )

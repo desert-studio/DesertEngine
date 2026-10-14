@@ -3,6 +3,8 @@
 
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 
+#include <Common/Json/Json.hpp>
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -11,14 +13,14 @@
 
 TEST( SceneDependenciesRule, AMeshAMaterialAndASoundAreExactlyTheirThreeGuids )
 {
-    const auto record = rfl::json::read<Desert::Assets::EntityData>(
+    const auto record = Common::Json::Read<Desert::Assets::EntityData>(
          R"({"id":7,"Tag":"Crate","Translation":[1.0,2.0,3.0],)"
          R"("StaticMesh":{"MeshGuid":"3333333333333333333333333333333a","MeshPath":"Meshes/Crate.stmesh",)"
          R"("MaterialGuids":["1111111111111111111111111111111b"],"MaterialPaths":["Materials/Crate.demat"]},)"
          R"("AudioSource":{"Sound":{"Guid":"2222222222222222222222222222222c","Path":"Sounds/Hit.desound"},"Volume":0.5}})" );
-    ASSERT_TRUE( record ) << record.error().what();
+    ASSERT_TRUE( record ) << record.GetError();
 
-    const auto gather = Desert::Core::GatherSceneDependencies( { record.value() }, nullptr,
+    const auto gather = Desert::Core::GatherSceneDependencies( { record.GetValue() }, nullptr,
                                                                std::filesystem::temp_directory_path() );
     EXPECT_TRUE( gather.Refused.empty() );
     const std::vector<std::string> expected = { "1111111111111111111111111111111b",

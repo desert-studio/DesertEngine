@@ -338,7 +338,7 @@ void RegisterReflection_Engine()
         TypeBuilder( "LevelLibrary", sizeof( T ) )
             .ScriptName( "level" )
 #ifndef DESERT_REFLECTION_DATA_ONLY
-                    .Function( ::Desert::Reflection::MakeFunction<&T::Open>( "Open", "LevelLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "level", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Requests travel to a level; false (logged) when refused.", .ScriptName = "open", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::Open>( "Open", "LevelLibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "level", "const std::string&", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Open, 0>; return ::Desert::Reflection::ValueTraits<P>::To( P{ "" } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Requests travel to a level (none: the project's default map). Ok, or false and the reason.", .ScriptName = "open", .ScriptMethod = false } ) )
 #endif
             .WithDefault<T>()
             .Register();

@@ -1159,47 +1159,69 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudParameterBlockIsTheSameNumberOfBytesOn
     }
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyTwoDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamedSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
-    // set is how "as little as possible" becomes checkable: the count moves the day somebody adds a
-    // binding to it, whether or not they meant to.
+    // set is how "as little as possible" becomes checkable: a binding added to it, whether or not anyone
+    // meant to, is a set-0 entry with no row below.
     //
-    // Twenty. Slots 0..16 with none free in between: six G-buffer and scene samplers (1, 2, 3, 8, 9, 10),
-    // four cascade maps (5, 13, 14, 15), four uniform blocks (0, 4, 7, 12), two light SSBOs (6, 16) and
-    // the cloud shadow map (11) — plus the three the ambient needs (17, 18, 19). Was seventeen until
-    // 2026-09-03, when this pass stopped inventing its ambient out of a flat constant and started reading
-    // the same baked environment the forward mesh shaders read. Twenty-one since 2026-09-24 (ENV1): the
-    // sky's look (20, SkyLookUB) is applied where the environment cubes are sampled instead of being
-    // baked into them, so the composite reads the rotation and gain the backdrop is drawn with.
-    // Twenty-two since GBUF1: the world-position target (u_GBufferC, RGBA32F, slot 1) is gone; slot 1 is the
-    // R32_UINT shading word (usampler2D, read by texelFetch) and the position is rebuilt from the depth
-    // attachment at slot 21 (Common/ReconstructPosition.glslh).
-    const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
-
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 22u );
-    EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_GBufferShadingWord
-    EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GBufferDepth
-    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
-
-    EXPECT_TRUE( HasBinding( bindings, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
-    EXPECT_TRUE( HasBinding( bindings, 12, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
-
-    // THE AMBIENT'S OWN THREE, and the point of the whole change: a deferred composite that declares
-    // none of these cannot be reading the sky, whatever its ambient line says it is doing. That was
-    // exactly the state the owner saw as black ground under a bright sky.
-    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EnvIrradianceTex
-    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EnvSpecularTex
-    EXPECT_TRUE( HasBinding( bindings, 19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_BRDFLUTTexture
-
+    // A REGISTER BY NAME, NOT A COUNT. The count is DERIVED from the rows (it was a hand-typed number —
+    // seventeen, twenty, twenty-one, twenty-two — and each new input had to edit the number and its
+    // story). Each row names what reads the slot and the change that brought it:
+    //   - the ambient's three (17, 18, 19): the pass reads the same baked environment the forward mesh shaders
+    //     read (2026-09-03) — a composite that declares none of them cannot be reading the sky, which was
+    //     the black ground under a bright sky the owner saw;
+    //   - the sky's look (20, ENV1), applied where the cubes are sampled;
+    //   - GBUF1: slot 1 is the R32_UINT shading word, the position is rebuilt from the depth at 21;
+    //   - SHADOW-LOCAL: the local shadow atlas and its view table (22, 23);
+    //   - REFL-CAPTURE: the capture records and their cube array (28, 29: above the reserved scene-read range).
     // And the cascade block it must NOT have disturbed: the same four maps at the same four slots, with
     // ShadowUB where Lit.glsl.frag mirrors it.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );
+    struct Row
+    {
+        uint32_t         Binding;
+        VkDescriptorType Type;
+        const char*      Name;
+    };
+    constexpr VkDescriptorType kSampler = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    constexpr VkDescriptorType kUniform = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    constexpr VkDescriptorType kStorage = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    const Row                  rows[]   = {
+         { 0, kUniform, "DeferredUB" },
+         { 1, kSampler, "u_GBufferShadingWord" },
+         { 2, kSampler, "u_GBufferA" },
+         { 3, kSampler, "u_GBufferB" },
+         { 4, kUniform, "LightsMetadata" },
+         { 5, kSampler, "u_ShadowMap0" },
+         { 6, kStorage, "PointLightsUB" },
+         { 7, kUniform, "ShadowUB" },
+         { 8, kSampler, "u_SSAO" },
+         { 9, kSampler, "u_GBufferEmissive" },
+         { 10, kSampler, "u_GI" },
+         { 11, kSampler, "u_CloudShadowMap" },
+         { 12, kUniform, "CloudShadowUB" },
+         { 13, kSampler, "u_ShadowMap1" },
+         { 14, kSampler, "u_ShadowMap2" },
+         { 15, kSampler, "u_ShadowMap3" },
+         { 16, kStorage, "SpotLightsUB" },
+         { 17, kSampler, "u_EnvIrradianceTex" },
+         { 18, kSampler, "u_EnvSpecularTex" },
+         { 19, kSampler, "u_BRDFLUTTexture" },
+         { 20, kUniform, "SkyLookUB" },
+         { 21, kSampler, "u_GBufferDepth" },
+         { 22, kSampler, "u_LocalShadowAtlas" },
+         { 23, kStorage, "LocalShadowViewsUB" },
+         { 28, kStorage, "ReflectionCapturesUB" },
+         { 29, kSampler, "u_ReflectionCaptureCubes" },
+    };
+    const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
+
+    for ( const Row& row : rows )
+        EXPECT_TRUE( HasBinding( bindings, row.Binding, row.Type ) )
+             << row.Name << " is not declared at binding " << row.Binding << " with its descriptor type";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), std::size( rows ) )
+         << "DeferredLighting's set 0 holds a descriptor no row names (or lost one): add or delete its row";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActuallyReads )

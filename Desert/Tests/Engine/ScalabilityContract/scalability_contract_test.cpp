@@ -710,7 +710,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     const ScalabilityTable& table = parsed.GetValue();
     const auto              high  = [&]( Parameter p ) { return table.ValueAt( p, Level::High ); };
 
-    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    // The one deliberate move off the old frame: TAA-FINISH made the temporal resolve High's anti-aliasing
+    // (High/Epic/Cinematic, UE's r.AntiAliasingMethod default), so High is TAA, no longer the old FXAA.
+    EXPECT_NE( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), static_cast<ParameterValue>( AntiAliasingMethod::TAA ) );
     EXPECT_EQ( high( Parameter::AntiAliasingSamples ), kOldSamples );
     EXPECT_EQ( high( Parameter::RenderScalePercent ), kOldScale );
     EXPECT_EQ( high( Parameter::Upscaler ), static_cast<ParameterValue>( Upscaler::None ) );

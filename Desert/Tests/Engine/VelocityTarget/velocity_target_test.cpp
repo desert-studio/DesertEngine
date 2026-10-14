@@ -761,7 +761,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     RasterTargets gbuffer;
     for ( const char* slot : { "A", "B", "C", "Emissive" } )
         gbuffer.Colors.push_back( graph.CreateTexture( colour, slot ) );
-    const GraphColor onScene[]   = { VelocityColor( velocity, 1 ) };
+    // TAA-FINISH: the scene target's last colour slot is the responsive-AA mask, appended after the velocity.
+    const ViewVelocity responsive  = CreateViewResponsiveAA( graph, RDG::Extent3D{ 64, 32, 1 }, 1 );
+    const GraphColor   onScene[]   = { VelocityColor( velocity, 1 ), ResponsiveAAColor( responsive, 1 ) };
     const GraphColor onGBuffer[] = { VelocityColor( velocity, 1 ) };
     ASSERT_TRUE( AppendGraphColors( scene, onScene, false ) );
     ASSERT_TRUE( AppendGraphColors( gbuffer, onGBuffer, false ) );
@@ -769,6 +771,7 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     ASSERT_EQ( gbuffer.Colors.size(), Desert::Graphic::GBufferLayout().ColorFormats.size() );
     EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetVelocitySlot], velocity.Resolved );
     EXPECT_EQ( gbuffer.Colors[Desert::Graphic::kGBufferVelocitySlot], velocity.Resolved );
+    EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetResponsiveAASlot], responsive.Resolved );
 
     // At MSAA the scene target draws the multisampled twin; velocity is SampleZero, so the slot has NO in-pass
     // resolve (the hardware average) — "Velocity: Resolve" writes sample 0 into the one transient
@@ -889,9 +892,11 @@ TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
     ASSERT_NE( created, std::string::npos );
     ASSERT_NE( first, std::string::npos );
     EXPECT_LT( created, first ) << "the velocity must exist before the first node of the frame";
-    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor(" ), 2u ) << "velocity on any other target (RSM, cascades, overdraw)";
+    // By name: the velocity on both view targets, and the scene target's responsive-AA mask (TAA-FINISH).
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor(" ), 3u ) << "velocity on any other target (RSM, cascades, overdraw)";
     EXPECT_EQ( count( scene, "AddGraphColor( m_RSMBuffer" ), 0u );
 }
 

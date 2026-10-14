@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <algorithm>
 #include <fstream>
@@ -53,61 +54,61 @@ namespace Desert::Core
     {
         // Only text that IS an asset GUID is a reference: a "Guid" key also names identities that are not assets
         // (a landscape edit layer's id is a decimal 64-bit number), and the header reader refuses anything else.
-        void AddAssetGuid( const Common::Json::Value& value, std::vector<std::string>& out )
+        void AddAssetGuid( const Common::Json::Node& node, std::vector<std::string>& out )
         {
-            if ( const auto text = value.to_string(); text.has_value() && !text.value().empty() )
-                if ( const auto guid = Common::Content::AssetGuidFromText( text.value() );
+            if ( const auto text = node.AsString(); text && !text.GetValue().empty() )
+                if ( const auto guid = Common::Content::AssetGuidFromText( text.GetValue() );
                      guid.IsSuccess() && !guid.GetValue().IsNull() )
-                    out.push_back( text.value() );
+                    out.push_back( text.GetValue() );
         }
 
-        void Collect( const Common::Json::Value& value, const std::filesystem::path& assetsRoot,
+        void Collect( const Common::Json::Node& node, const std::filesystem::path& assetsRoot,
                       std::vector<std::string>& out )
         {
-            if ( const auto object = value.to_object(); object.has_value() )
+            switch ( node.GetKind() )
             {
-                bool statesGuid = false;
-                for ( const auto& [key, field] : object.value() )
-                    statesGuid = statesGuid || key == "Guid";
-                for ( const auto& [key, field] : object.value() )
+                case Common::Json::Kind::Object:
                 {
-                    if ( key == "Header" )
-                    {
-                        // A hosted block's identity is not a reference; what IT depends on is the scene's too.
-                        if ( const auto header = field.to_object(); header.has_value() )
-                            for ( const auto& [hk, hv] : header.value() )
-                                if ( hk == "Dependencies" )
-                                    if ( const auto list = hv.to_array(); list.has_value() )
-                                        for ( const auto& element : list.value() )
-                                            AddAssetGuid( element, out );
-                        continue;
-                    }
-                    if ( key == "Guid" || key == "MeshGuid" )
-                    {
-                        AddAssetGuid( field, out );
-                        continue;
-                    }
-                    if ( key == "MaterialGuids" )
-                    {
-                        if ( const auto list = field.to_array(); list.has_value() )
-                            for ( const auto& element : list.value() )
-                                AddAssetGuid( element, out );
-                        continue;
-                    }
-                    if ( statesGuid && key == "Path" )
-                        continue; // the Guid beside it is the reference
-                    Collect( field, assetsRoot, out );
+                    const bool statesGuid = node.Find( "Guid" ).has_value();
+                    node.ForEachMember(
+                         [&]( std::string_view key, const Common::Json::Node& field )
+                         {
+                             if ( key == "Header" )
+                             {
+                                 // A hosted block's identity is not a reference; what IT depends on is the
+                                 // scene's too.
+                                 if ( const auto list = field.Find( "Dependencies" ) )
+                                     list->ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                                           { AddAssetGuid( element, out ); } );
+                                 return;
+                             }
+                             if ( key == "Guid" || key == "MeshGuid" )
+                             {
+                                 AddAssetGuid( field, out );
+                                 return;
+                             }
+                             if ( key == "MaterialGuids" )
+                             {
+                                 field.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                                       { AddAssetGuid( element, out ); } );
+                                 return;
+                             }
+                             if ( statesGuid && key == "Path" )
+                                 return; // the Guid beside it is the reference
+                             Collect( field, assetsRoot, out );
+                         } );
+                    break;
                 }
-            }
-            else if ( const auto list = value.to_array(); list.has_value() )
-            {
-                for ( const auto& element : list.value() )
-                    Collect( element, assetsRoot, out );
-            }
-            else if ( const auto text = value.to_string(); text.has_value() )
-            {
-                if ( auto guid = StatedPathGuid( text.value(), assetsRoot ) )
-                    out.push_back( std::move( *guid ) );
+                case Common::Json::Kind::Array:
+                    node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                         { Collect( element, assetsRoot, out ); } );
+                    break;
+                case Common::Json::Kind::String:
+                    if ( auto guid = StatedPathGuid( node.AsString().GetValue(), assetsRoot ) )
+                        out.push_back( std::move( *guid ) );
+                    break;
+                default:
+                    break;
             }
         }
     } // namespace
@@ -120,7 +121,7 @@ namespace Desert::Core
         for ( const auto& record : entities )
         {
             for ( const auto& [key, block] : record.Components )
-                Collect( block, assetsRoot, gather.Guids );
+                Collect( Common::Json::Root( block ), assetsRoot, gather.Guids );
             if ( !record.PrefabPath.has_value() )
                 continue;
             if ( auto guid = StatedPathGuid( *record.PrefabPath, assetsRoot ) )
@@ -130,7 +131,7 @@ namespace Desert::Core
                                           assetsRoot.generic_string() + " states its GUID" );
         }
         if ( settings != nullptr )
-            Collect( *settings, assetsRoot, gather.Guids );
+            Collect( Common::Json::Root( *settings ), assetsRoot, gather.Guids );
         std::sort( gather.Guids.begin(), gather.Guids.end() );
         gather.Guids.erase( std::unique( gather.Guids.begin(), gather.Guids.end() ), gather.Guids.end() );
         return gather;

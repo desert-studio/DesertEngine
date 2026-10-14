@@ -83,15 +83,18 @@ Shader "DeferredLighting"
         // SkinnedMeshLit. Included after the three bindings above because it names them.
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
-        // Slots 24 and 25: the first free ones in this layout (22 and 23 are the local shadow atlas and its views).
+        // Slots 28 and 29: 0-24 are taken in this layout (22 and 23 are the local shadow atlas and its views, 24 is
+        // spare) and 25-27 are the reserved scene-read range (Core::IsSceneReadBinding), which no shader in the tree
+        // may declare anything else at. This fullscreen program has no material graph, so the graph's window above
+        // the range is free here.
         #define DESERT_REFLECTION_CAPTURES
         #include <Common/ReflectionCaptureGpu.glslh>
-        ReadBuffer(24) ReflectionCapturesUB
+        ReadBuffer(28) ReflectionCapturesUB
         {
             uvec4                u_ReflectionCaptureHeader; // x = capture count
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
-        Uniform(25) samplerCubeArray u_ReflectionCaptureCubes;
+        Uniform(29) samplerCubeArray u_ReflectionCaptureCubes;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
