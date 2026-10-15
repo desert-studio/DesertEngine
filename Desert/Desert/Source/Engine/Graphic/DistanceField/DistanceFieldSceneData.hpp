@@ -141,6 +141,12 @@ namespace Desert::Graphic::DistanceField
         {
             return m_Indirection;
         }
+        // Bumped whenever GetAssetData or GetIndirection changes (a mip in or out, a pool change): a reader that
+        // keeps a device copy uploads again only then.
+        [[nodiscard]] uint64_t GetRevision() const
+        {
+            return m_Revision;
+        }
         [[nodiscard]] const std::shared_ptr<Image3D>& GetBrickAtlas() const
         {
             return m_Atlas;
@@ -190,6 +196,7 @@ namespace Desert::Graphic::DistanceField
         RangeAllocator                                                     m_AssetSlots;
         std::vector<glm::vec4>                                             m_AssetData;
         std::vector<uint32_t>                                              m_Indirection;
+        uint64_t                                                             m_Revision = 0;
 
         uint32_t                    m_PoolMiB        = 0;
         uint32_t                    m_CapacityBricks = 0;
