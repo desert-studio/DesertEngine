@@ -44,6 +44,7 @@
 #include <memory>
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -373,6 +374,8 @@ namespace Desert::Graphic::System
         // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
         static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
         static constexpr uint32_t kMaxShadowViews         = kCascadeMovableViewBase + kMaxShadowCascades;
+        static_assert( kCascadeMovableViewBase <= 64,
+                       "ShadowCasterRef::Views holds one bit per cascade and local view" );
 
         // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
         // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
@@ -581,9 +584,16 @@ namespace Desert::Graphic::System
         uint32_t ComputeLOD( const glm::mat4& transform, const class Desert::Mesh* mesh, int forcedLOD,
                              int lodBias = 0 ) const;
 
+        // THIS FRAME'S SHADOW CASTERS, gathered ONCE from the queues before any shadow view is fitted (SceneRenderer,
+        // "Shadow: GatherCasters", before UpdateCascades): each caster's world box, its LOD level (asked of the main
+        // camera, so the same for every view) and its caster material are found here, once. The views then only
+        // mark which casters their caster box reaches (MarkShadowCasterViews) and record from the list — UE's
+        // GatherShadowPrimitives: one walk of the scene's primitives against every whole-scene shadow, not one walk
+        // per cascade.
+        void GatherShadowCasters();
         // Cascaded shadow maps (R32F light-space depth, one framebuffer per cascade). Recompute the
         // per-cascade light matrices once per frame BEFORE the render graph records (intra-phase order is
-        // nondeterministic). Called from SceneRenderer::OnUpdate.
+        // nondeterministic). Called from SceneRenderer::OnUpdate, after GatherShadowCasters.
         void UpdateCascades();
 
         // MORPH TARGETS BEFORE SKINNING (UE FSkeletalMeshObjectGPUSkin::Update -> GPUMorphUpdateCS). Runs the
@@ -729,9 +739,16 @@ namespace Desert::Graphic::System
             Static,  // static, generic and still instanced meshes
             Movable, // skinned meshes and swaying foliage
         };
-        // The casters of shadow view @p cascade (a cascade, or a local view: kMaxShadowViews) into @p list.
+        // The casters of shadow view @p cascade (a cascade, or a local view: kMaxShadowViews) into @p list, read
+        // from this frame's gathered casters (m_ShadowCasterSetup) by the view's bit.
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list,
                                       ShadowCasterLayer layer = ShadowCasterLayer::All );
+        // Sets the bit of each of @p views (whose m_CascadeCasterVP is this frame's) on every gathered caster its
+        // caster box reaches: ONE walk of the list, every view's frustum asked per caster.
+        void MarkShadowCasterViews( std::span<const uint32_t> views );
+        // The bit a shadow view reads in ShadowCasterRef::Views: a cascade's movable view reads its cascade's
+        // (the same caster box), every other view its own.
+        [[nodiscard]] static uint64_t ShadowViewBit( uint32_t view );
         // The cache decision of each cascade for this frame (UpdateCascades, after the fit): whether its static
         // layer is redrawn, whether it holds a movable caster, whether its map is rebuilt.
         void PlanCascadeCache();
@@ -1221,7 +1238,6 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
-        std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet
@@ -1243,6 +1259,45 @@ namespace Desert::Graphic::System
             uint32_t          LodLevel  = 0;
             InstanceWindPush  Wind;
         };
+        // THIS FRAME'S SHADOW CASTERS (GatherShadowCasters): one row per caster of every queue, holding what
+        // does not depend on the view, and a bit per shadow view whose caster box reaches it.
+        struct ShadowCasterRef
+        {
+            uint32_t                  Index    = 0; // into its queue
+            uint32_t                  LodLevel = 0; // ComputeLOD, from the main camera
+            uint64_t                  Views    = 0; // ShadowViewBit of each view that reaches it
+            Common::Math::AABB        WorldBounds;  // empty: no extent, in every view (IsVisibleInView)
+            const DataDrivenMaterial* Surface  = nullptr; // static: the first surface slot's; skinned: Material
+            MaterialInstance*         Instance = nullptr; // ... and its instance
+        };
+        struct ShadowIsmCaster
+        {
+            uint32_t Index         = 0; // into m_InstancedQueue
+            uint32_t FirstInstance = 0; // into ShadowCasterSetup::Instances
+            uint32_t InstanceCount = 0;
+        };
+        struct ShadowCasterSetup
+        {
+            // Opaque static casters grouped by mesh, the groups in the order their mesh first appears in the
+            // queue: a view batches each run of one mesh into instanced draws with no lookup.
+            std::vector<ShadowCasterRef> Statics;
+            // Static casters whose material clips (ShadowCasterCellFor == Own), in queue order.
+            std::vector<ShadowCasterRef> MaskedStatics;
+            std::vector<ShadowCasterRef> Generics;
+            std::vector<ShadowCasterRef> Skinned;
+            std::vector<ShadowIsmCaster> Instanced;
+            // The instances the main camera's cull distance keeps, per ISM a contiguous range; Index is the
+            // instance's index in its ISM's transforms.
+            std::vector<ShadowCasterRef> Instances;
+        };
+        ShadowCasterSetup                                    m_ShadowCasterSetup;
+        std::unordered_map<const Desert::StaticMesh*, uint32_t> m_ScratchShadowMeshGroups;
+        // The gather's grouping of the static casters by mesh (GatherShadowCasters), and one view's run of a mesh
+        // and its per-object casters (BuildShadowCascadeDraws); members so their capacity persists.
+        std::vector<uint32_t>                                m_ScratchShadowGroupOf;
+        std::vector<ShadowCasterRef>                         m_ScratchShadowGrouped;
+        std::vector<const ShadowCasterRef*>                  m_ScratchShadowBucket;
+        std::vector<const ShadowCasterRef*>                  m_ScratchShadowSingles;
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>

@@ -989,6 +989,13 @@ namespace Desert::Graphic
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
+        // This frame's shadow casters, gathered once from the mesh queues for every shadow view (each caster's box,
+        // level and caster material); the cascades and the local views below only mark which casters they reach.
+        {
+            DESERT_PROFILE_PASS( "Shadow: GatherCasters" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GatherShadowCasters();
+        }
+
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
         // nothing: its Declare and record only read the matrices).
         {

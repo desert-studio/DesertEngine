@@ -8,6 +8,17 @@ namespace Desert::Graphic::System
 {
     using MeshRendererDetail::SignatureHash;
 
+    namespace
+    {
+        // Whether a caster with @p material draws through its own template's caster cell (a Masked material: its
+        // mask clips the silhouette) rather than the shared depth-only pipeline that casts whole quads.
+        bool IsMaskedCaster( const DataDrivenMaterial* material )
+        {
+            return material != nullptr &&
+                   ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
+        }
+    } // namespace
+
     void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
     {
         // The G-buffer program under DESERT_GBUFFER_RSM (no shading-word output) into the RSM framebuffer, whose
@@ -380,6 +391,14 @@ namespace Desert::Graphic::System
             }
         }
 
+        // The casters each fitted cascade's box reaches, marked on this frame's gathered list in one walk: the
+        // cache plan below and every cascade's setup read the marks.
+        std::array<uint32_t, kMaxCascades> cascadeViews{};
+        const uint32_t                     marked = std::min( { n, m_Shadow.CascadeCount, kMaxCascades } );
+        for ( uint32_t c = 0; c < marked; ++c )
+            cascadeViews[c] = c;
+        MarkShadowCasterViews( std::span<const uint32_t>( cascadeViews.data(), marked ) );
+
         PlanCascadeCache();
     }
 
@@ -391,34 +410,214 @@ namespace Desert::Graphic::System
         return std::tan( glm::radians( degrees ) * 0.5f );
     }
 
+    uint64_t MeshRenderer::ShadowViewBit( const uint32_t view )
+    {
+        const uint32_t bit = view >= kCascadeMovableViewBase ? view - kCascadeMovableViewBase : view;
+        return uint64_t{ 1 } << bit;
+    }
+
+    void MeshRenderer::GatherShadowCasters()
+    {
+        ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        setup.Statics.clear();
+        setup.MaskedStatics.clear();
+        setup.Generics.clear();
+        setup.Skinned.clear();
+        setup.Instanced.clear();
+        setup.Instances.clear();
+        // No caster pipeline (no shadow budget, or SetupShadowPass refused): no shadow view draws this frame.
+        if ( !m_ShadowPipeline )
+            return;
+
+        // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is deliberate rather than
+        // convenient: a caster drawn into a view at a coarser level than the object the camera sees casts a
+        // silhouette that does not match the object it belongs to. Asked once here, it is the same for every view.
+        const auto*             camera = m_SceneRenderer->GetMainCamera();
+        const Geometry::LODView lodView =
+             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
+                               : Geometry::LODView{};
+
+        // Static casters: the masked ones apart (each draws through its own material's caster cell), the opaque
+        // ones grouped by mesh so a view batches identical meshes without a lookup per caster.
+        m_ScratchShadowMeshGroups.clear();
+        m_ScratchShadowGroupOf.clear();
+        m_ScratchShadowGrouped.clear();
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_StaticQueue.size() ); ++i )
+        {
+            const StaticMeshRenderData& rd = m_StaticQueue[i];
+            if ( rd.Mesh == nullptr || !rd.CastShadows )
+                continue;
+            const SurfaceSlot slot = rd.MaterialSlots != nullptr
+                                          ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                          : SurfaceSlot{};
+            const ShadowCasterRef ref{
+                 .Index    = i,
+                 .LodLevel = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias ),
+                 .WorldBounds =
+                      Geometry::TransformBounds( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ),
+                 .Surface  = slot.Surface,
+                 .Instance = slot.Instance };
+            if ( IsMaskedCaster( slot.Surface ) )
+            {
+                setup.MaskedStatics.push_back( ref );
+                continue;
+            }
+            const auto next  = static_cast<uint32_t>( m_ScratchShadowMeshGroups.size() );
+            const auto group = m_ScratchShadowMeshGroups.try_emplace( rd.Mesh, next ).first->second;
+            m_ScratchShadowGrouped.push_back( ref );
+            m_ScratchShadowGroupOf.push_back( group );
+        }
+        // A stable counting sort by group: each mesh's casters end to end, in queue order, the groups in the order
+        // their mesh first appeared.
+        std::vector<uint32_t>& offsets = m_ScratchLodLevels;
+        offsets.assign( m_ScratchShadowMeshGroups.size() + 1, 0u );
+        for ( const uint32_t group : m_ScratchShadowGroupOf )
+            ++offsets[group + 1];
+        for ( std::size_t g = 1; g < offsets.size(); ++g )
+            offsets[g] += offsets[g - 1];
+        setup.Statics.resize( m_ScratchShadowGrouped.size() );
+        for ( std::size_t i = 0; i < m_ScratchShadowGrouped.size(); ++i )
+            setup.Statics[offsets[m_ScratchShadowGroupOf[i]]++] = m_ScratchShadowGrouped[i];
+
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_GenericQueue.size() ); ++i )
+        {
+            const GenericMeshRenderData& g = m_GenericQueue[i];
+            if ( g.Mesh == nullptr || !g.CastShadows )
+                continue;
+            setup.Generics.push_back(
+                 { .Index    = i,
+                   .LodLevel = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
+                   .WorldBounds =
+                        Geometry::TransformBounds( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) } );
+        }
+
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_SkinnedQueue.size() ); ++i )
+        {
+            const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
+            if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
+                continue;
+            setup.Skinned.push_back(
+                 { .Index = i,
+                   .WorldBounds =
+                        Geometry::TransformBounds( sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ),
+                   .Surface  = sd.Material,
+                   .Instance = sd.Instance } );
+        }
+
+        // UE-style Instanced Static Meshes, per instance: the main camera's cull distance (an instance faded out
+        // of the view casts no shadow either), the box the wind can reach and the level, each asked once.
+        if ( !m_ShadowInstancedPipeline )
+            return;
+        const float lensScale = DrawDistanceScale( lodView );
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_InstancedQueue.size() ); ++i )
+        {
+            const InstancedMeshRenderData& ism = m_InstancedQueue[i];
+            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const Common::Math::AABB      localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+            const InstanceCullDistance    lensCull    = ScaledByLens( ism.CullDistance, lensScale );
+            const std::vector<glm::mat4>& transforms  = *ism.Transforms;
+            ShadowIsmCaster caster{ .Index = i, .FirstInstance = static_cast<uint32_t>( setup.Instances.size() ) };
+            for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
+            {
+                const std::optional<Common::Math::AABB> reach =
+                     IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
+                if ( !reach )
+                    continue;
+                setup.Instances.push_back( { .Index       = k,
+                                             .LodLevel    = Geometry::SelectLODFromBounds(
+                                                  transforms[k], localBounds, lodView, ism.Mesh->GetLODScreenSizes(),
+                                                  -1, 0 ),
+                                             .WorldBounds = *reach } );
+            }
+            caster.InstanceCount = static_cast<uint32_t>( setup.Instances.size() ) - caster.FirstInstance;
+            if ( caster.InstanceCount > 0 )
+                setup.Instanced.push_back( caster );
+        }
+    }
+
+    void MeshRenderer::MarkShadowCasterViews( const std::span<const uint32_t> views )
+    {
+        if ( views.empty() )
+            return;
+        if ( views.size() > kMaxShadowViews )
+        {
+            LOG_ERROR( "[Shadows] {} shadow views marked at once, more than the {} a renderer has; none is marked "
+                       "and their casters draw nothing this frame.",
+                       views.size(), kMaxShadowViews );
+            return;
+        }
+        // THE VIEW'S OWN CASTER MATRIX, NOT THE CAMERA'S, and that distinction is the whole safety of culling a
+        // shadow view at all: an object behind the camera casts into the frame it is not itself in. It is the
+        // exact matrix the caster vertex shader multiplies by, and a cascade's is a FINITE orthographic box
+        // (ShadowCascades.hpp), so a caster outside it is already clipped by the rasterizer: this skips exactly
+        // the geometry the GPU was going to throw away. The plane extraction is convention-agnostic: the
+        // cascades are standard-Z while the camera is reversed-Z, and the SET of six half-spaces is the same
+        // either way.
+        std::array<Core::Frustum, kMaxShadowViews> frusta;
+        std::array<uint64_t, kMaxShadowViews>      bits{};
+        uint64_t                                   everyBit = 0;
+        for ( std::size_t v = 0; v < views.size(); ++v )
+        {
+            frusta[v] = Core::Frustum( m_CascadeCasterVP[views[v]], glm::mat4( 1.0f ) );
+            bits[v]   = ShadowViewBit( views[v] );
+            everyBit |= bits[v];
+        }
+        const auto mark = [&]( std::vector<ShadowCasterRef>& refs )
+        {
+            for ( ShadowCasterRef& ref : refs )
+            {
+                // No extent: "I do not know where this is" is never answered with "so it is not there".
+                if ( Geometry::IsEmpty( ref.WorldBounds ) )
+                {
+                    ref.Views |= everyBit;
+                    continue;
+                }
+                for ( std::size_t v = 0; v < views.size(); ++v )
+                {
+                    if ( frusta[v].Intersects( ref.WorldBounds ) )
+                        ref.Views |= bits[v];
+                }
+            }
+        };
+        ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        mark( setup.Statics );
+        mark( setup.MaskedStatics );
+        mark( setup.Generics );
+        mark( setup.Skinned );
+        mark( setup.Instances );
+    }
+
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable ) const
     {
-        // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
-        // so it moving changes nothing drawn.
-        const Core::Frustum frustum( m_CascadeCasterVP[cascade], glm::mat4( 1.0f ) );
-        SignatureHash       hash;
-        for ( const auto& rd : m_StaticQueue )
+        // THE CASTER BOX, as BuildShadowCascadeDraws reads it (the cascade's bit, MarkShadowCasterViews): a static
+        // caster outside it is not in the cache, so it moving changes nothing drawn.
+        const uint64_t           bit   = ShadowViewBit( cascade );
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        SignatureHash            hash;
+        const auto               addStatic = [&]( const ShadowCasterRef& ref )
         {
-            if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( frustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-                continue;
+            if ( ( ref.Views & bit ) == 0 )
+                return;
+            const StaticMeshRenderData& rd = m_StaticQueue[ref.Index];
             hash.Add( rd.Mesh );
             hash.Add( rd.Transform );
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
             hash.Add( rd.LODBias );
             // The material decides the caster cell (opaque or masked) and a masked one's clip.
-            const SurfaceSlot slot = rd.MaterialSlots != nullptr
-                                          ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                          : SurfaceSlot{};
-            hash.Add( slot.Surface );
-            hash.Add( slot.Instance );
-        }
-        for ( const auto& g : m_GenericQueue )
+            hash.Add( ref.Surface );
+            hash.Add( ref.Instance );
+        };
+        for ( const ShadowCasterRef& ref : setup.Statics )
+            addStatic( ref );
+        for ( const ShadowCasterRef& ref : setup.MaskedStatics )
+            addStatic( ref );
+        for ( const ShadowCasterRef& ref : setup.Generics )
         {
-            if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            if ( ( ref.Views & bit ) == 0 )
                 continue;
+            const GenericMeshRenderData& g = m_GenericQueue[ref.Index];
             hash.Add( g.Mesh );
             hash.Add( g.Transform );
         }
@@ -438,10 +637,9 @@ namespace Desert::Graphic::System
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
         }
-        for ( const auto& sd : m_SkinnedQueue )
+        for ( const ShadowCasterRef& ref : setup.Skinned )
         {
-            if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 IsVisibleInView( frustum, sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ) )
+            if ( ( ref.Views & bit ) != 0 )
                 movable = true;
         }
         return hash.Value;
@@ -666,17 +864,19 @@ namespace Desert::Graphic::System
         return slot.get();
     }
 
-    // SETUP of cascade @p c (its node's Declare): every caster of the cascade is chosen here, ONCE, into @p list,
-    // and the cascade's material state (light matrix, the packed instance transforms and poses) is written here;
-    // the node's exec only records the list. The cascade matrix is this frame's: UpdateCascades runs before the
-    // graph's setup (SceneRenderer, "Shadow: UpdateCascades").
+    // SETUP of shadow view @p c (its node's Declare): the view's casters are read from this frame's gathered list
+    // (GatherShadowCasters) by the view's bit (MarkShadowCasterViews) into @p list, and the view's material state
+    // (light matrix, the packed instance transforms and poses) is written here; the node's exec only records the
+    // list. Nothing here walks a queue or asks a box or a level: that was done once for every view.
     void MeshRenderer::BuildShadowCascadeDraws( const uint32_t c, MeshDrawList& list,
                                                 const ShadowCasterLayer layer )
     {
         // The layer split is the cascade cache's (PlanCascadeCache): what stands still is drawn into the cache
         // only when it changed, what moves by itself is drawn over the copied cache every frame.
-        const bool drawStatic  = layer != ShadowCasterLayer::Movable;
-        const bool drawMovable = layer != ShadowCasterLayer::Static;
+        const bool               drawStatic  = layer != ShadowCasterLayer::Movable;
+        const bool               drawMovable = layer != ShadowCasterLayer::Static;
+        const uint64_t           bit         = ShadowViewBit( c );
+        const ShadowCasterSetup& setup       = m_ShadowCasterSetup;
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
@@ -688,44 +888,6 @@ namespace Desert::Graphic::System
         // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
         const bool instancingOn = m_ShadowInstancedPipeline && m_ShadowInstancedMaterial[c];
 
-        // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
-        // safety of culling a shadow pass at all. An object behind the camera casts into
-        // the frame it is not itself in, so the camera's frustum would buy draw calls with
-        // missing shadows and the draw-call detector would report it as a win.
-        //
-        // WHY THIS ONE CHANGES NOTHING ON SCREEN. It is derived from `m_CascadeCasterVP[c]`, the
-        // exact matrix the caster vertex shader multiplies by (SetLightMatrix above passes
-        // it as Projection with an identity View, and so does this). The cascade projection
-        // is a FINITE orthographic box — `glm::orthoRH_ZO(-radius, radius, -radius, radius,
-        // 10 cm, 4 * radius)` in ShadowCascades.hpp — so a caster outside that box is
-        // already clipped by the rasterizer today. This skips exactly the geometry the GPU
-        // was going to throw away, which is why it is provable rather than plausible.
-        //
-        // The plane extraction is convention-agnostic here and that is not luck: the
-        // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
-        // which of the two derived planes is "near" and which is "far" — the SET of six
-        // half-spaces is the same one either way, and Intersects tests all six by value.
-        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
-
-        // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
-        // deliberate rather than convenient: a caster drawn into the cascade at a coarser
-        // level than the object the camera sees casts a silhouette that does not match the
-        // object it belongs to. The per-object caster loop below has always asked it this
-        // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
-        const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
-                                  : Geometry::LODView{};
-
-        std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
-        const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
-        {
-            for ( auto& [m, v] : byMesh )
-                if ( m == mesh )
-                    return v;
-            byMesh.emplace_back( mesh, std::vector<const StaticMeshRenderData*>{} );
-            return byMesh.back().second;
-        };
         // MASKED CASTERS, by the material's blend mode (ShadowCasterCellFor): each draws through its own
         // template's ShadowDepth cell on a per-cascade copy of its material, with its mask texture and clip
         // threshold. One set per copy: its rows, instance transforms or bone poses end to end, uploaded once in
@@ -751,123 +913,110 @@ namespace Desert::Graphic::System
             set.Transforms.clear();
             return set;
         };
-        const auto isMasked = []( const DataDrivenMaterial* material ) {
-            return material != nullptr &&
-                   ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
-        };
-
-        for ( const auto& rd : m_StaticQueue )
-        {
-            if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-            {
-                continue;
-            }
-            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
-                                                  ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                  : SurfaceSlot{};
-            MaterialInstance*         inst = slot.Instance;
-            const DataDrivenMaterial* mat  = slot.Surface;
-            if ( !isMasked( mat ) )
-            {
-                bucketFor( rd.Mesh ).push_back( &rd );
-                continue;
-            }
-            auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
-            if ( caster == nullptr )
-            {
-                continue; // refused by name, once
-            }
-            auto&            set = maskedSetFor( caster );
-            MaskedCasterDraw draw;
-            draw.Set       = &set;
-            draw.Path      = MeshVertexPath::Static;
-            draw.Mesh      = rd.Mesh;
-            draw.Transform = rd.Transform;
-            draw.Instance  = inst;
-            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
-            draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
-            m_ScratchMaskedDraws.push_back( draw );
-        }
 
         // Pack all instanced-batch transforms contiguously; each batch reads its slice via
         // firstInstance. Upload the SSBO ONCE (final size) before any instanced draw is recorded.
-        // Scratch members: capacity persists across cascades/frames (4 refills per frame).
+        // Scratch members: capacity persists across cascades/frames.
         auto& instTransforms = m_ScratchInstTransforms;
         auto& batches        = m_ScratchShadowBatches;
         auto& singles        = m_ScratchShadowSingles;
         instTransforms.clear();
         batches.clear();
         singles.clear();
-        for ( auto& [mesh, bucket] : byMesh )
+
+        if ( drawStatic )
         {
-            if ( instancingOn && bucket.size() >= 2 )
+            for ( const ShadowCasterRef& ref : setup.MaskedStatics )
             {
-                // One draw per level, exactly as the geometry pass does it, and for the
-                // same reason: the per-object caster loop below passes ComputeLOD to its
-                // draw while this one used to pass nothing, so a caster's silhouette
-                // changed detail depending on whether it found a twin.
+                if ( ( ref.Views & bit ) == 0 )
+                    continue;
+                auto* caster = MaskedCasterMaterial( ref.Surface, MeshVertexPath::Static, c );
+                if ( caster == nullptr )
+                {
+                    continue; // refused by name, once
+                }
+                const StaticMeshRenderData& rd  = m_StaticQueue[ref.Index];
+                auto&                       set = maskedSetFor( caster );
+                MaskedCasterDraw            draw;
+                draw.Set       = &set;
+                draw.Path      = MeshVertexPath::Static;
+                draw.Mesh      = rd.Mesh;
+                draw.Transform = rd.Transform;
+                draw.Instance  = ref.Instance;
+                draw.Row       = AppendRow( set.Rows, EffectiveRow( ref.Surface, ref.Instance ) );
+                draw.LodLevel  = ref.LodLevel;
+                m_ScratchMaskedDraws.push_back( draw );
+            }
+
+            // The opaque static casters come grouped by mesh: each run of one mesh this view reaches is a bucket.
+            auto& bucket = m_ScratchShadowBucket;
+            for ( std::size_t i = 0; i < setup.Statics.size(); )
+            {
+                Desert::StaticMesh* mesh = m_StaticQueue[setup.Statics[i].Index].Mesh;
+                bucket.clear();
+                for ( ; i < setup.Statics.size() && m_StaticQueue[setup.Statics[i].Index].Mesh == mesh; ++i )
+                {
+                    if ( ( setup.Statics[i].Views & bit ) != 0 )
+                        bucket.push_back( &setup.Statics[i] );
+                }
+                if ( !instancingOn || bucket.size() < 2 )
+                {
+                    singles.insert( singles.end(), bucket.begin(), bucket.end() );
+                    continue;
+                }
+                // One draw per level, exactly as the geometry pass does it: a caster's silhouette must not
+                // change detail depending on whether it found a twin.
                 const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
                 auto&          levels   = m_ScratchLodLevels;
                 levels.clear();
-                levels.reserve( bucket.size() );
-                for ( const auto* rd : bucket )
-                    levels.push_back(
-                         std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ), maxLevel ) );
+                for ( const ShadowCasterRef* ref : bucket )
+                    levels.push_back( std::min( ref->LodLevel, maxLevel ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
                     const auto first = static_cast<uint32_t>( instTransforms.size() );
-                    for ( std::size_t i = 0; i < bucket.size(); ++i )
-                        if ( levels[i] == level )
-                            instTransforms.push_back( bucket[i]->Transform );
+                    for ( std::size_t b = 0; b < bucket.size(); ++b )
+                        if ( levels[b] == level )
+                            instTransforms.push_back( m_StaticQueue[bucket[b]->Index].Transform );
 
                     const uint32_t count = static_cast<uint32_t>( instTransforms.size() ) - first;
                     if ( count < 2 )
                     {
                         instTransforms.resize( first );
-                        for ( std::size_t i = 0; i < bucket.size(); ++i )
-                            if ( levels[i] == level )
-                                singles.push_back( bucket[i] );
+                        for ( std::size_t b = 0; b < bucket.size(); ++b )
+                            if ( levels[b] == level )
+                                singles.push_back( bucket[b] );
                         continue;
                     }
                     batches.push_back( ShadowBatch{ mesh, count, first, level, InstanceWindPush{} } );
                 }
             }
-            else
-            {
-                for ( const auto* rd : bucket )
-                    singles.push_back( rd );
-            }
         }
 
-        // UE-style Instanced Static Meshes cast too, unless the component says otherwise —
-        // each becomes its own batch (or one per LOD level).
+        // UE-style Instanced Static Meshes cast too, unless the component says otherwise — each becomes its
+        // own batch (or one per LOD level), of the instances this view reaches.
         if ( instancingOn )
         {
-            for ( const auto& ism : m_InstancedQueue )
+            for ( const ShadowIsmCaster& ismCaster : setup.Instanced )
             {
-                // THE FLAG EXISTS NOW, and until it did an ISM was the one mesh kind in the
-                // engine whose shadow could not be turned off: the static and skinned
-                // components both carry CastShadows and this pass read both, while the ISM
-                // branch had no condition at all.
-                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
-                     !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
+                const auto& ism = m_InstancedQueue[ismCaster.Index];
+                if ( !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
                     continue;
 
-                // Per-instance, against this cascade. A cascade covers a slice of the view,
-                // so a forest spread over the map has most of its instances outside every
-                // one of the four — and the batch is a single draw whose cost is entirely
-                // its instance count.
-                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-
-                // The cull distance from the MAIN camera, as the geometry pass measures it:
-                // an instance faded out of the view casts no shadow either.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodView, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                visible.clear();
+                levels.clear();
+                const std::vector<glm::mat4>& transforms = *ism.Transforms;
+                for ( uint32_t k = ismCaster.FirstInstance; k < ismCaster.FirstInstance + ismCaster.InstanceCount;
+                      ++k )
+                {
+                    const ShadowCasterRef& instance = setup.Instances[k];
+                    if ( ( instance.Views & bit ) == 0 )
+                        continue;
+                    visible.push_back( transforms[instance.Index] );
+                    levels.push_back( instance.LodLevel );
+                }
                 if ( visible.empty() )
                     continue;
 
@@ -877,7 +1026,7 @@ namespace Desert::Graphic::System
                 const auto*       ismMat  = ismInst != nullptr
                                                  ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
                                                  : nullptr;
-                if ( isMasked( ismMat ) )
+                if ( IsMaskedCaster( ismMat ) )
                 {
                     auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
                     if ( caster == nullptr )
@@ -925,21 +1074,19 @@ namespace Desert::Graphic::System
         }
 
         // Per-object path (singletons).
-        for ( const auto* rd : singles )
+        for ( const ShadowCasterRef* ref : singles )
         {
+            const StaticMeshRenderData& rd = m_StaticQueue[ref->Index];
             list.Add( { .Pipeline  = m_ShadowPipeline.get(),
-                        .Mesh      = rd->Mesh,
-                        .Transform = rd->Transform,
+                        .Mesh      = rd.Mesh,
+                        .Transform = rd.Transform,
                         .Material  = casterExecutor,
-                        .LodLevel  = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
+                        .LodLevel  = ref->LodLevel } );
         }
 
         // Meshes drawn with a data-driven material (shader graph, Shader Override, per-slot
         // custom materials) cast through the SAME pipeline as everything else: a caster is
-        // depth, and depth does not care which shader would have coloured the surface. They
-        // used to be absent from the cascades entirely, because this pass only ever walked
-        // the lit queues — a shader-graph object was lit like a solid and shadowed like a
-        // hole in the world.
+        // depth, and depth does not care which shader would have coloured the surface.
         //
         // Per-object only, no instanced batching: the batching above keys on StaticMesh*,
         // and this queue holds Mesh* (it also carries skinned and procedurally-built
@@ -951,29 +1098,30 @@ namespace Desert::Graphic::System
         // entity's submeshes between this queue and the lit one, but a caster is not
         // split, so honouring the mask here would carve the lit half out of the silhouette
         // while the lit record was already casting the whole of it.
-        for ( const auto& g : m_GenericQueue )
+        if ( drawStatic )
         {
-            if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
-                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            for ( const ShadowCasterRef& ref : setup.Generics )
             {
+                if ( ( ref.Views & bit ) == 0 )
+                    continue;
+                const GenericMeshRenderData& g = m_GenericQueue[ref.Index];
                 list.Add( { .Pipeline  = m_ShadowPipeline.get(),
                             .Mesh      = g.Mesh,
                             .Transform = g.Transform,
                             .Material  = casterExecutor,
-                            .LodLevel  = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
+                            .LodLevel  = ref.LodLevel } );
             }
         }
 
-        // SKINNED casters. The cascade pass walked m_StaticQueue and m_GenericQueue by name
-        // and simply had no line about skinned meshes, so a character was lit by the sun,
-        // outlined correctly when selected, and cast nothing on the ground it stood on.
+        // SKINNED casters, parameterized by the vertex path: the caster is (path x ShadowDepth) and this is that
+        // cell. Every pose in the view is packed into ONE buffer on the view's own material and each draw names
+        // its slice, for the same reason the forward skinned path does it — a per-draw upload would leave the
+        // earlier recorded draws reading the last caster's pose.
         //
-        // Parameterized by the vertex path rather than added as a fourth special case: the
-        // caster is (path x ShadowDepth) and this is that cell. Every pose in the cascade is
-        // packed into ONE buffer on the cascade's own material and each draw names its slice,
-        // for the same reason the forward skinned path does it — a per-draw upload would
-        // leave the earlier recorded draws reading the last caster's pose.
-        if ( drawMovable && m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !m_SkinnedQueue.empty() )
+        // NOT culled by the view's bit: a posed mesh's box is its bind pose's, and a limb posed out of it would
+        // lose its shadow at the view's edge. The bit only decides whether a cascade has a movable layer at all
+        // (CascadeStaticSignature), as it did before the casters were gathered.
+        if ( drawMovable && m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !setup.Skinned.empty() )
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
@@ -982,14 +1130,13 @@ namespace Desert::Graphic::System
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
             std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> casters;
-            for ( const auto& sd : m_SkinnedQueue )
+            for ( const ShadowCasterRef& ref : setup.Skinned )
             {
-                if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
-                    continue;
-                if ( isMasked( sd.Material ) )
+                const SkinnedMeshRenderData& sd = m_SkinnedQueue[ref.Index];
+                if ( IsMaskedCaster( ref.Surface ) )
                 {
                     // Hair cards, cloth fringes: the (Skinned x ShadowDepth) cell of ITS template.
-                    auto* caster = MaskedCasterMaterial( sd.Material, MeshVertexPath::Skinned, c );
+                    auto* caster = MaskedCasterMaterial( ref.Surface, MeshVertexPath::Skinned, c );
                     if ( caster == nullptr )
                     {
                         continue; // refused by name, once
@@ -1000,8 +1147,8 @@ namespace Desert::Graphic::System
                     draw.Path      = MeshVertexPath::Skinned;
                     draw.Mesh      = sd.Mesh;
                     draw.Transform = sd.Transform;
-                    draw.Instance  = sd.Instance;
-                    draw.Row       = AppendRow( set.Rows, EffectiveRow( sd.Material, sd.Instance ) );
+                    draw.Instance  = ref.Instance;
+                    draw.Row       = AppendRow( set.Rows, EffectiveRow( ref.Surface, ref.Instance ) );
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );

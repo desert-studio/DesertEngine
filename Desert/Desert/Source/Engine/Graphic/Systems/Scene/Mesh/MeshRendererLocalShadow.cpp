@@ -319,6 +319,14 @@ namespace Desert::Graphic::System
             }
         }
 
+        // The casters each redrawn view reaches, marked on this frame's gathered list (GatherShadowCasters) in one
+        // walk for all of them: their setups (LocalShadowPasses) read the marks.
+        std::array<uint32_t, kMaxLocalShadowViews> redrawViews{};
+        std::size_t                                 redrawCount = 0;
+        for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
+            redrawViews[redrawCount++] = redraw.View;
+        MarkShadowCasterViews( std::span<const uint32_t>( redrawViews.data(), redrawCount ) );
+
         // Said once per change, not per frame: which lights the budget left without a shadow.
         if ( refused != m_LocalRefusedLogged )
         {
