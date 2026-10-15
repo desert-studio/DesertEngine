@@ -47,7 +47,6 @@ Shader "SurfaceCacheIndirectLighting"
     Fragment
     {
         #include <Common/SurfaceCache.glslh>
-        #include <Common/RadianceCacheState.glslh>
         #include <Common/RadianceCache.glslh>
         ReadBuffer(2) SurfaceCardBuffer
         {
