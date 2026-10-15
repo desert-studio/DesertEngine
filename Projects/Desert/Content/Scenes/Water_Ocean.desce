@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "4bfb3eba91034778ae690c9988341395",
         "Versions": {
-            "SCNE": 51,
+            "SCNE": 52,
             "UNIT": 1
         },
         "Dependencies": ["f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
@@ -97,6 +97,7 @@
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
@@ -172,7 +173,7 @@
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
-                    "GIIntensity": 2.0,
+                    "GIIntensity": 1.0,
                     "EnableSSR": true,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,

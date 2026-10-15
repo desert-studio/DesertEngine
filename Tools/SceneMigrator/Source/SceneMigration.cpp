@@ -3177,7 +3177,12 @@ namespace Desert::Migration
             if ( guid.IsNull() )
                 guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
                                           : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
-            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            Common::Content::TextAssetHeaderSerialized header =
+                 Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            // The stated dependency list survives the restamp; a scene re-gathers it after (MigrateScene).
+            if ( stated )
+                header.Dependencies = stated->Dependencies;
+            return header;
         }
     } // namespace
 
@@ -3546,10 +3551,12 @@ namespace Desert::Migration
         scene.SceneVersion = std::nullopt;
         scene.UnitVersion  = std::nullopt;
 
-        // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
-        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        // Scene-only, after the stamp: it reads what every step left stated. Re-gathered on EVERY raise, not only
+        // from below v51 - any later step may add, drop or retarget a reference, and the list must be the one
+        // the save would write for the entities as they now stand.
+        if ( statedSceneVersion < kSceneVersion )
         {
-            report.SceneDependenciesRaised = true;
+            report.SceneDependenciesRaised = statedSceneVersion < kSceneVersionSceneDependencies;
             report.SceneDependencies       = MigrateSceneDependenciesV50ToV51( scene, assetsRoot );
             if ( !report.SceneDependencies.Refused.empty() )
             {
