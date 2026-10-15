@@ -11,12 +11,16 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -1071,4 +1075,165 @@ TEST( ScalabilityContract, UpscalerForScaleIsResolvesCouplingRule )
     EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None ), Upscaler::None );
     EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLAA ) );
     EXPECT_FALSE( IsTemporalAntiAliasing( AntiAliasingMethod::SMAA ) );
+}
+
+// ---- SCAL-COVER: every shipped tier, through its consumer -------------------------------------------------
+// Each test below reads the SHIPPED table (Editor/Resources/Config/Scalability.json, what GamePackager packs),
+// takes each tier of one row SCAL-COVER introduced, hands it to the function the engine hands it to and checks
+// the consumer's effect, with the expected effect per tier written out. Red if a shipped tier value changes, if a
+// tier stops differing from the next, or if the consumer stops applying the value.
+
+namespace
+{
+    ScalabilityTable ShippedTable()
+    {
+        const std::string root = RepoRoot();
+        EXPECT_FALSE( root.empty() ) << "Editor/Resources/Config/Scalability.json not found";
+        const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                                std::ios::binary );
+        std::ostringstream text;
+        text << in.rdbuf();
+        auto parsed = ScalabilityTable::Parse( text.str() );
+        EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+        return parsed.IsSuccess() ? parsed.ExtractValue() : Table();
+    }
+
+    // The resolved quality with only @p group moved to @p level (the rest Epic), on a capable device.
+    ResolvedQuality ShippedAt( const ScalabilityTable& table, Group group, Level level )
+    {
+        QualitySelection selection                          = AllAt( Level::Epic );
+        selection.Levels[static_cast<std::size_t>( group )] = level;
+        return Resolve( selection, table, Vk::BuildCapabilityCatalog( RtxProbe() ) );
+    }
+
+    struct TierScale
+    {
+        Level Tier;
+        float Scale;
+    };
+    // The share the ViewDistance percent rows ship at: Low 50, Medium 75, High and above 100.
+    constexpr std::array<TierScale, 5> kShippedPercentTiers{ { { Level::Low, 0.5f },
+                                                               { Level::Medium, 0.75f },
+                                                               { Level::High, 1.0f },
+                                                               { Level::Epic, 1.0f },
+                                                               { Level::Cinematic, 1.0f } } };
+} // namespace
+
+// ViewDistance.StreamingRangePercent -> WorldStreamer::GatherSources -> Rules::ScaleComponentSourceRanges: a
+// component source's radius is 5000 / 7500 / 10000 cm of a 10000 cm grid range at Low / Medium / High+, and the
+// instrument after it keeps its own. Red if a tier value moves or the helper stops scaling.
+TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheComponentStreamingRadius )
+{
+    namespace Rules              = Desert::Core::Rules;
+    const ScalabilityTable table = ShippedTable();
+    Desert::Core::WorldPartitionGridSerialized grid;
+    grid.LoadingRange = 10000.0f; // cm
+    for ( const TierScale& tier : kShippedPercentTiers )
+    {
+        const int percent =
+             ShippedAt( table, Group::ViewDistance, tier.Tier ).As<int>( Parameter::StreamingRangePercent );
+        std::vector<Rules::StreamingSource> sources( 2 );
+        Rules::ScaleComponentSourceRanges( sources, 1, percent );
+        EXPECT_DOUBLE_EQ( Rules::SourceRadius( sources[0], grid ), 10000.0 * tier.Scale ) << LevelKey( tier.Tier );
+        EXPECT_DOUBLE_EQ( Rules::SourceRadius( sources[1], grid ), 10000.0 ) << LevelKey( tier.Tier );
+    }
+}
+
+// ViewDistance.LandscapeLodPercent -> TerrainRenderer::SetLodDistanceScale (percent / 100 in
+// SceneRenderer::SetQuality) -> LandscapeLodAtDistanceScale: a tile on LOD 1 at full scale takes the LOD of a
+// screen size 0.25x / 0.5625x / 1x at Low / Medium / High+, so Low is coarser than Medium, Medium than High.
+TEST( ScalabilityContract, EveryShippedViewDistanceTierMovesTheLandscapeLodSwitch )
+{
+    namespace Sys                = Desert::Graphic::System;
+    const ScalabilityTable table = ShippedTable();
+    const auto             lod   = Sys::MakeLandscapeLodSettings( 64u );
+    constexpr float        kSize = 0.16f; // LOD 1 exactly at scale 1
+    std::array<float, 5>   chosen{};
+    for ( std::size_t i = 0; i < kShippedPercentTiers.size(); ++i )
+    {
+        const TierScale& tier    = kShippedPercentTiers[i];
+        const int        percent = ShippedAt( table, Group::ViewDistance, tier.Tier )
+                                 .As<int>( Parameter::LandscapeLodDistancePercent );
+        chosen[i] = Sys::LandscapeLodAtDistanceScale( lod, kSize, static_cast<float>( percent ) / 100.0f );
+        EXPECT_FLOAT_EQ( chosen[i], Sys::LandscapeLodFromScreenSize( lod, kSize * tier.Scale * tier.Scale ) )
+             << LevelKey( tier.Tier );
+    }
+    EXPECT_GT( chosen[0], chosen[1] ); // Low coarser than Medium
+    EXPECT_GT( chosen[1], chosen[2] ); // Medium coarser than High
+    EXPECT_FLOAT_EQ( chosen[2], chosen[4] );
+}
+
+// ViewDistance.FoliageCullPercent / FoliageDensityPercent -> FoliageQualityFor -> ScaledForQuality: a foliage
+// field's fade 1000..2000 cm and density 1 become x0.5 / x0.75 / x1 at Low / Medium / High+; a cull that is not
+// a foliage type's is never touched.
+TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheFoliageCull )
+{
+    namespace G                  = Desert::Graphic;
+    const ScalabilityTable  table = ShippedTable();
+    G::InstanceCullDistance foliage;
+    foliage.Min                   = 1000.0f;
+    foliage.Max                   = 2000.0f;
+    foliage.FoliageType           = true;
+    foliage.Density               = 1.0f;
+    G::InstanceCullDistance plain = foliage;
+    plain.FoliageType             = false;
+    for ( const TierScale& tier : kShippedPercentTiers )
+    {
+        const G::FoliageQualityScale q = G::FoliageQualityFor( ShippedAt( table, Group::ViewDistance, tier.Tier ) );
+        const G::InstanceCullDistance scaled = G::ScaledForQuality( foliage, q );
+        EXPECT_FLOAT_EQ( scaled.Min, 1000.0f * tier.Scale ) << LevelKey( tier.Tier );
+        EXPECT_FLOAT_EQ( scaled.Max, 2000.0f * tier.Scale ) << LevelKey( tier.Tier );
+        EXPECT_FLOAT_EQ( scaled.Density, tier.Scale ) << LevelKey( tier.Tier );
+        const G::InstanceCullDistance untouched = G::ScaledForQuality( plain, q );
+        EXPECT_FLOAT_EQ( untouched.Max, 2000.0f ) << LevelKey( tier.Tier );
+        EXPECT_FLOAT_EQ( untouched.Density, 1.0f ) << LevelKey( tier.Tier );
+    }
+}
+
+// Effects.Cloud* -> CloudQualityFor -> the cloud renderer's ceilings: Low 16 light samples, half shadow map,
+// 0.05 stop floor; Medium full light samples, half shadow map, no floor; High+ the calibrated look (64, 1, 0).
+TEST( ScalabilityContract, EveryShippedEffectsTierSetsTheCloudLayerCeilings )
+{
+    struct CloudTier
+    {
+        Level Tier;
+        int   LightSamples;
+        float ShadowMap;
+        float StopFloor;
+    };
+    constexpr std::array<CloudTier, 5> kTiers{ { { Level::Low, 16, 0.5f, 0.05f },
+                                                 { Level::Medium, 64, 0.5f, 0.0f },
+                                                 { Level::High, 64, 1.0f, 0.0f },
+                                                 { Level::Epic, 64, 1.0f, 0.0f },
+                                                 { Level::Cinematic, 64, 1.0f, 0.0f } } };
+    const ScalabilityTable             table = ShippedTable();
+    for ( const CloudTier& tier : kTiers )
+    {
+        const Desert::Graphic::CloudQualityScale q =
+             Desert::Graphic::CloudQualityFor( ShippedAt( table, Group::Effects, tier.Tier ) );
+        EXPECT_EQ( q.LightMarchSampleCeiling, tier.LightSamples ) << LevelKey( tier.Tier );
+        EXPECT_FLOAT_EQ( q.ShadowMapScale, tier.ShadowMap ) << LevelKey( tier.Tier );
+        EXPECT_FLOAT_EQ( q.StopTransmittanceFloor, tier.StopFloor ) << LevelKey( tier.Tier );
+    }
+}
+
+// Textures.MipBias -> RenderConfig::TextureMipBias (QualityBoot) -> GlobalTextureFilterSampler, the sampler every
+// engine image carries and every graph read naming it: +1 / +0.5 / 0 mip at Low / Medium / High+.
+TEST( ScalabilityContract, EveryShippedTexturesTierBiasesTheGlobalSampler )
+{
+    namespace G                                = Desert::Graphic;
+    constexpr std::array<TierScale, 5> kTiers{ { { Level::Low, 1.0f },
+                                                 { Level::Medium, 0.5f },
+                                                 { Level::High, 0.0f },
+                                                 { Level::Epic, 0.0f },
+                                                 { Level::Cinematic, 0.0f } } };
+    const ScalabilityTable             table = ShippedTable();
+    const int                          saved = G::RenderConfig::TextureMipBias.load();
+    for ( const TierScale& tier : kTiers )
+    {
+        G::RenderConfig::TextureMipBias.store(
+             ShippedAt( table, Group::Textures, tier.Tier ).As<int>( Parameter::TextureMipBias ) );
+        EXPECT_FLOAT_EQ( G::GlobalTextureFilterSampler().MipLodBias(), tier.Scale ) << LevelKey( tier.Tier );
+    }
+    G::RenderConfig::TextureMipBias.store( saved );
 }

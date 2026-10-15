@@ -9,9 +9,13 @@
 
 #include <gtest/gtest.h>
 
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -219,4 +223,39 @@ TEST( VFXEmitterSpawn, RefusalsNameWhatIsWrong )
     const std::string late = Refusal( System( { Burst( 1, 1.0f ) }, life ) );
     EXPECT_NE( late.find( "never fire" ), std::string::npos ) << late;
     EXPECT_NE( late.find( "emitter 'Sparks'" ), std::string::npos ) << late;
+}
+
+// SCAL-COVER: every SHIPPED Effects tier through the spawn (Editor/Resources/Config/Scalability.json ->
+// RenderConfig::ParticleSpawnPercent -> Scene: VFXWorld::SetSpawnCountScale( percent / 100 ) -> SpawnState::Step):
+// a 120/s rate over ten seconds births 600 / 900 / 1200 at Low / Medium / High+. Red if a shipped tier value
+// moves or Step stops applying the share.
+TEST( VFXEmitterSpawn, EveryShippedEffectsTierScalesTheBirths )
+{
+    namespace Scal = Common::Scalability;
+    std::string    root;
+    for ( std::string prefix = "./"; root.empty() && prefix.size() < 24; prefix += "../" )
+        if ( std::ifstream( std::filesystem::path( prefix ) / "Editor/Resources/Config/Scalability.json" ) )
+            root = prefix;
+    ASSERT_FALSE( root.empty() ) << "Editor/Resources/Config/Scalability.json not found";
+    std::ostringstream text;
+    text << std::ifstream( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
+                           std::ios::binary )
+                 .rdbuf();
+    const auto table = Scal::ScalabilityTable::Parse( text.str() );
+    ASSERT_TRUE( table.IsSuccess() ) << table.GetError();
+
+    const auto rate = Plan( System( { Rate( 120.0f ) } ) );
+    struct Tier
+    {
+        Scal::Level   Level;
+        std::uint32_t Births;
+    };
+    for ( const Tier tier : { Tier{ Scal::Level::Low, 600u }, Tier{ Scal::Level::Medium, 900u },
+                              Tier{ Scal::Level::High, 1200u }, Tier{ Scal::Level::Epic, 1200u },
+                              Tier{ Scal::Level::Cinematic, 1200u } } )
+    {
+        const auto percent = table.GetValue().ValueAt( Scal::Parameter::ParticleSpawnPercent, tier.Level );
+        EXPECT_EQ( Sum( Births( rate, 600, kStep, static_cast<double>( percent ) / 100.0 ) ), tier.Births )
+             << Scal::LevelKey( tier.Level );
+    }
 }
