@@ -445,7 +445,7 @@ namespace Desert::Graphic
         inputs.WorldGridParams     = t.Lights.WorldGridParams;
         inputs.WorldGridCells      = t.Lights.WorldGridCells;
         inputs.CameraPosition      = frame.CameraPosition;
-        inputs.Extent              = glm::uvec2( desc.GetValue().Width, desc.GetValue().Height );
+        inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         GlobalIllumination::GIFramePayload& payload = inputs.Frame;
         payload.InvViewProjection                   = frame.InvJitteredViewProjection;
