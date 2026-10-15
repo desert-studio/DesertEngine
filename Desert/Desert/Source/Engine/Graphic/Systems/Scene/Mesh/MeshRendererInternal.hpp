@@ -61,6 +61,10 @@ namespace Desert::Graphic::System
         bool                            IsTranslucent( const DataDrivenMaterial* material );
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row );
         SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
+        // A static draw's section material (UE: the section's MaterialIndex): slot @p sectionSlot of @p slots when
+        // it holds a Static mesh-cell material, else empty. Every pass that draws a StaticMeshRenderData shades it
+        // with this, so lit, G-buffer, translucency and the casters agree per section.
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
@@ -83,6 +87,7 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
     using MeshRendererDetail::FirstSurfaceSlot;
+    using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
     using MeshRendererDetail::SurfaceSlot;

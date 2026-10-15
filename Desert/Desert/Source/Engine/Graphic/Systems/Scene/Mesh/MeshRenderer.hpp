@@ -147,6 +147,7 @@ namespace Desert::Graphic::System
         // what travels the chain is a shared_ptr, so the slots and the instances in them cannot be freed
         // under a draw that is still in flight.
         MaterialSlotBindingPtr MaterialSlots;
+        uint32_t               SectionSlot = 0; // static: the slot this draw's submeshes shade with
 
         // optional
         std::vector<glm::mat4> BoneMatrices;
@@ -179,6 +180,9 @@ namespace Desert::Graphic::System
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
             // ECS systems have run (A8-3).
             MaterialSlotBindingPtr MaterialSlots;
+            // The slot every drawn submesh shades with, in every pass (SectionSurface); HiddenSubmeshes masks the
+            // sections of the entity's other slots, which arrive as their own entries.
+            uint32_t               SectionSlot     = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -220,7 +224,8 @@ namespace Desert::Graphic::System
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
             class Desert::Mesh*                           Mesh = nullptr;
-            MaterialInstancePtr                           Material;   // slot 0 (Lit)
+            MaterialInstancePtr                           Material;   // the section group's slot (a mesh cell)
+            uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
@@ -1042,6 +1047,7 @@ namespace Desert::Graphic::System
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
+            uint64_t            HiddenSubmeshMask = 0; // the batch's section group (one mask for every instance)
             // A draw call carries ONE index range, so a batch carries ONE level. Before this field the
             // batched path drew at the default 0 while the per-object path next to it computed a level
             // and passed it — the same object at two detail levels depending on whether it batched.
@@ -1092,6 +1098,7 @@ namespace Desert::Graphic::System
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
+            uint64_t            HiddenSubmeshMask = 0; ///< see InstancedDraw::HiddenSubmeshMask
             InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
         };
 
@@ -1144,6 +1151,7 @@ namespace Desert::Graphic::System
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
             uint32_t          LodLevel  = 0;
+            uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;

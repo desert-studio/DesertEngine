@@ -97,6 +97,7 @@ namespace Desert::Destruction
         bool      CastShadows = false;
         glm::mat4 Transform   = glm::mat4( 1.0f );
         uint32_t  MotionPart  = 0;
+        size_t    Slot        = 0; // SlotPath false: the slot the lit draw's submeshes shade with
     };
 
     /// The draws of @p instance's piece mesh of @p submeshCount submeshes: split exactly as a static mesh is
@@ -105,17 +106,17 @@ namespace Desert::Destruction
     /// binding entry, i.e. the PieceSubmeshMaterials choice — interior or source slot), or null for the lit path.
     template <class Material, class SlotMaterialOf>
     [[nodiscard]] std::vector<PieceDraw<Material>> PieceDraws( const PieceInstance& instance, size_t submeshCount,
-                                                               SlotMaterialOf&& slotMaterialOf )
+                                                               size_t slotCount, SlotMaterialOf&& slotMaterialOf )
     {
-        const auto     split = ECS::Rules::SplitMeshSlotDraws<Material>( submeshCount, /*hidden*/ 0ull,
+        const auto     split = ECS::Rules::SplitMeshSlotDraws<Material>( submeshCount, slotCount, /*hidden*/ 0ull,
                                                                          /*castShadows*/ true, slotMaterialOf );
         const uint32_t part  = PieceMotionPart( instance.Node );
         std::vector<PieceDraw<Material>> draws;
         for ( const auto& slot : split.SlotDraws )
-            draws.push_back( { true, slot.Mat, slot.VisibleMask, slot.CastShadows, instance.Transform, part } );
-        if ( split.SurfaceDrawEmitted )
-            draws.push_back(
-                 { false, Material{}, split.SurfaceHidden, split.SurfaceCastShadows, instance.Transform, part } );
+            draws.push_back( { true, slot.Mat, slot.VisibleMask, slot.CastShadows, instance.Transform, part, 0 } );
+        for ( const auto& section : split.SectionDraws )
+            draws.push_back( { false, Material{}, section.HiddenMask, section.CastShadows, instance.Transform, part,
+                               section.Slot } );
         return draws;
     }
 } // namespace Desert::Destruction

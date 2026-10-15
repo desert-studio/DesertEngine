@@ -1596,6 +1596,7 @@ namespace Desert::Graphic
                              .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
+                             .SectionSlot              = extra.SectionSlot,
                              .BoneMatrices             = extra.BoneMatrices,
                              .MorphWeights             = extra.MorphWeights,
                              .MorphRevision            = extra.MorphRevision,
@@ -1667,7 +1668,7 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, const InstanceCullDistance& cullDistance,
                                              const InstanceWind& wind )
@@ -1683,6 +1684,7 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitInstancedMesh( { .Mesh         = mesh,
                                       .Material     = material,
+                                      .HiddenSubmeshes = hiddenSubmeshes,
                                       .Transforms   = transforms,
                                       .CastShadows  = castShadows,
                                       .CullDistance = cullDistance,

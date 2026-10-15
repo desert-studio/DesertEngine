@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -81,52 +82,20 @@ namespace Desert::ECS::Rules
         return out;
     }
 
-    // ---------------------------------------------------------------------------------------------------
-    // Which of a mesh entity's draws carries the SHADOW CASTER
-    // ---------------------------------------------------------------------------------------------------
+    // How a mesh's sections become draws (UE: one mesh batch per section, each with its section's material, in
+    // every pass). ONE rule for every static draw: a static mesh entity (MeshECSSystem), an ISM and each
+    // fracture piece (FracturePieceDraw) split the same way.
     //
-    // One static-mesh entity can produce up to three kinds of draw: a whole-entity generic draw (a
-    // MaterialComponent naming a non-lit shader), one generic draw per custom-shader material slot, and
-    // the batched lit draw for whatever submeshes are left. The shadow pass, though, draws a mesh WHOLE:
-    // MeshRenderer::ShadowCascadePasses takes a Mesh* and a transform and has no submesh mask, because
-    // depth is material-independent. So the caster is a property of the ENTITY, not of a draw, and
-    // exactly one draw may carry it — a mesh with one custom slot and one lit slot would otherwise be
-    // rasterized into every cascade twice, self-shadowing along the seam and paying double.
-    enum class MeshShadowCaster
-    {
-        None,           // the entity does not cast (CastShadows off, or it produces no draw at all)
-        SurfaceDraw,    // the batched lit draw carries it — the only case before generic meshes cast
-        ShaderOverride, // whole-entity Shader Override: there is no lit draw to carry it
-        FirstSlotDraw,  // every submesh went to a custom slot material; the first slot draw carries it
-    };
-
-    // @p shaderOverride   the entity has a MaterialComponent naming a non-lit shader (whole-entity draw)
-    // @p slotDrawCount    number of per-slot custom-material draws emitted for this entity
-    // @p surfaceDrawEmitted   the batched lit draw was emitted (some submesh stayed on the lit path)
-    inline MeshShadowCaster RouteMeshShadowCaster( bool castShadows, bool shaderOverride, size_t slotDrawCount,
-                                                   bool surfaceDrawEmitted )
-    {
-        if ( !castShadows )
-            return MeshShadowCaster::None;
-        // The override draw REPLACES the entity's whole lit draw, so it is the only candidate.
-        if ( shaderOverride )
-            return MeshShadowCaster::ShaderOverride;
-        // Otherwise the lit draw wins whenever it exists: it is the pre-existing caster, and keeping it
-        // means this rule cannot change what an all-lit scene puts in the cascades.
-        if ( surfaceDrawEmitted )
-            return MeshShadowCaster::SurfaceDraw;
-        if ( slotDrawCount > 0 )
-            return MeshShadowCaster::FirstSlotDraw;
-        return MeshShadowCaster::None;
-    }
-
-    // Which submeshes of a mesh leave the batched lit draw for a slot-material draw (v3 per-slot shaders), and
-    // which single draw carries the caster. ONE rule for every static draw: a static mesh entity
-    // (MeshECSSystem) and each fracture piece (FracturePieceDraw) split the same way.
+    // Section si draws with slot Desert::SectionMaterialSlot( si, slotCount ). @p slotMaterialOf( slot ) -> the
+    // custom-shader material that slot draws with (a non-mesh-cell DataDrivenMaterial), or a null Material when
+    // the slot is a surface (mesh-cell) material drawn by the batched passes. Sections of one custom material
+    // merge into one slot draw; sections of one surface slot merge into one section draw, which every batched
+    // pass (lit, G-buffer, translucency, depth and shadow casters) shades with THAT slot. @p submeshCount is at
+    // most 64 (the masks' width); @p slotCount 0 draws nothing (there is no material to draw with).
     //
-    // @p slotMaterialOf( si ) -> the custom-shader material submesh si draws with (a non-mesh-cell
-    // DataDrivenMaterial), or a null Material when it stays on the batched lit path. Submeshes sharing one such
-    // material merge into one slot draw. @p submeshCount is at most 64 (the masks' width).
+    // Every draw casts its OWN submeshes when the entity casts: the shadow passes honour each draw's mask, so the
+    // entity's silhouette is the union of its draws, each section through its own caster route (masked or
+    // opaque) - and a hidden submesh casts nothing, as it shows nothing.
     template <class Material>
     struct MeshSlotDraw
     {
@@ -134,63 +103,66 @@ namespace Desert::ECS::Rules
         uint64_t VisibleMask = 0; // the submeshes this draw draws (hidden ones removed)
         bool     CastShadows = false;
     };
+    struct MeshSectionDraw
+    {
+        size_t   Slot        = 0; // the material slot every submesh of this draw shades with
+        uint64_t HiddenMask  = 0; // every submesh this draw does NOT draw (hidden, other slots, custom)
+        bool     CastShadows = false;
+    };
     template <class Material>
     struct MeshSlotSplit
     {
-        std::vector<MeshSlotDraw<Material>> SlotDraws; // emitted in this order
-        uint64_t SurfaceHidden      = 0;               // the lit draw's hidden mask (hidden | slot submeshes)
-        bool     SurfaceDrawEmitted = false;
-        bool     SurfaceCastShadows = false;
+        std::vector<MeshSlotDraw<Material>> SlotDraws;    // emitted first, in this order
+        std::vector<MeshSectionDraw>        SectionDraws; // then these, in first-section order
     };
     template <class Material, class SlotMaterialOf>
-    MeshSlotSplit<Material> SplitMeshSlotDraws( size_t submeshCount, uint64_t hiddenSubmeshes, bool castShadows,
-                                                SlotMaterialOf&& slotMaterialOf )
+    MeshSlotSplit<Material> SplitMeshSlotDraws( size_t submeshCount, size_t slotCount, uint64_t hiddenSubmeshes,
+                                                bool castShadows, SlotMaterialOf&& slotMaterialOf )
     {
-        MeshSlotSplit<Material>             split;
-        std::vector<MeshSlotDraw<Material>> grouped;
-        uint64_t                            customMask = 0;
+        MeshSlotSplit<Material> split;
+        if ( slotCount == 0 )
+            return split;
+        std::vector<uint64_t> sectionVisible; // parallel to split.SectionDraws while grouping
         for ( size_t si = 0; si < submeshCount && si < 64; ++si )
         {
-            const Material mat = slotMaterialOf( si );
-            if ( !mat )
+            const uint64_t bit = 1ull << si;
+            if ( ( hiddenSubmeshes & bit ) != 0 )
                 continue;
-            customMask |= ( 1ull << si );
+            const size_t   slot = Desert::SectionMaterialSlot( si, slotCount );
+            const Material mat  = slotMaterialOf( slot );
+            if ( mat )
+            {
+                bool merged = false;
+                for ( auto& d : split.SlotDraws )
+                    if ( d.Mat == mat )
+                    {
+                        d.VisibleMask |= bit;
+                        merged = true;
+                        break;
+                    }
+                if ( !merged )
+                    split.SlotDraws.push_back( { mat, bit, castShadows } );
+                continue;
+            }
             bool merged = false;
-            for ( auto& d : grouped )
-                if ( d.Mat == mat )
+            for ( size_t i = 0; i < split.SectionDraws.size(); ++i )
+                if ( split.SectionDraws[i].Slot == slot )
                 {
-                    d.VisibleMask |= ( 1ull << si );
+                    sectionVisible[i] |= bit;
                     merged = true;
                     break;
                 }
             if ( !merged )
-                grouped.push_back( { mat, 1ull << si, false } );
+            {
+                split.SectionDraws.push_back( { slot, 0, castShadows } );
+                sectionVisible.push_back( bit );
+            }
         }
-
-        // Decided BEFORE anything is emitted, because the caster belongs to the ENTITY: the shadow pass draws a
-        // mesh whole, so the lit draw and the slot draws are candidates for the same silhouette and only one of
-        // them may record it.
-        const uint64_t allMask   = submeshCount >= 64 ? ~0ull : ( ( 1ull << submeshCount ) - 1ull );
-        split.SurfaceHidden      = hiddenSubmeshes | customMask;
-        split.SurfaceDrawEmitted = submeshCount == 0 || ( ~split.SurfaceHidden & allMask ) != 0;
-        const auto shadowRoute   = RouteMeshShadowCaster( castShadows, /*shaderOverride*/ false, grouped.size(),
-                                                          split.SurfaceDrawEmitted );
-        split.SurfaceCastShadows = shadowRoute == MeshShadowCaster::SurfaceDraw;
-
-        bool slotCasterPlaced = false;
-        for ( auto& d : grouped )
-        {
-            d.VisibleMask &= ~hiddenSubmeshes;
-            if ( !d.VisibleMask )
-                continue;
-            // "First slot draw" means the first one actually EMITTED — a leading slot whose submeshes are all
-            // hidden emits nothing, and routing the caster to it would drop the entity's shadow, not move it.
-            d.CastShadows    = !slotCasterPlaced && shadowRoute == MeshShadowCaster::FirstSlotDraw;
-            slotCasterPlaced = slotCasterPlaced || d.CastShadows;
-            split.SlotDraws.push_back( d );
-        }
+        for ( size_t i = 0; i < split.SectionDraws.size(); ++i )
+            split.SectionDraws[i].HiddenMask = ~sectionVisible[i];
         return split;
     }
+
 
     // ---------------------------------------------------------------------------------------------------
     // Which directional light is THE SUN

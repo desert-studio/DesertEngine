@@ -31,7 +31,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
             if ( surfaceInst == nullptr || IsTranslucent( mat ) )
             {
                 continue;
@@ -584,13 +584,16 @@ namespace Desert::Graphic::System
              lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
                                   : Geometry::LODView{};
 
-        std::vector<std::pair<Desert::StaticMesh*, std::vector<const StaticMeshRenderData*>>> byMesh;
-        const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<const StaticMeshRenderData*>&
+        // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
+        std::vector<std::pair<std::pair<Desert::StaticMesh*, uint64_t>, std::vector<const StaticMeshRenderData*>>>
+                   byMesh;
+        const auto bucketFor = [&]( Desert::StaticMesh* mesh,
+                                    uint64_t            hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
-            for ( auto& [m, v] : byMesh )
-                if ( m == mesh )
+            for ( auto& [key, v] : byMesh )
+                if ( key.first == mesh && key.second == hidden )
                     return v;
-            byMesh.emplace_back( mesh, std::vector<const StaticMeshRenderData*>{} );
+            byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<const StaticMeshRenderData*>{} );
             return byMesh.back().second;
         };
         // MASKED CASTERS, by the material's blend mode (ShadowCasterCellFor): each draws through its own
@@ -631,19 +634,15 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            // The caster takes the material the LIT draw shows, by the lit draw's own mapping: the batched Static
-            // draw (MeshRendererForward, DrawStaticMeshes' groupFor) shades every submesh it draws with the FIRST
-            // surface slot; slots holding a non-cell material left for the generic queue at submit
-            // (Rules::SplitMeshSlotDraws, submesh i -> slot min(i, slots - 1)). A per-slot caster here would cut
-            // holes the lit draw does not show. Per-section surface materials are a lit-pass change first.
-            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
-                                                  ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                  : SurfaceSlot{};
+            // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
+            // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
+            // a masked section takes the masked route and an opaque one the opaque route.
+            const SurfaceSlot         slot = SectionSurface( rd.MaterialSlots.get(), rd.SectionSlot );
             MaterialInstance*         inst = slot.Instance;
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
             {
-                bucketFor( rd.Mesh ).push_back( &rd );
+                bucketFor( rd.Mesh, rd.HiddenSubmeshes ).push_back( &rd );
                 continue;
             }
             auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
@@ -660,6 +659,7 @@ namespace Desert::Graphic::System
             draw.Instance  = inst;
             draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+            draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
             m_ScratchMaskedDraws.push_back( draw );
         }
 
@@ -672,8 +672,9 @@ namespace Desert::Graphic::System
         instTransforms.clear();
         batches.clear();
         singles.clear();
-        for ( auto& [mesh, bucket] : byMesh )
+        for ( auto& [meshKey, bucket] : byMesh )
         {
+            Desert::StaticMesh* const mesh = meshKey.first;
             if ( instancingOn && bucket.size() >= 2 )
             {
                 // One draw per level, exactly as the geometry pass does it, and for the
@@ -704,7 +705,7 @@ namespace Desert::Graphic::System
                                 singles.push_back( bucket[i] );
                         continue;
                     }
-                    batches.push_back( ShadowBatch{ mesh, count, first, level, InstanceWindPush{} } );
+                    batches.push_back( ShadowBatch{ mesh, count, first, level, meshKey.second, InstanceWindPush{} } );
                 }
             }
             else
@@ -771,6 +772,7 @@ namespace Desert::Graphic::System
                         draw.Set      = &set;
                         draw.Path     = MeshVertexPath::Instanced;
                         draw.Mesh     = ism.Mesh;
+                        draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
                         draw.Instance = ismInst;
                         draw.Row      = row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
@@ -790,7 +792,7 @@ namespace Desert::Graphic::System
                             instTransforms.push_back( visible[i] );
                     batches.push_back( ShadowBatch{ ism.Mesh,
                                                     static_cast<uint32_t>( instTransforms.size() ) - first, first,
-                                                    level, PackInstanceWind( ism.Wind ) } );
+                                                    level, ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ) } );
                 }
             }
         }
@@ -802,6 +804,7 @@ namespace Desert::Graphic::System
                         .Mesh      = rd->Mesh,
                         .Transform = rd->Transform,
                         .Material  = casterExecutor,
+                        .HiddenSubmeshMask = rd->HiddenSubmeshes,
                         .LodLevel  = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
         }
 
@@ -817,11 +820,9 @@ namespace Desert::Graphic::System
         // meshes). Casters here are counted in ones and twos, not in the hundreds the
         // batching exists for.
         //
-        // The whole mesh is drawn, VisibleSubmeshMask ignored — deliberately, and the
-        // reason exactly one draw per entity may set CastShadows: the mask splits an
-        // entity's submeshes between this queue and the lit one, but a caster is not
-        // split, so honouring the mask here would carve the lit half out of the silhouette
-        // while the lit record was already casting the whole of it.
+        // Each draw casts its OWN submeshes (VisibleSubmeshMask), as every static caster does: an entity's draws
+        // split its sections between this queue and the batched ones, and the silhouette is their union
+        // (Rules::SplitMeshSlotDraws gives each draw the entity's CastShadows).
         //
         // No masked route here, and none can apply: BlendMode Masked exists only on a Surface template
         // (DShaderParser refuses it on a shader with no Surface block), a template draws only through its mesh
@@ -836,6 +837,7 @@ namespace Desert::Graphic::System
                             .Mesh      = g.Mesh,
                             .Transform = g.Transform,
                             .Material  = casterExecutor,
+                            .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                             .LodLevel  = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
             }
         }
@@ -920,6 +922,7 @@ namespace Desert::Graphic::System
                             .Material      = instMat->GetMaterialExecutor(),
                             .InstanceCount = b.Count,
                             .FirstInstance = b.First,
+                            .HiddenSubmeshMask = b.HiddenSubmeshMask,
                             .LodLevel      = b.LodLevel,
                             .BindState     = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); } } );
             }
@@ -963,6 +966,7 @@ namespace Desert::Graphic::System
                         .Material      = material->GetMaterialExecutor(),
                         .InstanceCount = instanced ? draw.Count : 1,
                         .FirstInstance = instanced ? draw.First : 0,
+                        .HiddenSubmeshMask = draw.HiddenSubmeshMask,
                         .LodLevel      = draw.LodLevel,
                         .BindState     = [material, draw]
                         {

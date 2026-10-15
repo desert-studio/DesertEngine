@@ -64,6 +64,17 @@ namespace Desert::Graphic::System
             return index;
         }
 
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot )
+        {
+            if ( slots == nullptr || sectionSlot >= slots->Slots.size() || slots->Slots[sectionSlot] == nullptr )
+                return {};
+            MaterialInstance* inst    = slots->Slots[sectionSlot];
+            auto*             surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+            if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Static )
+                return { inst, surface };
+            return {};
+        }
+
         SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
         {
             for ( auto* inst : slots )
@@ -533,6 +544,7 @@ namespace Desert::Graphic::System
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
+                staticData.SectionSlot     = data.SectionSlot;
                 staticData.Outlined        = data.Outlined;
                 staticData.HiddenSubmeshes = data.HiddenSubmeshes;
                 staticData.ForcedLOD       = data.ForcedLOD;

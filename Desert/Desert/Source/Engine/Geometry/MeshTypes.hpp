@@ -184,6 +184,17 @@ namespace Desert
         std::vector<std::vector<Index>> BakedLODs = {};
     };
 
+    // THE MATERIAL SLOT A MESH SECTION DRAWS WITH (UE: FStaticMeshSection::MaterialIndex), the one answer every
+    // pass and every submitter asks. A mesh asset stores one material per section, index-aligned with its
+    // submeshes (StaticMeshAsset::GetMaterialHandles, the cooked SubmeshData::MaterialGuid), and a component's
+    // slot list is adopted from that list one slot per section (ECS::AdoptSectionMaterials) - so section i's
+    // material index IS i. A slot list shorter than the sections (a primitive's single slot, a fracture piece's
+    // binding, a hand-trimmed list) gives every remaining section its last slot. @p slotCount must be > 0.
+    [[nodiscard]] constexpr size_t SectionMaterialSlot( size_t section, size_t slotCount )
+    {
+        return section < slotCount ? section : slotCount - 1;
+    }
+
     enum class MeshType
     {
         Static,
