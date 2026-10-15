@@ -25,8 +25,8 @@ void main()
     i.Particle.RelativeTime = v_ParticleTimeRandom.x;
     i.Particle.Random       = v_ParticleTimeRandom.y;
 
+    DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
-    DESERT_SURFACE_CLIP( s );
 #ifdef DESERT_SURFACE_TRANSLUCENT
     if ( s.Opacity <= 0.0 )
         discard;

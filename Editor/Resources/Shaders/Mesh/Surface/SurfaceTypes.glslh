@@ -122,7 +122,7 @@ struct SurfaceOutput
     float Metallic;
     float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
     vec3  Emissive;  // linear, HDR, added unlit
-    float Opacity;   // read only by BlendMode Masked, against u_Material.OpacityMaskClipValue
+    float Opacity;   // read by the translucency passes (BlendMode Translucent / Additive) and the sprite cell
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
     float AmbientOcclusion;
     // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
@@ -236,14 +236,16 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
     return normalize( i.TBN * s.Normal );
 }
 
-// BlendMode Masked: the parser defines DESERT_SURFACE_MASKED and has already refused a template without the
-// Float parameter the threshold is read from.
+// BlendMode Masked (UE's OpacityMask < OpacityMaskClipValue): the parser defines DESERT_SURFACE_MASKED, has refused
+// a template without its `OpacityMask` line or the Float threshold, and GENERATES DesertSurfaceOpacityMask( i ) from
+// that line (DShaderParser OpacityMaskFunction) between the surface block and the pass header. Every cell clips
+// with it, BEFORE evaluating the surface; ray tracing reads the same line from ShaderProgramMeta::OpacityMask.
 #ifdef DESERT_SURFACE_MASKED
-#define DESERT_SURFACE_CLIP( s ) \
-    if ( ( s ).Opacity < u_Material.OpacityMaskClipValue ) \
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue ) \
         discard
 #else
-#define DESERT_SURFACE_CLIP( s )
+#define DESERT_SURFACE_CLIP( i )
 #endif
 
 #endif
