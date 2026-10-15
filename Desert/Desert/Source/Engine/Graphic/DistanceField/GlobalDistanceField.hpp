@@ -18,6 +18,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -115,6 +116,35 @@ namespace Desert::Graphic::DistanceField
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
 
+        // THE MESH SDFS AS A NEAR-FIELD TRACE READS THEM (UE: the distance field object buffers + the view cull of
+        // LumenMeshSDFCulling.usf, CullMeshSDFObjectsForViewCS): this frame's objects - the field's own records,
+        // in the order AddUpdatePasses composited them - uploaded for the trace, beside the list of the objects a
+        // trace from the view's surfaces can reach. Bindings by name (Common/GITraceMeshSDF.glslh).
+        struct MeshSDFScene
+        {
+            RDG::TextureRef BrickAtlas;  // "u_DFBrickAtlas"
+            RDG::BufferRef  AssetData;   // "DFAssetData"
+            RDG::BufferRef  Indirection; // "DFIndirection"
+            RDG::BufferRef  Objects;     // "DFObjects"
+            RDG::BufferRef  ObjectRows;  // "GIMeshSDFObjectRowsUB": per object its instance-table row
+            // "GIMeshSDFCulledUB": uvec4(count, 0, 0, 0), then per culled object two vec4: its world box min with
+            // the object index's bits in w, its world box max.
+            RDG::BufferRef Culled;
+        };
+        // Which objects the near field may meet: the box grown by @p traceDistance (cm) inside @p view and nearer
+        // @p camera than @p endDistanceFromCamera + @p traceDistance (UE CardTraceEndDistanceFromCamera: a probe
+        // farther than that traces no mesh SDF).
+        struct MeshSDFCull
+        {
+            Core::Frustum View;
+            glm::vec3     Camera{ 0.0f };
+            float         TraceDistance         = 0.0f;
+            float         EndDistanceFromCamera = 0.0f;
+        };
+        // After AddUpdatePasses of the same frame. An error when the field holds no frame yet.
+        [[nodiscard]] Common::ResultStr<MeshSDFScene>
+        AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull ) const;
+
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
                                                               RDG::TextureRef target, const RDG::LoadOp& load,
@@ -139,6 +169,11 @@ namespace Desert::Graphic::DistanceField
                                                                   uint32_t                   samples );
 
         DistanceFieldSceneData                                              m_SceneData;
+        // The last AddUpdatePasses' objects (AddMeshSDFReads): the object records, their rows, their world boxes.
+        std::vector<glm::vec4>                                              m_FrameObjectData;
+        std::vector<uint32_t>                                               m_FrameObjectRows;
+        std::vector<Common::Math::AABB>                                     m_FrameObjectBounds;
+        bool                                                                m_HasFrame = false;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
         std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;

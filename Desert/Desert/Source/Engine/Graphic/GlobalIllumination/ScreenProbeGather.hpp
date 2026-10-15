@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -12,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
@@ -20,9 +22,13 @@
 //   Place ×3   a uniform probe on every 16-pixel tile's centre, then adaptive probes on the 8 and 4 pixel tiles
 //              where the coarser probes cannot interpolate (UE ScreenProbeAdaptivePlacement), up to half the
 //              uniform count (UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction 0.5).
-//   Trace      8x8 rays per probe through the GI ray contract (TracerVariant / DeclareTracerReads: the pass names
-//              no tracer resource), out to the world radiance cache's minimum trace distance; past it the cache's
-//              radiance is the far field (RadianceCacheRadianceAt).
+//   Trace      8x8 rays per probe, each in UE's order of legs (LumenScreenProbeTracing.usf): the SCREEN over the
+//              view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); then, from
+//              where the screen trace left off, the MESH SDFS of the objects near the probe out to
+//              kMeshSDFTraceDistance (ScreenProbeTraceMeshSDFsCS over LumenMeshSDFCulling's list; software tracer
+//              only - the hardware tracer's TLAS is its own near field); then the GI ray contract (TracerVariant /
+//              DeclareTracerReads: the pass names no tracer resource) out to the world radiance cache's minimum
+//              trace distance; past it the cache's radiance is the far field (RadianceCacheRadianceAt).
 //   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
 //              reflections) and its second-order SH irradiance (diffuse).
 //   Integrate  per pixel: the probes around it by plane and normal, diffuse from the SH, specular from the
@@ -34,8 +40,11 @@
 //   * The probe is a hemi-octahedron around its pixel's normal, not a world-space full octahedron: every ray
 //     leaves the surface (UE spends the lower half on BRDF importance sampling). Neighbours meet by direction,
 //     each in its own frame, in the filter and the integrate.
-//   * No screen-space trace (HZB) in front of the world trace yet: a ray starts at the tracer's surface bias
-//     (GIRayBias). It is the tracer contract's next consumer, not a change of this gather.
+//   * The mesh SDF objects are culled per PROBE (the probe's workgroup tests the view-culled list against the
+//     sphere its rays can reach), not per froxel of 64-pixel tiles and depth slices (UE CullMeshSDFObjectsToGrid):
+//     a probe is one workgroup here, so its own list is exact and costs no grid pass.
+//   * A screen hit is reprojected by the camera only (UE GetHistoryScreenPosition); UE also rejects it against
+//     last frame's depth (HistorySceneDepth), which the view does not keep.
 //   * Irradiance SH per probe rather than UE's default octahedral irradiance: nine coefficients, one evaluation
 //     per probe and pixel.
 //   * Smooth surfaces read the probes' radiance too (UE traces them separately in Lumen Reflections): until a
@@ -50,15 +59,17 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 112 bytes.
+    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 128 bytes.
     struct ScreenProbeParamsPayload
     {
         glm::mat4  PrevViewProjection{ 1.0f };
         glm::vec4  PrevCamera{ 0.0f };
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
         glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = 1 when the history is valid
+        // x = kMeshSDFTraceDistance, y = kMeshSDFEndDistanceFromCamera, z = the SP_TRACE_* flags' bits, w unused.
+        glm::vec4 Trace{ 0.0f };
     };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 112 );
+    static_assert( sizeof( ScreenProbeParamsPayload ) == 128 );
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -76,6 +87,15 @@ namespace Desert::Graphic::GlobalIllumination
         static constexpr uint32_t kTracedTexels   = 8;  // UE r.Lumen.ScreenProbeGather.TracingOctahedronResolution
         static constexpr uint32_t kAtlasProbesRow = 128;
         static constexpr uint32_t kSHCoefficients = 9;
+        // The mesh SDF near field (UE r.Lumen.TraceMeshSDFs.TraceDistance): how far a ray marches the mesh SDFs
+        // before the global field takes over, cm.
+        static constexpr float kMeshSDFTraceDistance = 180.0f;
+        // UE r.Lumen.ScreenProbeGather...CardTraceEndDistanceFromCamera: a probe farther from the camera traces no
+        // mesh SDF (the global field's voxels are small enough against the pixels there), cm.
+        static constexpr float kMeshSDFEndDistanceFromCamera = 4000.0f;
+        // Common/ScreenProbes.glslh SP_TRACE_*.
+        static constexpr uint32_t kTraceScreen   = 1u;
+        static constexpr uint32_t kTraceMeshSDFs = 2u;
 
         glm::uvec2 Grid{ 0u }; // level-0 tiles
         uint32_t   UniformProbes  = 0;
@@ -127,6 +147,14 @@ namespace Desert::Graphic::GlobalIllumination
         glm::uvec2         Extent{ 0u };
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
+        // The screen trace's (SceneRenderer::FrameScreenTrace): this frame's closest-depth HZB and the view's
+        // scene colour history; the leg is skipped when either is invalid or the history is not last frame's.
+        RDG::TextureRef HZB;
+        RDG::TextureRef SceneColorHistory;
+        bool            SceneColorHistoryReadable = false;
+        // The mesh SDF near field's reads (GlobalDistanceField::AddMeshSDFReads), software tracer only; the leg is
+        // skipped when they are absent.
+        std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
     };
 
     // What the deferred composite reads (rgba16f, the G-buffer's extent).

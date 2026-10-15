@@ -339,7 +339,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                          const glm::vec4& lightColor, const ViewFrame& frame )
+                                          const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
+                                          const ViewFrame& frame )
     {
         if ( !RadianceCacheRuns() )
             return;
@@ -484,7 +485,30 @@ namespace Desert::Graphic
         gather.Extent             = inputs.Extent;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
-        const auto gathered       = m_ScreenProbeGather->AddPasses( graph, import, gather );
+        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
+        // system black texture with the leg off when the view has no screen trace.
+        gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
+        gather.SceneColorHistory =
+             screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
+        gather.SceneColorHistoryReadable =
+             screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
+        // The mesh SDF leg (UE ScreenProbeTraceMeshSDFs over LumenMeshSDFCulling's list): the software tracer's.
+        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) && m_GlobalDistanceField )
+        {
+            DistanceField::GlobalDistanceField::MeshSDFCull cull;
+            cull.View                  = Core::Frustum( frame.Projection, frame.View );
+            cull.Camera                = frame.CameraPosition;
+            cull.TraceDistance         = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
+            cull.EndDistanceFromCamera = GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
+            const auto meshSDFs        = m_GlobalDistanceField->AddMeshSDFReads( graph, import, cull );
+            if ( !meshSDFs )
+            {
+                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", meshSDFs.GetError() );
+                return;
+            }
+            gather.MeshSDFs = meshSDFs.GetValue();
+        }
+        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather );
         if ( !gathered )
         {
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
@@ -868,8 +892,8 @@ namespace Desert::Graphic
         copyDesc.Samples                   = 1;
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
-        // -> Deferred: Glass, Water; and, as SSR's scene colour history, next frame's Deferred: SSR
-        // (u_SceneColor).
+        // -> Deferred: Glass, Water; and, as the view's scene colour history, next frame's screen traces
+        // (Deferred: SSR's u_SceneColor, ScreenProbes: Trace's u_SceneColorHistory).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,
@@ -906,9 +930,28 @@ namespace Desert::Graphic
         return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
     }
 
+    SceneRenderer::FrameScreenTrace
+    SceneRenderer::AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* history =
+             UNIQUE_GET_AS( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] );
+        if ( history == nullptr || !history->Prepare() )
+            return {};
+        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
+        if ( !hzb.IsValid() )
+            return {};
+        // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
+        // frame may have written.
+        return FrameScreenTrace{ .HZB          = hzb,
+                                 .SceneHistory = textures.Import( history->GetImage(), "SceneColorHistory" ),
+                                 .SceneHistoryReadable = history->ReadableIn( frame ) };
+    }
+
     SceneRenderer::FrameSSR SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                                                         System::SSRRenderer&                ssr,
                                                         const std::vector<RDG::TextureRef>& gbuffer,
+                                                        const FrameScreenTrace&             screenTrace,
                                                         const ViewFrame&                    frame )
     {
         if ( gbuffer.size() < 3 )
@@ -918,7 +961,7 @@ namespace Desert::Graphic
             return {};
         }
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
-        if ( !traceTargets )
+        if ( !traceTargets || !screenTrace.HZB.IsValid() )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
         if ( !velocity.IsValid() )
@@ -927,9 +970,7 @@ namespace Desert::Graphic
                        "frame has none" );
             return {};
         }
-        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
-        if ( !hzb.IsValid() )
-            return {};
+        const RDG::TextureRef hzb = screenTrace.HZB;
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled resolve.
         const RDG::TextureRef trace    = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
         const RDG::TextureRef traceRay = graph.CreateTexture( traceTargets->TraceRay, "SSR.TraceRay" );
@@ -939,8 +980,7 @@ namespace Desert::Graphic
         graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
         graph.SetFaultDefault( traceRay, RDG::FaultDefault::Black );
         graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
-        const RDG::TextureRef sceneHistory =
-             textures.Import( ssr.GetSceneColorHistoryImage(), "SSR.SceneColorHistory" );
+        const RDG::TextureRef sceneHistory = screenTrace.SceneHistory;
         // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
         // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
@@ -949,7 +989,7 @@ namespace Desert::Graphic
              graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection );
         // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
         // frame may have written.
-        const bool                         sceneHistoryReadable = ssr.SceneColorHistoryReadableIn( frame );
+        const bool                         sceneHistoryReadable = screenTrace.SceneHistoryReadable;
         const uint32_t                     seed                 = ssr.NextTraceSeed();
         System::SSRRenderer::TraceSettings settings;
         settings.RaysPerPixel = m_SSRRaysPerPixel;
@@ -979,6 +1019,6 @@ namespace Desert::Graphic
                                                          .Velocity      = velocity,
                                                          .Black         = textures.GraphRefs().System.Black },
                           frame );
-        return FrameSSR{ .Resolved = resolved, .SceneHistory = sceneHistory };
+        return FrameSSR{ .Resolved = resolved };
     }
 } // namespace Desert::Graphic

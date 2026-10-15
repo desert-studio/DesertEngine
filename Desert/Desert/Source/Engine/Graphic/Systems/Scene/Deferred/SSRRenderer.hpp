@@ -5,14 +5,12 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
-#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
-#include <Engine/Graphic/View/PassHistory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
@@ -35,8 +33,9 @@ namespace Desert::Graphic::System
     //     (HZBRenderer, Common/HZBTrace.glslh), combined with the ratio estimator (rgb = radiance of the hits,
     //     a = the share of the lobe they answered) and written with the texel's representative hit point + pdf
     //     for the reconstruction. A hit's radiance is LAST frame's lit scene where the hit pixel's VELOCITY says
-    //     it was (a moving object is read where it was - no trail): the scene colour history this renderer owns,
-    //     which this frame's scene copy refills (UE: the previous frame's scene colour).
+    //     it was (a moving object is read where it was - no trail): the view's scene colour history
+    //     (SceneColorHistoryRenderer, shared with SSGI), which this frame's scene copy refills (UE: the previous
+    //     frame's scene colour).
     //  2) DENOISE (ScreenSpaceDenoiser::DenoiseReflections): reconstruction at full resolution (the ratio
     //     estimator over the neighbouring trace texels, bilateral by depth plane and specular lobe), temporal
     //     accumulation through the reflected point with variance rejection, and the history convolution. The
@@ -53,16 +52,6 @@ namespace Desert::Graphic::System
             if ( !m_TraceShader )
                 return Common::MakeError( "SSR shader not found (SSR)" );
 
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "SSR target framebuffer missing" );
-            // The scene colour history: last frame's lit opaque scene, the radiance a hit reflects.
-            FramebufferSpecification historySpec;
-            historySpec.DebugName = "SSRSceneColorHistory";
-            historySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
-            m_SceneColorHistoryFB = Framebuffer::Create( historySpec );
-            m_SceneColorHistoryFB->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
-
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
             if ( !tracePipeline )
@@ -77,7 +66,6 @@ namespace Desert::Graphic::System
         void OnSceneReplaced() override
         {
             m_Denoiser.InvalidateHistory();
-            m_SceneColorHistory.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -87,7 +75,6 @@ namespace Desert::Graphic::System
         {
             m_FrameIndex = 0;
             m_Denoiser.InvalidateHistory();
-            m_SceneColorHistory.Invalidate();
         }
 
         // The two images the trace writes and the tiled passes read, both transients of this frame's graph
@@ -99,24 +86,17 @@ namespace Desert::Graphic::System
             RDG::TextureDesc TileMask;
         };
 
-        // Called while the frame graph is built, before any pass runs. The scene colour history stays this
-        // renderer's: it follows the scene target here and a resize invalidates it. The trace targets are sized
-        // from this frame's view and kept by no one. Nullopt: nothing to draw.
+        // Called while the frame graph is built, before any pass runs. The trace targets are sized from this
+        // frame's view and kept by no one. Nullopt: nothing to draw.
         std::optional<TraceTargets> Prepare()
         {
             const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !m_TracePipeline || !m_SceneColorHistoryFB )
+            if ( !target || !m_TracePipeline )
                 return std::nullopt;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
             if ( w == 0u || h == 0u )
                 return std::nullopt;
-            if ( m_SceneColorHistoryFB->GetFramebufferWidth() != w ||
-                 m_SceneColorHistoryFB->GetFramebufferHeight() != h )
-            {
-                m_SceneColorHistoryFB->Resize( w, h );
-                m_SceneColorHistory.Invalidate();
-            }
             return TraceTargets{
                  .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
                                                .Format = ViewTargetFormats::kSSRTrace },
@@ -129,8 +109,8 @@ namespace Desert::Graphic::System
 
         // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
         // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
-        // depth at 0/1/2); sceneHistory = GetSceneColorHistoryImage(), imported (last frame's lit opaque scene);
-        // hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
+        // depth at 0/1/2); sceneHistory = the view's scene colour history, imported (last frame's lit opaque
+        // scene); hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
         // (FrameTransients::Velocity, written by the G-buffer pass): where a hit was on last frame's screen.
         // The G-buffer textures the three passes sample, as graph textures: albedo, normal, depth (world positions
         // are reconstructed from it, Common/ReconstructPosition.glslh).
@@ -200,7 +180,8 @@ namespace Desert::Graphic::System
         // EXEC of the same node: the block DeclareTraceBindings declared + this frame's push constants.
         // maxDistance and thickness are WORLD distances (a world unit is a centimetre - convert through
         // Common::Units). raysPerPixel / iterations: Reflections.RaysPerPixel / Reflections.MaxSteps.
-        // sceneHistoryReadable: SceneColorHistoryReadableIn of this frame (false: the trace answers nothing).
+        // sceneHistoryReadable: whether the scene colour history holds the previous frame (false: the trace
+        // answers nothing).
         // seed: NextTraceSeed() of this frame, taken at graph build (the denoiser's reconstruction reads it too).
         struct TraceSettings
         {
@@ -245,22 +226,6 @@ namespace Desert::Graphic::System
             return m_Denoiser.DenoiseReflections( graph, trace, scene, frame, Width(), Height() );
         }
 
-        // The scene colour history: the image this frame's scene copy writes (SceneRenderer::AddFrameSceneCopy)
-        // and next frame's trace reads. Whether it holds the view's previous frame (PassHistory.hpp), asked while
-        // the graph is built; stamped by the copy's exec (StampSceneColorHistory) once it was recorded.
-        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorHistoryImage() const
-        {
-            return m_SceneColorHistoryFB ? m_SceneColorHistoryFB->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-        [[nodiscard]] bool SceneColorHistoryReadableIn( const ViewFrame& frame ) const
-        {
-            return m_SceneColorHistory.ReadableIn( frame );
-        }
-        void StampSceneColorHistory( const uint64_t viewFrameIndex )
-        {
-            m_SceneColorHistory.Stamp( viewFrameIndex );
-        }
-
     private:
         // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSR.shader stretches the
         // tiles over the target, so every pixel belongs to exactly one tile.
@@ -289,9 +254,6 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
         ScreenSpaceDenoiser                   m_Denoiser{ DenoiserSignal::Reflections };
 
-        std::shared_ptr<Framebuffer> m_SceneColorHistoryFB;
-
-        PassHistoryStamp m_SceneColorHistory; // which view frame wrote GetSceneColorHistoryImage()
-        uint32_t         m_FrameIndex = 0;
+        uint32_t m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <span>
 #include <unordered_set>
 
 namespace Desert::Graphic::DistanceField
@@ -343,6 +344,14 @@ namespace Desert::Graphic::DistanceField
             objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
         }
 
+        m_FrameObjectData = objectData;
+        m_FrameObjectRows = objectRows;
+        m_FrameObjectBounds.clear();
+        m_FrameObjectBounds.reserve( placed.size() );
+        for ( const auto& p : placed )
+            m_FrameObjectBounds.push_back( p.Bounds );
+        m_HasFrame = true;
+
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
         FrameField                                                              frame;
         std::vector<glm::ivec4>                                                 updateBricks;
@@ -462,6 +471,50 @@ namespace Desert::Graphic::DistanceField
                  } );
         }
         return Common::MakeSuccess( frame );
+    }
+
+    Common::ResultStr<GlobalDistanceField::MeshSDFScene>
+    GlobalDistanceField::AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import,
+                                          const MeshSDFCull& cull ) const
+    {
+        if ( !m_HasFrame || !m_SceneData.GetBrickAtlas() )
+            return Common::MakeError<MeshSDFScene>( "mesh SDFs: the global distance field holds no frame yet" );
+        // The view cull (UE CullMeshSDFObjectsForViewCS): the box grown by the trace distance, in the frustum and
+        // within reach of a probe the near field still traces from.
+        std::vector<glm::vec4> culled( 1, glm::vec4( 0.0f ) );
+        const float            reach = cull.EndDistanceFromCamera + cull.TraceDistance;
+        uint32_t               count = 0;
+        for ( uint32_t o = 0; o < m_FrameObjectBounds.size(); ++o )
+        {
+            const Common::Math::AABB& box = m_FrameObjectBounds[o];
+            const glm::vec3 gap = glm::max( glm::max( box.Min - cull.Camera, cull.Camera - box.Max ), 0.0f );
+            if ( glm::length( gap ) > reach )
+                continue;
+            if ( !cull.View.Intersects( { box.Min - cull.TraceDistance, box.Max + cull.TraceDistance } ) )
+                continue;
+            culled.emplace_back( box.Min, std::bit_cast<float>( o ) );
+            culled.emplace_back( box.Max, 0.0f );
+            ++count;
+        }
+        culled[0] = glm::vec4( std::bit_cast<float>( count ), 0.0f, 0.0f, 0.0f );
+
+        const auto upload = [&graph]<typename T>( const std::vector<T>& data, const std::string_view name )
+        {
+            static const T                   zero{};
+            const std::span<const std::byte> bytes = data.empty() ? std::as_bytes( std::span<const T>( &zero, 1 ) )
+                                                                  : std::as_bytes( std::span<const T>( data ) );
+            const RDG::BufferRef             buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
+            graph.QueueBufferUpload( buffer, bytes );
+            return buffer;
+        };
+        MeshSDFScene scene;
+        scene.BrickAtlas  = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+        scene.AssetData   = upload( m_SceneData.GetAssetData(), "MeshSDF.AssetData" );
+        scene.Indirection = upload( m_SceneData.GetIndirection(), "MeshSDF.Indirection" );
+        scene.Objects     = upload( m_FrameObjectData, "MeshSDF.Objects" );
+        scene.ObjectRows  = upload( m_FrameObjectRows, "MeshSDF.ObjectRows" );
+        scene.Culled      = upload( culled, "MeshSDF.Culled" );
+        return Common::MakeSuccess( scene );
     }
 
     void GlobalDistanceField::LogStreaming()
