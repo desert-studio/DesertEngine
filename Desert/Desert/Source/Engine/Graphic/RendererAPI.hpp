@@ -134,13 +134,15 @@ namespace Desert::Graphic
         DrawProceduralIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                 const MaterialExecutor* material, RDG::BufferRef args, uint64_t offset ) = 0;
         // One VkDrawIndexedIndirectCommand at byte @p offset of @p args (a buffer of this graph the pass declared
-        // Access::IndirectArgs) over @p mesh's vertex, stream and index buffers: the mesh particles, whose instance
-        // count is the alive count a compute pass wrote there (ParticleMeshDrawArgs). Refused for an undeclared
-        // buffer, an offset not a multiple of four or past the buffer, or a mesh without vertex / index buffer.
-        [[nodiscard]] virtual Common::BoolResultStr
-        DrawMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                          const MaterialExecutor* material, const Mesh& mesh, RDG::BufferRef args,
-                          uint64_t offset ) = 0;
+        // Access::IndirectArgs) over @p mesh's vertex, stream and index buffers: the mesh particles, whose
+        // instance count is the alive count a compute pass wrote there (ParticleMeshDrawArgs). Refused for an
+        // undeclared buffer, an offset not a multiple of four or past the buffer, or a mesh without vertex / index
+        // buffer.
+        [[nodiscard]] virtual Common::BoolResultStr DrawMeshIndirect( const RDG::PassBindings& bindings,
+                                                                      const GraphicsPipeline&  pipeline,
+                                                                      const MaterialExecutor*  material,
+                                                                      const Mesh& mesh, RDG::BufferRef args,
+                                                                      uint64_t offset ) = 0;
         // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.

@@ -344,7 +344,7 @@ namespace Desert::Graphic::System
             const glm::vec3 centre = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
             const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
             std::vector<std::weak_ptr<IShadowCaster>> casters;
-            std::optional<uint64_t> signature = LocalCasterSignature( centre, reach, &casters );
+            std::optional<uint64_t>                   signature = LocalCasterSignature( centre, reach, &casters );
             if ( signature )
             {
                 SignatureHash hash;
@@ -386,7 +386,7 @@ namespace Desert::Graphic::System
             SystemRasterPass pass{
                  .Name        = std::format( "MeshShadowLocal{}", slot ),
                  .ExecuteFunc = [this, view, slot, tile]( RDG::PassContext& context,
-                                                    const FrameGraphRefs& ) -> Common::BoolResultStr
+                                                          const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
                      // Its own tile only: cleared to "no occluder" (1, standard Z), then its casters drawn into
                      // it. The rest of the atlas keeps the cached depth of the views not redrawn this frame.
@@ -406,9 +406,8 @@ namespace Desert::Graphic::System
                          const auto caster = weak.lock();
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
-                         if ( auto cast = caster->RecordShadowCascade( context, view, firstBlock,
-                                                                       m_CascadeCasterVP[view],
-                                                                       m_CascadeCasterBias[view] );
+                         if ( auto cast = caster->RecordShadowCascade(
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
                               !cast.IsSuccess() )
                              return cast;
                      }

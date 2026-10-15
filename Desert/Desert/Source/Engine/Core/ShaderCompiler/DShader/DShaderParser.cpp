@@ -1426,23 +1426,24 @@ namespace Desert::Core::Preprocess
                                               const std::string_view shadingModelDefine, const bool responsiveAA )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool particle = std::ranges::any_of( kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u )
-                                                       { return u.Path == path; } );
-            const bool sprite   = path == kSurfaceParticleSpritePath;
+            const bool        particle = std::ranges::any_of(
+                 kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u ) { return u.Path == path; } );
+            const bool sprite = path == kSurfaceParticleSpritePath;
             // A translucent particle cell of the particle pass has its own pass header: the mesh Forward / glass
-            // headers light a mesh, the particle header composites a particle. An opaque / masked particle's cells,
-            // whatever its path, are the mesh passes' (kSurfaceParticleOpaquePasses), its Forward cell the LIT one.
-            const bool opaque    = particle && !Formats::IsTranslucentBlend( blend );
-            const bool composite = particle && pass == kSurfaceParticleSpritePass && !opaque;
-            const std::string defines = std::format(
+            // headers light a mesh, the particle header composites a particle. An opaque / masked particle's
+            // cells, whatever its path, are the mesh passes' (kSurfaceParticleOpaquePasses), its Forward cell the
+            // LIT one.
+            const bool        opaque    = particle && !Formats::IsTranslucentBlend( blend );
+            const bool        composite = particle && pass == kSurfaceParticleSpritePass && !opaque;
+            const std::string defines   = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
-                                                      : std::string(),
+                                                        : std::string(),
                  particle ? std::format( "#define {} 1\n{}", kSurfaceParticleDefine,
                                          sprite ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine )
-                                                : std::string() )
-                          : std::string(),
+                                                  : std::string() )
+                            : std::string(),
                  composite ? std::format( "#define {} 1\n", kSurfaceParticleCompositeDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
@@ -1879,8 +1880,9 @@ namespace Desert::Core::Preprocess
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, ParticleMeshes, ParticleRibbons)",
-                                               stated ) };
+                    err = { line,
+                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleMeshes, ParticleRibbons)",
+                                         stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2183,9 +2185,11 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
-            // The particle usages: one cell each (an opaque / masked template also its kSurfaceParticleOpaquePasses
-            // cells), after every mesh cell (the mesh cells' order is unchanged), in kSurfaceParticleUsages order.
-            const bool declared[] = { result.Surface.UsedWithParticleSprites, result.Surface.UsedWithParticleMeshes,
+            // The particle usages: one cell each (an opaque / masked template also its
+            // kSurfaceParticleOpaquePasses cells), after every mesh cell (the mesh cells' order is unchanged), in
+            // kSurfaceParticleUsages order.
+            const bool declared[] = { result.Surface.UsedWithParticleSprites,
+                                      result.Surface.UsedWithParticleMeshes,
                                       result.Surface.UsedWithParticleRibbons };
             static_assert( std::size( declared ) == kSurfaceParticleUsages.size() );
             const auto addParticleCell = [&]( const std::string_view path, const std::string_view pass )
@@ -2195,8 +2199,8 @@ namespace Desert::Core::Preprocess
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
-                                                                          includeBlock, autoDecls, result.Surface.Blend,
-                                                                          shadingModelDefine,
+                                                                          includeBlock, autoDecls,
+                                                                          result.Surface.Blend, shadingModelDefine,
                                                                           result.Surface.ResponsiveAA ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );

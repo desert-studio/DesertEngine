@@ -92,8 +92,8 @@ namespace Desert::Graphic::System
     // Where a renderer finds an emitter's particle (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`;
     // UE FNiagaraSpriteUniformParameters' data offsets): the first float column of each drawn attribute in the
     // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
-    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around (now
-    // and at the previous tick, for their velocity).
+    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around
+    // (now and at the previous tick, for their velocity).
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
     struct ParticleDrawLayoutGpu
     {
@@ -122,9 +122,9 @@ namespace Desert::Graphic::System
     static_assert( sizeof( ParticleRendererParamsGpu ) == kParticleRendererParamsSize );
 
     // One enabled renderer row of an emitter (UE FNiagaraRenderer, one per UNiagaraRendererProperties): what the
-    // particle pass draws the emitter's particles as, with which material (Null = the kind's default template) and,
-    // for a Mesh row, which static mesh. Row is the row's index in the emitter's Renderers: with the entity and
-    // the emitter index it keys the drawing view's material instance (ParticleRenderer::DrawKey).
+    // particle pass draws the emitter's particles as, with which material (Null = the kind's default template)
+    // and, for a Mesh row, which static mesh. Row is the row's index in the emitter's Renderers: with the entity
+    // and the emitter index it keys the drawing view's material instance (ParticleRenderer::DrawKey).
     struct ParticleRendererGpu
     {
         Assets::Serialization::VFXRendererKind Kind = Assets::Serialization::VFXRendererKind::Sprite;
@@ -161,8 +161,8 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>                          ParamRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
-        // The emitter's fixed bounds around its placement (VFXEmitterData::Bounds): ParticleFrameEmitter::WorldBounds
-        // is this box at the tick's world position.
+        // The emitter's fixed bounds around its placement (VFXEmitterData::Bounds):
+        // ParticleFrameEmitter::WorldBounds is this box at the tick's world position.
         Common::Math::AABB                              LocalBounds;
         uint32_t                                        FloatColumns = 0;
         uint32_t                                        IntColumns   = 0;
@@ -177,7 +177,7 @@ namespace Desert::Graphic::System
         std::vector<ParticleRendererGpu> Renderers;
         // Per row of Renderers, its settings (re-uploaded every tick: the copies are per frame in flight).
         std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> RendererParams;
-        uint32_t                         Index = 0; // the emitter's index in its system's Emitters
+        uint32_t Index = 0; // the emitter's index in its system's Emitters
 
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
@@ -192,11 +192,11 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
-        ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
+        ComputePipeline*    Pipeline  = nullptr; // the emitter's stack host program (Gpu->Pipeline)
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
-        // Where the emitter's particles are this tick, world centimetres: its fixed bounds (LocalBounds) translated
-        // by the position the simulation places it at (Push.EmitterPos). What every view culls its draws by, and
-        // what decides the point / spot lights it casts into (ParticleRenderer).
+        // Where the emitter's particles are this tick, world centimetres: its fixed bounds (LocalBounds)
+        // translated by the position the simulation places it at (Push.EmitterPos). What every view culls its
+        // draws by, and what decides the point / spot lights it casts into (ParticleRenderer).
         Common::Math::AABB WorldBounds;
     };
 

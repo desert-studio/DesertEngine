@@ -637,10 +637,11 @@ namespace Desert::Editor
             ImGui::SameLine();
             ImGui::Checkbox( "Used with Mesh Particles", &m_Doc.UsedWithParticleMeshes );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Compile this material for an emitter's Mesh renderer row too (Usage "
-                                   "ParticleMeshes). Opaque or masked, it is drawn into the G-buffer, lit and "
-                                   "shadow-casting; translucent, by the particle pass. The Particles nodes read the "
-                                   "mesh's particle." );
+                ImGui::SetTooltip(
+                     "Compile this material for an emitter's Mesh renderer row too (Usage "
+                     "ParticleMeshes). Opaque or masked, it is drawn into the G-buffer, lit and "
+                     "shadow-casting; translucent, by the particle pass. The Particles nodes read the "
+                     "mesh's particle." );
             ImGui::SameLine();
             ImGui::Checkbox( "Used with Ribbon Particles", &m_Doc.UsedWithParticleRibbons );
             if ( ImGui::IsItemHovered() )

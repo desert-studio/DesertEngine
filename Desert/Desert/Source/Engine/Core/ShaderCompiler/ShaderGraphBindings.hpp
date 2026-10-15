@@ -29,10 +29,10 @@ namespace Desert::Core
      * added tomorrow reddens it whatever spelled the number.
      *
      * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
-     * it was none; the window now opens at 34, above the scene-read and particle-read ranges below. The lit shader-graph surface
-     * layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader), so the next binding
-     * that layout grows lands here. That is what the census is for: the collision becomes a red test rather than a
-     * wrong picture.
+     * it was none; the window now opens at 34, above the scene-read and particle-read ranges below. The lit
+     * shader-graph surface layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader),
+     * so the next binding that layout grows lands here. That is what the census is for: the collision becomes a
+     * red test rather than a wrong picture.
      *
      * MOVING THIS VALUE IS NOT FREE. The DSL spells a texture base as a literal inside the GENERATED
      * `.shader` (`Properties ... TextureBinding(24)`), so a `.shader` generated before a move keeps the
@@ -89,9 +89,9 @@ namespace Desert::Core
     inline constexpr uint32_t kParticleListBinding       = kParticleReadBindingFirst + 1u; // AliveList
     inline constexpr uint32_t kParticleDrawLayoutBinding = kParticleReadBindingFirst + 2u; // DrawLayout
     inline constexpr uint32_t kParticleRendererBinding   = kParticleReadBindingFirst + 3u; // RendererParams
-    inline constexpr uint32_t kParticleIntsBinding       = kParticleReadBindingFirst + 4u; // AttributeInts (ribbon)
-    inline constexpr uint32_t kParticleCountersBinding   = kParticleReadBindingFirst + 5u; // Counters (ribbon)
-    inline constexpr uint32_t kParticleReadBindingCount  = 6u;
+    inline constexpr uint32_t kParticleIntsBinding      = kParticleReadBindingFirst + 4u; // AttributeInts (ribbon)
+    inline constexpr uint32_t kParticleCountersBinding  = kParticleReadBindingFirst + 5u; // Counters (ribbon)
+    inline constexpr uint32_t kParticleReadBindingCount = 6u;
     static_assert( kParticleReadBindingFirst == 28u,
                    "Mesh/Surface/Vertex_Particle*.glslh spell 28..33: move them with this range" );
 
@@ -105,5 +105,6 @@ namespace Desert::Core
     // range, then from 28 (VFX-RENDER: the particle-read range) to sit above that; see the paragraph on moving it
     // above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kParticleReadBindingFirst + kParticleReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 34u, "the graph's window opens right above the particle-read range" );
+    static_assert( kGraphOwnedBindingFirst == 34u,
+                   "the graph's window opens right above the particle-read range" );
 } // namespace Desert::Core

@@ -136,28 +136,28 @@ namespace Desert::Graphic
         Skinned   = 1, // bone matrices from the Bones SSBO, offset per draw
         Instanced = 2, // one model matrix per INSTANCE, from the InstanceTransforms SSBO
         // A camera-facing quad per live particle, pulled from the particle pool (binding 9) through the alive
-        // list, as UE's sprite vertex factory. Only a template that declares `Usage ParticleSprites` has its cells:
-        // ParticleSprite.Forward, and for an opaque / masked template ParticleSprite.GBuffer and
+        // list, as UE's sprite vertex factory. Only a template that declares `Usage ParticleSprites` has its
+        // cells: ParticleSprite.Forward, and for an opaque / masked template ParticleSprite.GBuffer and
         // ParticleSprite.ShadowDepth (lit and casting as a mesh particle; no glass cell).
         ParticleSprite = 3,
         // A static mesh per alive particle (UE: the Niagara mesh vertex factory, "Used with Mesh Particles"): the
         // mesh's vertex streams, gl_InstanceIndex an entry of the alive list (Vertex_ParticleMesh.glslh). Only a
-        // template that declares `Usage ParticleMeshes` has its cells: ParticleMesh.Forward (the particle pass), and
-        // for an opaque / masked template ParticleMesh.GBuffer and ParticleMesh.ShadowDepth (the deferred base pass
-        // and the sun's cascades, ParticleRenderer::GBufferPass / DeclareShadowCascade).
+        // template that declares `Usage ParticleMeshes` has its cells: ParticleMesh.Forward (the particle pass),
+        // and for an opaque / masked template ParticleMesh.GBuffer and ParticleMesh.ShadowDepth (the deferred base
+        // pass and the sun's cascades, ParticleRenderer::GBufferPass / DeclareShadowCascade).
         ParticleMesh = 4,
-        // Particles joined into strips (UE: the Niagara ribbon vertex factory, "Used with Beam Trails"): six vertices
-        // per entry of the view's ribbon order (Vertex_ParticleRibbon.glslh). Only a template that declares
-        // `Usage ParticleRibbons` has its cells: ParticleRibbon.Forward, and for an opaque / masked template
-        // ParticleRibbon.GBuffer and ParticleRibbon.ShadowDepth.
+        // Particles joined into strips (UE: the Niagara ribbon vertex factory, "Used with Beam Trails"): six
+        // vertices per entry of the view's ribbon order (Vertex_ParticleRibbon.glslh). Only a template that
+        // declares `Usage ParticleRibbons` has its cells: ParticleRibbon.Forward, and for an opaque / masked
+        // template ParticleRibbon.GBuffer and ParticleRibbon.ShadowDepth.
         ParticleRibbon = 5,
     };
 
     inline constexpr uint32_t kMeshVertexPathCount = 6;
 
-    // The particle paths: cells only on a template declaring the path's Usage, drawn by ParticleRenderer alone - one
-    // Forward cell each (the particle pass, or the forward base pass when opaque), and an opaque / masked template's
-    // G-buffer and shadow-depth cells on every particle path; no glass cell.
+    // The particle paths: cells only on a template declaring the path's Usage, drawn by ParticleRenderer alone -
+    // one Forward cell each (the particle pass, or the forward base pass when opaque), and an opaque / masked
+    // template's G-buffer and shadow-depth cells on every particle path; no glass cell.
     [[nodiscard]] constexpr bool IsParticlePath( const MeshVertexPath path )
     {
         return path == MeshVertexPath::ParticleSprite || path == MeshVertexPath::ParticleMesh ||

@@ -112,8 +112,8 @@ namespace Desert::Graphic::System
             return ( uint64_t{ emitter } << 32u ) | row;
         }
 
-        // A cell's Materials rows of this frame, into its storage block (nothing to write for a cell without rows or,
-        // an opaque shadow-depth cell, without the block).
+        // A cell's Materials rows of this frame, into its storage block (nothing to write for a cell without rows
+        // or, an opaque shadow-depth cell, without the block).
         void UploadRows( DataDrivenMaterial& material, const std::vector<glm::vec4>& rows )
         {
             if ( rows.empty() )
@@ -139,12 +139,12 @@ namespace Desert::Graphic::System
         for ( const VFXRendererKind kind :
               { VFXRendererKind::Sprite, VFXRendererKind::Ribbon, VFXRendererKind::Mesh } )
         {
-            const auto cell =
-                 TemplateCellShader( DefaultTemplateOf( kind ), PathOf( kind ), MeshPass::Forward, IsRegisteredShader );
+            const auto cell = TemplateCellShader( DefaultTemplateOf( kind ), PathOf( kind ), MeshPass::Forward,
+                                                  IsRegisteredShader );
             if ( !cell )
                 return Common::MakeFormattedError<bool>(
-                     "ParticleRenderer: the {} template has no registered {}.Forward cell", DefaultTemplateOf( kind ),
-                     MeshVertexPathName( PathOf( kind ) ) );
+                     "ParticleRenderer: the {} template has no registered {}.Forward cell",
+                     DefaultTemplateOf( kind ), MeshVertexPathName( PathOf( kind ) ) );
             m_DefaultCells[static_cast<std::size_t>( kind )] = *cell;
         }
         return BOOLSUCCESS;
@@ -159,10 +159,10 @@ namespace Desert::Graphic::System
         // The compute programs of the simulation every emitter shares (Compact, Dispatch Args) and the per-view
         // translucent sort.
         // Spawn+Update is the emitter's own stack host program (ParticleWorldGpu::ProgramFor).
-        for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
-                                           std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
-                                           std::pair{ "ParticleSort", &m_SortPipeline },
-                                           std::pair{ "ParticleMeshDrawArgs", &m_MeshArgsPipeline } } )
+        for ( const auto& [name, into] :
+              { std::pair{ "ParticleCompact", &m_CompactPipeline },
+                std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline }, std::pair{ "ParticleSort", &m_SortPipeline },
+                std::pair{ "ParticleMeshDrawArgs", &m_MeshArgsPipeline } } )
         {
             auto shader = shaderService->GetByName( name );
             if ( !shader )
@@ -240,8 +240,9 @@ namespace Desert::Graphic::System
                 draw.Instance      = draw.Cell != nullptr ? material.Instance.get() : nullptr;
                 if ( renderer.Kind == VFXRendererKind::Mesh && meshes != nullptr )
                 {
-                    // Streamed (MeshService::Get is null until resident): the row draws from the frame its mesh is.
-                    // A mesh that never will be (its read or build failed, or no such mesh) is said once by name.
+                    // Streamed (MeshService::Get is null until resident): the row draws from the frame its mesh
+                    // is. A mesh that never will be (its read or build failed, or no such mesh) is said once by
+                    // name.
                     draw.StaticMesh = meshes->Get( renderer.Mesh );
                     if ( draw.StaticMesh == nullptr )
                     {
@@ -249,13 +250,14 @@ namespace Desert::Graphic::System
                         if ( residency != Runtime::MeshService::Residency::Pending &&
                              m_MissingMeshes.emplace( static_cast<uint64_t>( renderer.Mesh ), true ).second )
                         {
-                            LOG_ERROR( "[Particles] emitter {} renderer row {} (Mesh) draws nothing: its mesh '{}' ({}) "
-                                       "{}",
-                                       fe.EntityId, renderer.Row, renderer.MeshPath,
-                                       static_cast<uint64_t>( renderer.Mesh ),
-                                       residency == Runtime::MeshService::Residency::Failed
-                                            ? "failed to load (MeshService said why above)"
-                                            : "is no mesh the content registry knows" );
+                            LOG_ERROR(
+                                 "[Particles] emitter {} renderer row {} (Mesh) draws nothing: its mesh '{}' ({}) "
+                                 "{}",
+                                 fe.EntityId, renderer.Row, renderer.MeshPath,
+                                 static_cast<uint64_t>( renderer.Mesh ),
+                                 residency == Runtime::MeshService::Residency::Failed
+                                      ? "failed to load (MeshService said why above)"
+                                      : "is no mesh the content registry knows" );
                         }
                     }
                     if ( draw.StaticMesh != nullptr )
@@ -529,9 +531,10 @@ namespace Desert::Graphic::System
                       Renderer::ImportBuffer( gpu.RendererParams[draw.RendererIndex], draw.RendererParamsImport );
                  !imported )
             {
-                LOG_ERROR( "[Particles] emitter {} renderer row {} is not drawn this frame, its settings are not in "
-                           "the frame graph: {}",
-                           draw.Emitter, draw.Renderer->Row, imported.GetError() );
+                LOG_ERROR(
+                     "[Particles] emitter {} renderer row {} is not drawn this frame, its settings are not in "
+                     "the frame graph: {}",
+                     draw.Emitter, draw.Renderer->Row, imported.GetError() );
                 continue;
             }
             draw.RendererParamsRef =
@@ -560,8 +563,9 @@ namespace Desert::Graphic::System
         {
             if ( !IsDrawable( draw ) )
                 continue;
-            // A ribbon's order is the view's nodes' and the light views' alike (RibbonID, then age): planned when the
-            // view sees the emitter or the row casts (an opaque ribbon); the back-to-front order is the view's alone.
+            // A ribbon's order is the view's nodes' and the light views' alike (RibbonID, then age): planned when
+            // the view sees the emitter or the row casts (an opaque ribbon); the back-to-front order is the view's
+            // alone.
             const bool inView = m_ViewEmitters[draw.Emitter].InView;
             if ( draw.Renderer->Kind == VFXRendererKind::Ribbon )
             {
@@ -604,11 +608,12 @@ namespace Desert::Graphic::System
         const glm::vec4        forward( sortView.Forward, 0.0f );
         for ( const ParticleSortRange& range : plan.Ranges )
         {
-            ViewEmitter& ve       = m_ViewEmitters[range.Emitter];
-            const bool   ribbons  = range.Kind == ParticleSortKind::Ribbon;
+            ViewEmitter& ve                               = m_ViewEmitters[range.Emitter];
+            const bool   ribbons                          = range.Kind == ParticleSortKind::Ribbon;
             ( ribbons ? ve.RibbonSorted : ve.ViewSorted ) = true;
-            const ParticleSortBuffers buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
-                                               ve.CountersRef, m_SortKeysRef,    ribbons ? m_RibbonOrderRef : m_SortedRef,
+            const ParticleSortBuffers            buffers{ ve.FloatsRef,    ve.DrawLayoutRef,
+                                               m_Pool.AliveRef, ve.CountersRef,
+                                               m_SortKeysRef,   ribbons ? m_RibbonOrderRef : m_SortedRef,
                                                ve.IntsRef };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
@@ -617,7 +622,7 @@ namespace Desert::Graphic::System
                 const ParticleSortPush  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J,
-                                 static_cast<uint32_t>( range.Kind ) ),
+                                  static_cast<uint32_t>( range.Kind ) ),
                      origin, forward };
                 graph.AddPass(
                      ParticleSortPassName( range.Emitter, s, range.Kind ), RDG::PassFlags::Compute,
@@ -660,8 +665,8 @@ namespace Desert::Graphic::System
             const ViewDraw& draw = m_ViewDraws[d];
             if ( draw.Renderer->Kind != VFXRendererKind::Mesh || !IsDrawable( draw ) )
                 continue;
-            const ViewEmitter&              ve   = m_ViewEmitters[draw.Emitter];
-            const uint32_t                  slot = ve.Frame->StepCount & 1u;
+            const ViewEmitter&                ve   = m_ViewEmitters[draw.Emitter];
+            const uint32_t                    slot = ve.Frame->StepCount & 1u;
             std::vector<ParticleMeshArgsPush> pushes;
             for ( uint32_t s = 0; s < static_cast<uint32_t>( draw.Sections.size() ); ++s )
             {
@@ -687,8 +692,8 @@ namespace Desert::Graphic::System
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                          bindings.PushConstants( &push, sizeof( push ) );
-                         if ( auto ran =
-                                   Renderer::GetInstance().DispatchCompute( bindings, *m_MeshArgsPipeline, 1, 1, 1 );
+                         if ( auto ran = Renderer::GetInstance().DispatchCompute( bindings, *m_MeshArgsPipeline, 1,
+                                                                                  1, 1 );
                               !ran )
                              return ran;
                      }
@@ -747,7 +752,8 @@ namespace Desert::Graphic::System
     {
         if ( draw.ShadowShader.empty() || draw.Cell == nullptr )
             return false;
-        return draw.Renderer->Kind != VFXRendererKind::Mesh || ( draw.StaticMesh != nullptr && !draw.Sections.empty() );
+        return draw.Renderer->Kind != VFXRendererKind::Mesh ||
+               ( draw.StaticMesh != nullptr && !draw.Sections.empty() );
     }
 
     bool ParticleRenderer::InFrustum( const ViewDraw& draw, const Core::Frustum& frustum ) const
@@ -757,10 +763,10 @@ namespace Desert::Graphic::System
 
     LocalShadowReach ParticleRenderer::LocalShadowReachOf( const glm::vec3& centre, const float radius ) const
     {
-        // Asked after PrepareFrame, before the graph imports anything. A GPU emitter's fixed bounds are all the CPU
-        // knows of where its particles are (UE culls a GPU emitter's shadow by them): a light whose sphere reaches the
-        // bounds of an emitter with a casting row casts it, and redraws every frame - the particles move. A light no
-        // such emitter reaches keeps its cached views.
+        // Asked after PrepareFrame, before the graph imports anything. A GPU emitter's fixed bounds are all the
+        // CPU knows of where its particles are (UE culls a GPU emitter's shadow by them): a light whose sphere
+        // reaches the bounds of an emitter with a casting row casts it, and redraws every frame - the particles
+        // move. A light no such emitter reaches keeps its cached views.
         LocalShadowReach reach;
         for ( const ViewDraw& draw : m_ViewDraws )
         {
@@ -785,30 +791,32 @@ namespace Desert::Graphic::System
         draw.BaseCell    = nullptr;
         draw.RSMCell     = nullptr;
         draw.ShadowShader.clear();
-        if ( draw.Cell == nullptr || Core::Formats::IsTranslucentBlend( draw.Cell->Blend ) || m_SceneRenderer == nullptr )
+        if ( draw.Cell == nullptr || Core::Formats::IsTranslucentBlend( draw.Cell->Blend ) ||
+             m_SceneRenderer == nullptr )
             return;
-        // Opaque or masked, whatever the kind: a base pass and shadow draw, never the particle pass's (its Forward cell
-        // is the lit one, DShaderParser kSurfaceParticleOpaquePasses; UE draws an opaque sprite, ribbon or mesh
-        // particle in the base pass and the shadow depths alike). Whatever is refused below leaves the row undrawn,
-        // said.
+        // Opaque or masked, whatever the kind: a base pass and shadow draw, never the particle pass's (its Forward
+        // cell is the lit one, DShaderParser kSurfaceParticleOpaquePasses; UE draws an opaque sprite, ribbon or
+        // mesh particle in the base pass and the shadow depths alike). Whatever is refused below leaves the row
+        // undrawn, said.
         draw.Opaque               = true;
         const MeshVertexPath path = PathOf( draw.Renderer->Kind );
-        const bool deferred =
+        const bool           deferred =
              m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
         // The same template as the row's Forward cell, another cell of it (MeshShaderFor's rule).
         const std::string_view forward      = draw.Cell->Shader;
         const std::string_view templateName = forward.substr( 0, forward.rfind( '/' ) );
-        const auto shadow = TemplateCellShader( templateName, path, MeshPass::ShadowDepth, IsRegisteredShader );
-        const auto gbuffer =
-             deferred ? TemplateCellShader( templateName, path, MeshPass::GBuffer, IsRegisteredShader )
-                      : std::optional<std::string>{};
+        const auto shadow  = TemplateCellShader( templateName, path, MeshPass::ShadowDepth, IsRegisteredShader );
+        const auto gbuffer = deferred
+                                  ? TemplateCellShader( templateName, path, MeshPass::GBuffer, IsRegisteredShader )
+                                  : std::optional<std::string>{};
         if ( !shadow || ( deferred && !gbuffer ) )
         {
             const MeshPass missing = shadow ? MeshPass::GBuffer : MeshPass::ShadowDepth;
             if ( m_RefusedOpaque.emplace( std::string( templateName ), true ).second )
             {
-                LOG_ERROR( "[Particles] the opaque particle template '{}' has no {} cell: its {} rows are not drawn",
-                           templateName, MeshCellFor( path, missing ), MeshVertexPathName( path ) );
+                LOG_ERROR(
+                     "[Particles] the opaque particle template '{}' has no {} cell: its {} rows are not drawn",
+                     templateName, MeshCellFor( path, missing ), MeshVertexPathName( path ) );
             }
             return;
         }
@@ -823,16 +831,18 @@ namespace Desert::Graphic::System
         if ( m_MeshRenderer.expired() )
         {
             if ( m_RefusedOpaque.emplace( std::format( "{}#forward", templateName ), true ).second )
-                LOG_ERROR( "[Particles] the opaque particle rows of template '{}' are not drawn on the forward path: "
-                           "the view has no mesh renderer to light them with",
-                           templateName );
+                LOG_ERROR(
+                     "[Particles] the opaque particle rows of template '{}' are not drawn on the forward path: "
+                     "the view has no mesh renderer to light them with",
+                     templateName );
             return;
         }
         draw.BaseCell = CellDrawFor( draw.Cell->Shader, path, CellNode::Base );
     }
 
     template <typename Declaration>
-    auto ParticleRenderer::DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell ) const
+    auto ParticleRenderer::DeclareDrawBlock( Declaration& declared, const ViewDraw& draw,
+                                             const CellDraw& cell ) const
     {
         const ViewEmitter&    ve     = m_ViewEmitters[draw.Emitter];
         const VFXRendererKind kind   = draw.Renderer->Kind;
@@ -853,13 +863,13 @@ namespace Desert::Graphic::System
 
     RDG::BufferRef ParticleRenderer::ListFor( const ViewDraw& draw, const CellDraw& cell ) const
     {
-        // A blended sprite / mesh row reads its alive half back to front from this view's SortedAlive, a ribbon row
-        // (blended or not) the view's RibbonOrder (AddSortPasses), both at the alive list's offsets; an opaque /
-        // masked sprite or mesh row reads AliveList unsorted.
+        // A blended sprite / mesh row reads its alive half back to front from this view's SortedAlive, a ribbon
+        // row (blended or not) the view's RibbonOrder (AddSortPasses), both at the alive list's offsets; an opaque
+        // / masked sprite or mesh row reads AliveList unsorted.
         if ( draw.Renderer->Kind == VFXRendererKind::Ribbon )
             return m_RibbonOrderRef;
         return m_ViewEmitters[draw.Emitter].ViewSorted && ParticleSpritesSort( cell.Blend ) ? m_SortedRef
-                                                                                           : m_Pool.AliveRef;
+                                                                                            : m_Pool.AliveRef;
     }
 
     Common::BoolResultStr ParticleRenderer::RecordDraw( const RDG::PassBindings& bindings, const ViewDraw& draw,
@@ -868,9 +878,10 @@ namespace Desert::Graphic::System
         if ( draw.Renderer->Kind == VFXRendererKind::Mesh )
             return RecordMeshDraws( bindings, draw, cell );
         // Sprite and ribbon: six vertices per alive particle of alive half StepCount & 1, from the slot the last
-        // compact (index StepCount) filled (the slot's FirstVertex). They face the VIEW's camera in every node, its
-        // camera-to-world in the push block's Transform (Vertex_ParticleSprite.glslh): a light view draws a sprite as
-        // the camera sees it, so its shadow is the silhouette on screen (UE: the shadow's dependent view).
+        // compact (index StepCount) filled (the slot's FirstVertex). They face the VIEW's camera in every node,
+        // its camera-to-world in the push block's Transform (Vertex_ParticleSprite.glslh): a light view draws a
+        // sprite as the camera sees it, so its shadow is the silhouette on screen (UE: the shadow's dependent
+        // view).
         const ViewFrame* view = m_SceneRenderer->GetViewFrame();
         if ( view == nullptr )
             return BOOLSUCCESS; // no view: the Declares declared nothing either
@@ -881,29 +892,29 @@ namespace Desert::Graphic::System
                                                  ve.CountersRef, slot );
     }
 
-    Common::BoolResultStr ParticleRenderer::RecordMeshDraws( const RDG::PassBindings& bindings, const ViewDraw& draw,
-                                                             const CellDraw& cell ) const
+    Common::BoolResultStr ParticleRenderer::RecordMeshDraws( const RDG::PassBindings& bindings,
+                                                             const ViewDraw& draw, const CellDraw& cell ) const
     {
-        // One indexed-indirect draw per section: instances = the alive particles, written by AddMeshDrawArgsPasses;
-        // the section's own transform in the push block.
+        // One indexed-indirect draw per section: instances = the alive particles, written by
+        // AddMeshDrawArgsPasses; the section's own transform in the push block.
         for ( uint32_t s = 0; s < static_cast<uint32_t>( draw.Sections.size() ); ++s )
         {
             cell.Material->SetPushMatrix( draw.Sections[s].Transform );
-            if ( auto drawn = Renderer::DrawMeshIndirect( bindings, *cell.Pipeline,
-                                                          cell.Material->GetMaterialExecutor(), *draw.StaticMesh,
-                                                          m_MeshArgsRef,
-                                                          uint64_t{ draw.ArgsBase + s } * kMeshDrawCommandBytes );
+            if ( auto drawn = Renderer::DrawMeshIndirect(
+                      bindings, *cell.Pipeline, cell.Material->GetMaterialExecutor(), *draw.StaticMesh,
+                      m_MeshArgsRef, uint64_t{ draw.ArgsBase + s } * kMeshDrawCommandBytes );
                  !drawn.IsSuccess() )
                 return drawn;
         }
         return BOOLSUCCESS;
     }
 
-    ParticleRenderer::CellDraw* ParticleRenderer::CellDrawFor( const std::string& cellShader,
+    ParticleRenderer::CellDraw* ParticleRenderer::CellDrawFor( const std::string&   cellShader,
                                                                const MeshVertexPath path, const CellNode node,
                                                                const uint32_t cascade )
     {
-        // The particle pass's state is keyed by the cell alone; a G-buffer / cascade state by node and cascade too.
+        // The particle pass's state is keyed by the cell alone; a G-buffer / cascade state by node and cascade
+        // too.
         std::string key = cellShader;
         if ( node != CellNode::Particles )
             key = std::format( "{}#{}#{}", cellShader, static_cast<uint32_t>( node ), cascade );
@@ -911,12 +922,14 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_Cells[key];
 
-        // The RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation (no shading-word output: the RSM's colour
-        // slot 2 is unused), held by the pipeline; its material is the plain cell's, as MeshRenderer's RSM material.
+        // The RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation (no shading-word output: the RSM's
+        // colour slot 2 is unused), held by the pipeline; its material is the plain cell's, as MeshRenderer's RSM
+        // material.
         auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
-        auto        shader  = node == CellNode::RSM
-                                   ? shaders->AcquireVariant( cellShader, ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } )
-                                   : shaders->GetByName( cellShader );
+        auto        shader =
+             node == CellNode::RSM
+                         ? shaders->AcquireVariant( cellShader, ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } )
+                         : shaders->GetByName( cellShader );
         if ( !shader || m_SceneRenderer == nullptr )
         {
             LOG_ERROR( "[Particles] particle cell '{}' will not draw: {}", cellShader,
@@ -945,8 +958,9 @@ namespace Desert::Graphic::System
         switch ( node )
         {
             case CellNode::Particles:
-                // Depth-TESTED against the scene (read-only attachment, DrawPass), never written by a particle cell;
-                // the cell's template decides over / added / opaque - the one rule the translucent meshes use too.
+                // Depth-TESTED against the scene (read-only attachment, DrawPass), never written by a particle
+                // cell; the cell's template decides over / added / opaque - the one rule the translucent meshes
+                // use too.
                 spec.TargetLayout   = SceneTargetLayout();
                 spec.DepthCompareOp = DepthCompare::CloserOrEqual;
                 spec.CullMode       = CullMode::None;
@@ -955,8 +969,8 @@ namespace Desert::Graphic::System
                 spec.DepthWriteEnabled = false;
                 break;
             case CellNode::GBuffer:
-                // The meshes' G-buffer state (MeshRenderer::SetupGBufferPass): back faces culled unless the template
-                // is two-sided (its cell's Cull), the depth tested and WRITTEN, no blend.
+                // The meshes' G-buffer state (MeshRenderer::SetupGBufferPass): back faces culled unless the
+                // template is two-sided (its cell's Cull), the depth tested and WRITTEN, no blend.
                 spec.TargetLayout = GBufferLayout();
                 spec.CullMode     = CullMode::Back;
                 ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
@@ -970,7 +984,8 @@ namespace Desert::Graphic::System
                 // cascade target's formats.
                 if ( !m_CascadeFramebuffer )
                 {
-                    LOG_ERROR( "[Particles] particle cell '{}' will not cast: no cascade target was set", cellShader );
+                    LOG_ERROR( "[Particles] particle cell '{}' will not cast: no cascade target was set",
+                               cellShader );
                     return nullptr;
                 }
                 spec.Framebuffer       = m_CascadeFramebuffer;
@@ -980,8 +995,9 @@ namespace Desert::Graphic::System
                 spec.BlendEnable       = false;
                 break;
             case CellNode::Base:
-                // The forward meshes' opaque state (MeshRenderer's static forward pipeline) on the scene target: back
-                // faces culled unless the template is two-sided, the depth tested and WRITTEN, velocity at slot 1.
+                // The forward meshes' opaque state (MeshRenderer's static forward pipeline) on the scene target:
+                // back faces culled unless the template is two-sided, the depth tested and WRITTEN, velocity at
+                // slot 1.
                 spec.TargetLayout = SceneTargetLayout();
                 spec.CullMode     = CullMode::Back;
                 ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
@@ -991,8 +1007,8 @@ namespace Desert::Graphic::System
                 spec.BlendEnable       = false;
                 break;
             case CellNode::RSM:
-                // MeshRenderer's RSM pipeline: the G-buffer state against the RSM's own colour slots (slot 2 unused)
-                // and depth, STANDARD-Z (drawn through the sun's cascade matrix, cleared to 1).
+                // MeshRenderer's RSM pipeline: the G-buffer state against the RSM's own colour slots (slot 2
+                // unused) and depth, STANDARD-Z (drawn through the sun's cascade matrix, cleared to 1).
                 spec.TargetLayout = RenderTargetLayout{
                      .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>(
                           ViewTargetFormats::kRSMColourSlots.begin(), ViewTargetFormats::kRSMColourSlots.end() ),
@@ -1044,13 +1060,12 @@ namespace Desert::Graphic::System
             }
             if ( !material.HasRefused || material.Refused != handle )
             {
-                LOG_ERROR( "[Particles] emitter {} renderer row {} ({}) draws with {}: its material {} {}", entityId,
-                           renderer.Row, MeshVertexPathName( path ), DefaultTemplateOf( renderer.Kind ),
+                LOG_ERROR( "[Particles] emitter {} renderer row {} ({}) draws with {}: its material {} {}",
+                           entityId, renderer.Row, MeshVertexPathName( path ), DefaultTemplateOf( renderer.Kind ),
                            static_cast<uint64_t>( handle ),
-                           cell == nullptr
-                                ? std::format( "is missing or its template has no `Usage {}` cell",
-                                               UsageOf( renderer.Kind ) )
-                                : std::string( "has a cell that cannot draw (logged above)" ) );
+                           cell == nullptr ? std::format( "is missing or its template has no `Usage {}` cell",
+                                                          UsageOf( renderer.Kind ) )
+                                           : std::string( "has a cell that cannot draw (logged above)" ) );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }
@@ -1191,7 +1206,7 @@ namespace Desert::Graphic::System
                     cells.push_back( cell );
                 }
                 MaterialInstance* instance = draw.Instance != nullptr ? draw.Instance : cell->Instance.get();
-                draw.GBufferRow = MeshRendererDetail::AppendRow(
+                draw.GBufferRow            = MeshRendererDetail::AppendRow(
                      cell->Rows, MeshRendererDetail::EffectiveRow( cell->Material.get(), instance ) );
             }
             for ( CellDraw* cell : cells )
@@ -1247,8 +1262,8 @@ namespace Desert::Graphic::System
             const auto       mesh = m_MeshRenderer.lock();
             if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr || !mesh )
                 return;
-            // Per lit cell, BEFORE its blocks: this frame's rows of the rows drawn through it, and the frame state a
-            // forward mesh cell is lit with - camera, lights, cascades, environment, cloud shadow, motion rows -
+            // Per lit cell, BEFORE its blocks: this frame's rows of the rows drawn through it, and the frame state
+            // a forward mesh cell is lit with - camera, lights, cascades, environment, cloud shadow, motion rows -
             // from the one snapshot the mesh renderer's own forward draws take (SceneFrameBinding).
             std::vector<CellDraw*> cells;
             for ( ViewDraw& draw : m_ViewDraws )
@@ -1298,9 +1313,10 @@ namespace Desert::Graphic::System
         const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
         if ( !mesh || view == nullptr || !m_Pool.Declared )
             return;
-        // Per RSM cell, BEFORE its blocks: the rows of the rows drawn through it (their albedo IS the bounce's flux
-        // colour) and the sun's camera - the matrix the mesh renderer's RSM draws project with, as a still view.
-        // The sun's view culls by its own frustum, not the camera's: an emitter off screen still bounces light.
+        // Per RSM cell, BEFORE its blocks: the rows of the rows drawn through it (their albedo IS the bounce's
+        // flux colour) and the sun's camera - the matrix the mesh renderer's RSM draws project with, as a still
+        // view. The sun's view culls by its own frustum, not the camera's: an emitter off screen still bounces
+        // light.
         const Core::Frustum    sunFrustum( mesh->GetRSMViewProj(), glm::mat4( 1.0f ) );
         std::vector<CellDraw*> cells;
         for ( ViewDraw& draw : m_ViewDraws )
@@ -1362,8 +1378,8 @@ namespace Desert::Graphic::System
         const auto mesh = m_MeshRenderer.lock();
         if ( !m_CascadeFramebuffer || !m_Pool.Declared || !mesh )
             return 0;
-        // The view's casters' frustum (the mesh casters' cull): a row whose emitter's bounds it does not hold casts
-        // nothing there. RecordShadowCascade walks the rows by the same test.
+        // The view's casters' frustum (the mesh casters' cull): a row whose emitter's bounds it does not hold
+        // casts nothing there. RecordShadowCascade walks the rows by the same test.
         const Core::Frustum casterFrustum( mesh->GetShadowCasterViewProj( cascade ), glm::mat4( 1.0f ) );
         // Per shadow cell of this cascade, BEFORE its blocks: the rows of the rows cast through it (a masked cell
         // clips by them; an opaque one has no Materials block). Its camera block is the cascade's light, written
@@ -1415,10 +1431,10 @@ namespace Desert::Graphic::System
         if ( !m_CascadeFramebuffer || !m_Pool.Declared || !mesh )
             return BOOLSUCCESS;
         const Core::Frustum casterFrustum( mesh->GetShadowCasterViewProj( cascade ), glm::mat4( 1.0f ) );
-        // The frame's clock, as the mesh casters' (WriteLightCamera): a masked mask reading Time clips its shadow at
-        // the instant it clips itself.
-        const ViewFrame* view  = m_SceneRenderer->GetViewFrame();
-        const double     clock = view != nullptr ? view->TimeSeconds : 0.0;
+        // The frame's clock, as the mesh casters' (WriteLightCamera): a masked mask reading Time clips its shadow
+        // at the instant it clips itself.
+        const ViewFrame*             view  = m_SceneRenderer->GetViewFrame();
+        const double                 clock = view != nullptr ? view->TimeSeconds : 0.0;
         std::vector<const CellDraw*> lit;
         uint32_t                     block = firstBlock;
         for ( const ViewDraw& draw : m_ViewDraws )

@@ -728,9 +728,10 @@ TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams 
         if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
             continue;
         ++vertexHeaders;
-        // The sprite and ribbon paths (MeshVertexPath::ParticleSprite / ParticleRibbon) bind NO vertex buffer: they
-        // pull each corner from the emitter's columns through the alive list / ribbon order, so they have no vertex
-        // streams to declare. Counted, not checked. (ParticleMesh reads its static mesh's streams: checked.)
+        // The sprite and ribbon paths (MeshVertexPath::ParticleSprite / ParticleRibbon) bind NO vertex buffer:
+        // they pull each corner from the emitter's columns through the alive list / ribbon order, so they have no
+        // vertex streams to declare. Counted, not checked. (ParticleMesh reads its static mesh's streams:
+        // checked.)
         if ( file.filename() == "Vertex_ParticleSprite.glslh" || file.filename() == "Vertex_ParticleRibbon.glslh" )
             continue;
         const std::string source = ReadFile( file );

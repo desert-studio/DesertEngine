@@ -44,14 +44,19 @@ namespace Desert::Graphic::System
             uint32_t          Lane;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
-             { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
-             { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
-             { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "Position", VFX::VFXValueType::Vec3, 0 },
+             { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
+             { "Color", VFX::VFXValueType::Vec4, 2 },
+             { "SpriteRotation", VFX::VFXValueType::Float, 3 },
+             { "Age", VFX::VFXValueType::Float, 4 },
+             { "Lifetime", VFX::VFXValueType::Float, 5 },
              // The mesh renderer (UE UNiagaraMeshRendererProperties' Velocity / Scale / MeshOrientation bindings).
-             { "Velocity", VFX::VFXValueType::Vec3, 8 },  { "Scale", VFX::VFXValueType::Vec3, 9 },
+             { "Velocity", VFX::VFXValueType::Vec3, 8 },
+             { "Scale", VFX::VFXValueType::Vec3, 9 },
              { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
              // The ribbon renderer (UE UNiagaraRibbonRendererProperties' RibbonWidth / RibbonID / RibbonFacing).
-             { "RibbonWidth", VFX::VFXValueType::Float, 11 }, { "RibbonID", VFX::VFXValueType::Int, 12 },
+             { "RibbonWidth", VFX::VFXValueType::Float, 11 },
+             { "RibbonID", VFX::VFXValueType::Int, 12 },
              { "RibbonFacing", VFX::VFXValueType::Vec3, 13 },
         };
 
@@ -187,8 +192,8 @@ namespace Desert::Graphic::System
                 drawn.RibbonUVTiling = r.Ribbon->UVTiling;
             }
             gpu.Renderers.push_back( drawn );
-            gpu.RendererParams.push_back(
-                 ShaderResources::StorageBuffer::Create( "ParticleRendererParams", kParticleRendererParamsSize, 14 ) );
+            gpu.RendererParams.push_back( ShaderResources::StorageBuffer::Create(
+                 "ParticleRendererParams", kParticleRendererParamsSize, 14 ) );
         }
 
         const auto& emitter = system.Emitters[index];
@@ -439,10 +444,11 @@ namespace Desert::Graphic::System
         // emitter position a Local emitter's particles are drawn around (the one the simulation placed them by).
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         // w = the slot the last compact (index StepCount) fills: the ribbon draw reads its alive count from it.
-        layout.Range = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
+        layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
-        // Where the emitter stood at the tick before (a Local emitter's particles' previous world position is taken
-        // around it); a fresh or restarted emitter has no previous tick: its particles are all born this one.
+        // Where the emitter stood at the tick before (a Local emitter's particles' previous world position is
+        // taken around it); a fresh or restarted emitter has no previous tick: its particles are all born this
+        // one.
         const bool hasPrevious = gpu.HasDrawnPos && !gpu.NeedsReset;
         layout.PrevEmitterPos  = glm::vec4( hasPrevious ? gpu.DrawnEmitterPos : worldPos, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
@@ -456,19 +462,19 @@ namespace Desert::Graphic::System
 
         for ( std::size_t r = 0; r < gpu.Renderers.size(); ++r )
         {
-            const ParticleRendererGpu& row    = gpu.Renderers[r];
-            const uint32_t             facing = row.Kind == Assets::Serialization::VFXRendererKind::Mesh
-                                                     ? static_cast<uint32_t>( row.MeshFacing )
-                                                     : static_cast<uint32_t>( row.RibbonFacing );
-            const ParticleRendererParamsGpu params{ glm::uvec4( facing, 0u, 0u, 0u ),
-                                                    glm::vec4( row.RibbonUVTiling,
-                                                               static_cast<float>( stepCount ) * stepSeconds, 0.0f,
-                                                               0.0f ) };
+            const ParticleRendererGpu&      row    = gpu.Renderers[r];
+            const uint32_t                  facing = row.Kind == Assets::Serialization::VFXRendererKind::Mesh
+                                                          ? static_cast<uint32_t>( row.MeshFacing )
+                                                          : static_cast<uint32_t>( row.RibbonFacing );
+            const ParticleRendererParamsGpu params{
+                 glm::uvec4( facing, 0u, 0u, 0u ),
+                 glm::vec4( row.RibbonUVTiling, static_cast<float>( stepCount ) * stepSeconds, 0.0f, 0.0f ) };
             if ( const auto set = gpu.RendererParams[r]->SetData( &params, kParticleRendererParamsSize );
                  !set.IsSuccess() )
             {
-                LOG_ERROR( "[Particles] emitter {} sits out this tick, renderer row {}'s settings did not upload: {}",
-                           entityId, row.Row, set.GetError() );
+                LOG_ERROR(
+                     "[Particles] emitter {} sits out this tick, renderer row {}'s settings did not upload: {}",
+                     entityId, row.Row, set.GetError() );
                 return false;
             }
         }
@@ -480,7 +486,7 @@ namespace Desert::Graphic::System
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         // The placement is the position alone (the simulation reads no rotation or scale), so the box translates.
-        fe.WorldBounds = Common::Math::AABB{ gpu.LocalBounds.Min + worldPos, gpu.LocalBounds.Max + worldPos };
+        fe.WorldBounds     = Common::Math::AABB{ gpu.LocalBounds.Min + worldPos, gpu.LocalBounds.Max + worldPos };
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
         m_FrameEmitters.push_back( fe );

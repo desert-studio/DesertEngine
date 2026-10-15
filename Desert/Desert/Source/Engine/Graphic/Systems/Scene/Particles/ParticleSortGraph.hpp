@@ -43,8 +43,9 @@ namespace Desert::Graphic::System
         Ribbon = 1,
     };
 
-    // One emitter as the sort sees it: its index in the view's emitter list, its cell's blend mode (read for a View
-    // sort), its range's capacity (MaxParticles), where its drawn alive half and draw slot are, and the order.
+    // One emitter as the sort sees it: its index in the view's emitter list, its cell's blend mode (read for a
+    // View sort), its range's capacity (MaxParticles), where its drawn alive half and draw slot are, and the
+    // order.
     struct ParticleSortEmitter
     {
         std::uint32_t                   Emitter     = 0;
@@ -63,7 +64,7 @@ namespace Desert::Graphic::System
         std::uint32_t Slot        = 0;
         std::uint32_t KeyBase     = 0;
         std::uint32_t Length      = 0; // ParticleSortLength( Capacity ): the bitonic network's N
-        ParticleSortKind Kind     = ParticleSortKind::View;
+        ParticleSortKind Kind        = ParticleSortKind::View;
     };
 
     struct ParticleSortPlan
@@ -105,7 +106,8 @@ namespace Desert::Graphic::System
         RDG::BufferRef Counters; // the emitter's draw slots
         RDG::BufferRef Keys;
         RDG::BufferRef Sorted; // SortedAlive for a View sort, RibbonOrder for a Ribbon sort
-        RDG::BufferRef Ints;   // the emitter's int columns (RibbonID); bound wherever the stage's layout has the slot
+        RDG::BufferRef
+             Ints; // the emitter's int columns (RibbonID); bound wherever the stage's layout has the slot
     };
 
     // The view's transient sort buffers: SortKeys (one uvec2 per key of every sorted emitter) and SortedAlive
@@ -139,8 +141,7 @@ namespace Desert::Graphic::System
         auto       block        = pass.Bindings( layout, std::move( fill ) );
         if ( buffers.Ints.IsValid() )
             block.Storage( "AttributeInts", buffers.Ints, RDG::Access::StorageRead );
-        block
-             .Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
+        block.Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
              .Storage( "DrawLayout", buffers.DrawLayout, RDG::Access::StorageRead )
              .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
              .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )

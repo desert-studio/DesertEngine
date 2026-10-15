@@ -686,7 +686,8 @@ namespace Desert::Graphic::API::Vulkan
                                                context.GetPassName(), offset );
         if ( !mesh.GetVertexBuffer() || !mesh.GetIndexBuffer() )
             return Common::MakeFormattedError( "{}: an indirect mesh draw of a mesh without {} buffer",
-                                               context.GetPassName(), !mesh.GetVertexBuffer() ? "a vertex" : "an index" );
+                                               context.GetPassName(),
+                                               !mesh.GetVertexBuffer() ? "a vertex" : "an index" );
         const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
         if ( !declared )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
@@ -711,15 +712,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( const auto& layout = pipeline.GetSpecification().Layout;
              graphics->HasVertexStreams() && layout.has_value() )
         {
-            const auto& own     = mesh.GetStreamBuffer();
-            VkBuffer    sbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>(
-                                    own != nullptr
-                                         ? own
-                                         : DefaultVertexStreams(
-                                                DefaultVertexStreamsFor( *layout, mesh.GetVertexBuffer()->GetSize(),
-                                                                         m_DefaultVertexStreamsCapacity )
-                                                     .Capacity ) )
-                                    ->GetVulkanBuffer();
+            const auto& own = mesh.GetStreamBuffer();
+            VkBuffer    sbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>(
+                      own != nullptr ? own
+                                     : DefaultVertexStreams(
+                                            DefaultVertexStreamsFor( *layout, mesh.GetVertexBuffer()->GetSize(),
+                                                                     m_DefaultVertexStreamsCapacity )
+                                                 .Capacity ) )
+                      ->GetVulkanBuffer();
             vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
         }
         VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( mesh.GetIndexBuffer() )->GetVulkanBuffer();

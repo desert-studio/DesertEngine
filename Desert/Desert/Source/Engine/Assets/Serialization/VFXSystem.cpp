@@ -169,9 +169,10 @@ namespace Desert::Assets::Serialization
         {
             const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
             if ( !guid || guid.GetValue().IsNull() )
-                return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names {} '{}', not a well-formed "
-                                                         "GUID",
-                                                         e.Name, i, member, ref.Guid );
+                return Common::MakeFormattedError<bool>(
+                     "emitter '{}' renderer {} names {} '{}', not a well-formed "
+                     "GUID",
+                     e.Name, i, member, ref.Guid );
             if ( ref.Path.empty() )
                 return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names {} {} without a Path",
                                                          e.Name, i, member, ref.Guid );
@@ -189,9 +190,9 @@ namespace Desert::Assets::Serialization
                 const bool             mesh   = r.Kind == VFXRendererKind::Mesh;
                 const bool             ribbon = r.Kind == VFXRendererKind::Ribbon;
                 if ( r.Mesh.has_value() != mesh || r.Ribbon.has_value() != ribbon )
-                    return Common::MakeFormattedError<bool>(
-                         "emitter '{}' renderer {}: exactly the member its Kind names must be present (Mesh/Ribbon)",
-                         e.Name, i );
+                    return Common::MakeFormattedError<bool>( "emitter '{}' renderer {}: exactly the member its "
+                                                             "Kind names must be present (Mesh/Ribbon)",
+                                                             e.Name, i );
                 if ( r.Material )
                     if ( auto ok = CheckGuidRef( *r.Material, e, i, "Material" ); !ok )
                         return ok;
@@ -298,8 +299,9 @@ namespace Desert::Assets::Serialization
             if ( !Finite( e.Bounds.Min ) || !Finite( e.Bounds.Max ) || e.Bounds.Min.x > e.Bounds.Max.x ||
                  e.Bounds.Min.y > e.Bounds.Max.y || e.Bounds.Min.z > e.Bounds.Max.z )
                 return Common::MakeFormattedError<bool>(
-                     "emitter '{}' Bounds are not a finite box with Min <= Max (Min {} {} {}, Max {} {} {})", e.Name,
-                     e.Bounds.Min.x, e.Bounds.Min.y, e.Bounds.Min.z, e.Bounds.Max.x, e.Bounds.Max.y, e.Bounds.Max.z );
+                     "emitter '{}' Bounds are not a finite box with Min <= Max (Min {} {} {}, Max {} {} {})",
+                     e.Name, e.Bounds.Min.x, e.Bounds.Min.y, e.Bounds.Min.z, e.Bounds.Max.x, e.Bounds.Max.y,
+                     e.Bounds.Max.z );
             const VFXEmitterLifecycle& l = e.Lifecycle;
             if ( !std::isfinite( l.Delay ) || l.Delay < 0.0f || !std::isfinite( l.LoopDuration ) ||
                  l.LoopDuration <= 0.0f )
@@ -376,11 +378,11 @@ namespace Desert::Assets::Serialization
         // The header's edges are the materials and meshes the renderer rows name, no more and no fewer.
         if ( const std::vector<std::string> named = VFXSystemDependencies( data );
              data.Header && data.Header->Dependencies != named )
-            return Common::MakeFormattedError<VFXSystemData>(
-                 "the header states {} Dependencies, the renderer rows name {} material(s) and mesh(es); they must "
-                 "be the same "
-                 "sorted GUIDs",
-                 data.Header->Dependencies.size(), named.size() );
+            return Common::MakeFormattedError<VFXSystemData>( "the header states {} Dependencies, the renderer "
+                                                              "rows name {} material(s) and mesh(es); they must "
+                                                              "be the same "
+                                                              "sorted GUIDs",
+                                                              data.Header->Dependencies.size(), named.size() );
         return Common::MakeSuccess( std::move( data ) );
     }
 

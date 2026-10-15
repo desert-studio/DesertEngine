@@ -951,8 +951,8 @@ namespace Desert::Editor::ShaderGraph
                 // UE's "material must be used with particles": only a particle path's cells fill
                 // SurfaceInput.Particle, so in a material with no particle usage the node would read the mesh
                 // cells' neutral constants — a node that silently does nothing. Refused by name instead.
-                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites && !doc.UsedWithParticleMeshes &&
-                     !doc.UsedWithParticleRibbons )
+                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites &&
+                     !doc.UsedWithParticleMeshes && !doc.UsedWithParticleRibbons )
                     return std::format( "node {} reads the particle inputs, but material '{}' is used with no "
                                         "particle sprites, meshes or ribbons: tick 'Used with Particle Sprites', "
                                         "'Used with Mesh Particles' or 'Used with Ribbon Particles' or remove the "

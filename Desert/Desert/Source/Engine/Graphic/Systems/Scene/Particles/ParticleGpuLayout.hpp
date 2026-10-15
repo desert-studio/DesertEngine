@@ -23,14 +23,13 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleSlotStride = 8;
 
     // The size of an emitter's draw layout (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`, the
-    // C++ ParticleDrawLayoutGpu): seven 16-byte members - range, four rows of attribute columns, emitter position now
-    // and at the previous tick.
-    // VFX-RENDER: + Columns2 / Columns3 (the mesh and ribbon renderers' attributes), 64 -> 96; + PrevEmitterPos (a
-    // Local emitter's previous position, for the mesh path's velocity), 96 -> 112.
+    // C++ ParticleDrawLayoutGpu): seven 16-byte members - range, four rows of attribute columns, emitter position
+    // now and at the previous tick. VFX-RENDER: + Columns2 / Columns3 (the mesh and ribbon renderers' attributes),
+    // 64 -> 96; + PrevEmitterPos (a Local emitter's previous position, for the mesh path's velocity), 96 -> 112.
     constexpr std::uint32_t kParticleDrawLayoutSize = 112;
 
-    // The size of one renderer row's settings (Common/ParticleDrawLayout.glslh `struct ParticleRendererParams`, the
-    // C++ ParticleRendererParamsGpu): Mode (facing) and Values (ribbon UVTiling), two 16-byte members.
+    // The size of one renderer row's settings (Common/ParticleDrawLayout.glslh `struct ParticleRendererParams`,
+    // the C++ ParticleRendererParamsGpu): Mode (facing) and Values (ribbon UVTiling), two 16-byte members.
     constexpr std::uint32_t kParticleRendererParamsSize = 32;
 
     // The x of ParticleSimulate's LocalSize, which is the number the dispatch divides MaxParticles by

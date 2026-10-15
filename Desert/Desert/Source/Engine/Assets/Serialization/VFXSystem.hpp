@@ -252,12 +252,13 @@ namespace Desert::Assets::Serialization
      * @brief An emitter's FIXED bounds, centimetres, in the frame the placing entity puts the system in (UE
      * UNiagaraEmitter::FixedBounds under ENiagaraEmitterCalculateBoundMode::Fixed).
      *
-     * Every emitter of this engine simulates on the GPU, and nothing of a GPU emitter's particles comes back to the
-     * CPU: the box is what the renderer knows of where they are. It culls the emitter's draws against the view, the
-     * shadow views and the RSM, and decides which point / spot lights it casts into (ParticleRenderer). The placement
-     * is the entity's world position (the simulation reads no rotation or scale: ParticleSimPush::EmitterPos), so the
-     * box is drawn translated by it, whether the emitter simulates in Local or World space (UE transforms the fixed
-     * bounds by the component for both). A particle outside its box is culled with it: the box must hold them all.
+     * Every emitter of this engine simulates on the GPU, and nothing of a GPU emitter's particles comes back to
+     * the CPU: the box is what the renderer knows of where they are. It culls the emitter's draws against the
+     * view, the shadow views and the RSM, and decides which point / spot lights it casts into (ParticleRenderer).
+     * The placement is the entity's world position (the simulation reads no rotation or scale:
+     * ParticleSimPush::EmitterPos), so the box is drawn translated by it, whether the emitter simulates in Local
+     * or World space (UE transforms the fixed bounds by the component for both). A particle outside its box is
+     * culled with it: the box must hold them all.
      */
     struct VFXBounds
     {
@@ -347,8 +348,8 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXSystemData& ) const = default;
     };
 
-    /// The GUIDs (AssetGuidToText) of every material and mesh the renderer rows name, sorted and unique: what the header's
-    /// Dependencies state, so a registry walk sees the edges without reading the body.
+    /// The GUIDs (AssetGuidToText) of every material and mesh the renderer rows name, sorted and unique: what the
+    /// header's Dependencies state, so a registry walk sees the edges without reading the body.
     [[nodiscard]] std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data );
 
     /// The runtime handle of a renderer's material (Common::Content::HandleForGuid of its GUID); Null when the row
