@@ -6,7 +6,7 @@
             "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": ["707b4be308bb41c990f65b7b52e1737e"]
+        "Dependencies": ["3f1c9a6e5b2d47e08a41c7d25e9b6f03", "707b4be308bb41c990f65b7b52e1737e"]
     },
     "SceneName": "Particle World-Space Probe",
     "Entities": [
@@ -197,6 +197,18 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
+            }
+        },
+        {
+            "id": 2002,
+            "siblingIndex": 5,
+            "Tag": "RendererRowsDemo",
+            "Translation": [250.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "VFX": {
+                "System": "VFX/RendererRows_Demo.dfx",
+                "AutoActivate": true
             }
         }
     ],
