@@ -874,18 +874,17 @@ namespace Desert::Graphic
         // adapted luminance the tonemap reads - before it subtracts the threshold, so an authored 2.0 means "2.0
         // of the exposed image" under a manual Exposure 0.22 and under eye adaptation alike. (Measured before,
         // Clouds_Demo at Exposure 0.22: an unexposed comparison made ordinary daylight sky a bloom source and
-        // doubled the sun's highlight.)
-        //
-        // The lens flare's bright pass is still compared in the raw image: under a manual exposure the authored
-        // threshold is divided by it here, under auto-exposure it is not (no CPU-side exposure exists). Closing it
-        // is binding the adapted luminance to LensFlareBrightPass as above (REMAINDER POST-LOOK).
-        const float flareExposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
+        // doubled the sun's highlight.) The lens flare's bright pass compares its threshold the same way, over the
+        // same exposure: one exposure source for bloom, flare and tonemap, none of them divided here.
+        const glm::vec4 viewExposure = ViewExposureOf( post );
 
         m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetThreshold( post.BloomThreshold );
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetExposure( ViewExposureOf( post ) );
+             ->SetExposure( viewExposure );
+        UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] )
+             ->SetExposure( viewExposure );
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetMaxMips(
@@ -900,10 +899,9 @@ namespace Desert::Graphic
         // whose sun has left the screen fades through ONE number instead of two that could disagree.
         m_LensFlare.Enabled   = post.EnableLensFlare;
         m_LensFlare.Intensity = post.LensFlareIntensity;
-        // Normalised for the reason given at the bloom threshold above, and by the same number: this pass
-        // thresholds the same raw HDR image, so leaving one of the two in raw radiance would only move the
-        // defect from one bright pass to the other.
-        m_LensFlare.Threshold       = post.LensFlareThreshold / flareExposureNormalisation;
+        // Compared in the exposed image by LensFlareBrightPass, under the bloom's exposure (see the bloom
+        // threshold above): the authored number reaches the shader as it is.
+        m_LensFlare.Threshold       = post.LensFlareThreshold;
         m_LensFlare.GhostCount      = post.LensFlareGhostCount;
         m_LensFlare.GhostSpacing    = post.LensFlareGhostSpacing;
         m_LensFlare.GhostSizeNear   = post.LensFlareGhostSizeNear;

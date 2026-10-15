@@ -80,9 +80,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::optional<RDG::TextureDesc> GetSourceDesc() const;
         [[nodiscard]] std::optional<RDG::TextureDesc> GetFlareDesc() const;
 
-        // Bright pass into @p source @p mip: block 0 of the setup samples @p sceneColor (mip 0, thresholded) or
-        // source mip i-1, and writes source mip i. Record dispatches from that block.
-        void DeclareBrightPassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef source,
+        // Bright pass into @p source @p mip: block 0 of the setup samples @p sceneColor (mip 0, thresholded on the
+        // EXPOSED brightness) or source mip i-1, and writes source mip i. @p adaptedLuminance is the 1x1 image
+        // the tonemap reads its exposure from (SceneRenderer::FrameAdaptedLuminance), declared by every mip
+        // because the shader binds it; only mip 0 reads it. Record dispatches from that block.
+        void DeclareBrightPassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                        RDG::TextureRef adaptedLuminance, RDG::TextureRef source,
                                         uint32_t mip ) const;
         [[nodiscard]] Common::BoolResultStr RecordBrightPass( const RDG::PassContext& context,
                                                               const RDG::TextureDesc& sourceDesc, uint32_t mip );
@@ -97,6 +100,12 @@ namespace Desert::Graphic::System
         void SetParams( const Params& params )
         {
             m_Params = params;
+        }
+        // The view's exposure (Graphic::ViewExposureOf), the tonemap's own, which Params::Threshold is compared
+        // under - the same exposure BloomRenderer::SetExposure gets.
+        void SetExposure( const glm::vec4& exposure )
+        {
+            m_Exposure = exposure;
         }
         const Params& GetParams() const
         {
@@ -127,6 +136,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_BrightPassLayout; // the two shaders' layouts, kept between frames
         mutable ShaderBindingLayoutCache m_FeaturesLayout;
 
-        Params m_Params;
+        Params    m_Params;
+        glm::vec4 m_Exposure = glm::vec4( 1.0f, 0.0f, 1.0f, 0.0f ); // manual exposure 1 until the first frame
     };
 } // namespace Desert::Graphic::System

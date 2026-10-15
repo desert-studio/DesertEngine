@@ -307,7 +307,9 @@ namespace Desert::Migration
     //       and ColorCorrectionShadowsMax / HighlightsMin / HighlightsMax) are new keys with UE's defaults, every
     //       one the identity of the grade, so no stated key changes meaning. BloomThreshold keeps its stated
     //       values and is now UE's: compared with the EXPOSED luminance (auto-exposure included), the bloom
-    //       ramping in over 2 units. Scenes and prefabs alike.
+    //       ramping in over 2 units. LensFlareThreshold likewise keeps its stated values and is compared with the
+    //       EXPOSED brightness under the same exposure (a manual exposure gives the threshold the old renderer
+    //       divided by it; under auto-exposure it no longer means raw radiance). Scenes and prefabs alike.
     inline constexpr int kSceneVersionUEGrade = 62;
 
     static_assert( kSceneVersionUEGrade == kSceneVersion,

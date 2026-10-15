@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 namespace Desert::Graphic::System
 {
@@ -19,10 +20,13 @@ namespace Desert::Graphic::System
         // Push-constant blocks — must match LensFlareBrightPass / LensFlareFeatures exactly.
         struct BrightPassPush
         {
-            int32_t FirstPass;
-            float   Threshold;
-            float   MaxBrightness;
+            int32_t   FirstPass;
+            float     Threshold;
+            float     MaxBrightness;
+            glm::vec4 Exposure;
         };
+        static_assert( offsetof( BrightPassPush, Exposure ) == 16,
+                       "LensFlareBrightPass's u_Exposure is at offset 16" );
 
         struct FeaturesPush
         {
@@ -111,7 +115,8 @@ namespace Desert::Graphic::System
     }
 
     void LensFlareRenderer::DeclareBrightPassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
-                                                       RDG::TextureRef source, uint32_t mip ) const
+                                                       RDG::TextureRef adaptedLuminance, RDG::TextureRef source,
+                                                       uint32_t mip ) const
     {
         if ( !m_BrightPassPipeline )
             return; // RecordBrightPass refuses by name
@@ -127,6 +132,8 @@ namespace Desert::Graphic::System
             block.Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
                            RDG::SamplerDesc::LinearClamp() );
         }
+        block.Sampled( "u_AvgLuminance", adaptedLuminance, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
         block.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( BrightPassPush ) ) );
     }
@@ -139,7 +146,7 @@ namespace Desert::Graphic::System
         // One shader run per mip, exactly as BloomRenderer does it; the threshold applies on the first
         // pass only, so the deeper levels are honest averages of the energy the first level admitted.
         const bool           first = ( mip == 0 );
-        const BrightPassPush brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness };
+        const BrightPassPush brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness, m_Exposure };
         RDG::PassBindings    bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &brightPush, sizeof( brightPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BrightPassPipeline,

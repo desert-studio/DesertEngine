@@ -21,16 +21,24 @@ Shader "LensFlareBrightPass"
         // enough (Core::SceneSettings::LensFlareThreshold) that in a physical sky only the disc survives.
         // No radial window around the sun is applied, deliberately — a second bright source in frame
         // ought to flare too, and the threshold is the honest way to say what counts as bright.
+        //
+        // The threshold is compared in the EXPOSED image, as BloomDownsample's setup compares it: the same 1x1
+        // adapted luminance the tonemap reads, through the same ViewExposureScale, so an authored threshold means
+        // the same under a manual exposure and under eye adaptation (UE's BloomThreshold semantics).
 
         Uniform(0) sampler2D u_Source;
         layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Output;
+        Uniform(2) sampler2D u_AvgLuminance;
 
         PushConstant LensFlareBrightPush
         {
             int   u_FirstPass;     // 1 = u_Source is the HDR scene and the threshold applies
-            float u_Threshold;     // HDR luminance below this contributes nothing
+            float u_Threshold;     // EXPOSED brightness below this contributes nothing (first pass only)
             float u_MaxBrightness; // cap on extracted energy — one blown pixel must not own the flare
+            vec4  u_Exposure;      // Graphic::ViewExposureOf - the tonemap's exposure, from the same settings
         };
+
+        #include <Common/ViewExposure.glslh>
 
         LocalSize(16, 16, 1);
 
@@ -71,8 +79,11 @@ Shader "LensFlareBrightPass"
                 // all three effects agree about what "bright" means. Applied only once: the deeper mips
                 // are averages of already-thresholded energy, and thresholding them again would eat the
                 // soft skirt that makes a magnified ghost read as out of focus rather than as a stamp.
-                float brightness   = max(colour.r, max(colour.g, colour.b));
-                float contribution = max(brightness - u_Threshold, 0.0f) / max(brightness, 1e-4f);
+                // The brightness is the EXPOSED one; the ratio scales the raw colour, so what is kept stays in
+                // scene radiance like the rest of the chain.
+                float exposureScale = ViewExposureScale(u_Exposure, textureLod(u_AvgLuminance, vec2(0.5f, 0.5f), 0.0f).r);
+                float brightness    = max(colour.r, max(colour.g, colour.b)) * exposureScale;
+                float contribution  = max(brightness - u_Threshold, 0.0f) / max(brightness, 1e-4f);
                 colour             = min(colour * contribution, vec3(u_MaxBrightness));
             }
 

@@ -357,13 +357,17 @@ namespace Desert::Graphic
         const RDG::TextureRef image  = graph.CreateTexture( *flareDesc, "LensFlare" );
         graph.SetFaultDefault( image, RDG::FaultDefault::Black ); // a lost flare adds nothing (RDG-FAULT1)
         const glm::vec2       sunUv  = sun.Uv;
+        // The bright pass compares its threshold in the EXPOSED image, as the bloom setup does: the exposure is
+        // the tonemap's, from the same adapted-luminance image.
+        const RDG::TextureRef adapted = FrameAdaptedLuminance( textures );
 
         // Bright pass: scene -> source mip 0 (thresholded), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
         for ( uint32_t mip = 0; mip < sourceDesc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: LensFlareBright{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass ) { flare->DeclareBrightPassBindings( pass, scene, source, mip ); },
+                 [&]( RDG::PassBuilder& pass )
+                 { flare->DeclareBrightPassBindings( pass, scene, adapted, source, mip ); },
                  [flare, desc = *sourceDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return flare->RecordBrightPass( context, desc, mip ); } );
         // Features: every ghost reads the source mip its magnification picks, so the whole chain is sampled.
