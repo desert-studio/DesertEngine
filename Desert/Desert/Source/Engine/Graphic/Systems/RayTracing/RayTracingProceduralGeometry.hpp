@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/ProceduralRayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
 #include <cstddef>
@@ -26,25 +27,6 @@ namespace Desert
 // (RayTracingSceneCache), shared by its views: the first view of a frame builds, the next ones instance it.
 namespace Desert::Graphic::RayTracing
 {
-    struct ProceduralBlasPrepared
-    {
-        uint64_t ScratchBytes = 0;     // alignment slack included
-        bool     NeedsBuild   = false; // the storage holds no build of the current buffers yet
-    };
-
-    class ProceduralRayTracingGeometry : public RayTracingDynamicGeometryTarget
-    {
-    public:
-        // Makes the BLAS fit @p mesh's current buffers with @p hiddenSubmeshes left out, recreating it when the
-        // vertex/index buffers or the mask changed. Errors: no acceleration-structure device, the mesh is not
-        // resident or has no visible triangle, an allocation failed.
-        [[nodiscard]] virtual Common::ResultStr<ProceduralBlasPrepared> Prepare( const Mesh& mesh,
-                                                                                 uint64_t    hiddenSubmeshes ) = 0;
-    };
-
-    // The API's entry (VulkanProceduralRayTracingGeometry).
-    [[nodiscard]] std::unique_ptr<ProceduralRayTracingGeometry> CreateProceduralRayTracingGeometry();
-
     class RayTracingProceduralCache
     {
     public:

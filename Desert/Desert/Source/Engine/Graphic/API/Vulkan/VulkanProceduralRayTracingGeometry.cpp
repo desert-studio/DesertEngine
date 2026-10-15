@@ -1,3 +1,4 @@
+#include <Common/Core/Core.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanProceduralRayTracingGeometry.hpp>
 
@@ -195,3 +196,11 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanProceduralRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic::RayTracing
+{
+    std::unique_ptr<ProceduralRayTracingGeometry> CreateProceduralRayTracingGeometry()
+    {
+        return std::make_unique<API::Vulkan::VulkanProceduralRayTracingGeometry>();
+    }
+} // namespace Desert::Graphic::RayTracing

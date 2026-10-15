@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingBuildInput.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/SkinnedRayTracingGeometry.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -20,7 +20,7 @@ namespace Desert::Graphic
 // only when the mesh's buffers or the hidden mask change, and every other frame the BLAS is REFIT in place (UE
 // FRayTracingDynamicGeometryUpdateParams with bAllowUpdate: ALLOW_UPDATE + PREFER_FAST_BUILD, MODE_UPDATE with
 // src == dst). The build is recorded by the graph pass "RayTracingScene.DynamicGeometry"
-// (RayTracingSkinCache.cpp).
+// (RayTracingDynamicGeometry.hpp).
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanSkinnedRayTracingGeometry final : public RayTracing::SkinnedRayTracingGeometry

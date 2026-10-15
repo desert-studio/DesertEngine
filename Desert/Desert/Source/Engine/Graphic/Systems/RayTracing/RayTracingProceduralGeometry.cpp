@@ -3,16 +3,10 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Geometry/Mesh.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanProceduralRayTracingGeometry.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 namespace Desert::Graphic::RayTracing
 {
-    std::unique_ptr<ProceduralRayTracingGeometry> CreateProceduralRayTracingGeometry()
-    {
-        return std::make_unique<API::Vulkan::VulkanProceduralRayTracingGeometry>();
-    }
-
     Common::BoolResultStr RayTracingProceduralCache::AddBuilds(
          RDG::Builder& graph, std::span<RayTracingPrimitive> primitives, const uint64_t frame,
          std::vector<RayTracingDynamicGeometryBuild>& buildsOut, std::vector<RDG::BufferRef>& blasOut )

@@ -1,12 +1,13 @@
 #pragma once
 
-#include <Common/Core/Core.hpp> // BOOLSUCCESS (the .cpp, VulkanRayTracingScene.cpp and the tests)
+#include <Common/Core/Core.hpp> // BOOLSUCCESS (the .cpp and the tests)
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneTarget.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -40,36 +41,6 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kTlasInstancesName      = "RayTracingScene.Instances";
     inline constexpr std::string_view kTlasScratchName        = "RayTracingScene.Scratch";
     inline constexpr std::string_view kTlasStorageName        = "RayTracingScene.TLAS";
-    inline constexpr uint64_t         kInstanceRowBytes       = 64; // VkAccelerationStructureInstanceKHR
-    inline constexpr uint64_t         kInstanceTransformBytes = 48;
-
-    // What the API needs to build a TLAS of a given instance count (vkGetAccelerationStructureBuildSizesKHR).
-    struct TlasBuildSizes
-    {
-        uint64_t ScratchBytes = 0; // already includes the scratch-address alignment slack
-    };
-
-    // The API side of one view's TLAS: the acceleration structure and its storage, alive across frames.
-    class RayTracingSceneTarget
-    {
-    public:
-        virtual ~RayTracingSceneTarget() = default;
-
-        // Makes the TLAS able to hold @p instanceCount instances (recreating it when it cannot) and answers the
-        // scratch this frame's build needs. Errors: the device cannot build acceleration structures, or the
-        // storage could not be created.
-        [[nodiscard]] virtual Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount ) = 0;
-        // The TLAS storage as a graph external; it carries its own state across graphs.
-        [[nodiscard]] virtual RDG::ExternalBuffer& GetStorage() = 0;
-        // Records the build of @p instanceCount rows of @p instances into the TLAS, inside the pass's exec.
-        [[nodiscard]] virtual Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
-                                                                 const RDG::BufferBinding& instances,
-                                                                 const RDG::BufferBinding& scratch,
-                                                                 uint32_t                  instanceCount ) = 0;
-    };
-
-    // The API's TLAS object for one view (VulkanRayTracingScene).
-    [[nodiscard]] std::unique_ptr<RayTracingSceneTarget> CreateRayTracingSceneTarget();
 
     // This frame's TLAS as the graph being built sees it. Refs are valid only for that graph.
     struct RayTracingSceneFrame

@@ -1,7 +1,6 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanSkinnedRayTracingGeometry.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -17,11 +16,6 @@
 
 namespace Desert::Graphic::RayTracing
 {
-    std::unique_ptr<SkinnedRayTracingGeometry> CreateSkinnedRayTracingGeometry()
-    {
-        return std::make_unique<API::Vulkan::VulkanSkinnedRayTracingGeometry>();
-    }
-
     Common::BoolResultStr RayTracingSkinCache::AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
                                                           RDG::ExternalBuffer&           viewBones,
                                                           std::span<RayTracingPrimitive> primitives,

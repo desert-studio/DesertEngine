@@ -3,7 +3,6 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGather.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 
@@ -12,11 +11,6 @@
 
 namespace Desert::Graphic::RayTracing
 {
-    std::unique_ptr<RayTracingSceneTarget> CreateRayTracingSceneTarget()
-    {
-        return std::make_unique<API::Vulkan::VulkanRayTracingScene>();
-    }
-
     RayTracingGeometryVariants::BuildFn MakeVariantBuild()
     {
         return []( Mesh& mesh, const uint64_t hiddenMask )

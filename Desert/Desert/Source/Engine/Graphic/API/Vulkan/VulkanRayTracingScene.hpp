@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneTarget.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>

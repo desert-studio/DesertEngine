@@ -1,3 +1,4 @@
+#include <Common/Core/Core.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
 
@@ -187,3 +188,11 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingScene" )
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic::RayTracing
+{
+    std::unique_ptr<RayTracingSceneTarget> CreateRayTracingSceneTarget()
+    {
+        return std::make_unique<API::Vulkan::VulkanRayTracingScene>();
+    }
+} // namespace Desert::Graphic::RayTracing

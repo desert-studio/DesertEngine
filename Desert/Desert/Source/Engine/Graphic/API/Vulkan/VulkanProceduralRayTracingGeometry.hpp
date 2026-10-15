@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingBuildInput.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingProceduralGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/ProceduralRayTracingGeometry.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>

@@ -1,3 +1,4 @@
+#include <Common/Core/Core.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSkinnedRayTracingGeometry.hpp>
 
@@ -245,3 +246,11 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanSkinnedRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic::RayTracing
+{
+    std::unique_ptr<SkinnedRayTracingGeometry> CreateSkinnedRayTracingGeometry()
+    {
+        return std::make_unique<API::Vulkan::VulkanSkinnedRayTracingGeometry>();
+    }
+} // namespace Desert::Graphic::RayTracing
