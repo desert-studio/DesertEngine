@@ -73,9 +73,10 @@ namespace Desert::Graphic::System
 
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
-        // matrices — the same view every other pass of the frame draws for. Nothing may draw a terrain this
-        // frame before it ran.
-        void PrepareFrame( const ViewFrame& frame );
+        // matrices — the same view every other pass of the frame draws for — and, for each of @p localLights
+        // (MeshRenderer::GetLocalShadowCasterLights, after UpdateLocalShadows), the tiles in its reach at the LOD
+        // its own position asks for, with their cache key. Nothing may draw a terrain this frame before it ran.
+        void PrepareFrame( const ViewFrame& frame, const std::vector<LocalShadowCasterLight>& localLights );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -87,11 +88,11 @@ namespace Desert::Graphic::System
         {
             return !m_Queue.empty();
         }
-        // The tiles whose ground (XZ) footprint the sphere reaches, each by what its depth is made of: placement,
-        // LOD (the camera's, which the shadow draws with too), holes, and the revisions of its two maps' texels.
-        // From this frame's draws: valid after PrepareFrame.
-        [[nodiscard]] std::optional<uint64_t> ShadowSignatureInSphere( const glm::vec3& centre,
-                                                                       float            radius ) const override;
+        // The tiles whose ground (XZ) footprint the light reaches, each by what its depth is made of: placement,
+        // LOD (the light's, LocalShadowCasterLight — not the camera's, so a moving camera keeps the cache),
+        // holes, and the revisions of its two maps' texels. Resolved by PrepareFrame for this frame's lights.
+        [[nodiscard]] std::optional<uint64_t>
+        LocalShadowSignature( const LocalShadowCasterLight& light ) const override;
         [[nodiscard]] uint32_t DeclareShadowView( RenderPassDeclaration& declared, uint32_t view ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowView( const RDG::PassContext& context, uint32_t view,
                                                               uint32_t firstBlock, const glm::mat4& casterViewProj,
@@ -107,6 +108,7 @@ namespace Desert::Graphic::System
             m_Queue.clear();
             m_FrameGroups.clear();
             m_FrameDraws.clear();
+            m_LocalLightDraws.clear();
         }
 
     private:
@@ -134,6 +136,19 @@ namespace Desert::Graphic::System
             uint32_t VertexCount = 0;
         };
 
+        // One point/spot light's terrain draws (PrepareFrame): the tiles in its reach, each at the LOD the light
+        // asks for (its rows follow the camera's in the group buffers), and the key of what they draw.
+        struct LocalLightDraws
+        {
+            LocalShadowCasterLight Light;
+            std::vector<FrameDraw> Draws;
+            uint64_t               Signature = 0;
+        };
+
+        // The draws shadow view @p view records: its light's (a local view), else the camera's (a cascade: the
+        // receivers' vertices, so a shadow cannot swim against its caster).
+        [[nodiscard]] const std::vector<FrameDraw>& ShadowViewDraws( uint32_t view ) const;
+
         // The executors of @p program's material of every frame group, in group order: a node drawing the
         // terrain declares one binding block per entry (block firstBlock + group), and RecordDraws records group
         // g's draws through block firstBlock + g.
@@ -143,7 +158,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4&                                       clipFromWorld );
+                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
@@ -159,5 +174,6 @@ namespace Desert::Graphic::System
         std::vector<TerrainDrawData> m_Queue;
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
+        std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
     };
 } // namespace Desert::Graphic::System

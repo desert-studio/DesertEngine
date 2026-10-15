@@ -115,7 +115,7 @@ namespace Desert::Graphic::System
         int32_t VisibilityLayer = -1;
         // The revision of the weightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite). The image is
         // updated in place, so its address cannot say a stroke changed it; a cached local shadow whose caster
-        // discards by the visibility layer keys on this (TerrainRenderer::ShadowSignatureInSphere).
+        // discards by the visibility layer keys on this (TerrainRenderer::LocalShadowSignature).
         uint64_t Revision = 0u;
     };
 
@@ -137,7 +137,7 @@ namespace Desert::Graphic::System
         uint32_t NeighbourMask = 0u;
         // The revision of the heightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite — the tile's
         // edit, a neighbour's, its ring changing). The image is rewritten in place, so its address cannot say a
-        // sculpt changed it; a cached local shadow keys on this (TerrainRenderer::ShadowSignatureInSphere).
+        // sculpt changed it; a cached local shadow keys on this (TerrainRenderer::LocalShadowSignature).
         uint64_t HeightRevision = 0u;
     };
 
@@ -149,8 +149,10 @@ namespace Desert::Graphic::System
     // (ComputeBoundsScreenRadiusSquared), adapted: the UE proxy's LOD0ScreenSize / LOD0DistributionSetting /
     // LODDistributionSetting / LODBlendRange are UE's defaults as constants (no per-landscape override yet),
     // no r.StaticMeshLODDistanceScale, and MaxLOD is the last stride-2^L grid of the tile (LandscapeLod.glslh)
-    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD, from the main camera,
-    // for every pass — the cascades draw the camera's vertices, so a shadow cannot swim against its caster.
+    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD per view: the main camera's
+    // for the camera's passes and the cascades (they draw the camera's vertices, so a sun shadow cannot swim
+    // against its caster), and a point/spot light's own, from its position, for that light's views — their
+    // depth is cached, and a camera-chosen LOD would redraw it on every camera move (TerrainRenderer).
     inline constexpr float kLandscapeLod0ScreenSize   = 0.5f;
     inline constexpr float kLandscapeLod0Distribution = 1.25f;
     inline constexpr float kLandscapeLodDistribution  = 3.0f;

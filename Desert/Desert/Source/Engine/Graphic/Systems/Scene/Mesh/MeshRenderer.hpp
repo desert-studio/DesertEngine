@@ -389,6 +389,17 @@ namespace Desert::Graphic::System
         {
             return m_LocalShadowRows;
         }
+        // This frame's shadowed point/spot lights as their casters see them (LocalShadowCasterLight), in view
+        // order: what a non-mesh caster resolves its local-view draws for (TerrainRenderer::PrepareFrame), between
+        // UpdateLocalShadows and LocalShadowPasses.
+        [[nodiscard]] std::vector<LocalShadowCasterLight> GetLocalShadowCasterLights() const
+        {
+            std::vector<LocalShadowCasterLight> lights;
+            lights.reserve( m_LocalCachePlans.size() );
+            for ( const LocalShadowCachePlan& plan : m_LocalCachePlans )
+                lights.push_back( plan.Caster );
+            return lights;
+        }
         // The atlas's depth image (R32F), or null while no light of this view has cast a shadow.
         [[nodiscard]] std::shared_ptr<Image2D> GetLocalShadowAtlasImage() const
         {
@@ -743,10 +754,10 @@ namespace Desert::Graphic::System
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
-        // A hash of every caster within @p radius of @p centre (what it draws and where) - the meshes and the
-        // non-mesh casters (IShadowCaster::ShadowSignatureInSphere) - or nullopt when one of them moves by itself
+        // A hash of every caster in @p light's reach (what it draws into its views and where) - the meshes and the
+        // non-mesh casters (IShadowCaster::LocalShadowSignature) - or nullopt when one of them moves by itself
         // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light ) const;
         // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
         // its casters and its views; the views of a light whose key changed (or that has none) go to
         // m_LocalRedraws.
@@ -1004,10 +1015,9 @@ namespace Desert::Graphic::System
         // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
         struct LocalShadowCachePlan
         {
-            uint64_t  Light     = 0; // key into m_LocalLights
-            uint32_t  FirstRow  = 0; // its first row of m_LocalShadowRows
-            glm::vec3 Centre{ 0.0f };
-            float     Reach = 0.0f;
+            uint64_t               Light = 0; // key into m_LocalLights
+            LocalShadowCasterLight Caster;    // its views, reach and detail view (FirstView - kMaxShadowCascades =
+                                              // its first row of m_LocalShadowRows)
         };
         std::vector<LocalShadowCachePlan> m_LocalCachePlans;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];

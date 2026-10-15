@@ -53,8 +53,10 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const LocalShadowCasterLight& light ) const
     {
+        const glm::vec3& centre = light.Lod.Origin;
+        const float      radius = light.Reach;
         SignatureHash hash;
         for ( const auto& rd : m_StaticQueue )
         {
@@ -105,7 +107,7 @@ namespace Desert::Graphic::System
             const auto caster = weak.lock();
             if ( !caster )
                 continue;
-            const std::optional<uint64_t> theirs = caster->ShadowSignatureInSphere( centre, radius );
+            const std::optional<uint64_t> theirs = caster->LocalShadowSignature( light );
             if ( !theirs )
                 return std::nullopt;
             hash.Add( *theirs );
@@ -270,7 +272,8 @@ namespace Desert::Graphic::System
             light.LastFrame         = m_LocalFrame;
             const uint32_t tileSize = light.Tiles[0].Size;
 
-            const auto firstRow = static_cast<uint32_t>( m_LocalShadowRows.size() );
+            const auto firstRow    = static_cast<uint32_t>( m_LocalShadowRows.size() );
+            float      spotTanHalf = 0.0f;
             if ( request.Spot )
             {
                 auto&       spot      = spots[request.Index];
@@ -284,6 +287,7 @@ namespace Desert::Graphic::System
                 m_LocalShadowRows.push_back( LocalShadowRow( vp, light.Tiles[0], atlasSide, nearPlane, farPlane,
                                                              tanHalf, *request.Settings ) );
                 spot.ShadowView = static_cast<int32_t>( firstRow );
+                spotTanHalf     = tanHalf;
             }
             else
             {
@@ -312,11 +316,20 @@ namespace Desert::Graphic::System
             }
 
             // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light reaches.
+            // Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its position,
+            // through the projection its views draw with.
+            const float     reach     = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
+            const glm::vec3 origin    = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
+            const float     viewTan   = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
+            const float     viewNear  = LocalShadowNear( reach );
             m_LocalCachePlans.push_back(
-                 { .Light    = request.Key,
-                   .FirstRow = firstRow,
-                   .Centre   = request.Spot ? spots[request.Index].Position : points[request.Index].Position,
-                   .Reach    = request.Spot ? spots[request.Index].Range : points[request.Index].Radius } );
+                 { .Light  = request.Key,
+                   .Caster = { .FirstView = kMaxShadowCascades + firstRow,
+                               .ViewCount = viewCount,
+                               .Reach     = reach,
+                               .Lod       = Geometry::LODView{
+                                     origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
+                                                               std::max( reach, viewNear * 2.0f ) ) } } } );
         }
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
@@ -343,12 +356,12 @@ namespace Desert::Graphic::System
             if ( held == m_LocalLights.end() )
                 continue; // its tiles went with a shadow rebudget since UpdateLocalShadows: no view to draw
             LocalShadowLight&       light     = held->second;
-            std::optional<uint64_t> signature = LocalCasterSignature( plan.Centre, plan.Reach );
+            std::optional<uint64_t> signature = LocalCasterSignature( plan.Caster );
             if ( signature )
             {
                 SignatureHash hash;
                 hash.Add( *signature );
-                AddViews( hash, &m_LocalShadowRows[plan.FirstRow], light.ViewCount );
+                AddViews( hash, &m_LocalShadowRows[plan.Caster.FirstView - kMaxShadowCascades], light.ViewCount );
                 signature = hash.Value;
             }
             const bool cached = signature.has_value() && light.Signature == signature;
@@ -356,7 +369,7 @@ namespace Desert::Graphic::System
             if ( !cached )
             {
                 for ( uint32_t v = 0; v < light.ViewCount; ++v )
-                    m_LocalRedraws.push_back( { kMaxShadowCascades + plan.FirstRow + v, light.Tiles[v] } );
+                    m_LocalRedraws.push_back( { plan.Caster.FirstView + v, light.Tiles[v] } );
             }
         }
         m_LocalCachePlans.clear();

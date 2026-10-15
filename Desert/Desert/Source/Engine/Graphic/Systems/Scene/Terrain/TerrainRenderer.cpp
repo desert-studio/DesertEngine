@@ -11,6 +11,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -112,20 +113,44 @@ namespace Desert::Graphic::System
             return { l.OriginX, l.OriginZ, l.FirstSampleX / quads + dx, l.FirstSampleZ / quads + dz };
         }
 
-        // The tile's continuous LOD for the main camera: its bounding sphere's screen size, UE's way. The
-        // sphere holds the tile's full height range, not its actual heights — a taller sphere only means
-        // finer detail sooner.
-        float TileLod( const LandscapeTileDraw& l, const glm::vec3& viewOrigin, const glm::mat4& projection )
+        // The tile's continuous LOD for @p view (the main camera, or a point/spot light: LocalShadowCasterLight):
+        // its bounding sphere's screen size, UE's way. The sphere holds the tile's full height range, not its
+        // actual heights — a taller sphere only means finer detail sooner.
+        float TileLod( const LandscapeTileDraw& l, const Geometry::LODView& view )
         {
             const float     extent = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
             const glm::vec3 center(
                  l.OriginX + ( static_cast<float>( l.FirstSampleX ) * l.SpacingCm ) + 0.5f * extent, l.BaseY,
                  l.OriginZ + ( static_cast<float>( l.FirstSampleZ ) * l.SpacingCm ) + 0.5f * extent );
             const float radius = glm::length( glm::vec3( 0.5f * extent, 256.0f * l.ZScale, 0.5f * extent ) );
-            return LandscapeLodFromScreenSize(
-                 MakeLandscapeLodSettings( l.QuadsPerTile ),
-                 Geometry::BoundsScreenRadiusSquared( center, radius,
-                                                      Geometry::LODView{ viewOrigin, projection } ) );
+            return LandscapeLodFromScreenSize( MakeLandscapeLodSettings( l.QuadsPerTile ),
+                                               Geometry::BoundsScreenRadiusSquared( center, radius, view ) );
+        }
+
+        // Does the tile's ground (XZ) footprint meet the disc of @p radius around @p centre? Its heights are not
+        // bounded here, so a tile above or below a light's reach is kept: a wasted draw, never a missing caster.
+        bool TileMeetsDisc( const LandscapeTileDraw& l, const glm::vec3& centre, const float radius )
+        {
+            const float     side = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const glm::vec2 lo( l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm,
+                                l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm );
+            const glm::vec2 closest = glm::clamp( glm::vec2( centre.x, centre.z ), lo, lo + side );
+            const glm::vec2 d       = glm::vec2( centre.x, centre.z ) - closest;
+            return glm::dot( d, d ) <= radius * radius;
+        }
+
+        using TileLodMap = std::unordered_map<TileKey, float, TileKeyHash>;
+
+        // A tile's LOD and its borders' for one view, from that view's LODs of every tile it draws (a neighbour
+        // the view does not draw has nothing to agree with: nullopt).
+        LandscapeTileLod TileLodsOf( const LandscapeTileDraw& l, const TileLodMap& lods )
+        {
+            return LandscapeTileLods( lods.at( KeyOf( l, 0, 0 ) ),
+                                      [&]( int dx, int dz ) -> std::optional<float>
+                                      {
+                                          const auto n = lods.find( KeyOf( l, dx, dz ) );
+                                          return n == lods.end() ? std::nullopt : std::optional<float>( n->second );
+                                      } );
         }
     } // namespace
 
@@ -218,10 +243,15 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
+    void TerrainRenderer::PrepareFrame( const ViewFrame&                           frame,
+                                        const std::vector<LocalShadowCasterLight>& localLights )
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
+        // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
+        m_LocalLightDraws.clear();
+        for ( const LocalShadowCasterLight& light : localLights )
+            m_LocalLightDraws.push_back( { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
         if ( m_Queue.empty() )
             return;
 
@@ -251,9 +281,10 @@ namespace Desert::Graphic::System
         m_FrameDraws.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
-        std::unordered_map<TileKey, float, TileKeyHash> tileLods;
+        TileLodMap tileLods;
         for ( const auto& t : m_Queue )
-            tileLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, frame.CameraPosition, frame.Projection );
+            tileLods[KeyOf( t.Landscape, 0, 0 )] =
+                 TileLod( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
 
         for ( const auto& t : m_Queue )
         {
@@ -306,14 +337,7 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            const LandscapeTileLod lod = LandscapeTileLods(
-                 tileLods.at( KeyOf( t.Landscape, 0, 0 ) ),
-                 [&]( int dx, int dz ) -> std::optional<float>
-                 {
-                     const auto n = tileLods.find( KeyOf( t.Landscape, dx, dz ) );
-                     return n == tileLods.end() ? std::nullopt : std::optional<float>( n->second );
-                 } );
-            const TerrainInstance instance = LandscapeInstance( t, lod );
+            const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ) );
 
             FrameDraw draw;
             draw.Group       = it->second;
@@ -325,6 +349,59 @@ namespace Desert::Graphic::System
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
+        }
+
+        // ── Each point/spot light's own draws: the tiles in its reach, at the LOD its position asks for ─────────
+        //
+        // A local view's depth is cached until something in its reach changes (MeshRenderer::PlanLocalShadowCache),
+        // so its detail must not follow the camera: with the camera's LOD every step of the camera re-keyed and
+        // redrew every local view that reached terrain. The rows go after the camera's in the same group buffers
+        // (one upload, before any draw); a local row is an instance row only — the shadow program reads no
+        // param row.
+        for ( LocalLightDraws& local : m_LocalLightDraws )
+        {
+            TileLodMap lightLods;
+            for ( const auto& t : m_Queue )
+                if ( TileMeetsDisc( t.Landscape, local.Light.Lod.Origin, local.Light.Reach ) )
+                    lightLods[KeyOf( t.Landscape, 0, 0 )] = TileLod( t.Landscape, local.Light.Lod );
+
+            ShadowSignatureHash hash;
+            for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+            {
+                const TerrainDrawData&   t = m_Queue[i];
+                const LandscapeTileDraw& l = t.Landscape;
+                if ( !lightLods.contains( KeyOf( l, 0, 0 ) ) )
+                    continue;
+                FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
+                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, lightLods ) );
+
+                FrameDraw draw;
+                draw.Group = m_FrameDraws[i].Group;
+                draw.Row   = static_cast<uint32_t>( group.Instances.size() );
+                draw.VertexCount =
+                     LandscapeLodVertexCount( l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+                local.Draws.push_back( draw );
+                group.Instances.push_back( instance );
+
+                // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer colours),
+                // the heightmap and its texels' revision, and the weightmap where the tile has a visibility layer
+                // (its holes).
+                hash.Add( instance.Params );
+                hash.Add( instance.Params2 );
+                hash.Add( instance.LandscapeFrame );
+                hash.Add( instance.LandscapeTile );
+                hash.Add( instance.LodEdges );
+                hash.Add( instance.LodCorners );
+                hash.Add( draw.VertexCount );
+                hash.Add( t.Heightmap );
+                hash.Add( l.HeightRevision );
+                if ( t.Weights.VisibilityLayer >= 0 )
+                {
+                    hash.Add( t.Weights.Weightmap );
+                    hash.Add( t.Weights.Revision );
+                }
+            }
+            local.Signature = hash.Value;
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
@@ -414,14 +491,15 @@ namespace Desert::Graphic::System
     // first refused draw is the node's error.
     Common::BoolResultStr TerrainRenderer::RecordDraws(
          const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
-         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld )
+         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+         const std::vector<FrameDraw>& draws )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
         blocks.reserve( m_FrameGroups.size() );
         for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
             blocks.push_back(
                  std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
-        for ( const auto& draw : m_FrameDraws )
+        for ( const auto& draw : draws )
         {
             auto* material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
             material->SetMaterialIndex( draw.Row );
@@ -458,7 +536,8 @@ namespace Desert::Graphic::System
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
                                    return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
-                                                       m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
+                                                       m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
+                                                       m_FrameDraws );
                                },
                                .TargetFramebuffer = targetFb };
         pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
@@ -488,7 +567,7 @@ namespace Desert::Graphic::System
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         // Through the blocks DeclareGBufferDraws declared.
         return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
     }
 
     void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
@@ -503,63 +582,45 @@ namespace Desert::Graphic::System
                                   GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
     }
 
-    std::optional<uint64_t> TerrainRenderer::ShadowSignatureInSphere( const glm::vec3& centre,
-                                                                      const float      radius ) const
+    const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const
     {
-        // m_FrameDraws[i] is m_Queue[i]'s draw (PrepareFrame emits one per queued tile, in order), its instance
-        // row the one the shadow draws with.
-        ShadowSignatureHash hash;
-        for ( std::size_t i = 0; i < m_FrameDraws.size() && i < m_Queue.size(); ++i )
-        {
-            const TerrainDrawData&   t = m_Queue[i];
-            const LandscapeTileDraw& l = t.Landscape;
-            // The tile's ground footprint; its heights are unbounded here, so the test is the XZ disc - a tile
-            // above or below the light's reach is kept, which costs a redraw, never a stale shadow.
-            const float     side = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
-            const glm::vec2 lo( l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm,
-                                l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm );
-            const glm::vec2 closest = glm::clamp( glm::vec2( centre.x, centre.z ), lo, lo + side );
-            const glm::vec2 d       = glm::vec2( centre.x, centre.z ) - closest;
-            if ( glm::dot( d, d ) > radius * radius )
-                continue;
-
-            const FrameDraw&       draw     = m_FrameDraws[i];
-            const TerrainInstance& instance = m_FrameGroups[draw.Group].Instances[draw.Row];
-            // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer colours),
-            // the heightmap, and the weightmap where the tile has a visibility layer (its holes).
-            hash.Add( instance.Params );
-            hash.Add( instance.Params2 );
-            hash.Add( instance.LandscapeFrame );
-            hash.Add( instance.LandscapeTile );
-            hash.Add( instance.LodEdges );
-            hash.Add( instance.LodCorners );
-            hash.Add( draw.VertexCount );
-            hash.Add( t.Heightmap );
-            hash.Add( l.HeightRevision );
-            if ( t.Weights.VisibilityLayer >= 0 )
-            {
-                hash.Add( t.Weights.Weightmap );
-                hash.Add( t.Weights.Revision );
-            }
-        }
-        return hash.Value;
+        for ( const LocalLightDraws& local : m_LocalLightDraws )
+            if ( local.Light.Owns( view ) )
+                return local.Draws;
+        // A cascade (or its movable layer): the camera's draws, whose vertices the receivers' are.
+        return m_FrameDraws;
     }
 
-    uint32_t TerrainRenderer::DeclareShadowView( RenderPassDeclaration& declared, uint32_t /*view*/ )
+    std::optional<uint64_t> TerrainRenderer::LocalShadowSignature( const LocalShadowCasterLight& light ) const
     {
-        if ( !m_ShadowPipeline || m_FrameDraws.empty() )
+        for ( const LocalLightDraws& local : m_LocalLightDraws )
+            if ( local.Light.FirstView == light.FirstView )
+                return local.Signature;
+        // PrepareFrame was not handed this light (SceneRenderer hands it MeshRenderer::GetLocalShadowCasterLights,
+        // the list this key is asked for): what would be drawn into its views is unknown, so they are not cached,
+        // and RecordShadowView would draw the camera's tiles into them. Said, not hidden.
+        LOG_ERROR( "[Shadows] TerrainRenderer: local shadow view {} was not prepared this frame - its terrain is "
+                   "drawn at the camera's LOD and its depth is not cached",
+                   light.FirstView );
+        return std::nullopt;
+    }
+
+    uint32_t TerrainRenderer::DeclareShadowView( RenderPassDeclaration& declared, const uint32_t view )
+    {
+        if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
             return 0;
         // A depth-only caster samples no scene/view input.
         return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout,
                                    GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
     }
 
-    Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, uint32_t /*view*/,
+    Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, const uint32_t view,
                                                              const uint32_t           firstBlock,
                                                              const glm::mat4&         casterViewProj,
                                                              const CascadeCasterBias& bias )
     {
-        if ( !m_ShadowPipeline || m_FrameDraws.empty() )
+        const std::vector<FrameDraw>& draws = ShadowViewDraws( view );
+        if ( !m_ShadowPipeline || draws.empty() )
             return BOOLSUCCESS;
         // The view's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
         // like the matrix beside it, so the one shadow material per group still serves every view. The
@@ -569,6 +630,7 @@ namespace Desert::Graphic::System
         // Its own row inside the view's: the terrain's share of the shadow cost, summed over views.
         DESERT_PROFILE_PASS( "TerrainShadowView" );
         // Through the blocks DeclareShadowView declared on this view's node.
-        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, casterViewProj );
+        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, casterViewProj,
+                            draws );
     }
 } // namespace Desert::Graphic::System

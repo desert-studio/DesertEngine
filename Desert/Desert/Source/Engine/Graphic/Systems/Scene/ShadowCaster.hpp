@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
@@ -45,7 +46,7 @@ namespace Desert::Graphic::System
      * terrain).
      */
     // FNV-1a over raw bytes: a shadow cache key (local views, the cascades' static layer) only has to change when
-    // what was drawn changes. One hash for the mesh casters and the non-mesh ones (ShadowSignatureInSphere), so a
+    // what was drawn changes. One hash for the mesh casters and the non-mesh ones (LocalShadowSignature), so a
     // light's key is one value however many renderers fed it.
     struct ShadowSignatureHash
     {
@@ -67,6 +68,24 @@ namespace Desert::Graphic::System
         }
     };
 
+    // One point/spot light's shadow views as a caster sees them (MeshRenderer::UpdateLocalShadows): which views
+    // of the one index space are its own, where it reaches, and the view a caster with levels of detail chooses
+    // them from - the light's position and its views' projection, never the main camera. A local view's depth is
+    // cached until something in its reach changes, so detail picked from the camera would redraw every local
+    // tile the camera moves past; picked from the light, the cached depth holds while the light holds.
+    struct LocalShadowCasterLight
+    {
+        uint32_t          FirstView = 0; // its first view (kMaxShadowCascades + its first row of the view table)
+        uint32_t          ViewCount = 0; // 1 for a spot, kPointShadowFaces for a point
+        float             Reach     = 0.0f; // the point's radius / the spot's range, cm, around Lod.Origin
+        Geometry::LODView Lod;           // Origin = the light's position; Projection = its views' (one per light)
+
+        [[nodiscard]] bool Owns( const uint32_t view ) const
+        {
+            return view >= FirstView && view < FirstView + ViewCount;
+        }
+    };
+
     class IShadowCaster
     {
     public:
@@ -78,13 +97,13 @@ namespace Desert::Graphic::System
         [[nodiscard]] virtual bool CastsShadowThisFrame() const = 0;
 
         // THE LOCAL VIEWS' CACHE KEY (UE: a stationary light's cached shadow depth is kept until a caster in its
-        // reach changes). A hash of what this caster draws within @p radius of @p centre — every input of its
-        // depth there: placement, shape, the geometry's level of detail, the contents of the textures its depth
-        // reads — or nullopt when what it draws there changes by itself every frame. Asked after the frame's
-        // draws were resolved, before the local views' nodes are added; a caster with nothing in reach returns
-        // the hash of nothing (a constant), never nullopt.
-        [[nodiscard]] virtual std::optional<uint64_t> ShadowSignatureInSphere( const glm::vec3& centre,
-                                                                               float            radius ) const = 0;
+        // reach changes). A hash of what this caster draws into @p light's views — every input of its depth there:
+        // placement, shape, the geometry's level of detail (chosen from the light, LocalShadowCasterLight), the
+        // contents of the textures its depth reads — or nullopt when what it draws there changes by itself every
+        // frame. Asked after the frame's draws were resolved (for this frame's lights), before the local views'
+        // nodes are added; a caster with nothing in reach returns the hash of nothing (a constant), never nullopt.
+        [[nodiscard]] virtual std::optional<uint64_t>
+        LocalShadowSignature( const LocalShadowCasterLight& light ) const = 0;
 
         // SETUP: declares on the view's node one binding block per material this caster draws the view with
         // (the shader's reflected layout and the material's route fill), so ValidatePassBindings judges the
