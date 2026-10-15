@@ -446,8 +446,15 @@ namespace Desert::Graphic
         inputs.GBufferB            = gbuffer[1];
         inputs.GBufferEmissive     = gbuffer[3];
         inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        inputs.Tracer              = GlobalIllumination::TracerFrame{ .Pipeline            = m_GIPipeline,
-                                                                      .GlobalDistanceField = t.GlobalDistanceField };
+        // The hardware tracer's reads are the view's TLAS and its records when this frame built them; the
+        // instance -> MeshCards table is GI-SURFACE-CACHE's (B3) and stays invalid until it lands, so
+        // TracerFrameMissing refuses a hardware frame by name (GIMethod::HardwareTraced is not implemented yet).
+        const RayTracing::RayTracingSceneFrame& rayTracingScene = m_RayTracingScene.GetFrame();
+        inputs.Tracer = GlobalIllumination::TracerFrame{
+             .Pipeline            = m_GIPipeline,
+             .GlobalDistanceField = t.GlobalDistanceField,
+             .Tlas                = rayTracingScene.Built ? rayTracingScene.Tlas : RDG::BufferRef{},
+             .Metadata = rayTracingScene.Built ? rayTracingScene.Metadata : RayTracing::RayTracingMetadataFrame{} };
         inputs.PointLights         = t.Lights.Point;
         inputs.SpotLights          = t.Lights.Spot;
         inputs.WorldGridParams     = t.Lights.WorldGridParams;

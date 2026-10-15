@@ -5,6 +5,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <array>
 #include <cstdint>
@@ -153,12 +154,25 @@ namespace Desert::Graphic::GlobalIllumination
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF; their placement rides in the
     //                          GI frame record, GIFrame.gdfLevels);
-    //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
+    //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
+    //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the hit's
+    //                          vertex streams and alpha test), and the surface cache's MeshCards index per TLAS
+    //                          instance custom index (GI-SURFACE-CACHE; one uint per instance, DECISIONS-1015 S4).
     struct TracerFrame
     {
-        GlobalIllumination::Pipeline   Pipeline{};
-        std::array<RDG::TextureRef, 4> GlobalDistanceField{};
+        GlobalIllumination::Pipeline        Pipeline{};
+        std::array<RDG::TextureRef, 4>      GlobalDistanceField{};
+        RDG::BufferRef                      Tlas;
+        RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::BufferRef                      InstanceMeshCards;
     };
+
+    // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
+    // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
+    inline constexpr std::string_view kHardwareTracerTlasName              = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerGeometryName          = "RayTracingGeometryRecords";
+    inline constexpr std::string_view kHardwareTracerMaterialsName         = "RayTracingMaterialRecords";
+    inline constexpr std::string_view kHardwareTracerInstanceMeshCardsName = "GIInstanceMeshCards";
 
     // Empty when @p frame holds every resource its tracer reads; otherwise what is missing (for the consumer's
     // one error line).
