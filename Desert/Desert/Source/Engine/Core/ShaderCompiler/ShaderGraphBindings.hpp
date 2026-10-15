@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -67,6 +68,12 @@ namespace Desert::Core
     // of the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
     // Declared in Mesh/Surface/SurfaceTypes.glslh.
     inline constexpr uint32_t kSceneShadingWordBinding = kSceneReadBindingFirst + 3u;
+    // The two scene-read samplers' names, as the shaders declare them (SurfaceTypes.glslh) and the renderer binds
+    // them (Graphic::kSceneViewSceneDepthName / kSceneViewSceneShadingWordName are these). Core holds them because
+    // a program load refuses an opaque custom mesh shader that declares either
+    // (Core::Formats::IsOpaqueCustomMeshProgram).
+    inline constexpr std::string_view kSceneDepthName       = "u_SceneDepth";
+    inline constexpr std::string_view kSceneShadingWordName = "u_SceneShadingWord";
     // The view's light grid (Graphic/LightGrid.hpp), read by the forward cell (Mesh/Surface/Pass_Forward.glslh) to
     // shade a pixel with its froxel's point and spot lights only: its parameters, then its cells. Bound by name
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.

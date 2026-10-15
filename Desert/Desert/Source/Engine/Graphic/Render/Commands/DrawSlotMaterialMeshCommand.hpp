@@ -40,13 +40,17 @@ namespace Desert::Graphic::Render
         // The owning StaticMeshComponent's MaxDrawDistance (cm, 0 = no limit), asked of the executing view.
         float MaxDrawDistance = 0.0f;
 
+        // The owning StaticMeshComponent's Cast Contact Shadow (UE bCastContactShadow), as its lit draw carries it.
+        bool CastContactShadow = true;
+
         DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                      Graphic::Material* material, uint64_t visibleSubmeshMask, bool outlined,
                                      bool castShadows = false, float maxDrawDistance = 0.0f,
-                                     uint32_t motionPart = 0 )
+                                     uint32_t motionPart = 0, bool castContactShadow = true )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ), Transform( transform ),
                SlotMaterial( material ), VisibleSubmeshMask( visibleSubmeshMask ), Outlined( outlined ),
-               CastShadows( castShadows ), MaxDrawDistance( maxDrawDistance )
+               CastShadows( castShadows ), MaxDrawDistance( maxDrawDistance ),
+               CastContactShadow( castContactShadow )
         {
         }
 
@@ -55,7 +59,7 @@ namespace Desert::Graphic::Render
             if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
                 return;
             renderer.SubmitSlotMaterialMesh( Entity, Mesh, Transform, SlotMaterial, VisibleSubmeshMask, Outlined,
-                                             CastShadows, MotionPart );
+                                             CastShadows, MotionPart, CastContactShadow );
         }
     };
 } // namespace Desert::Graphic::Render

@@ -39,14 +39,18 @@ namespace Desert::Graphic::Render
         // The owning component's MaxDrawDistance (cm, 0 = no limit), asked of the executing view's lens.
         float MaxDrawDistance = 0.0f;
 
+        // The owning StaticMeshComponent's Cast Contact Shadow (on for a producer that is not a mesh component).
+        bool CastContactShadow = true;
+
         DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                 std::string shaderName, Graphic::MaterialOverrides overrides, bool outlined,
                                 Graphic::Image2D* directTexture = nullptr, std::string directTextureSampler = {},
-                                bool castShadows = false, float maxDrawDistance = 0.0f )
+                                bool castShadows = false, float maxDrawDistance = 0.0f,
+                                bool castContactShadow = true )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),
                Overrides( std::move( overrides ) ), Outlined( outlined ), DirectTexture( directTexture ),
                DirectTextureSampler( std::move( directTextureSampler ) ), CastShadows( castShadows ),
-               MaxDrawDistance( maxDrawDistance )
+               MaxDrawDistance( maxDrawDistance ), CastContactShadow( castContactShadow )
         {
         }
 
@@ -55,7 +59,7 @@ namespace Desert::Graphic::Render
             if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
                 return;
             renderer.SubmitGenericMesh( Entity, Mesh, Transform, ShaderName, Overrides, Outlined, DirectTexture,
-                                        DirectTextureSampler, CastShadows );
+                                        DirectTextureSampler, CastShadows, CastContactShadow );
         }
     };
 } // namespace Desert::Graphic::Render

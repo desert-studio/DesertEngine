@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -181,8 +182,8 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
-    inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
-    inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
+    inline constexpr std::string_view kSceneViewSceneDepthName       = Core::kSceneDepthName;
+    inline constexpr std::string_view kSceneViewSceneShadingWordName = Core::kSceneShadingWordName;
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";

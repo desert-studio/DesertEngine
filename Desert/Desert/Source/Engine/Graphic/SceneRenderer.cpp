@@ -1711,7 +1711,8 @@ namespace Desert::Graphic
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows )
+                                           const std::string& directTextureSampler, bool castShadows,
+                                           bool castContactShadow )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1723,13 +1724,15 @@ namespace Desert::Graphic
                                     .Overrides            = overrides,
                                     .Outlined             = outlined,
                                     .CastShadows          = castShadows,
+                                    .CastContactShadow    = castContactShadow,
                                     .DirectTexture        = directTexture,
                                     .DirectTextureSampler = directTextureSampler } );
     }
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                                 Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                                bool castShadows, const uint32_t motionPart )
+                                                bool castShadows, const uint32_t motionPart,
+                                                const bool castContactShadow )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1740,6 +1743,7 @@ namespace Desert::Graphic
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,
+                                    .CastContactShadow  = castContactShadow,
                                     .SlotMaterial       = material,
                                     .VisibleSubmeshMask = visibleSubmeshMask } );
     }

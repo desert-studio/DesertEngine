@@ -295,11 +295,8 @@ namespace Desert::Graphic::System
                 // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
                 // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
                 // this set is only about the log line.
-                GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
-                // After the prepass this list's node holds the depth read-only: what draws there is translucent
-                // (UE: translucency writes no depth), whatever a blending shader's ZWrite says.
-                if ( set == GenericDrawSet::AfterOpaque )
-                    spec.DepthWriteEnabled = false;
+                GraphicsPipelineSpecification spec =
+                     GenericPipelineSpec( shader, /*depthReadOnly*/ set == GenericDrawSet::AfterOpaque );
                 spec.DebugName = std::format( kGenericMeshNameFormat, shader->GetName() );
                 const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
                 if ( built )
@@ -467,19 +464,21 @@ namespace Desert::Graphic::System
                         .Material          = d.Material->GetMaterialExecutor(),
                         .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                         .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow]
+                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow,
+                                      flags = PrimitiveFlagsOf( g.CastContactShadow )]
                         {
                             material->SetPrimitiveIndex( motionRow );
                             material->SetMaterialIndex( row );
-                            // A custom-shader mesh carries no Cast Contact Shadow switch: it casts (the depth
-                            // prepass's word). Pushed every draw: a stand-in material is shared with the static
-                            // stand-in group, whose draws push their own objects' flags.
-                            material->SetPrimitiveFlags( PrimitiveFlagsOf( true ) );
+                            // The owning component's Cast Contact Shadow (GenericMeshRenderData), as the static
+                            // meshes'. Pushed every draw: a stand-in material is shared with the static stand-in
+                            // group, whose draws push their own objects' flags.
+                            material->SetPrimitiveFlags( flags );
                         } } );
         }
     }
 
-    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>& shader )
+    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>& shader,
+                                                                     const bool                     depthReadOnly )
     {
         GraphicsPipelineSpecification spec;
         spec.DebugName    = std::format( kGenericMeshNameFormat, shader->GetName() );
@@ -487,6 +486,10 @@ namespace Desert::Graphic::System
         spec.TargetLayout = SceneTargetLayout();
         spec.Layout       = MeshVertexLayout( MeshVertexPath::Static );
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        // After the prepass the node holds the depth read-only: what draws there is translucent (UE: translucency
+        // writes no depth), whatever a blending shader's ZWrite says.
+        if ( depthReadOnly )
+            spec.DepthWriteEnabled = false;
         return spec;
     }
 
@@ -506,16 +509,11 @@ namespace Desert::Graphic::System
         if ( !m_StaticPrepassPipeline || !m_StaticPrepassedPipeline )
             return refuse( "the forward depth prepass has no static pipelines (SetupDepthPrepass logged why)" );
         const auto depthShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( depthProgram );
+        // An opaque custom shader that declares the scene depth never gets here: its programs are refused at load
+        // on both paths (ShaderReflection::ReconcileCellLayout, Core::Formats::IsOpaqueCustomMeshProgram).
         if ( !depthShader || !depthShader->IsCompiled() )
             return refuse(
                  "its depth-prepass program is missing or did not compile (its compile error was logged)" );
-        // UE: only a translucent material reads the scene depth. The prepass WRITES the depth this program would
-        // sample, and the system black it would read instead is a different clip than the base pass's.
-        if ( SceneViewDetail::Reflects2D( *depthShader, kSceneViewSceneDepthName ) ||
-             SceneViewDetail::Reflects2D( *depthShader, kSceneViewSceneShadingWordName ) )
-            return refuse( std::format( "an opaque shader samples {} or {}, which the depth prepass is writing; a "
-                                        "shader that reads the scene depth blends and writes none (`ZWrite Off`)",
-                                        kSceneViewSceneDepthName, kSceneViewSceneShadingWordName ) );
 
         // The prepass: the shader's own state (its cull and compare as authored) on the prepass's target.
         GraphicsPipelineSpecification depthSpec = GenericPipelineSpec( depthShader );
@@ -566,8 +564,22 @@ namespace Desert::Graphic::System
             auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto built =
-                 m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader ) );
+            // THE PIPELINES THIS PATH WILL DRAW WITH, not the plain one. After the forward depth prepass an opaque
+            // custom shader records its depth-prepass program in the prepass and its own program at EQUAL in the
+            // base pass (PrepassedGenericPipelinesOf, the very requests BuildGenericDraws makes), so both compiles
+            // start here, together: the first frame stands in no longer than the base pass alone would. The
+            // others record after the base pass with the depth read-only (GenericDrawSet::AfterOpaque).
+            const bool                       prepassed = m_SceneRenderer->UsesForwardDepthPrepass();
+            const std::optional<std::string> depthProgram =
+                 prepassed ? GenericDepthProgramOf( name ) : std::optional<std::string>();
+            if ( depthProgram )
+            {
+                // A refusal is said once, by name, by PrepassedGenericPipelinesOf; the draw asks again.
+                (void)PrepassedGenericPipelinesOf( name, *depthProgram, shader );
+                continue;
+            }
+            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
+                 GenericPipelineSpec( shader, /*depthReadOnly*/ prepassed ) );
             if ( built )
                 TrackMaterialPipeline( name, *built.GetValue() );
             else
@@ -2051,7 +2063,7 @@ namespace Desert::Graphic::System
         BuildGenericDraws( m_PrepassDraws, GenericDrawSet::OpaqueDepth );
         // A custom shader's program may sample the view's inputs (its fragment is the author's); the cells sample
         // none. The scene depth and shading word are not this frame's yet (this node writes them): a program
-        // sampling them is refused (PrepassedGenericPipelinesOf).
+        // declaring them is refused at load (Core::Formats::IsOpaqueCustomMeshProgram).
         m_PrepassDraws.Declare( pass, view );
     }
 

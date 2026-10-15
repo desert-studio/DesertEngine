@@ -1,5 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 #include <algorithm>
 #include <format>
@@ -664,6 +666,19 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         out.Errors = Core::Formats::ReconcileMaterialLayout( out.Layout, templateName, cellName, reflected );
         for ( const auto& stage : reflected )
             out.Layout.SceneReads = out.Layout.SceneReads | SceneResources::Classify( stage.ResourceNames );
+        // UE: only a translucent material reads the scene depth. An opaque custom mesh shader writes the depth it
+        // would read (the forward depth prepass; on Deferred the generic node attaches it writable), so it is
+        // refused here, at load, on both paths - never silently left undrawn by one renderer.
+        if ( Core::Formats::IsOpaqueCustomMeshProgram( meta, cellName ) )
+            for ( const auto& stage : reflected )
+                for ( const std::string_view name : { Core::kSceneDepthName, Core::kSceneShadingWordName } )
+                    if ( std::find( stage.ResourceNames.begin(), stage.ResourceNames.end(), name ) !=
+                         stage.ResourceNames.end() )
+                        out.Errors.push_back( std::format(
+                             "'{}' program '{}': an opaque custom mesh shader declares {} in its {} stage; only a "
+                             "translucent shader may read the scene depth (an opaque one writes it). Make it "
+                             "blend with `ZWrite Off`, or drop the read",
+                             templateName, cellName, name, Graphic::Shader::GetStringShaderStage( stage.Stage ) ) );
         return out;
     }
 

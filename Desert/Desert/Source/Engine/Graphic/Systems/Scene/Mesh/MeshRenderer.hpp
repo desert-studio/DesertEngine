@@ -262,6 +262,10 @@ namespace Desert::Graphic::System
             // The producers that ARE meshes opt in; ECS::Rules::RouteMeshShadowCaster decides which
             // single draw of an entity does so, because the shadow pass draws a mesh WHOLE.
             bool CastShadows = false;
+            // The owning StaticMeshComponent's Cast Contact Shadow (UE bCastContactShadow): the caster bit the
+            // depth prepass writes into the shading word for this draw. A producer that is not a mesh component
+            // (the text system's glyph quads) leaves it on; those draw after the prepass and write no word.
+            bool CastContactShadow = true;
 
             Graphic::Material*        SlotMaterial      = nullptr; // owned by MaterialService (stable)
             uint64_t                  VisibleSubmeshMask = ~0ull;  // bit i = submesh i drawn
@@ -831,9 +835,10 @@ namespace Desert::Graphic::System
 
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
-        // which is what a draw uses until its own pipeline is Ready.
+        // which is what a draw uses until its own pipeline is Ready. @p depthReadOnly: the draw records after the
+        // forward depth prepass (GenericDrawSet::AfterOpaque), whose node holds the depth read-only.
         [[nodiscard]] static GraphicsPipelineSpecification
-             GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
+             GenericPipelineSpec( const std::shared_ptr<Shader>& shader, bool depthReadOnly = false );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();

@@ -274,14 +274,16 @@ namespace Desert::Graphic
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
-                                const std::string& directTextureSampler = {}, bool castShadows = false );
+                                const std::string& directTextureSampler = {}, bool castShadows = false,
+                                bool castContactShadow = true );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
         // of the entity the draw belongs to (RenderSubmissionExtra::MotionPart), 0 = the entity itself.
+        // @p castContactShadow: the owning StaticMeshComponent's Cast Contact Shadow.
         void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
                                      uint64_t visibleSubmeshMask, bool outlined = false, bool castShadows = false,
-                                     uint32_t motionPart = 0 );
+                                     uint32_t motionPart = 0, bool castContactShadow = true );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;

@@ -394,6 +394,29 @@ namespace Desert::Core::Formats
         bool operator==( const ShaderProgramMeta& ) const = default;
     };
 
+    // A PROGRAM OF AN OPAQUE CUSTOM MESH SHADER: a mesh-path shader written as stage blocks (no `Surface` block)
+    // that writes opaque depth, so the parser derived its depth-prepass program "<Shader>/
+    // kCustomDepthPrepassPassName" (a surface template's cells are named "<Path>.<Pass>", never this bare name).
+    // The renderer draws exactly these in the forward depth prepass (MeshRenderer GenericDepthProgramOf). Two
+    // programs answer: the default one (@p passName empty; its metadata lists the derived pass) and the derived
+    // one itself (a named pass's metadata lists no passes, ShaderPreprocessor MetaForPass).
+    // UE: only a translucent material may read SceneDepth; an opaque one writes the depth it would read. So a
+    // program load refuses either program when it declares the scene depth or shading word
+    // (VulkanShaderReflection ReconcileCellLayout), on every path alike.
+    [[nodiscard]] inline bool IsOpaqueCustomMeshProgram( const ShaderProgramMeta& meta, std::string_view passName )
+    {
+        if ( !DrawnByMeshPath( meta.Domain ) )
+            return false;
+        if ( passName == kCustomDepthPrepassPassName )
+            return true;
+        if ( !passName.empty() )
+            return false;
+        for ( const std::string& pass : meta.PassNames )
+            if ( pass == kCustomDepthPrepassPassName )
+                return true;
+        return false;
+    }
+
     // THE MATERIAL'S OWN TEXTURES — the one classification of a program's samplers (UE's material
     // parameters vs pass/view parameters, which never share a slot). A sampler the parameter schema's
     // `Properties` block declares is a MATERIAL parameter: the MaterialExecutor gives it a property that

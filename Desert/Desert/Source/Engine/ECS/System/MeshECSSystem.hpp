@@ -278,7 +278,7 @@ namespace Desert::ECS
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts, mesh.MaxDrawDistance );
+                                      overrideCasts, mesh.MaxDrawDistance, mesh.CastContactShadow );
                                  return; // skip the lit path for this entity
                              }
                          }
@@ -305,7 +305,8 @@ namespace Desert::ECS
                          for ( const auto& d : split.SlotDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat,
-                                  d.VisibleMask, outlined, d.CastShadows, mesh.MaxDrawDistance );
+                                  d.VisibleMask, outlined, d.CastShadows, mesh.MaxDrawDistance,
+                                  /*motionPart*/ 0, mesh.CastContactShadow );
 
                          // Lit path draws the remaining submeshes (skip entirely when every
                          // submesh went custom).
