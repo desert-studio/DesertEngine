@@ -2,6 +2,10 @@
 
 #include "Mesh.hpp"
 
+#include <Engine/Geometry/PosedBounds.hpp>
+
+#include <memory>
+
 namespace Desert::Animation
 {
     class Skeleton;
@@ -75,6 +79,13 @@ namespace Desert
             return m_MorphDeltas;
         }
 
+        // Each bone's box of the vertices it moves and of their morph deltas (Geometry::SkinnedBoneBounds): what
+        // the renderer carries by the pose to cull the mesh in every view. Shared with the morphed twin.
+        [[nodiscard]] const Geometry::SkinnedBoneBounds& GetBoneBounds() const
+        {
+            return *m_BoneBounds;
+        }
+
     private:
         SkinnedMesh() = default; // MakeMorphedTwin
 
@@ -84,6 +95,9 @@ namespace Desert
         // that references it.
         const Animation::Skeleton* m_Skeleton = nullptr;
         std::vector<SkinnedVertex> m_Vertices; // empty on a morphed twin: picking reads the base mesh
+
+        // Built in the constructor; never null.
+        std::shared_ptr<const Geometry::SkinnedBoneBounds> m_BoneBounds;
 
         uint32_t                                        m_VertexCount      = 0;
         uint32_t                                        m_MorphTargetCount = 0;

@@ -21,6 +21,9 @@ namespace Desert
         m_Submeshes = submeshes;
         m_Vertices  = vertices; // retained on the CPU for viewport picking (posed-AABB)
 
+        m_BoneBounds = std::make_shared<const Geometry::SkinnedBoneBounds>(
+             Geometry::BuildSkinnedBoneBounds( vertices, morphTargets ) );
+
         // ONE BONE INDEX SPACE, CHECKED WHERE THE TWO SIDES MEET. This is the only moment a mesh and a rig
         // are joined, and until now nothing compared them: the property that a vertex's BoneIDs index the
         // same array as the skeleton's bones and the animator's pose was true by construction of the
@@ -96,6 +99,7 @@ namespace Desert
         twin->m_VertexCount      = base.m_VertexCount;
         twin->m_MorphTargetCount = base.m_MorphTargetCount;
         twin->m_MorphDeltas      = base.m_MorphDeltas;
+        twin->m_BoneBounds       = base.m_BoneBounds;
         twin->m_VertexBuffer     = std::move( morphedVertices );
         return twin;
     }

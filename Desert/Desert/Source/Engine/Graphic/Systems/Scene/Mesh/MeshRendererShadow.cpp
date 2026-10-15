@@ -496,12 +496,10 @@ namespace Desert::Graphic::System
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
             if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
                 continue;
+            // The box of this frame's pose (SubmitMesh), not the bind pose's: an arm raised out of the rest box
+            // still reaches the views it shadows.
             setup.Skinned.push_back(
-                 { .Index = i,
-                   .WorldBounds =
-                        Geometry::TransformBounds( sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ),
-                   .Surface  = sd.Material,
-                   .Instance = sd.Instance } );
+                 { .Index = i, .WorldBounds = sd.WorldBounds, .Surface = sd.Material, .Instance = sd.Instance } );
         }
 
         // UE-style Instanced Static Meshes, per instance: the main camera's cull distance (an instance faded out
@@ -1118,9 +1116,8 @@ namespace Desert::Graphic::System
         // its slice, for the same reason the forward skinned path does it — a per-draw upload would leave the
         // earlier recorded draws reading the last caster's pose.
         //
-        // NOT culled by the view's bit: a posed mesh's box is its bind pose's, and a limb posed out of it would
-        // lose its shadow at the view's edge. The bit only decides whether a cascade has a movable layer at all
-        // (CascadeStaticSignature), as it did before the casters were gathered.
+        // Culled by the view's bit like every other caster: the box it was marked by is this frame's pose's
+        // (SkinnedMeshRenderData::WorldBounds), so a limb posed out of the rest box keeps its shadow.
         if ( drawMovable && m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !setup.Skinned.empty() )
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
@@ -1132,6 +1129,8 @@ namespace Desert::Graphic::System
             std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> casters;
             for ( const ShadowCasterRef& ref : setup.Skinned )
             {
+                if ( ( ref.Views & bit ) == 0 )
+                    continue;
                 const SkinnedMeshRenderData& sd = m_SkinnedQueue[ref.Index];
                 if ( IsMaskedCaster( ref.Surface ) )
                 {

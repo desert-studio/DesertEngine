@@ -12,23 +12,6 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // Does the world box of a caster reach into the sphere?
-        [[nodiscard]] bool BoxInSphere( const Common::Math::AABB& box, const glm::vec3& centre,
-                                        const float radius )
-        {
-            const glm::vec3 closest = glm::clamp( centre, box.Min, box.Max );
-            const glm::vec3 d       = closest - centre;
-            return glm::dot( d, d ) <= radius * radius;
-        }
-
-        [[nodiscard]] bool CasterInSphere( const glm::mat4& transform, const Common::Math::AABB& local,
-                                           const glm::vec3& centre, const float radius )
-        {
-            if ( Geometry::IsEmpty( local ) )
-                return true; // a caster that states no bounds is everywhere, as the frustum test treats it
-            return BoxInSphere( Geometry::TransformBounds( transform, local ), centre, radius );
-        }
-
         // The key of the light's views themselves: where they look from, what they cover, where they are drawn.
         void AddViews( SignatureHash& hash, const LocalShadowViewPayload* rows, const uint32_t count )
         {
@@ -53,47 +36,54 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const uint64_t viewBits ) const
     {
-        SignatureHash hash;
-        for ( const auto& rd : m_StaticQueue )
+        // The frame's gathered casters (GatherShadowCasters) the light's views reach (MarkShadowCasterViews):
+        // the same list and the same marks its redraw reads, so the key changes exactly when what it would draw
+        // does.
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        SignatureHash            hash;
+        const auto               addStatics = [&]( const std::vector<ShadowCasterRef>& refs )
         {
-            if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !CasterInSphere( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ), centre,
-                                  radius ) )
-                continue;
-            hash.Add( rd.Mesh );
-            hash.Add( rd.Transform );
-        }
-        for ( const auto& g : m_GenericQueue )
+            for ( const ShadowCasterRef& ref : refs )
+            {
+                if ( ( ref.Views & viewBits ) == 0 )
+                    continue;
+                const StaticMeshRenderData& rd = m_StaticQueue[ref.Index];
+                hash.Add( rd.Mesh );
+                hash.Add( rd.Transform );
+            }
+        };
+        addStatics( setup.Statics );
+        addStatics( setup.MaskedStatics );
+        for ( const ShadowCasterRef& ref : setup.Generics )
         {
-            if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !CasterInSphere( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ), centre, radius ) )
+            if ( ( ref.Views & viewBits ) == 0 )
                 continue;
+            const GenericMeshRenderData& g = m_GenericQueue[ref.Index];
             hash.Add( g.Mesh );
             hash.Add( g.Transform );
         }
         // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
-        for ( const auto& sd : m_SkinnedQueue )
+        for ( const ShadowCasterRef& ref : setup.Skinned )
         {
-            if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 CasterInSphere( sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ), centre, radius ) )
+            if ( ( ref.Views & viewBits ) != 0 )
                 return std::nullopt;
         }
-        for ( const auto& ism : m_InstancedQueue )
+        for ( const ShadowIsmCaster& caster : setup.Instanced )
         {
-            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
-                continue;
-            const Common::Math::AABB local = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-            bool                     any   = false;
-            for ( const glm::mat4& instance : *ism.Transforms )
+            const InstancedMeshRenderData& ism        = m_InstancedQueue[caster.Index];
+            const std::vector<glm::mat4>&  transforms = *ism.Transforms;
+            bool                           any        = false;
+            for ( uint32_t k = caster.FirstInstance; k < caster.FirstInstance + caster.InstanceCount; ++k )
             {
-                if ( !CasterInSphere( instance, local, centre, radius ) )
+                const ShadowCasterRef& instance = setup.Instances[k];
+                if ( ( instance.Views & viewBits ) == 0 )
                     continue;
                 // Swaying foliage moves every frame, like a posed mesh.
                 if ( ism.Wind.Sways() )
                     return std::nullopt;
-                hash.Add( instance );
+                hash.Add( transforms[instance.Index] );
                 any = true;
             }
             if ( any )
@@ -205,6 +195,16 @@ namespace Desert::Graphic::System
                            ( 1024ull * 1024ull ) );
         }
 
+        // The lights given views this frame; their cache is decided once every view is marked. Each has a view
+        // at least, so the frame's view budget bounds them.
+        struct PendingLight
+        {
+            LocalShadowLight* Light     = nullptr; // into m_LocalLights: an emplace does not move its elements
+            uint32_t          FirstRow  = 0;
+            uint32_t          ViewCount = 0;
+        };
+        std::array<PendingLight, kMaxLocalShadowViews> pending{};
+        std::size_t                                    pendingCount = 0;
         uint32_t refused = 0;
         for ( const Request& request : requests )
         {
@@ -299,33 +299,40 @@ namespace Desert::Graphic::System
                 EnsureShadowViewMaterials( view );
             }
 
-            // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach moves).
-            const glm::vec3 centre = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
-            const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            std::optional<uint64_t> signature = LocalCasterSignature( centre, reach );
+            pending[pendingCount++] = { &light, firstRow, viewCount };
+        }
+
+        // Every local view of the frame marked on this frame's gathered casters (GatherShadowCasters) in one walk:
+        // the cache key below and the setups of the redrawn views (LocalShadowPasses) read the same marks, so a
+        // light's key holds exactly the casters its views draw.
+        std::array<uint32_t, kMaxLocalShadowViews> localViews{};
+        for ( uint32_t row = 0; row < static_cast<uint32_t>( m_LocalShadowRows.size() ); ++row )
+            localViews[row] = kMaxShadowCascades + row;
+        MarkShadowCasterViews( std::span<const uint32_t>( localViews.data(), m_LocalShadowRows.size() ) );
+
+        // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach moves).
+        for ( std::size_t p = 0; p < pendingCount; ++p )
+        {
+            const PendingLight& entry = pending[p];
+            uint64_t            bits  = 0;
+            for ( uint32_t v = 0; v < entry.ViewCount; ++v )
+                bits |= ShadowViewBit( kMaxShadowCascades + entry.FirstRow + v );
+            std::optional<uint64_t> signature = LocalCasterSignature( bits );
             if ( signature )
             {
                 SignatureHash hash;
                 hash.Add( *signature );
-                AddViews( hash, &m_LocalShadowRows[firstRow], viewCount );
+                AddViews( hash, &m_LocalShadowRows[entry.FirstRow], entry.ViewCount );
                 signature = hash.Value;
             }
-            const bool cached = signature.has_value() && light.Signature == signature;
-            light.Signature   = signature;
+            const bool cached      = signature.has_value() && entry.Light->Signature == signature;
+            entry.Light->Signature = signature;
             if ( !cached )
             {
-                for ( uint32_t v = 0; v < viewCount; ++v )
-                    m_LocalRedraws.push_back( { kMaxShadowCascades + firstRow + v, light.Tiles[v] } );
+                for ( uint32_t v = 0; v < entry.ViewCount; ++v )
+                    m_LocalRedraws.push_back( { kMaxShadowCascades + entry.FirstRow + v, entry.Light->Tiles[v] } );
             }
         }
-
-        // The casters each redrawn view reaches, marked on this frame's gathered list (GatherShadowCasters) in one
-        // walk for all of them: their setups (LocalShadowPasses) read the marks.
-        std::array<uint32_t, kMaxLocalShadowViews> redrawViews{};
-        std::size_t                                 redrawCount = 0;
-        for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
-            redrawViews[redrawCount++] = redraw.View;
-        MarkShadowCasterViews( std::span<const uint32_t>( redrawViews.data(), redrawCount ) );
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
         if ( refused != m_LocalRefusedLogged )

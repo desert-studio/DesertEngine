@@ -1360,9 +1360,19 @@ namespace Desert::Graphic::System
             groups.emplace_back( mat, std::vector<const SkinnedMeshRenderData*>{} );
             return groups.back().second;
         };
+        // Culled by the box of this frame's pose (UE culls a skeletal mesh by its posed bounds), the box every
+        // shadow view culls it by too.
+        std::optional<Core::Frustum> frustum;
+        if ( camera != nullptr )
+            frustum = camera->GetFrustum();
         for ( const auto& data : m_SkinnedQueue )
-            if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
-                groupFor( data.Material ).push_back( &data );
+        {
+            if ( data.Mesh == nullptr || data.Material == nullptr || data.Instance == nullptr )
+                continue;
+            if ( frustum && !IsWorldBoxInView( *frustum, data.WorldBounds ) )
+                continue;
+            groupFor( data.Material ).push_back( &data );
+        }
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
         // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its

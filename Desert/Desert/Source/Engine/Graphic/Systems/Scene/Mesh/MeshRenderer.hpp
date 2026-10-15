@@ -212,6 +212,9 @@ namespace Desert::Graphic::System
             MaterialSlotBindingPtr      MaterialSlots;
             MaterialInstance*           Instance = nullptr; // instance applied during Bind; owned by MaterialSlots
             std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
+            // The world box of the mesh in this pose and morph (Geometry::PosedWorldBounds), set at submit: what
+            // every view culls it by, the main one and each shadow view. Empty: no known extent, in every view.
+            Common::Math::AABB WorldBounds;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -758,9 +761,10 @@ namespace Desert::Graphic::System
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
-        // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // A hash of every gathered caster marked for a view in @p viewBits (ShadowViewBit; what it draws and
+        // where), or nullopt when one of them moves by itself every frame (a skinned mesh, swaying foliage): the
+        // cache key of a local light's views. Reads the marks MarkShadowCasterViews left this frame.
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( uint64_t viewBits ) const;
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic

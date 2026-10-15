@@ -558,10 +558,20 @@ namespace Desert::Graphic::System
                 SkinnedMeshRenderData skinnedData;
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): MeshType::Skinned is set only
                 // for a SkinnedMesh
-                skinnedData.Mesh          = MorphedMeshFor( data, static_cast<SkinnedMesh*>( data.Mesh ) );
+                auto* const base          = static_cast<SkinnedMesh*>( data.Mesh );
+                skinnedData.Mesh          = MorphedMeshFor( data, base );
                 skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
                 skinnedData.BoneMatrices  = data.BoneMatrices;
+
+                // The pose's box, morphed only when the mesh draws morphed (MorphedMeshFor gave its twin): the
+                // weights of a mesh drawn from its base vertices move nothing.
+                std::span<const float> morphWeights;
+                if ( skinnedData.Mesh != base )
+                    morphWeights = data.MorphWeights;
+                skinnedData.WorldBounds = Geometry::PosedWorldBounds( base->GetBoneBounds(), data.BoneMatrices,
+                                                                      morphWeights, data.Transform );
+
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps Instance below alive (A8-3)
