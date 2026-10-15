@@ -65,12 +65,12 @@ namespace Desert::Graphic
 
         // The near edge of slice 1 is near * (far/near)^(1/slices); a near plane at or under 1 cm would give the
         // first slices a sliver of the view each, so the grid's own near is never under a centimetre.
-        const float near = std::max( nearPlane, 1.0f );
-        float       far  = near * 2.0f;
+        const float zNear = std::max( nearPlane, 1.0f );
+        float       zFar  = zNear * 2.0f;
         for ( const auto& light : points.PointLights )
-            far = std::max( far, depthOf( light.Position ) + light.Radius );
+            zFar = std::max( zFar, depthOf( light.Position ) + light.Radius );
         for ( const auto& light : spots.SpotLights )
-            far = std::max( far, depthOf( light.Position ) + light.Range );
+            zFar = std::max( zFar, depthOf( light.Position ) + light.Range );
 
         const uint32_t tile   = std::max( quality.TilePixels, 1u );
         const uint32_t slices = std::max( quality.Slices, 1u );
@@ -81,7 +81,7 @@ namespace Desert::Graphic
         grid.Size          = glm::uvec4( ( std::max( width, 1u ) + tile - 1u ) / tile,
                                          ( std::max( height, 1u ) + tile - 1u ) / tile, slices,
                                          std::max( quality.MaxLightsPerCell, 1u ) );
-        grid.ZParams       = glm::vec4( near, static_cast<float>( slices ) / std::log( far / near ), far,
+        grid.ZParams       = glm::vec4( zNear, static_cast<float>( slices ) / std::log( zFar / zNear ), zFar,
                                         static_cast<float>( tile ) );
         grid.Counts        = glm::uvec4( static_cast<uint32_t>( points.PointLights.size() ),
                                          static_cast<uint32_t>( spots.SpotLights.size() ), 0u, 0u );
