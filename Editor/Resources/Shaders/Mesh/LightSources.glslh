@@ -19,7 +19,7 @@ struct PointLight {
     float minRadius;
     int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
     int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float _pad;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
 };
 
 // std430 layout — must match ShaderProtocols::SpotLightPayload (64 bytes).
@@ -33,7 +33,7 @@ struct SpotLight {
     float cosOuter;    // cos(outer half-angle) — zero intensity outside this
     int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
     int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float _pad;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
 };
 
 // Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.

@@ -14,6 +14,16 @@
 //
 // One instance per page to relight: six vertices cover the page's rectangle of the atlas; the fragment works out
 // its card texel from the page's card rectangle. A texel the capture saw no surface in (opacity 0) is unlit.
+//
+// OFF THE VIEW'S SHADOW MAPS (GI-SURFACE-CACHE-5; UE LumenSceneDirectLightingShadowMask.usf, the global distance
+// field shadow ray of TraceDistanceFieldShadows / bLumenUseGlobalSDF): a texel no cascade covers (behind the
+// camera, past the shadow distance) and a texel of a shadow-casting point/spot light the local shadow budget refused
+// a view get their shadow from a ray through the global distance field (Common/GlobalDistanceField.glslh) instead
+// of "fully lit". A texel past the coarsest clipmap has nothing to trace against and stays lit.
+//
+// THE LIGHTS OF A TEXEL (UE LumenSceneDirectLightingCulling): the world light grid's list for the texel's cell
+// (Mesh/LightGrid.glslh LightGridWorldLightsAt - the radiance cache clipmap cells around the camera, built by
+// "LightGridWorld" from the same point/spot buffers), not every light of the view.
 Shader "SurfaceCacheDirectLighting"
 {
     Vertex
@@ -92,12 +102,65 @@ Shader "SurfaceCacheDirectLighting"
         };
         #include <Mesh/LocalLightShadow.glslh>
 
+        // The world light grid (SceneRenderer::AddFrameLightGridWorld): its parameters, then its cell lists.
+        #include <Mesh/LightGrid.glslh>
+        ReadBuffer(19) LightGridParamsUB
+        {
+            LightGridParams lightGrid;
+        };
+        ReadBuffer(20) LightGridWorldCellsUB
+        {
+            uint lightGridWorldCells[];
+        };
+        #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
+        #include <Mesh/LightGrid.glslh>
+
+        // The global distance field of the frame (GlobalDistanceField::FrameField), REPEAT-sampled clipmaps.
+        Uniform(21) sampler3D u_GlobalDistanceField0;
+        Uniform(22) sampler3D u_GlobalDistanceField1;
+        Uniform(23) sampler3D u_GlobalDistanceField2;
+        Uniform(24) sampler3D u_GlobalDistanceField3;
+        #include <Common/GlobalDistanceField.glslh>
+
         PushConstant SurfaceDirectLightingPush
         {
-            vec4  u_LightDir;   // xyz = the direction the sun's light travels
-            vec4  u_LightColor; // rgb = colour, a = intensity
-            uvec4 u_Counts;     // x = point lights, y = spot lights
+            vec4 u_LightDir;   // xyz = the direction the sun's light travels
+            vec4 u_LightColor; // rgb = colour, a = intensity
+            vec4 u_GdfLevels[4]; // (centre.xyz, voxel size) per clipmap, centimetres
         };
+
+        // The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a ray through the
+        // global distance field: 0 when the ray meets a surface, 1 otherwise. The ray starts a voxel off the surface
+        // along its normal (UE's surface bias for the global SDF shadow ray: the texel's own surface, reconstructed
+        // half a voxel thick by the trace's expansion, must not shadow it) and stops a voxel short of a local light
+        // (its own fixture).
+        float DistanceFieldShadow(vec3 worldPos, vec3 N, vec3 L, float maxT)
+        {
+            vec4 levels[GDF_NUM_CLIPMAPS];
+            for (int i = 0; i < GDF_NUM_CLIPMAPS; ++i)
+                levels[i] = u_GdfLevels[i];
+            const int level = GlobalDistanceFieldLevelAt(worldPos, levels);
+            if (level < 0)
+                return 1.0;
+            const float voxel = levels[level].w;
+            const GlobalDistanceFieldHit hit =
+                TraceGlobalDistanceField(worldPos + N * voxel, L, maxT - voxel, 128, levels);
+            return hit.Hit ? 0.0 : 1.0;
+        }
+
+        // A point/spot light's shadow at the texel: its local shadow view when it has one, the distance field when
+        // it casts but the view budget gave it none.
+        float LocalLightShadowOrTrace(int shadowView, int shadowCaster, float viewShadow, vec3 lightPos, vec3 worldPos,
+                                      vec3 N)
+        {
+            if (shadowView >= 0)
+                return viewShadow;
+            if (shadowCaster == 0)
+                return 1.0;
+            const vec3  toLight = lightPos - worldPos;
+            const float dist    = length(toLight);
+            return dist > 0.0 ? DistanceFieldShadow(worldPos, N, toLight / dist, dist) : 1.0;
+        }
 
         layout(location = 0) in flat uint v_CardIndex;
         layout(location = 1) in flat vec4 v_CardUVRect;
@@ -149,22 +212,42 @@ Shader "SurfaceCacheDirectLighting"
                 const float NdotL = max(dot(N, L), 0.0);
                 if (NdotL > 0.0)
                 {
-                    int         cascade = -1;
-                    const float shadow  = ShadowFactor(worldPos, N, L, cascade) * CloudShadowFactor(worldPos);
-                    irradiance += u_LightColor.rgb * u_LightColor.a * NdotL * shadow;
+                    int   cascade = -1;
+                    float shadow  = ShadowFactor(worldPos, N, L, cascade);
+                    // Shadows on (u_ShadowParams.y) but no cascade holds the texel: the distance field answers.
+                    if (cascade < 0 && u_ShadowParams.y > 0.5)
+                        shadow = DistanceFieldShadow(worldPos, N, L, 1.0e7);
+                    irradiance += u_LightColor.rgb * u_LightColor.a * NdotL * shadow * CloudShadowFactor(worldPos);
                 }
             }
-            // Every point and spot light of the view (the card may be off-screen: the froxel grid does not cover
-            // it), each with its local shadow views.
-            for (uint i = 0u; i < u_Counts.x; ++i)
+            // The point and spot lights the world light grid lists for the texel's cell (the card may be off-screen:
+            // the froxel grid does not cover it), each with its shadow.
+            const LightGridWorldRange range = LightGridWorldLightsAt(lightGrid, worldPos);
+            for (uint k = 0u; k < range.count; ++k)
             {
-                const DesertLight light = DesertShadowedPointLightAt(pointLights[i], worldPos, N);
-                irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
-            }
-            for (uint i = 0u; i < u_Counts.y; ++i)
-            {
-                const DesertLight light = DesertShadowedSpotLightAt(spotLights[i], worldPos, N);
-                irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
+                const uint i = LightGridWorldLight(range, k);
+                if (i < lightGrid.counts.x)
+                {
+                    const PointLight source = pointLights[i];
+                    DesertLight      light  = DesertPointLightAt(source, worldPos);
+                    if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
+                        light.Shadow = LocalLightShadowOrTrace(
+                            source.shadowView, source.shadowCaster,
+                            source.shadowView >= 0 ? PointLightShadow(source, worldPos, N) : 1.0, source.position,
+                            worldPos, N);
+                    irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
+                }
+                else
+                {
+                    const SpotLight source = spotLights[i - lightGrid.counts.x];
+                    DesertLight     light  = DesertSpotLightAt(source, worldPos);
+                    if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
+                        light.Shadow = LocalLightShadowOrTrace(
+                            source.shadowView, source.shadowCaster,
+                            source.shadowView >= 0 ? SpotLightShadow(source, worldPos, N) : 1.0, source.position,
+                            worldPos, N);
+                    irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
+                }
             }
 
             const vec3 albedo   = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;

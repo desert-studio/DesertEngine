@@ -40,6 +40,7 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -750,6 +751,12 @@ namespace Desert::Graphic
         // Distance Field" over @p target.
         void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                               RDG::TextureRef target );
+        // The view's global distance field brought up to this frame's camera and static/instanced meshes (created
+        // on first use) - for its one reader of the frame: the Global Distance Field view or the surface cache's
+        // shadow rays.
+        [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::FrameField>
+        AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                     const System::MeshRenderer& meshRenderer );
         // The surface cache view modes (DeferredDebugMode::SurfaceCacheAtlas / SurfaceCacheScene, Deferred only):
         // brings the view's surface cache up to this frame's static and instanced meshes (add, remove, move,
         // resolution by distance), captures the cards it picks through the G-buffer light-view pass, copies them

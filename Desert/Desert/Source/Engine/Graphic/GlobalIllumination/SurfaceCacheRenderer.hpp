@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
@@ -64,17 +65,18 @@ namespace Desert::Graphic::SurfaceCache
         };
         // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene
         // view inputs - cascades, cloud map, local shadow atlas -, the view's light buffers, the composite's
-        // ShadowUB and cloud values, the sun).
+        // ShadowUB and cloud values, the sun), plus what a texel off screen needs: the world light grid of those
+        // light buffers (Lights.WorldGridParams / WorldGridCells, "LightGridWorld") for its light list, and the
+        // frame's global distance field for the shadow the view's maps do not hold.
         struct DirectLightingInputs
         {
-            SceneViewInputs              View;
-            ViewLightBuffers             Lights;
-            SceneResources::ShadowUBData Shadow{};
-            CloudShadowUniforms          Cloud;
-            glm::vec4                    LightDir{ 0.0f, -1.0f, 0.0f, 0.0f };
-            glm::vec4                    LightColor{ 0.0f };
-            uint32_t                     PointCount = 0;
-            uint32_t                     SpotCount  = 0;
+            SceneViewInputs                                View;
+            ViewLightBuffers                               Lights;
+            SceneResources::ShadowUBData                   Shadow{};
+            CloudShadowUniforms                            Cloud;
+            glm::vec4                                      LightDir{ 0.0f, -1.0f, 0.0f, 0.0f };
+            glm::vec4                                      LightColor{ 0.0f };
+            DistanceField::GlobalDistanceField::FrameField Field;
         };
 
         // Shaders, the copy pipeline and the capture framebuffer.

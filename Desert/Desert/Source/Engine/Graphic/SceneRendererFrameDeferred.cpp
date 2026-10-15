@@ -394,8 +394,12 @@ namespace Desert::Graphic
     bool SceneRenderer::WorldLightGridRead() const
     {
 #if DESERT_DEV_INSTRUMENTS
+        // Its readers: the world grid's own view, and the surface cache's direct lighting (every surface cache
+        // view mode lights the cards).
+        const DeferredDebugMode mode = m_DebugView.DeferredDebug;
         return m_RenderPath == Core::RenderPath::Deferred &&
-               m_DebugView.DeferredDebug == DeferredDebugMode::LightGridWorld;
+               ( mode == DeferredDebugMode::LightGridWorld || mode == DeferredDebugMode::SurfaceCacheAtlas ||
+                 mode == DeferredDebugMode::SurfaceCacheScene || mode == DeferredDebugMode::SurfaceCacheSceneLit );
 #else
         return false;
 #endif // DESERT_DEV_INSTRUMENTS
@@ -561,29 +565,15 @@ namespace Desert::Graphic
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
     }
 
-    void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
-                                                         const ViewFrame& frame, const RDG::TextureRef target )
+    Common::ResultStr<DistanceField::GlobalDistanceField::FrameField>
+    SceneRenderer::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
+                                                const ViewFrame& frame, const System::MeshRenderer& meshRenderer )
     {
-        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
-             m_RenderPath != Core::RenderPath::Deferred )
-            return;
-        const auto  it           = m_RenderSystems.find( "MeshSystem" );
-        auto* const meshRenderer = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
-        if ( meshRenderer == nullptr || !target.IsValid() )
-        {
-            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
-                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
-            return;
-        }
         if ( !m_GlobalDistanceField )
         {
             auto field = std::make_unique<DistanceField::GlobalDistanceField>();
             if ( const auto initialized = field->Initialize(); !initialized )
-            {
-                LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", initialized.GetError() );
-                return;
-            }
+                return Common::MakeError<DistanceField::GlobalDistanceField::FrameField>( initialized.GetError() );
             m_GlobalDistanceField = std::move( field );
         }
 
@@ -600,11 +590,11 @@ namespace Desert::Graphic
                 objects.push_back(
                      { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
         };
-        for ( const auto& draw : meshRenderer->GetStaticQueue() )
+        for ( const auto& draw : meshRenderer.GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
                     place( field, draw.Transform );
-        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+        for ( const auto& ism : meshRenderer.GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
@@ -615,8 +605,27 @@ namespace Desert::Graphic
         // The view's matrices, unjittered (ViewFrame, as every overlay reads them; SceneRenderer.hpp: a pass that
         // reads a matrix or a camera position takes the ViewFrame) - not m_SceneInfo.ActiveCamera's, which framed
         // the field from a different camera than the frame it is drawn over.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
-                                                                   m_DistanceFieldPoolMiB );
+        return m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
+                                                       m_DistanceFieldPoolMiB );
+    }
+
+    void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
+                                                         const ViewFrame& frame, const RDG::TextureRef target )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        if ( meshRenderer == nullptr || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
+                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
+            return;
+        }
+        const auto field = AddFrameGlobalDistanceField( graph, textures, frame, *meshRenderer );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", field.GetError() );

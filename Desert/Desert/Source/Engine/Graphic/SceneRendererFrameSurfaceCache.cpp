@@ -54,8 +54,8 @@ namespace Desert::Graphic
             return;
         }
 
-        // THE LUMEN SCENE: every static and instanced mesh of the frame that carries cards, whole - the cache
-        // holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
+        // THE LUMEN SCENE: every static, instanced, generic and skinned mesh of the frame with cards, whole - the
+        // cache holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
         const SurfaceCache::SceneFrame scene =
@@ -131,8 +131,14 @@ namespace Desert::Graphic
             const FrameSun sun          = GetFrameSun();
             lighting.LightDir           = sun.Direction;
             lighting.LightColor         = sun.ColorIntensity;
-            lighting.PointCount         = static_cast<uint32_t>( GetPointLights().PointLights.size() );
-            lighting.SpotCount          = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+            // The shadow rays of the texels the view's maps do not hold march the frame's global distance field.
+            const auto field = AddFrameGlobalDistanceField( graph, textures, frame, *meshRenderer );
+            if ( !field )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", field.GetError() );
+                return;
+            }
+            lighting.Field = field.GetValue();
             if ( const auto lit = m_SurfaceCache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {

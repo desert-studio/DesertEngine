@@ -34,11 +34,11 @@ namespace Desert::Graphic::SurfaceCache
         // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader SurfaceDirectLightingPush.
         struct DirectLightingPush
         {
-            glm::vec4  LightDir{ 0.0f };
-            glm::vec4  LightColor{ 0.0f };
-            glm::uvec4 Counts{ 0u }; // x = point lights, y = spot lights
+            glm::vec4                                                          LightDir{ 0.0f };
+            glm::vec4                                                          LightColor{ 0.0f };
+            std::array<glm::vec4, DistanceField::kGlobalDistanceFieldClipmaps> GdfLevels{}; // (centre, voxel) cm
         };
-        static_assert( sizeof( DirectLightingPush ) == 48 );
+        static_assert( sizeof( DirectLightingPush ) == 96 );
 
         struct SceneViewPush
         {
@@ -358,6 +358,14 @@ namespace Desert::Graphic::SurfaceCache
              !inputs.Lights.ShadowViews.IsValid() )
             return Common::MakeError<bool>( "surface cache direct lighting: the view's light buffers were not "
                                             "uploaded this frame (AddFrameLightGrid)" );
+        if ( !inputs.Lights.WorldGridParams.IsValid() || !inputs.Lights.WorldGridCells.IsValid() )
+            return Common::MakeError<bool>(
+                 "surface cache direct lighting: the world light grid was not built this "
+                 "frame (AddFrameLightGridWorld)" );
+        for ( const RDG::TextureRef& clipmap : inputs.Field.Clipmaps )
+            if ( !clipmap.IsValid() )
+                return Common::MakeError<bool>( "surface cache direct lighting: the frame has no global distance "
+                                                "field (its shadow rays off the view's shadow maps)" );
         std::array<RDG::TextureRef, 5> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
@@ -371,7 +379,8 @@ namespace Desert::Graphic::SurfaceCache
         DirectLightingPush push;
         push.LightDir                 = inputs.LightDir;
         push.LightColor               = inputs.LightColor;
-        push.Counts                   = glm::uvec4( inputs.PointCount, inputs.SpotCount, 0u, 0u );
+        for ( int level = 0; level < DistanceField::kGlobalDistanceFieldClipmaps; ++level )
+            push.GdfLevels[level] = inputs.Field.Levels[level];
         GraphicsPipeline* const raw   = m_LightingPipeline.get();
         const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
         graph.AddPass(
@@ -389,10 +398,19 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( "SurfaceCacheShadowUB", shadow, RDG::Access::StorageRead )
                       .Storage( "SurfaceCacheCloudShadowUB", cloud, RDG::Access::StorageRead )
+                      .Storage( kLightGridParamsBlockName, inputs.Lights.WorldGridParams,
+                                RDG::Access::StorageRead )
+                      .Storage( kLightGridWorldCellsBlockName, inputs.Lights.WorldGridCells,
+                                RDG::Access::StorageRead )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 // The global distance field, REPEAT-sampled (its clipmaps are addressed toroidally).
+                 for ( int level = 0; level < DistanceField::kGlobalDistanceFieldClipmaps; ++level )
+                     block.Sampled( std::format( "u_GlobalDistanceField{}", level ), inputs.Field.Clipmaps[level],
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                    RDG::SamplerDesc::LinearRepeat() );
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers.
                  if ( layout )
                      BindSceneViewInputs( block, inputs.View, *layout );

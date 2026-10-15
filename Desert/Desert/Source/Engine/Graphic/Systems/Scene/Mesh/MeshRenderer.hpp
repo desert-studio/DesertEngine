@@ -407,8 +407,9 @@ namespace Desert::Graphic::System
         void                                DeclareRSMDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
 
-        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3, UE LumenSceneCardCapture). Gather: this frame's
-        // static and instanced (ISM / foliage) mesh instances that carry cards, keyed stably (entity + part; mesh
+        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3/5, UE LumenSceneCardCapture). Gather: this
+        // frame's static, instanced (ISM / foliage), generic (another template's slot material, a Shader Override)
+        // and skinned (bounds cards) mesh instances that carry cards, keyed stably (entity + part; mesh
         // + material + instance index), each naming its row of this renderer's capture sources, with its surface's
         // identity (a new material recaptures) and whether its G-buffer cell can draw yet (a card waits for its
         // own material rather than being captured in the default surface). Declare: the view-pass G-buffer cell
@@ -417,6 +418,8 @@ namespace Desert::Graphic::System
         // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
         // frame: the camera block is the material's, so one card camera needs one material.
         void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
+        [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
         void DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
                                       const std::vector<SurfaceCache::CardCapture>& captures );
         [[nodiscard]] Common::BoolResultStr RenderCardCaptureManual( const RDG::PassContext& context ) const;
@@ -728,17 +731,35 @@ namespace Desert::Graphic::System
             const Desert::Mesh* Mesh     = nullptr;
             glm::mat4           World    = glm::mat4( 1.0f );
             MaterialInstance*   Instance = nullptr;
-            DataDrivenMaterial* Surface   = nullptr; // the slot's (Static x Forward) material
-            uint64_t            Hidden   = 0;
-            uint32_t            MotionRow = 0; // static: the view's ObjectMotions row (the view-pass cell's world)
-            bool Instanced = false;            // an ISM instance: the instanced cell, World as its one transform
+            // The surface's material: a static/generic slot's (Static x Forward), an ISM's, a skinned mesh's
+            // (Skinned x Forward). Null for a Shader Override draw (Generic below).
+            DataDrivenMaterial* Surface = nullptr;
+            uint64_t            Hidden  = 0;
+            // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
+            // skinned cell's bone palette).
+            uint32_t MotionRow = 0;
+            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
+            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
+            MeshVertexPath Path = MeshVertexPath::Static;
+            // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
+            // and the (Static x GBuffer) cell of its template that captures it.
+            const GenericMeshRenderData* Generic = nullptr;
+            std::string                  OverrideCell;
         };
         std::vector<CardCaptureSource> m_CardCaptureSources;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
         // material per capture of it in the frame, its camera in its block.
-        // [0] the static cell, [1] the instanced one.
-        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials[2];
-        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances[2];
+        // By MeshVertexPath: the static, skinned and instanced cells.
+        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials[3];
+        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances[3];
+        // Shader Override draws: one (template x Static x GBuffer) cell material per capture of the frame, by cell
+        // shader and texture set (GenericTextureKey: a sampler is the material's descriptor) - the same keying
+        // as the generic queue's shared materials.
+        std::unordered_map<std::string, std::vector<std::shared_ptr<DataDrivenMaterial>>> m_CardCaptureOverrides;
+        // A skinned mesh's cards (UE MeshCardRepresentation SetCardsFromBounds: skinned meshes have no card
+        // build of their own): six cards, one per direction, each the whole bind-pose box. By mesh, built once.
+        std::unordered_map<const Desert::Mesh*, std::shared_ptr<const Assets::MeshCardsBuildData>>
+                                         m_SkinnedBoundsCards;
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
@@ -787,6 +808,10 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
+        // (Skinned x GBuffer): the surface cache's capture of a skinned mesh's cards (the scene draws skinned
+        // meshes forward). Null if the shader or the pipeline is missing.
+        std::shared_ptr<Shader>           m_SkinnedGBufferShader;
+        std::shared_ptr<GraphicsPipeline> m_SkinnedGBufferPipeline;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
