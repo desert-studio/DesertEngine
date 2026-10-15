@@ -160,8 +160,8 @@ namespace Desert::Graphic
             };
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
-                  { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes,
-                    LocalShadowAtlas, SceneDepth, SceneShadingWord } )
+                  { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
+                    SceneDepth, SceneShadingWord } )
                 add( ref );
             return refs;
         }
@@ -173,7 +173,7 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewEnvIrradianceName  = "u_EnvIrradianceTex";
     inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
-    inline constexpr std::string_view kSceneViewCloudShadowMapName = "u_CloudShadowMap";
+    inline constexpr std::string_view kSceneViewCloudShadowMapName   = "u_CloudShadowMap";
     inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
@@ -191,14 +191,14 @@ namespace Desert::Graphic
         inputs.EnvIrradiance  = t.EnvIrradiance.IsValid() ? t.EnvIrradiance : refs.System.BlackCube;
         inputs.EnvSpecular    = t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube;
         inputs.BrdfLut        = t.BrdfLut.IsValid() ? t.BrdfLut : refs.System.Black;
-        inputs.CloudShadowMap = CloudShadowMapOrWhite( refs );
+        inputs.CloudShadowMap         = CloudShadowMapOrWhite( refs );
         inputs.ReflectionCaptureCubes = t.ReflectionCaptureCubes;
         inputs.ReflectionCaptures     = t.ReflectionCaptures;
-        inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
-        inputs.SceneDepth       = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
-        inputs.SceneShadingWord = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
-        inputs.LightGridParams  = t.Lights.GridParams;
-        inputs.LightGridCells   = t.Lights.GridCells;
+        inputs.LocalShadowAtlas       = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
+        inputs.SceneDepth             = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
+        inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
+        inputs.LightGridParams        = t.Lights.GridParams;
+        inputs.LightGridCells         = t.Lights.GridCells;
         return inputs;
     }
 

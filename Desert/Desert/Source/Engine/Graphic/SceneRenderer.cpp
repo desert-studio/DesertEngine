@@ -790,12 +790,12 @@ namespace Desert::Graphic
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
-        m_SSRRaysPerPixel = quality.As<int>( Parameter::ReflectionRaysPerPixel );
+        m_SSRRaysPerPixel                     = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
-        m_ContactShadowSteps                 = quality.As<int>( Parameter::ShadowContactSteps );
-        m_SunContactShadowLength             = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
-        m_SunContactShadowLengthInWorldSpace = shadows.ContactShadowLengthInWorldSpace;
+        m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
+        m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
         m_SunContactShadowNonCastingIntensity = shadows.ContactShadowNonCastingIntensity;
         m_LightGridQuality =

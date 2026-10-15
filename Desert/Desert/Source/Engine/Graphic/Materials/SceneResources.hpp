@@ -60,11 +60,11 @@ namespace Desert::Graphic::SceneResources
         // Scalability Shadows.ContactShadowSteps. 0 = no march for any light — also what a view without an
         // opaque scene depth to march (the forward render path draws its opaque surfaces with no prepass) is
         // handed, since there is nothing for the ray to hit.
-        int      Steps           = 0;
-        float    TanHalfFovY     = 1.0f;  // turns a screen-fraction length into centimetres at a depth
-        uint32_t DitherFrame     = 0;     // 0..7, UE's StateFrameIndexMod8
-        float    SunLength       = 0.0f;  // DirectionalLightData::ContactShadowLength (0 = none)
-        bool     SunInWorldSpace = false; // DirectionalLightData::ContactShadowLengthInWorldSpace
+        int      Steps                  = 0;
+        float    TanHalfFovY            = 1.0f;  // turns a screen-fraction length into centimetres at a depth
+        uint32_t DitherFrame            = 0;     // 0..7, UE's StateFrameIndexMod8
+        float    SunLength              = 0.0f;  // DirectionalLightData::ContactShadowLength (0 = none)
+        bool     SunInWorldSpace        = false; // DirectionalLightData::ContactShadowLengthInWorldSpace
         float    SunCastingIntensity    = 1.0f;  // DirectionalLightData::ContactShadowCastingIntensity
         float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
     };

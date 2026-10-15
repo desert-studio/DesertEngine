@@ -302,8 +302,9 @@ namespace Desert::Graphic::System
         // EXEC: draws the block DeclareResolveBindings declared. @p viewProjection / @p prevViewProjection are the
         // view's (ViewFrame::ViewProjection / PrevViewProjection, unjittered); @p invJitteredViewProjection is
         // ViewFrame::InvJitteredViewProjection (rebuilds the world positions the reprojection needs from the
-        // G-buffer depth); @p historyReadable is HistoryReadableIn of this frame. Advances the ping-pong only when the draw was
-        // recorded, and stamps the history with @p viewFrameIndex (the ViewFrame this graph was built for).
+        // G-buffer depth); @p historyReadable is HistoryReadableIn of this frame. Advances the ping-pong only when
+        // the draw was recorded, and stamps the history with @p viewFrameIndex (the ViewFrame this graph was built
+        // for).
         [[nodiscard]] Common::BoolResultStr
         RecordResolve( const RDG::PassContext& context, const glm::mat4& viewProjection,
                        const glm::mat4& prevViewProjection, const glm::mat4& invJitteredViewProjection,
@@ -387,7 +388,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>               m_ResolveShader;
         // The two block layouts, derived from each shader's reflection once per compile (not per frame).
         mutable ShaderBindingLayoutCache      m_TraceLayout;
-        mutable ShaderBindingLayoutCache      m_ResolveLayout;
+        mutable ShaderBindingLayoutCache              m_ResolveLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
         std::shared_ptr<GraphicsPipeline>     m_ResolvePipeline;
         std::unique_ptr<MaterialSSRReflectionResolve> m_ResolveMaterial;

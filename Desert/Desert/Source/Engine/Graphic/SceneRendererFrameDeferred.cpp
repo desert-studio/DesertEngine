@@ -442,7 +442,7 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
-        inputs.SSR                = ssr.IsValid() ? ssr : refs.System.Black;
+        inputs.SSR             = ssr.IsValid() ? ssr : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -502,8 +502,8 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, compositeGI,
-                                         cloudShadow, environment, frame.JitteredViewProjection );
+                                         shadow, giIntensity, m_EnableSSAO, compositeGI, cloudShadow, environment,
+                                         frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },

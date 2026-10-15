@@ -115,10 +115,10 @@ namespace Common::Scalability
                                 // 2^n
         ReflectionRaysPerPixel, // SSR GGX-VNDF rays per traced texel (UE r.SSR.Quality's ray count). 1..12
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
-        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
-        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
-        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
-        // not a request, and the resolution never lands on an unimplemented method.
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
+        // also applies the device (no device narrowing here: the device's limit and this one are reported
+        // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
+        // is a limit, not a request, and the resolution never lands on an unimplemented method.
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
@@ -132,8 +132,8 @@ namespace Common::Scalability
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
-        UpscalerSharpness,            // ResolutionScale: percent
+                                 // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness,       // ResolutionScale: percent
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

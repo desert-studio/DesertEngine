@@ -1185,7 +1185,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
     //   - LIGHT-CLUSTER: the light grid's parameters and cells (22, 23) - not 28/29, which is the shader graph's
     //     window and the forward cells' scene-read range, where the forward cell's own copy of the grid lives;
     //   - SSR2: this frame's resolved screen-space reflection (24);
-    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 1, pinned by the second register
+    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 1, pinned by the second
+    //   register
     //     below. 15 is the one spare slot under the scene-read range.
     // ShadowUB (7) carries the cascades' matrices and, since SHADOW-CONTACT, the contact-shadow march's values.
     struct Row

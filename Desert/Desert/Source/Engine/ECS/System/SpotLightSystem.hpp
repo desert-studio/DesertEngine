@@ -75,8 +75,8 @@ namespace Desert::ECS
                      // UE: contact shadows are part of the light's shadowing, so a light that casts none has none.
                      light.ContactShadowLength =
                           spotlight.Data.CastShadows ? spotlight.Data.ContactShadowLength : 0.0f;
-                     light.ContactShadowInWorld = spotlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
-                     light.ContactShadowCastingIntensity    = spotlight.Data.ContactShadowCastingIntensity;
+                     light.ContactShadowInWorld          = spotlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
+                     light.ContactShadowCastingIntensity = spotlight.Data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and

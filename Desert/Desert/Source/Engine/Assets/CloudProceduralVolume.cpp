@@ -2483,10 +2483,10 @@ namespace Desert::Assets
 
                 for ( const CloudProceduralLump& lump : blobs )
                 {
-                    const CloudModellingBlob& blob     = lump.Blob;
+                    const CloudModellingBlob& blob      = lump.Blob;
                     const uint32_t            site     = depthSites.Of( lump.ClusterKm );
                     const float               invDepth = depthSites.InvDepths[site];
-                    const float               invEdge  = depthSites.InvEdges[site];
+                    const float               invEdge   = depthSites.InvEdges[site];
                     const float               prefilter = depthSites.Prefilters[site];
                     // THE BOX GROWS BY THE SILHOUETTE NOISE'S REACH: where the noise grows the body, the lump
                     // reaches that much past its own ellipsoid (SHAPE-NOISE).

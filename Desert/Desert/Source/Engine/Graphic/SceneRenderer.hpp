@@ -763,11 +763,11 @@ namespace Desert::Graphic
                                            const glm::vec4& lightColor );
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
-        void            AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame );
+        void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
+                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
         // colour, its desc refused - logged). @p into: the imported image to copy into (SSR's scene colour
@@ -911,9 +911,9 @@ namespace Desert::Graphic
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).
-        int   m_ContactShadowSteps                 = 12;
-        float m_SunContactShadowLength             = 0.0f;
-        bool  m_SunContactShadowLengthInWorldSpace = false;
+        int   m_ContactShadowSteps                  = 12;
+        float m_SunContactShadowLength              = 0.0f;
+        bool  m_SunContactShadowLengthInWorldSpace  = false;
         float m_SunContactShadowCastingIntensity    = 1.0f;
         float m_SunContactShadowNonCastingIntensity = 0.0f;
         // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the

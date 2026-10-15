@@ -283,8 +283,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
-            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range (the
-            // deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both outside it).
+            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range
+            // (the deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both
+            // outside it).
             if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
             {
                 if ( Desert::Core::IsSceneReadBinding( binding ) )

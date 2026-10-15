@@ -80,8 +80,8 @@ namespace Desert::Core
     }
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
-    // shading word and the light grid joined it), to sit above the scene-read range; see the paragraph on moving it
-    // above.
+    // shading word and the light grid joined it), to sit above the scene-read range; see the paragraph on moving
+    // it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
     static_assert( kGraphOwnedBindingFirst == 31u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

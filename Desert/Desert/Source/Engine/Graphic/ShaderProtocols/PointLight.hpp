@@ -30,9 +30,9 @@ namespace Desert::Graphic::ShaderProtocols
         int32_t ContactShadowInWorld = 0;    // 48
         // UE ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: the occlusion of a hit on a mesh
         // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
-        float   ContactShadowCastingIntensity    = 1.0f; // 52
-        float   ContactShadowNonCastingIntensity = 0.0f; // 56
-        float   _pad2                = 0.0f; // 60 -> 64
+        float ContactShadowCastingIntensity    = 1.0f; // 52
+        float ContactShadowNonCastingIntensity = 0.0f; // 56
+        float _pad2                            = 0.0f; // 60 -> 64
     };
 
     struct PointLight
