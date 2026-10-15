@@ -21,7 +21,11 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        if ( m_GIPipeline.SurfaceCache || ReflectionsTraced() )
+        // The GI's cards only where the view runs the GI (RadianceCacheRuns asks the same of its profile): a
+        // capture's six face views carry the scene's GI method but not the GI, and each brought up its own cards
+        // and their global distance field (384 MiB apiece) - 7 fields for one capture, past 6 GB on Starter
+        // (REFL-CAPTURE-NORM).
+        if ( ( m_GIPipeline.SurfaceCache && m_ViewProfile.GlobalIllumination ) || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
