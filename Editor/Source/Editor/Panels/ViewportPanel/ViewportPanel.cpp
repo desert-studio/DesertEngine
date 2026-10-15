@@ -1642,6 +1642,13 @@ namespace Desert::Editor
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+
+        // Play gives this viewport the keyboard (UE PIE): the played world's keys reach the player at once.
+        const bool playingNow = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+        if ( playingNow && !m_WasPlaying )
+            ImGui::SetWindowFocus();
+        m_WasPlaying = playingNow;
+
         m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
         // Focus moved away (a Details field, another panel): the releases of the keys the player holds will
