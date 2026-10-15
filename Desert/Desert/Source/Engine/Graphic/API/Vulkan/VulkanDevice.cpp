@@ -453,7 +453,8 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( m_LogicalDevice != VK_NULL_HANDLE,
                        "GetBindlessTextureTable: the device was not created or is already destroyed" );
         const DescriptorIndexingLimits& limits = m_PhysicalDevice->GetDeviceCaps().DescriptorIndexing;
-        const uint32_t ceiling = BindlessCapacityCeiling( kBindlessInitialTextureCapacity, limits.SampledImageCeiling() );
+        const uint32_t                  ceiling =
+             BindlessCapacityCeiling( kBindlessInitialTextureCapacity, limits.SampledImageCeiling() );
         // Published before Initialize: the missing texture registers itself through this getter.
         m_Bindless = std::make_unique<VulkanBindlessTextureTable>( m_LogicalDevice, ceiling, &AcquireSlotSampler );
         const auto initialized = m_Bindless->Initialize();
@@ -680,7 +681,6 @@ namespace Desert::Graphic::API::Vulkan
         return VK_FORMAT_UNDEFINED;
     }
 
-
     namespace
     {
         VulkanLogicalDevice* EngineVulkanDevice()
@@ -691,7 +691,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts )
     {
-        const VulkanLogicalDevice* device = EngineVulkanDevice();
+        const VulkanLogicalDevice*  device = EngineVulkanDevice();
         VulkanBindlessTextureTable* table  = device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
         if ( table == nullptr || layouts.size() <= kBindlessSetIndex ||
              layouts[kBindlessSetIndex] != table->GetLayout() )

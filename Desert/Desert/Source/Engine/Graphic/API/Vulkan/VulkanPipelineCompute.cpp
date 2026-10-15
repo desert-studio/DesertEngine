@@ -214,12 +214,13 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1,
                                  &descriptorSet, 0, nullptr );
-        // The bindless table's set is the table's one live set, never one of this pipeline's (see EnsureBatchRing).
+        // The bindless table's set is the table's one live set, never one of this pipeline's (see
+        // EnsureBatchRing).
         if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts ) )
         {
             const VkDescriptorSet table = bindless->GetDescriptorSet();
-            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, kBindlessSetIndex,
-                                     1, &table, 0, nullptr );
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout,
+                                     kBindlessSetIndex, 1, &table, 0, nullptr );
         }
 
         if ( !m_BoundPushConstants.empty() )

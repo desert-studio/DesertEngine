@@ -105,8 +105,9 @@ namespace Desert::Graphic::API::Vulkan
         bool            Present = false; ///< probed on the route AND enabled on the logical device
     };
 
-    // The update-after-bind limits the bindless table is sized against (VkPhysicalDeviceDescriptorIndexingProperties).
-    // Read by the probe only when DescriptorIndexing is present; zero otherwise.
+    // The update-after-bind limits the bindless table is sized against
+    // (VkPhysicalDeviceDescriptorIndexingProperties). Read by the probe only when DescriptorIndexing is present;
+    // zero otherwise.
     struct DescriptorIndexingLimits
     {
         uint32_t MaxPerStageUpdateAfterBindSampledImages = 0;

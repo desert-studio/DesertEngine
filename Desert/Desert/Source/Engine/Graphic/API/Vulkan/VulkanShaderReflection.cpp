@@ -342,10 +342,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         // THE BINDLESS TABLE: separate samplers and sampled images exist only as Common/BindlessTextures.glslh
-        // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the runtime
-        // array u_BindlessTextures[] at kBindlessTextureBinding, both in kBindlessSetIndex. Recognised by set,
-        // binding and type (not by name); VulkanShader then takes the table's own layout for that set. Any other
-        // separate sampler or image is refused by name: no layout here would describe it.
+        // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
+        // runtime array u_BindlessTextures[] at kBindlessTextureBinding, both in kBindlessSetIndex. Recognised by
+        // set, binding and type (not by name); VulkanShader then takes the table's own layout for that set. Any
+        // other separate sampler or image is refused by name: no layout here would describe it.
         const auto refuseBindless = [&]( const spirv_cross::Resource& resource, std::string_view expected )
         {
             diagnostics.push_back( std::format(
@@ -365,8 +365,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             if ( !isBindlessSlot( resource, kBindlessSamplerBinding ) || type.array.size() != 1 ||
                  !type.array_size_literal[0] || type.array[0] != kBindlessSamplerStateCount )
             {
-                refuseBindless( resource, std::format( "sampler[{}] at set {}, binding {}", kBindlessSamplerStateCount,
-                                                       kBindlessSetIndex, kBindlessSamplerBinding ) );
+                refuseBindless( resource,
+                                std::format( "sampler[{}] at set {}, binding {}", kBindlessSamplerStateCount,
+                                             kBindlessSetIndex, kBindlessSamplerBinding ) );
                 continue;
             }
             data.UsesBindlessTable = true;

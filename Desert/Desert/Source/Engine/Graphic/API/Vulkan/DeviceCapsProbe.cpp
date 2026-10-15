@@ -189,10 +189,11 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &indexing };
             vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
             DescriptorIndexingLimits limits;
-            limits.MaxPerStageUpdateAfterBindSampledImages = indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
-            limits.MaxSetUpdateAfterBindSampledImages      = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
-            limits.MaxPerStageUpdateAfterBindSamplers      = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
-            limits.MaxSetUpdateAfterBindSamplers           = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxPerStageUpdateAfterBindSampledImages =
+                 indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
+            limits.MaxSetUpdateAfterBindSampledImages = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
+            limits.MaxPerStageUpdateAfterBindSamplers = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSamplers      = indexing.maxDescriptorSetUpdateAfterBindSamplers;
             return limits;
         }
 

@@ -101,10 +101,9 @@ namespace Desert::Graphic
 
         RaisePeak( g_PeakResident, resident );
         RaisePeak( g_PeakDeviceUsage, deviceUsage );
-        g_LastBindless.store( readout.Bindless ? ( uint64_t{ readout.Bindless->Capacity } << 32U ) |
-                                                      readout.Bindless->Live
-                                               : 0,
-                              std::memory_order_relaxed );
+        g_LastBindless.store(
+             readout.Bindless ? ( uint64_t{ readout.Bindless->Capacity } << 32U ) | readout.Bindless->Live : 0,
+             std::memory_order_relaxed );
     }
 
     std::optional<BindlessOccupancy> MemoryWatch::LastBindless()

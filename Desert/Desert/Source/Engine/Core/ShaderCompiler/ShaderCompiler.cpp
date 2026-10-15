@@ -117,7 +117,8 @@ namespace Desert::Core
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
             }
             // Every stage, not only those that include BindlessTextures.glslh: the defines are the engine's table
-            // layout (BindlessSetIndex.hpp), and the cache key mixes them in (ShaderCacheKey.cpp MixCompileOptions).
+            // layout (BindlessSetIndex.hpp), and the cache key mixes them in (ShaderCacheKey.cpp
+            // MixCompileOptions).
             for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
             {
                 const std::string value = std::to_string( define.Value );

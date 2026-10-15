@@ -122,5 +122,6 @@ namespace Desert::Graphic::API::Vulkan
     // The device's table when @p layouts (a pipeline's, set order) holds its layout at kBindlessSetIndex — the
     // shader reflected the table (VulkanShader::CreateDescriptorsLayout) — else null. The one test every consumer
     // of pipeline layouts uses to tell the table's set from a set it allocates itself.
-    [[nodiscard]] VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts );
+    [[nodiscard]] VulkanBindlessTextureTable*
+    BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts );
 } // namespace Desert::Graphic::API::Vulkan

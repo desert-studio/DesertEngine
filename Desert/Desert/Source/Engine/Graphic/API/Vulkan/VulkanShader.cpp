@@ -231,12 +231,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( m_DescriptorSetLayouts[setIndex] )
                 continue;
-            auto empty = std::make_shared<VulkanDescriptorSetLayout>(
-                 device, static_cast<uint32_t>( setIndex ), std::vector<VkDescriptorSetLayoutBinding>{},
-                 m_ShaderName );
+            auto empty = std::make_shared<VulkanDescriptorSetLayout>( device, static_cast<uint32_t>( setIndex ),
+                                                                      std::vector<VkDescriptorSetLayoutBinding>{},
+                                                                      m_ShaderName );
             if ( empty->Handle() == VK_NULL_HANDLE )
-                return Common::MakeFormattedError( "Shader '{}': empty descriptor set layout {} could not be created",
-                                                   m_ShaderName, setIndex );
+                return Common::MakeFormattedError(
+                     "Shader '{}': empty descriptor set layout {} could not be created", m_ShaderName, setIndex );
             m_DescriptorSetLayouts[setIndex] = std::move( empty );
         }
 
