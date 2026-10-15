@@ -42,6 +42,15 @@ namespace Desert::Graphic
             ApplyDefaults();
         }
 
+        // Over one compiled permutation of a program (ShaderService::AcquireVariant): its layout is the
+        // permutation's own, so the material fills exactly the bindings that permutation declares.
+        explicit DataDrivenMaterial( const std::shared_ptr<Shader>& shader )
+             : Material( "DDM_" + shader->GetName(), shader ), m_ShaderName( shader->GetName() ),
+               m_Schema( shader->GetProgramMeta() )
+        {
+            ApplyDefaults();
+        }
+
         const Core::Formats::ShaderProgramMeta& GetSchema() const
         {
             return m_Schema;

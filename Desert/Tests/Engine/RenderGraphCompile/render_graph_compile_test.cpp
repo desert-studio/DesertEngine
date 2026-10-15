@@ -2355,10 +2355,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: DepthExpand",
          "Deferred: SSAO",
          "Deferred: SSR",
-         "Deferred: SSRResolve",
          "Deferred: RSM",
          "Deferred: GIResolve",
-         "Deferred: GITemporal",
          "Deferred: Composite",
          "Deferred: Generic",
          "Deferred: Skinned",
@@ -2519,7 +2517,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     }
     // The exposure dispatch covers the texture it reads, not the scene target's image.
     declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
-    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
+    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "gi->Denoise(graph,gather," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
@@ -2534,8 +2532,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                                "System::SSRRenderer::UploadTraceUniforms(graph,frame.InvJitteredViewProjection,"
                                "frame.JitteredViewProjection)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],textures.Depth(m_GBuffer,\"GBuffer\")}",
-                               "ssr.DeclareResolveBindings(pass,trace,traceRay,tiles,history,inputs,velocity)",
-                               "RecordResolve(context,viewProj,prevViewProj,invViewProj,readable,index)" } );
+                               "ssr.Denoise(graph," } );
     // ... and those blocks declare the accesses the node used to declare itself.
     {
         const auto declaration = [&]( const char* header )

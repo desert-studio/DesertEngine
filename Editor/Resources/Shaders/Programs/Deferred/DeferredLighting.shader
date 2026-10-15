@@ -416,11 +416,9 @@ Shader "DeferredLighting"
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only
         	//      geometry currently ON SCREEN can bounce, and there is no denoiser.
         	//  2 = RSM: read the GIResolve buffer, which bounced light from everything the SUN sees (off-screen
-        	//      included) and was temporally accumulated. Costs an extra shadow-style pass + two fullscreen
-        	//      passes. Its intensity is already applied in GIResolve, so it is NOT scaled again here.
-        	// The RSM buffer is a jittered gather even after temporal accumulation, so read it through a 5x5
-        	// tent — single-tap leaves visible grain that glass refraction and SSR then magnify. UVs are
-        	// clamped because the global sampler is REPEAT.
+        	//      included), denoised by the screen-space denoiser (ScreenSpaceDenoiser). Costs an extra
+        	//      shadow-style pass, the gather and the denoiser's passes. Its intensity is already applied in
+        	//      GIResolve, so it is NOT scaled again here.
         	vec3  indirect    = vec3(0.0);
         	float giIntensity = u_Params.y;
         	int   giMode      = int(u_Params.w + 0.5);
@@ -430,18 +428,9 @@ Shader "DeferredLighting"
         	}
         	else if (giMode == 2)
         	{
-        		vec2  texel = 1.0 / vec2(textureSize(u_GI, 0));
-        		vec3  giAcc = vec3(0.0);
-        		float wsum  = 0.0;
-        		for (int gy = -2; gy <= 2; gy++)
-        			for (int gx = -2; gx <= 2; gx++)
-        			{
-        				float w  = (3.0 - abs(float(gx))) * (3.0 - abs(float(gy))); // 5x5 tent
-        				vec2  uv = clamp(v_TexCoord + vec2(gx, gy) * texel, vec2(0.001), vec2(0.999));
-        				giAcc += texture(u_GI, uv).rgb * w;
-        				wsum  += w;
-        			}
-        		indirect = giAcc / wsum;
+        		// Already denoised (ScreenSpaceDenoiser, diffuse indirect: bilateral reconstruction, temporal
+        		// accumulation, history convolution) - a second, depth-blind blur here would bleed across edges.
+        		indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
         	}
 
         	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only

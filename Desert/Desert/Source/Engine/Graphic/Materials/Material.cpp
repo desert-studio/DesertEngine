@@ -103,6 +103,15 @@ namespace Desert::Graphic
         CachePropertyNames();
     }
 
+    Material::Material( std::string&& debugName, const std::shared_ptr<Shader>& shader,
+                        const Core::Formats::ShaderProgramMeta* parameterSchema )
+         : m_MaterialExecutor(
+                Graphic::MaterialExecutor::Create( std::move( debugName ), shader, parameterSchema ) ),
+           m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
+    {
+        CachePropertyNames();
+    }
+
     void Material::ClaimOwnership( const ResourceOwner owner, const Common::AssetHandle asset )
     {
         m_Accounting.Claim( owner, asset );

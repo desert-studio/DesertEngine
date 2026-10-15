@@ -755,7 +755,7 @@ namespace Desert::Graphic
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
-        // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
+        // The denoised GI the composite samples (u_GI), invalid when GI did not run this frame.
         RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer,
                                            const std::vector<RDG::TextureRef>& rsm,
@@ -779,7 +779,7 @@ namespace Desert::Graphic
                                                   std::function<void()> recorded );
         // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
-        // SSR's HZB + trace + resolve, before the lighting. Resolved: the reflection the lighting composes
+        // SSR's HZB + trace + denoiser, before the lighting. Resolved: the reflection the lighting composes
         // (u_SSR); SceneHistory: SSR's scene colour history as imported here (last frame's lit scene, which this
         // frame's scene copy refills). Both invalid when SSR did not run.
         struct FrameSSR

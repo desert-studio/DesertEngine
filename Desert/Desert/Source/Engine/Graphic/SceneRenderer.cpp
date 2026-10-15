@@ -1469,8 +1469,8 @@ namespace Desert::Graphic
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
-        // Same gate as GI: the trace target and its ping-pong history are sampled/blended float targets
-        // (ViewTargetFormats::kSSRTrace / kSSRAccum).
+        // Same gate as GI: the trace target and the denoiser's history are sampled float targets
+        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal).
         if ( !HasFloatRenderTargetSupport() )
         {
             LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "

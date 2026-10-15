@@ -14,8 +14,8 @@
 // dropped or retyped on one side -> red).
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
-#include <Engine/Graphic/Materials/Deferred/MaterialSSR.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/std140_block.hpp"
@@ -75,30 +75,19 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
     EXPECT_EQ( sizeof( T ), 128u );
 }
 
-TEST( UniformBlockLayout, SSRResolveUBIsTheGIResolveMaterialsStruct )
+TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
 {
-    using T                      = Desert::Graphic::MaterialSSRResolve::SSRResolveUBData;
-    const std::vector<Twin> twin = {
-         { "u_PrevViewProj", offsetof( T, PrevViewProj ) },
-         { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-         { "u_Params", offsetof( T, Params ) },
-    };
-    // SSRResolve.shader is GI's temporal pass (GIResolveRenderer::RecordTemporal).
-    ExpectTwin( "SSRResolve.shader", "SSRResolveUB", twin, sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 144u );
-}
-
-TEST( UniformBlockLayout, SSRReflectionResolveUBIsTheSSRResolveMaterialsStruct )
-{
-    using T = Desert::Graphic::MaterialSSRReflectionResolve::SSRReflectionResolveUBData;
-    // SSRResolveTiled.shader is SSR's resolve (SSRRenderer::RecordResolve): its own block, not GI's.
-    ExpectTwin( "SSRResolveTiled.shader", "SSRReflectionResolveUB",
-                { { "u_ViewProjection", offsetof( T, ViewProjection ) },
-                  { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },
-                  { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                  { "u_Params", offsetof( T, Params ) } },
-                sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 208u );
+    using T = Desert::Graphic::System::ScreenSpaceDenoiser::ViewUniforms;
+    // Every pass of the screen-space denoiser declares the same block (ScreenSpaceDenoiser::UploadViewUniforms).
+    for ( const char* shader :
+          { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDReconstructDiffuse.shader",
+            "../Denoise/SSDTemporalAccumulation.shader", "../Denoise/SSDHistoryConvolution.shader" } )
+        ExpectTwin( shader, "DenoiserViewUB",
+                    { { "u_ViewProjection", offsetof( T, ViewProjection ) },
+                      { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },
+                      { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
+                    sizeof( T ) );
+    EXPECT_EQ( sizeof( T ), 192u );
 }
 
 TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )

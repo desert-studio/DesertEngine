@@ -1,5 +1,5 @@
 // Which pixels screen-space reflections may write at all. ONE statement, read by the trace (SSR.shader) and by
-// the tile classification that decides where the trace, resolve and composite are drawn
+// the tile classification that decides where the trace, reconstruction and composite run
 // (SSR.shader's classify half): if the two disagreed, a pixel the trace would reflect could sit in a tile nobody
 // draws, and its reflection would silently vanish.
 
