@@ -61,5 +61,8 @@ namespace Desert::Graphic
 
         void UploadBones( const std::vector<glm::mat4>& packedBoneMatrices );
         void SetBoneOffset( uint32_t firstBone );
+        // The draw's GPU skin-cache streams (its GpuObjectMotion row's SkinCacheAddress / SkinCacheVertexCount):
+        // a vertex count of 0 skins from the palette, any other fetches the pose "SkinCache: Skin" wrote this frame.
+        void SetSkinCache( uint64_t address, uint32_t vertexCount );
     };
 } // namespace Desert::Graphic

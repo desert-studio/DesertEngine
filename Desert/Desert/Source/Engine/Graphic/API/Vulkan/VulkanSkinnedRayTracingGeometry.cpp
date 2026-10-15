@@ -41,14 +41,22 @@ namespace Desert::Graphic::API::Vulkan
                  "SkinCache: the device has no buffer device addresses (the view passes fetch the streams by "
                  "address)" );
 
+        const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
+        if ( functions.GetBufferDeviceAddress == nullptr )
+            return Common::MakeError<bool>( "SkinCache: vkGetBufferDeviceAddress was not resolved on this device" );
+
         Release();
         const auto& allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
         m_Bytes = static_cast<VkDeviceSize>( vertexCount ) * RayTracing::kSkinCacheFloatsPerVertex * sizeof( float );
+        // The BLAS-input usage only where the device enabled VK_KHR_acceleration_structure (a usage bit of an
+        // extension not enabled is invalid); the raster reads the streams as a storage buffer either way.
+        VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        if ( logical->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::AccelerationStructure ) )
+            usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         const auto allocated = allocator->RT_AllocateBuffer(
              "SkinCache_Streams",
-             DeviceAddressBufferInfo( m_Bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                                    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR ),
+             DeviceAddressBufferInfo( m_Bytes, usage ),
              VMA_MEMORY_USAGE_GPU_ONLY, m_Buffer );
         if ( !allocated.IsSuccess() )
         {
@@ -59,9 +67,9 @@ namespace Desert::Graphic::API::Vulkan
         m_Memory = allocated.GetValue();
         m_Ledger = ResourceOwnership::Take( ResourceKind::StorageBuffer, VulkanAllocator::AllocationSize( m_Memory ) );
 
-        VkBufferDeviceAddressInfo addressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-        addressInfo.buffer = m_Buffer;
-        m_Address          = vkGetBufferDeviceAddress( logical->GetVulkanLogicalDevice(), &addressInfo );
+        // The device's loaded table (VulkanRayTracingFunctions.hpp), as every other address in the engine; it
+        // holds the buffer-address entry on a device without acceleration structures too.
+        m_Address = functions.BufferAddress( logical->GetVulkanLogicalDevice(), m_Buffer );
         if ( m_Address == 0 )
         {
             Release();

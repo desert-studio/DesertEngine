@@ -27,8 +27,9 @@ namespace
 } // namespace
 
 // Red if the table is loaded unconditionally: vkGetDeviceProcAddr for an extension the device did not enable is
-// undefined behaviour, so on a device without the AS row not one name may be asked for.
-TEST( RayTracingFunctions, NothingIsResolvedOnADeviceWithoutAccelerationStructure )
+// undefined behaviour, so on a device without the AS row no acceleration-structure name may be asked for. The core
+// buffer-address entry IS loaded there (the GPU skin cache's raster consumers fetch by address without ray tracing).
+TEST( RayTracingFunctions, OnlyTheBufferAddressIsResolvedOnADeviceWithoutAccelerationStructure )
 {
     std::set<std::string> asked;
     const auto functions = LoadRayTracingDeviceFunctions( CapsWith( { Capability::BufferDeviceAddress } ),
@@ -37,9 +38,23 @@ TEST( RayTracingFunctions, NothingIsResolvedOnADeviceWithoutAccelerationStructur
                                                               asked.insert( name );
                                                               return &Stub;
                                                           } );
-    EXPECT_TRUE( asked.empty() );
+    EXPECT_EQ( asked, ( std::set<std::string>{ "vkGetBufferDeviceAddress" } ) );
+    EXPECT_NE( functions.GetBufferDeviceAddress, nullptr );
     EXPECT_FALSE( functions.Complete() );
     EXPECT_EQ( functions.CmdBuildAccelerationStructures, nullptr );
+}
+
+// Red if a device without buffer device addresses is asked for anything at all.
+TEST( RayTracingFunctions, NothingIsResolvedOnADeviceWithoutBufferDeviceAddress )
+{
+    std::set<std::string> asked;
+    const auto functions = LoadRayTracingDeviceFunctions( CapsWith( {} ), [&asked]( const char* name ) -> PFN_vkVoidFunction
+                                                          {
+                                                              asked.insert( name );
+                                                              return &Stub;
+                                                          } );
+    EXPECT_TRUE( asked.empty() );
+    EXPECT_EQ( functions.GetBufferDeviceAddress, nullptr );
 }
 
 // Red if an entry the BLAS/TLAS builds call is dropped from the load (it would stay null and crash at the first

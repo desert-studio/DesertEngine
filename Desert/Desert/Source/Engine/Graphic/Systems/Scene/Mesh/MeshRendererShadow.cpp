@@ -879,14 +879,22 @@ namespace Desert::Graphic::System
             if ( !casters.empty() )
             {
                 skinMat->UploadBones( skinBones );
+                const std::span<const GpuObjectMotion> rows = m_ScratchMotionRows.Rows;
                 for ( const auto& [sd, boneOffset] : casters )
                 {
-                    list.Add(
-                         { .Pipeline  = m_ShadowSkinnedPipeline.get(),
-                           .Mesh      = sd->Mesh,
-                           .Transform = sd->Transform,
-                           .Material  = skinMat->GetMaterialExecutor(),
-                           .BindState = [skinMat, offset = boneOffset] { skinMat->SetBoneOffset( offset ); } } );
+                    // The cached pose when the skin cache holds this primitive (one skinning per frame).
+                    const GpuObjectMotion row = sd->MotionRow < rows.size() ? rows[sd->MotionRow] : GpuObjectMotion{};
+                    const uint64_t        address =
+                         ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
+                    list.Add( { .Pipeline  = m_ShadowSkinnedPipeline.get(),
+                                .Mesh      = sd->Mesh,
+                                .Transform = sd->Transform,
+                                .Material  = skinMat->GetMaterialExecutor(),
+                                .BindState = [skinMat, offset = boneOffset, address, count = row.SkinCacheVertexCount]
+                                {
+                                    skinMat->SetBoneOffset( offset );
+                                    skinMat->SetSkinCache( address, count );
+                                } } );
                 }
             }
         }
@@ -1037,6 +1045,9 @@ namespace Desert::Graphic::System
                     return;
                 BuildShadowCascadeDraws( c, m_CascadeDraws[c] );
                 m_CascadeDraws[c].Declare( declared, std::nullopt );
+                // The skin cache's streams its skinned casters fetch (after "SkinCache: Skin" wrote them).
+                for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                    declared.Read( streams, RDG::Access::StorageRead );
 
                 // The non-mesh casters declare their blocks after the list's
                 // (IShadowCaster::DeclareShadowCascade).

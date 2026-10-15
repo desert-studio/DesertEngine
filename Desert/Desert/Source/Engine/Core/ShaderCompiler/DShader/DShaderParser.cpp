@@ -1398,6 +1398,14 @@ namespace Desert::Core::Preprocess
                  std::regex_search( include.Content, kRayQueryType ) )
                 out << "#extension GL_EXT_ray_query : require\n";
 
+            // Buffer references (the GPU skin cache's streams, Mesh/Surface/Vertex_Skinned.glslh) are declared in
+            // #include'd headers this text cannot see, and an #extension in a header lands after declarations,
+            // where glslang refuses it. Enabled for every stage: `enable` adds no capability by itself (glslang
+            // emits PhysicalStorageBufferAddresses only into a module that declares a buffer_reference block),
+            // and the target (kShaderTargetEnvVersion, Vulkan 1.2 / SPIR-V 1.5) has the storage class in core.
+            out << "#extension GL_EXT_buffer_reference : enable\n";
+            out << "#extension GL_EXT_buffer_reference_uvec2 : enable\n";
+
             if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ) )
                 out << autoDecls;
 

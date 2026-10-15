@@ -2,14 +2,11 @@
 // PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
 // vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
-// GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp): when the view pass's row carries a streams address, the
-// primitive was skinned ONCE this frame by "SkinCache: Skin" and this stage only FETCHES its posed position, last
-// frame's posed position and its posed tangent frame by vertex index (UE FGPUSkinPassthroughVertexFactory). A row
-// without one (skin cache off, or the entry refused) skins here from the palettes, as a light view always does.
-#ifdef DESERT_SURFACE_VIEW_PASS
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference_uvec2 : require
-#endif
+// GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp, Common/SkinCacheStreams.glslh): when the primitive carries
+// a streams address - a view pass in its GpuObjectMotion row, a light view in its push block - it was skinned ONCE
+// this frame by "SkinCache: Skin" and this stage only FETCHES the posed position (and, where it needs them, last
+// frame's posed position and the posed tangent frame) by vertex index (UE FGPUSkinPassthroughVertexFactory).
+// Without one (skin cache off, or the entry refused) it skins here from the palettes.
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;
 layout( location = 2 ) in vec3 a_Tangent;
@@ -32,17 +29,22 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #define DESERT_OBJECT_BONES 1       // ...and both of its palettes from the view's ObjectBones
 #endif
 #include <Common/ObjectMotion.glslh>
+#include <Common/SkinCacheStreams.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
 #else
-// The shadow pass's own block: BoneOffset right after the transform (Shadow_Skinned.shader, offset 64), where
-// MaterialTransport keeps it at 68 behind MaterialIndex.
+// The light view's own block: BoneOffset right after the transform (offset 64), where MaterialTransport keeps it
+// at 68 behind MaterialIndex; then the primitive's skin-cache streams (MaterialShadowSkinned::SetSkinCache, from
+// its GpuObjectMotion row; vertex count 0 = not cached, skin from the palette).
 layout( push_constant ) uniform constants
 {
     mat4 Transform;
-    uint BoneOffset;
+    uint BoneOffset;           // offset 64
+    uint SkinCacheVertexCount; // offset 68
+    uint SkinCacheAddressLo;   // offset 72
+    uint SkinCacheAddressHi;   // offset 76
 }
 m_PushConstants;
 #endif
@@ -60,20 +62,6 @@ bones;
 #define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )]
 #endif
 
-#ifdef DESERT_SURFACE_VIEW_PASS
-// One entry's streams, all float, V = row.SkinCacheVertexCount: current positions [0,3V), previous [3V,6V),
-// normal/tangent/bitangent [6V,15V) (RayTracingSkinCache.hpp). gl_VertexIndex is the vertex of the mesh's own
-// vertex buffer (the draw binds it at offset 0), so it addresses the streams unchanged.
-layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer SkinCacheStreams
-{
-    float Values[];
-};
-vec3 DesertSkinCacheFetch( SkinCacheStreams streams, uint first )
-{
-    return vec3( streams.Values[first], streams.Values[first + 1u], streams.Values[first + 2u] );
-}
-#endif
-
 void main()
 {
 #ifdef DESERT_SURFACE_VIEW_PASS
@@ -89,14 +77,14 @@ void main()
     vec3                  skinnedBitangent;
     if ( row.SkinCacheVertexCount != 0u )
     {
-        const SkinCacheStreams streams = SkinCacheStreams( uvec2( row.SkinCacheAddressLo, row.SkinCacheAddressHi ) );
+        const SkinCacheStreams streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
         const uint             count   = row.SkinCacheVertexCount;
         const uint             vertex  = uint( gl_VertexIndex );
-        posed                          = DesertSkinCacheFetch( streams, vertex * 3u );
-        prevPosed                      = DesertSkinCacheFetch( streams, count * 3u + vertex * 3u );
-        skinnedNormal                  = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u );
-        skinnedTangent                 = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u + 3u );
-        skinnedBitangent               = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u + 6u );
+        posed                          = DesertSkinCachePosition( streams, vertex );
+        prevPosed                      = DesertSkinCachePrevPosition( streams, count, vertex );
+        skinnedNormal                  = DesertSkinCacheFrame( streams, count, vertex, 0u );
+        skinnedTangent                 = DesertSkinCacheFrame( streams, count, vertex, 1u );
+        skinnedBitangent               = DesertSkinCacheFrame( streams, count, vertex, 2u );
     }
     else
     {
@@ -119,19 +107,39 @@ void main()
         skinnedBitangent = skin3 * a_Bitangent;
     }
 #else
+    // Light view (shadow depth, RSM): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
-    const int  b     = int( m_PushConstants.BoneOffset );
-    const mat4 skin  = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
-    const vec3 posed = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+    vec3       posed;
 #ifdef DESERT_SURFACE_HAS_VARYINGS
-    const mat3 skin3            = mat3( skin );
-    const vec3 skinnedNormal    = skin3 * a_Normal;
-    const vec3 skinnedTangent   = skin3 * a_Tangent;
-    const vec3 skinnedBitangent = skin3 * a_Bitangent;
+    vec3 skinnedNormal;
+    vec3 skinnedTangent;
+    vec3 skinnedBitangent;
 #endif
+#ifndef DESERT_SURFACE_HAS_VARYINGS
+    // Only the depth cell's own block carries the streams; a light view with varyings (masked caster, RSM) uses
+    // MaterialTransport's block and still skins from its palette.
+    if ( m_PushConstants.SkinCacheVertexCount != 0u )
+    {
+        posed = DesertSkinCachePosition(
+             DesertSkinCacheStreams( m_PushConstants.SkinCacheAddressLo, m_PushConstants.SkinCacheAddressHi ),
+             uint( gl_VertexIndex ) );
+    }
+    else
+#endif
+    {
+        const int  b    = int( m_PushConstants.BoneOffset );
+        const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
+        posed           = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+        const mat3 skin3 = mat3( skin );
+        skinnedNormal    = skin3 * a_Normal;
+        skinnedTangent   = skin3 * a_Tangent;
+        skinnedBitangent = skin3 * a_Bitangent;
+#endif
+    }
 #endif
     const vec4 worldPos = model * vec4( posed, 1.0 );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
