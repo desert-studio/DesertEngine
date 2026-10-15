@@ -156,6 +156,35 @@ namespace Desert::Editor::Commands
     // same parent). ONE undo step (undo brings the modified instance back). Returns the new root UUID.
     Common::UUID RevertPrefabInstance( const Common::UUID& uuid );
 
+    // Where a replacing instance's geometry comes from (see ReplaceWithPrefab).
+    enum class ReplaceMeshSource
+    {
+        Prefab,         // UE's Replace Selected Actors with: the instance is exactly the prefab
+        KeepEntityMesh, // the replaced entity's static mesh and material slots go onto the instance's root
+    };
+
+    /**
+     * @brief UE's "Replace Selected Actors with": every entity in @p uuids becomes an instance of the prefab
+     * at @p prefabFile, with the entity's parent, local translation, rotation, scale and name.
+     *
+     * THE OLD SUBTREE GOES, CHILDREN INCLUDED. A lamp whose light was authored as a child of its glass is
+     * replaced by a prefab that carries its own light; keeping the old child would light the street twice.
+     * (UE re-attaches the replaced actor's attached children instead; here a child of a mesh is part of what
+     * the mesh was, and an entity that must survive is reparented before the replace.)
+     *
+     * KeepEntityMesh is for a kit whose every instance was baked as its own mesh (Bistro: 28 street-lamp
+     * glasses, 28 meshes): the prefab supplies the fixture — its lights, its shadow flags — and each instance
+     * keeps the geometry it stood for, saved as that instance's field-level override of the prefab's mesh.
+     * Refused when the prefab's root carries no static mesh, since there would be nothing to keep it on.
+     *
+     * Entries whose ancestor is also listed are covered by that ancestor. Refused before anything changes
+     * when the prefab cannot be loaded or an entity is missing; ONE undo step brings every entity back.
+     * @return the new instance roots, in order; they become the selection.
+     */
+    [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>>
+    ReplaceWithPrefab( const std::vector<Common::UUID>& uuids, const std::filesystem::path& prefabFile,
+                       ReplaceMeshSource mesh );
+
     /**
      * @brief Select every entity in the scene whose static mesh matches @p like's, @p like included.
      *

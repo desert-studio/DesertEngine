@@ -22,6 +22,7 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -670,6 +671,13 @@ namespace Desert::Editor::Commands
         class CompositeCommand final : public ICommand
         {
         public:
+            CompositeCommand() = default;
+            // A step that is ONE gesture to the person ("Replace with Prefab") names itself, rather than
+            // showing the count of the parts it was assembled from.
+            explicit CompositeCommand( std::string label ) : m_Label( std::move( label ) )
+            {
+            }
+
             void Add( std::unique_ptr<ICommand> command )
             {
                 m_Commands.push_back( std::move( command ) );
@@ -694,6 +702,8 @@ namespace Desert::Editor::Commands
 
             std::string GetLabel() const override
             {
+                if ( !m_Label.empty() )
+                    return m_Label;
                 if ( m_Commands.size() == 1 )
                     return m_Commands.front()->GetLabel();
                 return "Grouped edit (" + std::to_string( m_Commands.size() ) + ")";
@@ -717,6 +727,7 @@ namespace Desert::Editor::Commands
 
         private:
             std::vector<std::unique_ptr<ICommand>> m_Commands;
+            std::string                            m_Label;
         };
 
         // Keeps only the "top-level" entries: entities whose ancestor is ALSO in the list are dropped
@@ -1445,6 +1456,139 @@ namespace Desert::Editor::Commands
         OnStructuralChange();
         Core::SelectionManager::SetSelected( freshId );
         return freshId;
+    }
+
+    Common::ResultStr<std::vector<Common::UUID>> ReplaceWithPrefab( const std::vector<Common::UUID>& uuids,
+                                                                    const std::filesystem::path&     prefabFile,
+                                                                    ReplaceMeshSource                mesh )
+    {
+        using Result = std::vector<Common::UUID>;
+        if ( !Ready() )
+            return Common::MakeError<Result>( "Replace with Prefab: there is no open scene" );
+        const std::vector<Common::UUID> roots = FilterTopLevel( uuids );
+        if ( roots.empty() )
+            return Common::MakeError<Result>( "Replace with Prefab: nothing is selected" );
+        if ( prefabFile.extension() != Common::Constants::Extensions::PREFAB_EXTENSION )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' is not a {} file",
+                                                       prefabFile.generic_string(),
+                                                       Common::Constants::Extensions::PREFAB_EXTENSION );
+
+        auto prefab = s_AssetManager->FindByPath<Assets::PrefabAsset>( prefabFile );
+        if ( !prefab )
+            prefab = s_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabFile.generic_string() );
+        if ( !prefab )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' could not be loaded",
+                                                       prefabFile.generic_string() );
+        if ( !prefab->IsReadyForUse() && !prefab->Load() )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' could not be parsed",
+                                                       prefabFile.generic_string() );
+
+        // EVERY REFUSAL IS ASKED BEFORE THE FIRST ENTITY GOES, so a refused replace leaves the scene as it was
+        // rather than half-replaced.
+        if ( mesh == ReplaceMeshSource::KeepEntityMesh )
+        {
+            const auto& records = prefab->GetEntities();
+            if ( records.empty() || !records.front().Components.get( "StaticMesh" ).has_value() )
+                return Common::MakeFormattedError<Result>(
+                     "Replace with Prefab: '{}' has no static mesh on its root, so there is nothing to keep each "
+                     "entity's mesh on; replace without keeping meshes, or give the prefab's root a mesh",
+                     prefabFile.generic_string() );
+        }
+        for ( const Common::UUID& uuid : roots )
+            if ( !FindEntity( uuid ) )
+                return Common::MakeFormattedError<Result>( "Replace with Prefab: entity {} is not in the scene",
+                                                           static_cast<uint64_t>( uuid ) );
+
+        auto   composite = std::make_unique<CompositeCommand>( "Replace with Prefab" );
+        Result created;
+        created.reserve( roots.size() );
+        for ( const Common::UUID& uuid : roots )
+        {
+            ECS::Entity old = *FindEntity( uuid );
+
+            // What the instance takes over: place, name and (on request) geometry. Copied OUT before the
+            // destroy — the component storage goes with the entity.
+            const Common::UUID parentId = ParentUUIDOf( old );
+            glm::vec3          translation( 0.0f ), rotation( 0.0f ), scale( 1.0f );
+            if ( old.HasComponent<ECS::TransformComponent>() )
+            {
+                const auto& tc = old.GetComponent<ECS::TransformComponent>();
+                translation    = tc.Translation;
+                rotation       = tc.Rotation;
+                scale          = tc.Scale;
+            }
+            const std::string tag =
+                 old.HasComponent<ECS::TagComponent>() ? old.GetComponent<ECS::TagComponent>().Tag : std::string();
+            std::optional<ECS::StaticMeshComponent> keptMesh;
+            if ( mesh == ReplaceMeshSource::KeepEntityMesh && old.HasComponent<ECS::StaticMeshComponent>() )
+                keptMesh = old.GetComponent<ECS::StaticMeshComponent>();
+
+            auto snapshot = CaptureSubtree( old );
+            DestroyByUUID( uuid );
+            composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+
+            ECS::Entity parentEntity;
+            if ( !parentId.IsNull() )
+                if ( auto parent = FindEntity( parentId ) )
+                    parentEntity = *parent;
+
+            const auto placed = prefab->Instantiate( s_Scene, *s_AssetManager, parentEntity, &translation );
+            if ( !placed )
+            {
+                // Everything done so far is put back: a replace is all of the selection or none of it.
+                composite->Undo();
+                OnStructuralChange();
+                return Common::MakeFormattedError<Result>( "Replace with Prefab: {}", placed.GetError() );
+            }
+            ECS::Entity fresh = placed.GetValue();
+            if ( fresh.HasComponent<ECS::TransformComponent>() )
+            {
+                auto& tc       = fresh.GetComponent<ECS::TransformComponent>();
+                tc.Translation = translation;
+                tc.Rotation    = rotation;
+                tc.Scale       = scale;
+            }
+            if ( !tag.empty() && fresh.HasComponent<ECS::TagComponent>() )
+                fresh.GetComponent<ECS::TagComponent>().Tag = tag;
+            if ( keptMesh && fresh.HasComponent<ECS::StaticMeshComponent>() )
+            {
+                auto& smc      = fresh.GetComponent<ECS::StaticMeshComponent>();
+                smc.MeshHandle = keptMesh->MeshHandle;
+                smc.Primitive  = keptMesh->Primitive;
+                if ( keptMesh->EditableMesh )
+                {
+                    if ( auto set = ECS::SetEditableMesh( smc, keptMesh->EditableMesh ); !set.IsSuccess() )
+                    {
+                        composite->Add(
+                             std::make_unique<CreateCommand>( std::vector<Common::UUID>{ UUIDOf( fresh ) } ) );
+                        composite->Undo();
+                        OnStructuralChange();
+                        return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}': {}", tag,
+                                                                   set.GetError() );
+                    }
+                }
+                else
+                {
+                    ECS::ClearEditableMesh( smc );
+                }
+                smc.MaterialSlots = keptMesh->MaterialSlots;
+                // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
+                smc.RuntimeMaterialInstances.clear();
+                smc.RuntimeSlots.reset();
+                smc.SeenMaterialsVersion = 0;
+            }
+
+            const Common::UUID freshId = UUIDOf( fresh );
+            composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ freshId } ) );
+            created.push_back( freshId );
+        }
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelection( created );
+        LOG_INFO( "[Prefab] replaced {} entit{} with '{}'", created.size(), created.size() == 1 ? "y" : "ies",
+                  prefabFile.generic_string() );
+        return Common::MakeSuccess( std::move( created ) );
     }
 
     namespace

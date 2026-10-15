@@ -1,7 +1,9 @@
 #include "AssetCommands.hpp"
 
 #include <Editor/Core/ActorDropPlacement.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/SkeletonAssignPalette.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
@@ -65,6 +67,34 @@ namespace Desert::Editor
                                       return Common::MakeError( "rename: the Assets window does not exist" );
                                   return Explorer()->RenameSelected();
                               } } );
+        // REPLACE THE SELECTED ENTITIES WITH THE SELECTED PREFAB — UE's "Replace Selected Actors with", whose
+        // subject is likewise the level selection and whose asset is the Content Browser's. Offered whatever
+        // is selected, so the refusal names what is missing instead of the entry silently not being there.
+        // The second form keeps each entity's own mesh on its instance (SceneCommands.hpp, ReplaceMeshSource).
+        for ( const auto& entry :
+              { std::pair{ "Replace selected entities with the selected prefab",
+                           Commands::ReplaceMeshSource::Prefab },
+                std::pair{ "Replace selected entities with the selected prefab, keeping each entity's mesh",
+                           Commands::ReplaceMeshSource::KeepEntityMesh } } )
+        {
+            const Commands::ReplaceMeshSource source = entry.second;
+            commands.push_back(
+                 { "Entity", entry.first, [this, source]
+                   {
+                       const std::vector<std::string> assets =
+                            Explorer() != nullptr ? Explorer()->SelectionPaths() : std::vector<std::string>{};
+                       if ( assets.size() != 1 )
+                           return Common::MakeFormattedError<bool>(
+                                "Replace with Prefab: select ONE .deprefab in the Assets window "
+                                "('Select asset <path>'); {} asset(s) are selected",
+                                assets.size() );
+                       const auto replaced = Commands::ReplaceWithPrefab(
+                            ::Desert::Editor::Core::SelectionManager::GetSelection(), assets.front(), source );
+                       if ( !replaced.IsSuccess() )
+                           return Common::MakeError<bool>( replaced.GetError() );
+                       return Common::MakeSuccess( true );
+                   } } );
+        }
         // ASSIGN SKELETON (UE's Assign Skeleton on a mesh / clip): the selected .skmesh / .anim against each
         // registered .skeleton, through the Details slot's CheckSkeletonAssignment path — a refusal lists the
         // missing and mis-parented bones and writes nothing. A clip's reference lives in its .anim, so an
