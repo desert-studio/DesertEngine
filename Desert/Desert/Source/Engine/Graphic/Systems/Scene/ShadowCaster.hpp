@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
         uint32_t          FirstView = 0; // its first view (kMaxShadowCascades + its first row of the view table)
         uint32_t          ViewCount = 0; // 1 for a spot, kPointShadowFaces for a point
         float             Reach     = 0.0f; // the point's radius / the spot's range, cm, around Lod.Origin
-        Geometry::LODView Lod;           // Origin = the light's position; Projection = its views' (one per light)
+        Geometry::LODView Lod; // Origin = the light's position; Projection = its views' (one per light)
 
         [[nodiscard]] bool Owns( const uint32_t view ) const
         {

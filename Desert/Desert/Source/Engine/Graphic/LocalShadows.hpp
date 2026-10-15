@@ -273,8 +273,7 @@ namespace Desert::Graphic
         row.ViewProj  = viewProj;
         row.AtlasRect = glm::vec4( static_cast<float>( tile.X ) * inv, static_cast<float>( tile.Y ) * inv,
                                    static_cast<float>( tile.Size ) * inv, static_cast<float>( tile.Size ) * inv );
-        row.Params    = glm::vec4( nearPlane, farPlane, 2.0f * tanHalf / static_cast<float>( tile.Size ),
-                                   0.0f );
+        row.Params    = glm::vec4( nearPlane, farPlane, 2.0f * tanHalf / static_cast<float>( tile.Size ), 0.0f );
         row.Params2   = glm::vec4( 0.0f, inv, 0.0f, 0.0f );
         return row;
     }

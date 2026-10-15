@@ -1074,10 +1074,9 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
-                      "that caster. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
@@ -1167,10 +1166,9 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
-                      "that caster. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),

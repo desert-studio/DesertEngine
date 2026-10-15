@@ -1478,10 +1478,11 @@ TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH
     // The forward ground is shaded as a forward mesh is: the sun (DirectionLightsUB) with the cascade array, the
     // environment cubes and split-sum LUT at the deferred composite's 17/18/19 (8/9/10 are the terrain's), and the
     // sky look. The reflection captures are set 1 (the composite's), outside this set-0 census.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowCascades
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // DirectionLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowCascades
+    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );        // DirectionLightsUB
     for ( const uint32_t environment : { 17u, 18u, 19u } )
-        EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << environment;
+        EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+             << environment;
     EXPECT_TRUE( HasBinding( bindings, 22, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // SkyLookUB
     EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // LightsMetadata
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // PointLightsUB
@@ -1860,20 +1861,21 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
         EXPECT_FALSE( HasBinding( bindings, retired, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << retired;
     // The point and spot lights (Mesh/ForwardLocalLights.glslh) at the lit programs' numbers, with the ShadowUB
     // their contact shadows read; the cloud shadow at the mesh shaders' 20/21.
-    EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );  // LightsMetadata
-    EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );  // PointLightsUB
-    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );  // ShadowUB
-    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // SpotLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // LightsMetadata
+    EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // PointLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
     EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
     EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     // The forward ground is shaded as a forward mesh is: the sun (DirectionLightsUB) with the cascade array, the
     // environment cubes and split-sum LUT at the deferred composite's 17/18/19 (8/9/10 are the terrain's), and the
     // sky look. The reflection captures are set 1 (the composite's), outside this set-0 census.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowCascades
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // DirectionLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowCascades
+    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );        // DirectionLightsUB
     for ( const uint32_t environment : { 17u, 18u, 19u } )
-        EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << environment;
-    EXPECT_TRUE( HasBinding( bindings, 22, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // SkyLookUB
+        EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+             << environment;
+    EXPECT_TRUE( HasBinding( bindings, 22, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
     // The scene-read range: the march's depth and shading word, the light grid, the local shadow atlas and views.
     for ( const uint32_t sampled : { 27u, 28u, 31u } )
         EXPECT_TRUE( HasBinding( bindings, sampled, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << sampled;
@@ -1893,7 +1895,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 //     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the view's
-//     LOD: the camera's for a cascade, the light's for a point/spot view) and the heightmap — and no Materials[] row or TerrainUB it is never given.
+//     LOD: the camera's for a cascade, the light's for a point/spot view) and the heightmap — and no Materials[]
+//     row or TerrainUB it is never given.
 TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )

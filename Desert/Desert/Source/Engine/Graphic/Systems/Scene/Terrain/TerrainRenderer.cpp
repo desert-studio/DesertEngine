@@ -133,7 +133,8 @@ namespace Desert::Graphic::System
                                       [&]( int dx, int dz ) -> std::optional<float>
                                       {
                                           const auto n = lods.find( KeyOf( l, dx, dz ) );
-                                          return n == lods.end() ? std::nullopt : std::optional<float>( n->second );
+                                          return n == lods.end() ? std::nullopt
+                                                                 : std::optional<float>( n->second );
                                       } );
         }
     } // namespace
@@ -235,7 +236,8 @@ namespace Desert::Graphic::System
         // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
         m_LocalLightDraws.clear();
         for ( const LocalShadowCasterLight& light : localLights )
-            m_LocalLightDraws.push_back( { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
+            m_LocalLightDraws.push_back(
+                 { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
         if ( m_Queue.empty() )
             return;
 
@@ -337,11 +339,11 @@ namespace Desert::Graphic::System
 
         // ── Each point/spot light's own draws: the tiles in its reach, at the LOD its position asks for ─────────
         //
-        // A local view's depth is cached until something in its reach changes (MeshRenderer::PlanLocalShadowCache),
-        // so its detail must not follow the camera: with the camera's LOD every step of the camera re-keyed and
-        // redrew every local view that reached terrain. The rows go after the camera's in the same group buffers
-        // (one upload, before any draw); a local row is an instance row only — the shadow program reads no
-        // param row.
+        // A local view's depth is cached until something in its reach changes
+        // (MeshRenderer::PlanLocalShadowCache), so its detail must not follow the camera: with the camera's LOD
+        // every step of the camera re-keyed and redrew every local view that reached terrain. The rows go after
+        // the camera's in the same group buffers (one upload, before any draw); a local row is an instance row
+        // only — the shadow program reads no param row.
         for ( LocalLightDraws& local : m_LocalLightDraws )
         {
             TileLodMap lightLods;
@@ -367,9 +369,9 @@ namespace Desert::Graphic::System
                 local.Draws.push_back( draw );
                 group.Instances.push_back( instance );
 
-                // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer colours),
-                // the heightmap and its texels' revision, and the weightmap where the tile has a visibility layer
-                // (its holes).
+                // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer
+                // colours), the heightmap and its texels' revision, and the weightmap where the tile has a
+                // visibility layer (its holes).
                 hash.Add( instance.Params );
                 hash.Add( instance.Params2 );
                 hash.Add( instance.LandscapeFrame );
@@ -427,9 +429,9 @@ namespace Desert::Graphic::System
             // deferred composite a terrain never darkened under a cloud at all — the sun (DirectionLightsUB, the
             // one statement of it the forward meshes read; TerrainUB no longer carries a copy), the point and spot
             // lights, the cascades' ShadowUB and the sky look the ambient reads (Mesh/AmbientIBL.glslh). Forward
-            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every other
-            // surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection captures,
-            // the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
+            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every
+            // other surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection
+            // captures, the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
             // (SceneViewInputs); the material carries the blocks.
             if ( !deferred )
                 scene.ApplyTo( surface );
@@ -476,10 +478,11 @@ namespace Desert::Graphic::System
     // clip-from-world matrix, so one material serves the camera and every cascade. ────────────────────────
     // Group g's draws go through the block the node's setup declared for its material (firstBlock + g). The
     // first refused draw is the node's error.
-    Common::BoolResultStr TerrainRenderer::RecordDraws(
-         const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
-         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
-         const std::vector<FrameDraw>& draws )
+    Common::BoolResultStr
+    TerrainRenderer::RecordDraws( const RDG::PassContext& context, const uint32_t firstBlock,
+                                  const GraphicsPipeline&             pipeline,
+                                  std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
+                                  const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
         blocks.reserve( m_FrameGroups.size() );

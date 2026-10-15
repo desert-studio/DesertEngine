@@ -96,7 +96,7 @@ namespace Desert::Graphic::System
         // LOD (the light's, LocalShadowCasterLight — not the camera's, so a moving camera keeps the cache),
         // holes, and the revisions of its two maps' texels. Resolved by PrepareFrame for this frame's lights.
         [[nodiscard]] std::optional<uint64_t>
-        LocalShadowSignature( const LocalShadowCasterLight& light ) const override;
+                               LocalShadowSignature( const LocalShadowCasterLight& light ) const override;
         [[nodiscard]] uint32_t DeclareShadowView( RenderPassDeclaration& declared, uint32_t view ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowView( const RDG::PassContext& context, uint32_t view,
                                                               uint32_t firstBlock, const glm::mat4& casterViewProj,

@@ -315,25 +315,25 @@ namespace Desert::Graphic::System
                 const LocalShadowViewPayload& row  = m_LocalShadowRows[firstRow + v];
                 m_CascadeCasterBias[view] =
                      LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
-                m_CascadeCasterVP[view]   = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
+                m_CascadeCasterVP[view] = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
                 EnsureShadowViewMaterials( view );
             }
 
-            // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light reaches.
-            // Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its position,
-            // through the projection its views draw with.
-            const float     reach     = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            const glm::vec3 origin    = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
-            const float     viewTan   = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
-            const float     viewNear  = LocalShadowNear( reach );
+            // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light
+            // reaches. Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its
+            // position, through the projection its views draw with.
+            const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
+            const glm::vec3 origin = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
+            const float     viewTan  = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
+            const float     viewNear = LocalShadowNear( reach );
             m_LocalCachePlans.push_back(
                  { .Light  = request.Key,
                    .Caster = { .FirstView = kMaxShadowCascades + firstRow,
                                .ViewCount = viewCount,
                                .Reach     = reach,
                                .Lod       = Geometry::LODView{
-                                     origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
-                                                               std::max( reach, viewNear * 2.0f ) ) } } } );
+                                    origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
+                                                                    std::max( reach, viewNear * 2.0f ) ) } } } );
         }
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
@@ -416,9 +416,8 @@ namespace Desert::Graphic::System
                          const auto caster = weak.lock();
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
-                         if ( auto cast = caster->RecordShadowView( context, view, firstBlock,
-                                                                    m_CascadeCasterVP[view],
-                                                                    m_CascadeCasterBias[view] );
+                         if ( auto cast = caster->RecordShadowView(
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
                               !cast.IsSuccess() )
                              return cast;
                      }

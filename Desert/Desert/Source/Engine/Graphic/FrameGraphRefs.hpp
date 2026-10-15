@@ -312,8 +312,8 @@ namespace Desert::Graphic
                           } ) )
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
         // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
-        // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its pass
-        // by name rather than reading nothing.
+        // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
+        // pass by name rather than reading nothing.
         for ( const auto& [name, buffer] : { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
                                              std::pair{ kLightGridCellsBlockName, inputs.LightGridCells },
                                              std::pair{ kLocalShadowViewsBlockName, inputs.LocalShadowViews } } )
