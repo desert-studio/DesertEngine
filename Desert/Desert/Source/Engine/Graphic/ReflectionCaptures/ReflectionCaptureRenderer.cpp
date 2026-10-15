@@ -203,11 +203,12 @@ namespace Desert::Graphic
     {
         // The primary sky is the lowest entity (SelectPrimarySky), as the sky system picks it.
         std::optional<entt::entity> primary;
-        for ( const entt::entity entity : registry.view<const ECS::SkyAtmosphereComponent>() )
+        const auto                  skies = registry.view<const ECS::SkyAtmosphereComponent>();
+        for ( const entt::entity entity : skies )
             if ( !primary || entt::to_integral( entity ) < entt::to_integral( *primary ) )
                 primary = entity;
         // Without a procedural sky the sun still lights the cubes: the field's own default is the threshold.
-        return primary ? registry.get<const ECS::SkyAtmosphereComponent>( *primary ).Data.RebakeSunAngleThreshold
+        return primary ? skies.get<const ECS::SkyAtmosphereComponent>( *primary ).Data.RebakeSunAngleThreshold
                        : ECS::SkyAtmosphereData{}.RebakeSunAngleThreshold;
     }
 
