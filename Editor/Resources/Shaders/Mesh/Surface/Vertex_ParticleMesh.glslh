@@ -124,9 +124,11 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity): the camera's motion
     // and the particle's. The particle stood at Position - Velocity x the seconds the simulation advanced since the
-    // previous frame (u_Renderer.Values.y, ParticleWorldGpu::PrepareEmitter); UE's mesh vertex factory reads a
-    // PreviousPosition attribute and, without one, draws the particle as if it had not moved.
-    const vec3 prevWorld = worldPos - ParticleVelocity( n ) * u_Renderer.Values.y;
+    // previous tick (u_Renderer.Values.y, ParticleWorldGpu::PrepareEmitter), around where a Local emitter itself stood
+    // then (ParticlePreviousWorldPosition); UE's mesh vertex factory reads the same per-particle previous position in
+    // world space.
+    const vec3 prevWorld =
+         worldPos + ( ParticlePreviousWorldPosition( n, ParticleVelocity( n ), u_Renderer.Values.y ) - position );
     v_Surface.Clip       = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip   = cameraUB.PrevViewProjection * vec4( prevWorld, 1.0 );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )

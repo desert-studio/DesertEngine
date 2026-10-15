@@ -91,7 +91,8 @@ namespace Desert::Graphic::System
     // Where a renderer finds an emitter's particle (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`;
     // UE FNiagaraSpriteUniformParameters' data offsets): the first float column of each drawn attribute in the
     // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
-    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around.
+    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around (now
+    // and at the previous tick, for their velocity).
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
     struct ParticleDrawLayoutGpu
     {
@@ -102,6 +103,9 @@ namespace Desert::Graphic::System
         glm::uvec4 Columns2   = glm::uvec4( kParticleAttrNone ); // Velocity, Scale, MeshOrientation, RibbonWidth
         glm::uvec4 Columns3   = glm::uvec4( kParticleAttrNone ); // RibbonID (INT column), RibbonFacing, -, -
         glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+        // xyz = where the emitter stood at the previous tick (cm): a Local emitter's particles' previous world
+        // position is taken around it (Common/ParticleDrawRead.glslh ParticlePreviousWorldPosition, the velocity).
+        glm::vec4 PrevEmitterPos = glm::vec4( 0.0f );
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
@@ -159,6 +163,11 @@ namespace Desert::Graphic::System
         uint32_t                                        FloatColumns = 0;
         uint32_t                                        IntColumns   = 0;
         bool                                            Local        = false;
+        // The emitter's world position at the last tick it was prepared (PrepareEmitter): next tick's
+        // ParticleDrawLayoutGpu::PrevEmitterPos. HasDrawnPos = false until a first tick (or after a reset): the
+        // previous position is then the current one, a particle born this tick has no history.
+        glm::vec3 DrawnEmitterPos = glm::vec3( 0.0f );
+        bool      HasDrawnPos     = false;
         // VFXS 2: the emitter's enabled renderer rows, in row order; each is one draw of the particle pass. None =
         // the emitter is simulated and not drawn.
         std::vector<ParticleRendererGpu> Renderers;

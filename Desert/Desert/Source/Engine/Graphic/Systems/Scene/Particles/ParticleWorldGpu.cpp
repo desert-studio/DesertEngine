@@ -440,12 +440,18 @@ namespace Desert::Graphic::System
         // w = the slot the last compact (index StepCount) fills: the ribbon draw reads its alive count from it.
         layout.Range = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
+        // Where the emitter stood at the tick before (a Local emitter's particles' previous world position is taken
+        // around it); a fresh or restarted emitter has no previous tick: its particles are all born this one.
+        const bool hasPrevious = gpu.HasDrawnPos && !gpu.NeedsReset;
+        layout.PrevEmitterPos  = glm::vec4( hasPrevious ? gpu.DrawnEmitterPos : worldPos, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
                        drawn.GetError() );
             return false;
         }
+        gpu.DrawnEmitterPos = worldPos;
+        gpu.HasDrawnPos     = true;
 
         for ( std::size_t r = 0; r < gpu.Renderers.size(); ++r )
         {

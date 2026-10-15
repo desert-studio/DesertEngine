@@ -21,12 +21,28 @@ uint ParticleLocalIndex( uint poolIndex )
     return poolIndex - u_DrawLayout.Range.y;
 }
 
+// The Position attribute (cm), in the emitter's simulation space (Local: relative to the emitter).
+vec3 ParticleSimPosition( uint n )
+{
+    const uint c = u_DrawLayout.Columns0.x;
+    return vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+}
+
 // World position (cm): a Local emitter's particles are drawn at the emitter + their Position.
 vec3 ParticleWorldPosition( uint n )
 {
-    const uint c = u_DrawLayout.Columns0.x;
-    const vec3 p = vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+    const vec3 p = ParticleSimPosition( n );
     return u_DrawLayout.Range.z == 1u ? u_DrawLayout.EmitterPos.xyz + p : p;
+}
+
+// Where the particle stood in the world at the previous tick (cm), @p seconds of simulation ago with @p velocity (its
+// simulation-space Velocity): Position - Velocity x seconds, and for a Local emitter around where the EMITTER stood
+// then (PrevEmitterPos), so an emitter carried by a moving entity moves its particles' velocity too (UE: a Local
+// emitter's PreviousPosition is transformed by the previous frame's local-to-world).
+vec3 ParticlePreviousWorldPosition( uint n, vec3 velocity, float seconds )
+{
+    const vec3 p = ParticleSimPosition( n ) - velocity * seconds;
+    return u_DrawLayout.Range.z == 1u ? u_DrawLayout.PrevEmitterPos.xyz + p : p;
 }
 
 vec2 ParticleSpriteSize( uint n )
