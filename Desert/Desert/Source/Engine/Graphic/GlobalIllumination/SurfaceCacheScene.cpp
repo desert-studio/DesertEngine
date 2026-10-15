@@ -268,8 +268,10 @@ namespace Desert::Graphic::SurfaceCache
                 // Another surface: the texels hold the old material; the pages stay, the cards are recaptured.
                 it->second.SurfaceKey = in.SurfaceKey;
                 for ( Card& card : it->second.Cards )
-                    card.Captured = false;
-                card.CaptureFrame = 0;
+                {
+                    card.Captured     = false;
+                    card.CaptureFrame = 0;
+                }
             }
             for ( Card& card : it->second.Cards )
                 card.Ready = in.CaptureReady;
