@@ -27,8 +27,6 @@
 // Shared by RT-SHADOWS (RayQueryVisibility.glslh) and GI-HWRT. Device-free: the builder is pure.
 namespace Desert::Graphic::RayTracing
 {
-    inline constexpr uint32_t kNoMetadataRecord = ~0u;
-
     // std430, 48 B, one per BLAS segment; Common/RayQueryVisibility.glslh mirrors it.
     struct RayTracingGeometryRecord
     {
@@ -68,20 +66,6 @@ namespace Desert::Graphic::RayTracing
         std::vector<RayTracingMaterialRecord> Materials;
     };
 
-    // A built BLAS as the metadata sees it: the buffers it was built from and its segments, in BLAS geometry
-    // order.
-    struct RayTracingGeometryLayout
-    {
-        uint64_t                                   VertexAddress = 0;
-        uint64_t                                   IndexAddress  = 0;
-        uint32_t                                   NormalOffset  = kNoMetadataRecord;
-        uint32_t                                   UvOffset      = kNoMetadataRecord;
-        std::span<const RayTracingGeometrySegment> Segments;
-    };
-
-    // The layout of the BLAS behind RayTracingInstance::Geometry (nullopt: the geometry exposes none - an error).
-    using RayTracingGeometryLayoutFn =
-         std::function<std::optional<RayTracingGeometryLayout>( const void* geometry )>;
     // The alpha-test record of submesh @p submesh of @p primitive; nullopt = the submesh's material is not masked.
     using RayTracingSubmeshMaterialFn = std::function<std::optional<RayTracingMaterialRecord>(
          const RayTracingPrimitive& primitive, uint32_t submesh )>;
@@ -92,7 +76,7 @@ namespace Desert::Graphic::RayTracing
     // built for other materials, and both are errors, never a silent pass.
     [[nodiscard]] inline Common::ResultStr<RayTracingMetadata> BuildRayTracingMetadata(
          std::span<RayTracingInstance> instances, std::span<const RayTracingPrimitive> primitives,
-         const RayTracingGeometryLayoutFn& layoutOf, const RayTracingSubmeshMaterialFn& materialOf )
+         const RayTracingSubmeshMaterialFn& materialOf )
     {
         RayTracingMetadata metadata;
         // (geometry, material rows) -> first record: instances that agree on both share one range.
@@ -104,14 +88,15 @@ namespace Desert::Graphic::RayTracing
                      "RayTracingMetadata: instance names primitive {} of {}", instance.Primitive,
                      primitives.size() );
             const RayTracingPrimitive&                    primitive = primitives[instance.Primitive];
-            const std::optional<RayTracingGeometryLayout> layout    = layoutOf( instance.Geometry );
-            if ( !layout )
+            if ( instance.Geometry == nullptr )
                 return Common::MakeFormattedError<RayTracingMetadata>(
-                     "RayTracingMetadata: the BLAS of GPU-scene row {} exposes no layout", primitive.GpuSceneRow );
+                     "RayTracingMetadata: the instance of GPU-scene row {} has no BLAS", primitive.GpuSceneRow );
+            const RayTracingGeometryLayout layout =
+                 static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetMetadataLayout();
 
             std::vector<uint32_t> materialRows;
-            materialRows.reserve( layout->Segments.size() );
-            for ( const RayTracingGeometrySegment& segment : layout->Segments )
+            materialRows.reserve( layout.Segments.size() );
+            for ( const RayTracingGeometrySegment& segment : layout.Segments )
             {
                 const std::optional<RayTracingMaterialRecord> material =
                      materialOf( primitive, segment.SubmeshIndex );
@@ -142,18 +127,18 @@ namespace Desert::Graphic::RayTracing
             const uint32_t offset         = static_cast<uint32_t>( metadata.Geometry.size() );
             instance.GeometryRecordOffset = offset;
             ranges.emplace( key, offset );
-            for ( std::size_t i = 0; i < layout->Segments.size(); ++i )
+            for ( std::size_t i = 0; i < layout.Segments.size(); ++i )
             {
-                const RayTracingGeometrySegment& segment = layout->Segments[i];
+                const RayTracingGeometrySegment& segment = layout.Segments[i];
                 RayTracingGeometryRecord&        record  = metadata.Geometry.emplace_back();
-                record.VertexAddress                     = layout->VertexAddress;
-                record.IndexAddress                      = layout->IndexAddress;
-                record.VertexStride                      = segment.VertexStride;
+                record.VertexAddress                     = layout.VertexAddress;
+                record.IndexAddress                      = layout.IndexAddress;
+                record.VertexStride                      = layout.VertexStride;
                 record.FirstVertex                       = segment.FirstVertex;
                 record.FirstIndex   = segment.IndexByteOffset / static_cast<uint32_t>( sizeof( uint32_t ) );
                 record.Material     = materialRows[i];
-                record.NormalOffset = layout->NormalOffset;
-                record.UvOffset     = layout->UvOffset;
+                record.NormalOffset = layout.NormalOffset;
+                record.UvOffset     = layout.UvOffset;
                 record.SubmeshIndex = segment.SubmeshIndex;
             }
         }

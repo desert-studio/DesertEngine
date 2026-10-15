@@ -86,6 +86,7 @@ namespace Desert::Graphic::API::Vulkan
                                                      VulkanAllocator::AllocationSize( m_PositionsMemory ) );
 
         m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
+        m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
         const VulkanBlasBuildInput input =
              TranslateBlasGeometry( m_Segments, functions.BufferAddress( device, m_Positions ), m_IndexAddress );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
@@ -232,6 +233,7 @@ namespace Desert::Graphic::API::Vulkan
         m_HiddenSubmeshes = 0;
         m_VertexCount     = 0;
         m_IndexAddress    = 0;
+        m_VertexAddress   = 0;
         m_BuildScratch    = 0;
         m_UpdateScratch   = 0;
         m_Built           = false;

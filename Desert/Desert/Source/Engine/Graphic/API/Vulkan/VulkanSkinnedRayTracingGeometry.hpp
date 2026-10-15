@@ -49,6 +49,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, true );
+        }
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
             return m_StorageBytes;
@@ -68,6 +72,7 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t                      m_VertexCount     = 0;
 
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
+        VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
         VkDeviceAddress                                    m_IndexAddress  = 0;
         VkDeviceSize                                       m_BuildScratch  = 0;
         VkDeviceSize                                       m_UpdateScratch = 0;
