@@ -148,6 +148,10 @@ namespace Desert::Graphic
         // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
+        // The table of the local shadow atlas's views (ViewLightBuffers::ShadowViews) each point/spot row's
+        // shadowView names: read with the atlas wherever a lit pass shades the grid's lights
+        // (Mesh/LocalLightShadow.glslh).
+        RDG::BufferRef LocalShadowViews;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -182,6 +186,8 @@ namespace Desert::Graphic
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // The local shadow atlas's view table (Mesh/LocalLightShadowView.glslh): the composite, the forward cells.
+    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -199,6 +205,7 @@ namespace Desert::Graphic
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
+        inputs.LocalShadowViews       = t.Lights.ShadowViews;
         return inputs;
     }
 
@@ -304,10 +311,12 @@ namespace Desert::Graphic
                                      slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
                           } ) )
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
-        // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
-        // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
+        // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
+        // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its pass
+        // by name rather than reading nothing.
         for ( const auto& [name, buffer] : { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
-                                             std::pair{ kLightGridCellsBlockName, inputs.LightGridCells } } )
+                                             std::pair{ kLightGridCellsBlockName, inputs.LightGridCells },
+                                             std::pair{ kLocalShadowViewsBlockName, inputs.LocalShadowViews } } )
             if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
     }

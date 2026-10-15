@@ -150,6 +150,7 @@ namespace Desert::Graphic::System
         m_LocalLights.clear();
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
+        m_LocalCachePlans.clear();
         m_ShadowPipeline.reset();
         m_ShadowInstancedPipeline.reset();
         m_ShadowSkinnedPipeline.reset();
@@ -1203,8 +1204,8 @@ namespace Desert::Graphic::System
                          {
                              continue; // gone since the setup: its draws went with it
                          }
-                         if ( auto cast = caster->RecordShadowCascade(
-                                   context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
+                         if ( auto cast = caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
+                                                                    m_CascadeCasterBias[c] );
                               !cast.IsSuccess() )
                          {
                              return cast;
@@ -1222,13 +1223,13 @@ namespace Desert::Graphic::System
                 m_CascadeMovableDraws[c].Declare( declared, std::nullopt );
 
                 // The non-mesh casters declare their blocks after the list's
-                // (IShadowCaster::DeclareShadowCascade).
+                // (IShadowCaster::DeclareShadowView).
                 uint32_t nextBlock = m_CascadeMovableDraws[c].BlockCount();
                 for ( const auto& weak : m_ShadowCasters )
                 {
                     if ( const auto caster = weak.lock() )
                     {
-                        const uint32_t declaredBlocks = caster->DeclareShadowCascade( declared, c );
+                        const uint32_t declaredBlocks = caster->DeclareShadowView( declared, c );
                         m_CascadeCasters[c].emplace_back( weak, nextBlock );
                         nextBlock += declaredBlocks;
                     }

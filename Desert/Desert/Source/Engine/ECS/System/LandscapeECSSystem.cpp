@@ -237,9 +237,10 @@ namespace Desert::ECS
             TileGpu& gpu = m_Tiles[d.Entity];
             // In place while the sample count holds (LandscapeTileImage.hpp): the image's address keys the tile's
             // terrain material, so sculpting must not replace it.
-            const auto heightmap = RefreshLandscapeTileImage(
-                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(),
-                 d.Dirty || neighbourDirty || gpu.NeighbourMask != mask,
+            // An in-place rewrite keeps the address, so the contents carry their own revision (HeightRevision).
+            const bool heightsStale = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
+            const auto heightmap    = RefreshLandscapeTileImage(
+                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsStale,
                  [&] { return HeightmapTexels( heights, neighbours ); }, [&]( std::vector<unsigned char> texels )
                  { return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
             if ( !heightmap.IsSuccess() )
@@ -253,6 +254,8 @@ namespace Desert::ECS
                 continue;
             }
             gpu.NeighbourMask = mask;
+            if ( heightsStale || gpu.HeightRevision == 0u )
+                gpu.HeightRevision = ++m_ContentRevision;
 
             if ( d.WeightsDirty )
             {
@@ -274,6 +277,7 @@ namespace Desert::ECS
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
+            draw.HeightRevision = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
@@ -287,6 +291,7 @@ namespace Desert::ECS
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
                 weights.VisibilityLayer = channels.Visibility;
+                weights.Revision        = gpu.WeightRevision;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )
                 {
@@ -334,7 +339,11 @@ namespace Desert::ECS
              [&]( std::vector<unsigned char> texels )
              { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
         if ( weightmap.IsSuccess() )
+        {
+            if ( weightsDirty || gpu.WeightRevision == 0u )
+                gpu.WeightRevision = ++m_ContentRevision;
             return;
+        }
         gpu.Weightmap.reset();
         if ( m_WarnedWeights.insert( entity ).second )
             LOG_ERROR( "[Landscape] tile ({}, {}): RGBA8 weightmap: {}; the tile's painted layers are not drawn",

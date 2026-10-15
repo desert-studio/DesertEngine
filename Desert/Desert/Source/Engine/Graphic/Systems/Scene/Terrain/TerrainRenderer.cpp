@@ -503,7 +503,49 @@ namespace Desert::Graphic::System
                                   GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
     }
 
-    uint32_t TerrainRenderer::DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t /*cascade*/ )
+    std::optional<uint64_t> TerrainRenderer::ShadowSignatureInSphere( const glm::vec3& centre,
+                                                                      const float      radius ) const
+    {
+        // m_FrameDraws[i] is m_Queue[i]'s draw (PrepareFrame emits one per queued tile, in order), its instance
+        // row the one the shadow draws with.
+        ShadowSignatureHash hash;
+        for ( std::size_t i = 0; i < m_FrameDraws.size() && i < m_Queue.size(); ++i )
+        {
+            const TerrainDrawData&   t = m_Queue[i];
+            const LandscapeTileDraw& l = t.Landscape;
+            // The tile's ground footprint; its heights are unbounded here, so the test is the XZ disc - a tile
+            // above or below the light's reach is kept, which costs a redraw, never a stale shadow.
+            const float     side = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const glm::vec2 lo( l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm,
+                                l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm );
+            const glm::vec2 closest = glm::clamp( glm::vec2( centre.x, centre.z ), lo, lo + side );
+            const glm::vec2 d       = glm::vec2( centre.x, centre.z ) - closest;
+            if ( glm::dot( d, d ) > radius * radius )
+                continue;
+
+            const FrameDraw&       draw     = m_FrameDraws[i];
+            const TerrainInstance& instance = m_FrameGroups[draw.Group].Instances[draw.Row];
+            // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer colours),
+            // the heightmap, and the weightmap where the tile has a visibility layer (its holes).
+            hash.Add( instance.Params );
+            hash.Add( instance.Params2 );
+            hash.Add( instance.LandscapeFrame );
+            hash.Add( instance.LandscapeTile );
+            hash.Add( instance.LodEdges );
+            hash.Add( instance.LodCorners );
+            hash.Add( draw.VertexCount );
+            hash.Add( t.Heightmap );
+            hash.Add( l.HeightRevision );
+            if ( t.Weights.VisibilityLayer >= 0 )
+            {
+                hash.Add( t.Weights.Weightmap );
+                hash.Add( t.Weights.Revision );
+            }
+        }
+        return hash.Value;
+    }
+
+    uint32_t TerrainRenderer::DeclareShadowView( RenderPassDeclaration& declared, uint32_t /*view*/ )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return 0;
@@ -512,21 +554,21 @@ namespace Desert::Graphic::System
                                    GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
     }
 
-    Common::BoolResultStr TerrainRenderer::RecordShadowCascade( const RDG::PassContext& context,
-                                                                uint32_t /*cascade*/, const uint32_t firstBlock,
-                                                                const glm::mat4&         cascadeViewProj,
-                                                                const CascadeCasterBias& bias )
+    Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, uint32_t /*view*/,
+                                                             const uint32_t           firstBlock,
+                                                             const glm::mat4&         casterViewProj,
+                                                             const CascadeCasterBias& bias )
     {
         if ( !m_ShadowPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
-        // The cascade's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
-        // like the matrix beside it, so the one shadow material per group still serves every cascade. The
-        // constant part is already in cascadeViewProj (Graphic::CasterViewProj).
+        // The view's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
+        // like the matrix beside it, so the one shadow material per group still serves every view. The
+        // constant part is already in casterViewProj (Graphic::CasterViewProj); a local view's is zero.
         for ( const auto& group : m_FrameGroups )
             m_Materials.at( group.Key ).Shadow->SetShadowSlopeBias( bias.SlopeBias, bias.SlopeClamp );
-        // Its own row inside the cascade's: the terrain's share of the shadow cost, summed over cascades.
-        DESERT_PROFILE_PASS( "TerrainShadowCascade" );
-        // Through the blocks DeclareShadowCascade declared on this cascade's node.
-        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, cascadeViewProj );
+        // Its own row inside the view's: the terrain's share of the shadow cost, summed over views.
+        DESERT_PROFILE_PASS( "TerrainShadowView" );
+        // Through the blocks DeclareShadowView declared on this view's node.
+        return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, casterViewProj );
     }
 } // namespace Desert::Graphic::System

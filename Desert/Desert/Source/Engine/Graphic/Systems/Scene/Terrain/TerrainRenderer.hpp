@@ -50,7 +50,8 @@ namespace Desert::Graphic::System
     //   - Forward:  the "TerrainPass" graph pass (Terrain.shader, lit by itself);
     //   - Deferred: RenderGBufferManual, after the meshes' G-buffer fill (TerrainGBuffer.shader, lit by the
     //     deferred composite like every other opaque surface — so it receives the cascaded shadows);
-    //   - both:     RecordShadowCascade, from inside the mesh renderer's cascade passes (TerrainShadow.shader).
+    //   - both:     RecordShadowView, from inside the mesh renderer's shadow passes — the sun's cascades and the
+    //     point/spot lights' views of the local shadow atlas (TerrainShadow.shader).
     // The three programs share their vertex stage (Programs/Terrain/*.glslh) and differ in what the
     // fragment writes and in the matrix pushed per draw (camera or cascade).
     class TerrainRenderer final : public RenderSystem, public IShadowCaster
@@ -66,7 +67,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] SystemRasterPass GeometryPass();
 
         // The caster pipeline is built against the cascade targets, which the mesh renderer owns and makes.
-        // Under a zero-cascade budget there are none and none is built (RecordShadowCascade is never reached).
+        // Under a zero-cascade budget there are none and none is built (RecordShadowView is never reached). The
+        // local shadow atlas has the cascades' depth format, so the one pipeline serves its views too.
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
@@ -85,11 +87,15 @@ namespace Desert::Graphic::System
         {
             return !m_Queue.empty();
         }
-        [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
-        [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
-                                                                 uint32_t                 firstBlock,
-                                                                 const glm::mat4&         cascadeViewProj,
-                                                                 const CascadeCasterBias& bias ) override;
+        // The tiles whose ground (XZ) footprint the sphere reaches, each by what its depth is made of: placement,
+        // LOD (the camera's, which the shadow draws with too), holes, and the revisions of its two maps' texels.
+        // From this frame's draws: valid after PrepareFrame.
+        [[nodiscard]] std::optional<uint64_t> ShadowSignatureInSphere( const glm::vec3& centre,
+                                                                       float            radius ) const override;
+        [[nodiscard]] uint32_t DeclareShadowView( RenderPassDeclaration& declared, uint32_t view ) override;
+        [[nodiscard]] Common::BoolResultStr RecordShadowView( const RDG::PassContext& context, uint32_t view,
+                                                              uint32_t firstBlock, const glm::mat4& casterViewProj,
+                                                              const CascadeCasterBias& bias ) override;
 
         void Submit( const TerrainDrawData& data )
         {

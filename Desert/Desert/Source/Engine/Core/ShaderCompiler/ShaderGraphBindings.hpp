@@ -72,7 +72,13 @@ namespace Desert::Core
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.
     inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 4u;
     inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 5u;
-    inline constexpr uint32_t kSceneReadBindingCount  = 6u;
+    // The view's point/spot shadows (Graphic/LocalShadows.hpp), read by the forward cell through the same reader the
+    // deferred composite uses (Mesh/LocalLightShadow.glslh): the atlas (`u_LocalShadowAtlas`), then the table of
+    // its views (`LocalShadowViewsUB`) each light's shadowView names. Bound by name from the frame graph
+    // (BindSceneViewInputs); declared in Mesh/Surface/Pass_Forward.glslh.
+    inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 6u;
+    inline constexpr uint32_t kLocalShadowViewsBinding = kSceneReadBindingFirst + 7u;
+    inline constexpr uint32_t kSceneReadBindingCount   = 8u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -80,8 +86,8 @@ namespace Desert::Core
     }
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
-    // shading word and the light grid joined it), to sit above the scene-read range; see the paragraph on moving
-    // it above.
+    // shading word and the light grid joined it), then from 31 (the local shadow atlas and its views joined it), to
+    // sit above the scene-read range; see the paragraph on moving it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 31u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 33u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

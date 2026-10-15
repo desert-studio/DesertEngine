@@ -360,8 +360,10 @@ namespace Desert::Graphic::System
         // has no cascades.
         [[nodiscard]] RDG::TextureRef AcquireCascadeMaps( RDG::Builder& graph );
         // One depth-only pass per local shadow view whose cached depth is stale this frame, each into its own
-        // tile of the atlas (it clears the tile, never the atlas). SceneRenderer::AddFrameShadowDepths adds them
-        // after the cascades, LOADING the atlas.
+        // tile of the atlas (it clears the tile, never the atlas), its mesh casters and then the non-mesh ones
+        // (IShadowCaster: the terrain). SceneRenderer::AddFrameShadowDepths adds them after the cascades, LOADING
+        // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
+        // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
         [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
 
         // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index: 0..kMaxCascades-1 are the sun's cascades, the
@@ -741,9 +743,14 @@ namespace Desert::Graphic::System
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
-        // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        // A hash of every caster within @p radius of @p centre (what it draws and where) - the meshes and the
+        // non-mesh casters (IShadowCaster::ShadowSignatureInSphere) - or nullopt when one of them moves by itself
+        // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
         [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
+        // its casters and its views; the views of a light whose key changed (or that has none) go to
+        // m_LocalRedraws.
+        void PlanLocalShadowCache();
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -994,7 +1001,19 @@ namespace Desert::Graphic::System
             AtlasTile Tile;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
+        // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
+        struct LocalShadowCachePlan
+        {
+            uint64_t  Light     = 0; // key into m_LocalLights
+            uint32_t  FirstRow  = 0; // its first row of m_LocalShadowRows
+            glm::vec3 Centre{ 0.0f };
+            float     Reach = 0.0f;
+        };
+        std::vector<LocalShadowCachePlan> m_LocalCachePlans;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // Each local view's non-mesh casters its Declare declared, with the index of its first block (as
+        // m_CascadeCasters for a cascade).
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_LocalCasters[kMaxLocalShadowViews];
         uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;

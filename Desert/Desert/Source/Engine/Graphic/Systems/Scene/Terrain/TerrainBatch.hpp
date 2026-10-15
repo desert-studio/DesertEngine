@@ -113,6 +113,10 @@ namespace Desert::Graphic::System
         // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
         // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
         int32_t VisibilityLayer = -1;
+        // The revision of the weightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite). The image is
+        // updated in place, so its address cannot say a stroke changed it; a cached local shadow whose caster
+        // discards by the visibility layer keys on this (TerrainRenderer::ShadowSignatureInSphere).
+        uint64_t Revision = 0u;
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
@@ -131,6 +135,10 @@ namespace Desert::Graphic::System
         uint32_t QuadsPerTile = 0u;
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
+        // The revision of the heightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite — the tile's
+        // edit, a neighbour's, its ring changing). The image is rewritten in place, so its address cannot say a
+        // sculpt changed it; a cached local shadow keys on this (TerrainRenderer::ShadowSignatureInSphere).
+        uint64_t HeightRevision = 0u;
     };
 
     // ── Landscape LOD ───────────────────────────────────────────────────────────────────────────────

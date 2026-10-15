@@ -99,6 +99,17 @@ namespace Desert::Graphic::System
             if ( any )
                 hash.Add( ism.Mesh );
         }
+        // The casters that are not meshes (the terrain), each by its own key of what it draws in the sphere.
+        for ( const auto& weak : m_ShadowCasters )
+        {
+            const auto caster = weak.lock();
+            if ( !caster )
+                continue;
+            const std::optional<uint64_t> theirs = caster->ShadowSignatureInSphere( centre, radius );
+            if ( !theirs )
+                return std::nullopt;
+            hash.Add( *theirs );
+        }
         return hash.Value;
     }
 
@@ -111,6 +122,7 @@ namespace Desert::Graphic::System
         // was given below.
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
+        m_LocalCachePlans.clear();
         ++m_LocalFrame;
         for ( auto& point : points )
             point.ShadowView = kNoLocalShadowView;
@@ -299,24 +311,12 @@ namespace Desert::Graphic::System
                 EnsureShadowViewMaterials( view );
             }
 
-            // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach moves).
-            const glm::vec3 centre = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
-            const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            std::optional<uint64_t> signature = LocalCasterSignature( centre, reach );
-            if ( signature )
-            {
-                SignatureHash hash;
-                hash.Add( *signature );
-                AddViews( hash, &m_LocalShadowRows[firstRow], viewCount );
-                signature = hash.Value;
-            }
-            const bool cached = signature.has_value() && light.Signature == signature;
-            light.Signature   = signature;
-            if ( !cached )
-            {
-                for ( uint32_t v = 0; v < viewCount; ++v )
-                    m_LocalRedraws.push_back( { kMaxShadowCascades + firstRow + v, light.Tiles[v] } );
-            }
+            // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light reaches.
+            m_LocalCachePlans.push_back(
+                 { .Light    = request.Key,
+                   .FirstRow = firstRow,
+                   .Centre   = request.Spot ? spots[request.Index].Position : points[request.Index].Position,
+                   .Reach    = request.Spot ? spots[request.Index].Range : points[request.Index].Radius } );
         }
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
@@ -331,11 +331,43 @@ namespace Desert::Graphic::System
         }
     }
 
+    void MeshRenderer::PlanLocalShadowCache()
+    {
+        // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach changes): the
+        // key is every caster in its reach, the meshes' and the non-mesh casters' (resolved by now), and its
+        // views.
+        m_LocalRedraws.clear();
+        for ( const LocalShadowCachePlan& plan : m_LocalCachePlans )
+        {
+            const auto held = m_LocalLights.find( plan.Light );
+            if ( held == m_LocalLights.end() )
+                continue; // its tiles went with a shadow rebudget since UpdateLocalShadows: no view to draw
+            LocalShadowLight&       light     = held->second;
+            std::optional<uint64_t> signature = LocalCasterSignature( plan.Centre, plan.Reach );
+            if ( signature )
+            {
+                SignatureHash hash;
+                hash.Add( *signature );
+                AddViews( hash, &m_LocalShadowRows[plan.FirstRow], light.ViewCount );
+                signature = hash.Value;
+            }
+            const bool cached = signature.has_value() && light.Signature == signature;
+            light.Signature   = signature;
+            if ( !cached )
+            {
+                for ( uint32_t v = 0; v < light.ViewCount; ++v )
+                    m_LocalRedraws.push_back( { kMaxShadowCascades + plan.FirstRow + v, light.Tiles[v] } );
+            }
+        }
+        m_LocalCachePlans.clear();
+    }
+
     std::vector<SystemRasterPass> MeshRenderer::LocalShadowPasses()
     {
         std::vector<SystemRasterPass> passes;
         if ( !m_ShadowPipeline || !m_LocalAtlasFB )
             return passes;
+        PlanLocalShadowCache();
         for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
         {
             const uint32_t   view = redraw.View;
@@ -354,14 +386,43 @@ namespace Desert::Graphic::System
                      renderer.ClearRegion( *m_LocalAtlasFB, static_cast<int32_t>( tile.X ),
                                            static_cast<int32_t>( tile.Y ), tile.Size, tile.Size, glm::vec4( 1.0f ),
                                            1.0f );
-                     return m_LocalDraws[slot].Record( context );
+                     if ( auto drawn = m_LocalDraws[slot].Record( context ); !drawn.IsSuccess() )
+                         return drawn;
+                     // The casters that are not meshes (the terrain), into THIS pass (IShadowCaster): the ones
+                     // the Declare declared, each through its own blocks, with the view's caster matrix.
+                     const uint32_t view = kMaxShadowCascades + slot;
+                     for ( const auto& [weak, firstBlock] : m_LocalCasters[slot] )
+                     {
+                         const auto caster = weak.lock();
+                         if ( !caster )
+                             continue; // gone since the setup: its draws went with it
+                         if ( auto cast = caster->RecordShadowView( context, view, firstBlock,
+                                                                    m_CascadeCasterVP[view],
+                                                                    m_CascadeCasterBias[view] );
+                              !cast.IsSuccess() )
+                             return cast;
+                     }
+                     return BOOLSUCCESS;
                  },
                  .TargetFramebuffer = m_LocalAtlasFB };
             pass.Declare = [this, view, slot]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 m_LocalDraws[slot].Clear();
+                m_LocalCasters[slot].clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
+
+                // The non-mesh casters declare their blocks after the list's (IShadowCaster::DeclareShadowView).
+                uint32_t nextBlock = m_LocalDraws[slot].BlockCount();
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    if ( const auto caster = weak.lock() )
+                    {
+                        const uint32_t declaredBlocks = caster->DeclareShadowView( declared, view );
+                        m_LocalCasters[slot].emplace_back( weak, nextBlock );
+                        nextBlock += declaredBlocks;
+                    }
+                }
             };
             passes.push_back( std::move( pass ) );
         }

@@ -18,6 +18,18 @@ layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
 {
     uint lightGridCells[];
 };
+// THE POINT AND SPOT LIGHTS' SHADOWS (Graphic/LocalShadows.hpp): the view's local shadow atlas and the table of its
+// views each light's shadowView names, read by Mesh/LocalLightShadow.glslh — the reader the deferred composite uses,
+// so a light shadows a forward surface exactly as it shadows a G-buffer texel. The row struct first, then the two
+// blocks at their numbers of the reserved scene-read range (Core::kLocalShadowAtlasBinding /
+// kLocalShadowViewsBinding), bound by name from the frame graph (BindSceneViewInputs). The reader is included
+// below, after Common/ContactShadow.glslh, whose contact shadow it applies too.
+#include <Mesh/LocalLightShadowView.glslh>
+layout( binding = 31 ) uniform sampler2D u_LocalShadowAtlas;
+layout( std430, binding = 32 ) readonly buffer LocalShadowViewsUB
+{
+    LocalShadowView localShadowViews[];
+};
 // THE direct-light BRDF, shared with the deferred composite and the point/spot headers above.
 #include <Mesh/DirectLighting.glslh>
 
@@ -95,6 +107,7 @@ layout( binding = 21 ) uniform CloudShadowUB
 // lookups a shading model may call, so it precedes the generated dispatch.
 #include <Mesh/AmbientIBL.glslh>
 #include <Mesh/LightSources.glslh>
+#include <Mesh/LocalLightShadow.glslh>
 // THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
 // dispatch the registry generates. This pass names no model.
 #include <Generated/ShadingModels.glslh>
@@ -145,8 +158,9 @@ void main()
                                                              shadow ),
                                              surface, payload );
     // Point and spot lights: those of this pixel's froxel, in the order the full loop summed them (points, then
-    // spots), each with its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more
-    // lights than its list holds) is shaded by every light: slower, never wrong.
+    // spots), each with its shadow-map shadow (a light that casts none has shadowView -1) and its contact shadow
+    // (the payload carries the length, 0 = none). An overflowed cell (more lights than its list holds) is shaded by
+    // every light: slower, never wrong.
     const uint cell       = LightGridCellAt( lightGrid, gl_FragCoord.xy, i.WorldPosition );
     const uint cellCount  = lightGridCells[cell];
     const bool overflowed = LightGridCellOverflowed( lightGrid, cellCount );
@@ -158,18 +172,18 @@ void main()
         const uint index = overflowed ? j : lightGridCells[listOffset + j];
         if ( index < lightsMetadata.PointLightCount )
         {
-            DesertLight point = DesertPointLightAt( pointLights[index], i.WorldPosition );
-            point.Shadow *= ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[index] ),
-                                                 subsurfaceOpacity );
-            light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, point, surface, payload );
+            light += DesertEvaluateShadingModel(
+                 DESERT_SHADING_MODEL_INDEX,
+                 DesertShadowedPointLightAt( pointLights[index], i.WorldPosition, N, subsurfaceOpacity ), surface,
+                 payload );
         }
         else
         {
             const uint spotIndex = index - lightsMetadata.PointLightCount;
-            DesertLight spot     = DesertSpotLightAt( spotLights[spotIndex], i.WorldPosition );
-            spot.Shadow *= ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[spotIndex] ),
-                                                subsurfaceOpacity );
-            light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, spot, surface, payload );
+            light += DesertEvaluateShadingModel(
+                 DESERT_SHADING_MODEL_INDEX,
+                 DesertShadowedSpotLightAt( spotLights[spotIndex], i.WorldPosition, N, subsurfaceOpacity ), surface,
+                 payload );
         }
     }
 
