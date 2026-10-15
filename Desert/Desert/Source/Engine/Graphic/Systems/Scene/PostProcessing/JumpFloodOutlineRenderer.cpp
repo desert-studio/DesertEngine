@@ -44,7 +44,7 @@ namespace Desert::Graphic::System
             return Common::MakeError( "JumpFloodOutlineRenderer: failed to create pipelines" );
         }
 
-        m_MaterialComposite = std::make_unique<MaterialJFAComposite>();
+        m_MaterialFinal = std::make_unique<MaterialJFAFinal>();
 
         return BOOLSUCCESS;
     }
@@ -193,19 +193,19 @@ namespace Desert::Graphic::System
 
     void JumpFloodOutlineRenderer::FillFinalMaterial()
     {
-        if ( !m_MaterialComposite )
+        if ( !m_MaterialFinal )
             return;
         const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
-        m_MaterialComposite->SetParams( glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
+        m_MaterialFinal->SetParams( glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
     }
 
     void JumpFloodOutlineRenderer::DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed,
                                                          RDG::TextureRef scene ) const
     {
-        if ( !m_FinalPipeline || !m_MaterialComposite )
+        if ( !m_FinalPipeline || !m_MaterialFinal )
             return; // RecordFinal refuses by name
         pass.Bindings( m_FinalLayout.Get( m_FinalPipeline->GetSpecification().Shader ),
-                       m_MaterialComposite->GetMaterialExecutor()->GetRouteFill() )
+                       m_MaterialFinal->GetMaterialExecutor()->GetRouteFill() )
              .Sampled( "u_JFATexture", seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )
              .Sampled( "u_SceneTexture", scene, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
@@ -214,10 +214,10 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context )
     {
-        if ( !m_FinalPipeline || !m_MaterialComposite )
+        if ( !m_FinalPipeline || !m_MaterialFinal )
             return Common::MakeError( "JumpFloodOutlineRenderer: the composite pipeline is not initialised" );
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_FinalPipeline,
-                                                       m_MaterialComposite->GetMaterialExecutor() );
+                                                       m_MaterialFinal->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

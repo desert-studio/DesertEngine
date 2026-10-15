@@ -7,7 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
-#include <Engine/Graphic/Materials/PostProcessing/MaterialJFAComposite.hpp>
+#include <Engine/Graphic/Materials/PostProcessing/MaterialJFAFinal.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -132,7 +132,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_FinalPipeline;
 
         // The composite's uniform block (outline colour, width, smoothness); every texture is a graph binding.
-        std::unique_ptr<MaterialJFAComposite> m_MaterialComposite;
+        std::unique_ptr<MaterialJFAFinal> m_MaterialFinal;
         mutable ShaderBindingLayoutCache      m_InitLayout; // the three shaders' layouts, kept between frames
         mutable ShaderBindingLayoutCache      m_StepLayout;
         mutable ShaderBindingLayoutCache      m_FinalLayout;

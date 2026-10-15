@@ -69,7 +69,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Materials/Mesh` — 8 files, 798 lines: DefaultVertexStreamsBinding, MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned, MeshCellPipelineKey, MeshCellPipelineKeyHash
 - `Graphic/Materials/Mesh/PBR` — 2 files, 172 lines: PBRSceneFrame
 - `Graphic/Materials/Particles` — 1 files, 48 lines: MaterialParticleBillboard
-- `Graphic/Materials/PostProcessing` — 10 files, 371 lines: MaterialFXAA, MaterialJFAComposite, MaterialJFAInit, MaterialJFAStep, MaterialSMAABlend, MaterialSMAAEdges, MaterialSMAAWeights, MaterialTonemap, Params
+- `Graphic/Materials/PostProcessing` — 10 files, 371 lines: MaterialFXAA, MaterialJFAFinal, MaterialJFAInit, MaterialJFAStep, MaterialSMAABlend, MaterialSMAAEdges, MaterialSMAAWeights, MaterialTonemap, Params
 - `Graphic/Materials/Properties` — 8 files, 808 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
 - `Graphic/Materials/Reflection` — 2 files, 179 lines: UBFieldDescriptor, UBReflectionCache
 - `Graphic/Materials/Skybox` — 3 files, 180 lines: MaterialProceduralSky, MaterialSkybox, UpdateMaterialSkyboxInfo
