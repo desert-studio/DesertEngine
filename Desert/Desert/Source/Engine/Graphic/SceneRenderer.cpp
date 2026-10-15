@@ -1872,7 +1872,8 @@ namespace Desert::Graphic
              .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
              .Exposure = exposure.IsValid() ? exposure : textures.System.White,
-             .History  = histories };
+             .History  = histories,
+             .PrevHistory = temporal ? m_ViewState.UpscalerHistory() : nullptr };
         RDG::TextureRef resolvedColor;
         if ( spatial )
         {
@@ -1892,6 +1893,7 @@ namespace Desert::Graphic
                 if ( !added )
                     return withoutTemporal( added.GetError() );
                 resolvedColor = added.GetValue().SceneColor;
+                m_ViewState.SetUpscalerHistory( added.GetValue().NewHistory );
             }
             // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where
             // the overlay target set and the post chain are.

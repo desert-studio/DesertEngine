@@ -815,7 +815,8 @@ namespace Common::Scalability
     {
         using M = AntiAliasingMethod;
         using U = Upscaler;
-        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2).
+        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2,
+        // Ultra Performance 1/3).
         static constexpr AntiAliasingPreset kPresets[] = {
              { "Native.TAA", M::TAA, 1, 100, U::None },
              { "Native.SMAA", M::SMAA, 1, 100, U::None },
@@ -833,6 +834,7 @@ namespace Common::Scalability
              { "FSR.Quality", M::FSRNative, 1, 67, U::FSR },
              { "FSR.Balanced", M::FSRNative, 1, 58, U::FSR },
              { "FSR.Performance", M::FSRNative, 1, 50, U::FSR },
+             { "FSR.UltraPerformance", M::FSRNative, 1, 33, U::FSR },
              { "DLSS.DLAA", M::DLAA, 1, 100, U::None },
              { "DLSS.Quality", M::DLAA, 1, 67, U::DLSS },
              { "DLSS.Balanced", M::DLAA, 1, 58, U::DLSS },

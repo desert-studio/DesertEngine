@@ -1,5 +1,7 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -121,6 +123,8 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
+            if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
+                return Common::MakeSuccess( TemporalMethod::FSR );
             // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
             // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
             if ( upscaler == Scal::Upscaler::Spatial )
@@ -160,6 +164,11 @@ namespace Desert::Graphic
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
             case Scal::AntiAliasingMethod::FSRNative:
+                // "FSR Native AA". Above 100 % FSR is selected too, and Fsr3Upscaler::Supports refuses the
+                // supersample split, so ResolveViewResolution clamps the view to 100 % and says why.
+                if ( kFsrBuilt )
+                    return Common::MakeSuccess( TemporalMethod::FSR );
+                break;
             case Scal::AntiAliasingMethod::DLAA:
                 break;
         }
@@ -179,6 +188,7 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
                 return kJitterSamplesPerOutputPixel;
             case TemporalMethod::TAAU:
+            case TemporalMethod::FSR:
                 break;
         }
 

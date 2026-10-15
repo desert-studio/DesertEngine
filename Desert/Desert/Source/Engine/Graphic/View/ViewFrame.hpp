@@ -68,6 +68,11 @@ namespace Desert::Graphic
               // Spatial below 100 %: no jitter, no history, no temporal pass
         TAA,  // AntiAliasingMethod::TAA at Native or Supersample: same-extent temporal resolve
         TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
+        // AMD FSR 3.1 (Graphic::Fsr3Upscaler): AntiAliasingMethod::FSRNative at 100 % ("Native AA") and
+        // Upscaler::FSR below it. One method for both, because one FSR context resolves either split (its
+        // history is internal; the upscale ratio is a dispatch argument). Present only in a build that has
+        // the FidelityFX SDK (DESERT_UPSCALER_FSR; Windows, BuildScripts/ThirdParty/FidelityFX.lua).
+        FSR,
     };
 
     // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):
@@ -87,20 +92,25 @@ namespace Desert::Graphic
     };
 
     // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
-    // Upscale and the upscaler is TAAU; None for a non-temporal method at Native/Supersample, and for one under
-    // Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split with Upscaler::None,
-    // Spatial under a temporal method, or any vendor upscaler (FSR / DLSS / XeSS / MetalFX: no implementation in
-    // this build) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
-    // not a fallback.
+    // Upscale and the upscaler is TAAU; FSR iff the split is Upscale under Upscaler::FSR or Native under
+    // AntiAliasingMethod::FSRNative (at Supersample too:
+    // Fsr3Upscaler::Supports refuses it and ResolveViewResolution clamps to 100 %), in a build with FSR; None for a non-temporal method at Native/Supersample,
+    // and for one under Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split
+    // with Upscaler::None, Spatial under a temporal method, FSR or FSRNative in a build without FSR,
+    // or any other vendor upscaler (DLSS / XeSS / MetalFX: no implementation in this build) is an error naming
+    // the value — SCAL1's Resolve never produces them, so it is a contract break, not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
                           Common::Scalability::Upscaler upscaler );
 
     // ---- Sub-pixel jitter (UE: Halton(2,3) sample offsets) ---------------------------------------------
     //
-    // PURE. Sequence length: 8 at Native/Supersample (UE r.TemporalAASamples), and at Upscale 8 x (output pixels /
-    // render pixels) rounded up, capped at 64 (UE: TAAU keeps the samples-per-OUTPUT-pixel constant). 0 for
-    // TemporalMethod::None — no jitter at all, so a non-temporal frame is bit-identical to the pre-TAA1 frame.
+    // PURE. THE ENGINE'S sequence (TAA / TAAU; ITemporalUpscaler::JitterSequenceLength's default — a vendor
+    // upscaler with its own sample pattern overrides it there, and SceneViewState asks the upscaler). Length: 8 at
+    // Native/Supersample (UE r.TemporalAASamples), and at Upscale 8 x (output pixels / render pixels) rounded up,
+    // capped at 64 (UE: TAAU keeps the samples-per-OUTPUT-pixel constant). 0 for TemporalMethod::None — no
+    // jitter at all, so a non-temporal frame is bit-identical to the pre-TAA1 frame. FSR is given the TAAU rule
+    // here only so the function stays total; its frames take Fsr3Upscaler's sequence.
     [[nodiscard]] uint32_t TemporalJitterSequenceLength( TemporalMethod method, const ResolutionSplit& split );
 
     // PURE. Halton(base 2, base 3) at 1-based index (index % length) + 1, minus 0.5: an offset in RENDER pixels in

@@ -1,5 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
+
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
@@ -13,6 +15,14 @@ namespace Desert::Graphic::API::Vulkan
         CatalogProbe probe;
         probe.Caps        = caps;
         probe.Portability = caps.Has( Capability::PortabilitySubset );
+
+        // FSR is linked (not a runtime that loads or not): the device and the build decide, by name.
+        if ( const Common::BoolResultStr fsr = FsrDeviceSupport( caps, kFsrBuilt ); fsr )
+            probe.FsrAvailable = true;
+        else
+        {
+            LOG_INFO( "[CapabilityCatalog] {}", fsr.GetError() );
+        }
 
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );

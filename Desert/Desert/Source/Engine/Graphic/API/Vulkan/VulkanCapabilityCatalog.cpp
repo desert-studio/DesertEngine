@@ -1,6 +1,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <algorithm>
+#include <format>
+#include <string>
+#include <string_view>
 
 // The pure half of the catalog fill. No vkGet* call lives in this file — ProbeCatalog
 // (VulkanCapabilityCatalogProbe.cpp) asks the driver — so the ScalabilityContract suite compiles it against
@@ -31,6 +34,30 @@ namespace Desert::Graphic::API::Vulkan
                    probe.PresentModes.end();
         }
     } // namespace
+
+    Common::BoolResultStr FsrDeviceSupport( const DeviceCaps& caps, const bool built )
+    {
+        std::string missing;
+        const auto  add = [&missing]( std::string_view what )
+        {
+            if ( !missing.empty() )
+                missing += "; ";
+            missing += what;
+        };
+        if ( !built )
+            add( "this binary has no FSR (the FidelityFX SDK's shader compiler, FidelityFX_SC.exe, is a Windows "
+                 "binary: only a Windows build links it)" );
+        if ( caps.DeviceApiVersion < VK_API_VERSION_1_2 )
+            add( std::format( "Vulkan 1.2 (the SDK's SPIR-V targets vulkan1.2; the device reports {})",
+                              FormatApiVersion( caps.DeviceApiVersion ) ) );
+        if ( !caps.Has( Capability::StorageImageWriteWithoutFormat ) )
+            add( "shaderStorageImageWriteWithoutFormat (FSR writes its output through a storage image declared "
+                 "without a format)" );
+        if ( missing.empty() )
+            return Common::MakeSuccess( true );
+        return Common::MakeError<bool>(
+             std::format( "FSR 3.1 is not offered on '{}': {}", caps.DeviceName, missing ) );
+    }
 
     Common::Scalability::CapabilityCatalog BuildCapabilityCatalog( const CatalogProbe& probe )
     {

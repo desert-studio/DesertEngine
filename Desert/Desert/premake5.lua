@@ -68,11 +68,12 @@ local function EngineModuleLibrary(module, legacyFiles)
         DesertModuleLibs.DependOnCodegen()
     end
 
-    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only. So does the FSR
+    -- upscaler: the FidelityFX SDK it calls is built on Windows only (BuildScripts/ThirdParty/FidelityFX.lua).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
     for _, file in ipairs(legacyFiles) do
         local target = commonFiles
-        if file:find("^Platform/Windows/") then
+        if file:find("^Platform/Windows/") or file:find("^Engine/Graphic/Upscalers/FSR/") then
             target = windowsFiles
         elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
             target = macFiles
@@ -162,6 +163,10 @@ end
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
         files(windowsFiles)
+        -- FSR 3.1 (Engine/Graphic/API/UpscalerBuild.hpp reads the define; Engine/Graphic/Upscalers/FSR uses the SDK).
+        defines { "DESERT_UPSCALER_FSR" }
+        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/FidelityFX-SDK/sdk/include" }
+        links { "FidelityFX" }
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }

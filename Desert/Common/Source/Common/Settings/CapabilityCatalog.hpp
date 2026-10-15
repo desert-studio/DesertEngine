@@ -139,8 +139,8 @@ namespace Common::Scalability
     // The render-scale axis' legal range, in percent of output size. Reader: the ResolutionScale group.
     struct RenderScaleRange
     {
-        int MinPercent = 50;  // below it every upscaler's quality collapses (DLSS Ultra Performance is 33 %; we
-                              // do not offer it until something renders it acceptably)
+        int MinPercent = 33;  // the vendors' Ultra Performance mode (1/3.0 per axis: FSR 3.1, DLSS); below it
+                              // no upscaler has a mode
         int MaxPercent = 200; // SSAA ceiling: 4x the pixels; bounded further by MaxTexture2DSize at output size
 
         bool operator==( const RenderScaleRange& ) const = default;

@@ -27,6 +27,9 @@ include( buildScripts .. "/OpenEXR.lua" )
 include( buildScripts .. "/Dav1d.lua" )
 include( buildScripts .. "/Opus.lua" )
 
+-- AMD FidelityFX SDK (FSR 3.1 upscaler, Vulkan backend), Windows only: its shader compiler is; see the file.
+include( buildScripts .. "/FidelityFX.lua" )
+
 -- reflect-cpp is compiled from the vendored v0.19.0 sources on EVERY platform. Windows
 -- used to link a prebuilt reflectcpp.lib instead, of which only the Debug flavour was
 -- ever committed — the Release job died on LNK1181 from the day it existed.
