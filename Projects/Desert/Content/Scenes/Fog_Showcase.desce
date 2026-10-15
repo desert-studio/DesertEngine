@@ -124,7 +124,15 @@
                 "SecondFogHeightOffset": 0.0,
                 "DirectionalInscatteringExponent": 4.0,
                 "DirectionalInscatteringStartDistance": 10000.0,
-                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
+                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5],
+                "VolumetricFog": true,
+                "VolumetricFogScatteringDistribution": 0.20000000298023224,
+                "VolumetricFogAlbedo": [1.0, 1.0, 1.0],
+                "VolumetricFogEmissive": [0.0, 0.0, 0.0],
+                "VolumetricFogExtinctionScale": 1.0,
+                "VolumetricFogDistance": 6000.0,
+                "VolumetricFogStartDistance": 0.0,
+                "VolumetricFogNearFadeInDistance": 0.0
             }
         },
         {
