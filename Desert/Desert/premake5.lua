@@ -29,24 +29,30 @@ end
 -- routed-event handler of the engine and Common (misspelt, non-public or outside the event tree fails the build
 -- at file:line) and emits the DESERT_SUBSYSTEM lists of the application (Engine) and of every world (World,
 -- owned by Scene). It runs once, as the prebuild of DesertModuleLibs.CodegenLib().
+local kReflectArguments = ""
+for index, root in ipairs(DesertModuleLibs.ReflectRoots()) do
+    if index == 1 then
+        kReflectArguments = ' --reflect "' .. root.Root .. '" "' .. root.Dir .. '"'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+    else
+        kReflectArguments = kReflectArguments .. ' --reflect-root "' .. root.Root .. '" "' .. root.Dir .. '"'
+    end
+end
+
 local kHeaderToolCommand =
     DesertPlatform.BuiltToolPath("DesertHeaderTool")
         .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
         .. ' --modules "' .. DesertModuleLibs.TableFile .. '"'
-        .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
-        .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
-        -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
-        -- registers them (Reflection_DesertUI.gen.cpp, which its Placement row gives to DesertUI's legacy library). --reflect-root extends the
-        -- --reflect request above, so it must follow that request's three operands.
-        .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
+        -- The trees with reflected types (DesertModuleLibs.ReflectRoots(): the legacy tree, then every module row
+        -- marked Reflected whose Folder exists - DesertUI's UI*Data since UI-FW-4, whose own project has no
+        -- generator step): the first is the --reflect request, each other one a --reflect-root, which extends that
+        -- request and so must follow its three operands.
+        .. kReflectArguments
         -- Enums only (no reflected types): a reflected field may be typed with Common's settings enums
         -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp).
         .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Settings"'
         .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+        .. DesertModuleLibs.HeaderToolRoots("check") -- every engine source root
         .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
         .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
         .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
@@ -82,12 +88,8 @@ local function EngineModuleLibrary(module, legacyFiles)
     files(commonFiles)
     files(kVendoredSources[module.Name] or {})
 
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
-        "Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         -- The SHADER ROOT, for the one engine translation unit that compiles a shared `.glslh` AS C++:
         -- Graphic/SkyGroundTransmittance.cpp includes Common/SkyMedium.glslh so the sun light's colour
         -- and the transmittance LUT's texels come from one text (the arrangement the test references

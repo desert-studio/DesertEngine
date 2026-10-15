@@ -16,7 +16,11 @@
 -- Modules: in layer order (a module only depends on modules above it in this list - Validate() fails
 -- otherwise). `Deps` are DIRECT dependencies, like UE's PublicDependencyModuleNames; the transitive closure
 -- is allowed. `Folder` is the module's home, Desert/<Module>/Source/<Module> (the UI-FW-4 layout), into which
--- its files move in P1..P14; a file inside a module's Folder belongs to that module.
+-- its files move in P1..P14; a file inside a module's Folder belongs to that module. A row also says whether the
+-- module holds reflected types (REFLECT()/PROPERTY()/FUNCTION()). Everything the build derives from a Folder -
+-- its source root Desert/<Dir>/Source on every engine include path, DesertHeaderTool's --check / --context
+-- roots and, for a reflected module, its --reflect-root - comes from these rows (DesertModuleLibs.IncludeDirs(),
+-- .HeaderToolRoots(), .ReflectRoots()), so a module whose Folder appears needs nothing but its row here.
 --
 -- Placement: where a file still living in the old single library (`LegacyRoot`) belongs. Ordered, FIRST
 -- MATCH WINS; each Pattern is an ECMAScript regular expression searched in the path relative to LegacyRoot
@@ -26,14 +30,24 @@
 local DesertModules = {}
 
 DesertModules.LegacyRoot = "Desert/Desert/Source"
+-- The directory of LegacyRoot DesertHeaderTool scans for reflected types (--reflect): every legacy source but the
+-- Platform/ backends.
+DesertModules.LegacyReflectDir = "Engine"
 
-local function M( name, deps, ue, folder )
-    return { Name = name, Deps = deps, Ue = ue, Folder = folder or ( "Desert/" .. name .. "/Source/" .. name ) }
+-- M( name, deps, ue [, { Folder = <path>, Reflected = true }] ). The Folder defaults to
+-- Desert/<name>/Source/<name>; SourceRoot (what goes on an include path: <Module/...> resolves under it) and
+-- ScanDir (the Folder below it) are derived from it, never written.
+local function M( name, deps, ue, options )
+    options      = options or {}
+    local folder = options.Folder or ( "Desert/" .. name .. "/Source/" .. name )
+    local sourceRoot, scanDir = folder:match( "^(.+)/([^/]+)$" )
+    return { Name = name, Deps = deps, Ue = ue, Folder = folder, SourceRoot = sourceRoot, ScanDir = scanDir,
+             Reflected = options.Reflected == true }
 end
 
 DesertModules.Modules = {
     -- L0
-    M( "Common",          {},                                     "Core",            "Desert/Common/Source/Common" ),
+    M( "Common",          {},                                     "Core",            { Folder = "Desert/Common/Source/Common" } ),
     -- L1
     M( "Render2DCore",    { "Common" },                           "SlateCore" ),
     M( "CoreReflection",  { "Common" },                           "CoreUObject (reflection)" ),
@@ -46,7 +60,7 @@ DesertModules.Modules = {
     -- L2
     M( "TextCore",        { "Render2DCore", "ImageCore" },        "SlateFontRasterization" ),
     M( "AssetCore",       { "CoreReflection" },                   "CoreUObject (packages) + AssetRegistry" ),
-    M( "DesertUI",        { "Render2DCore", "CoreReflection" },   "UMG/Slate",       "Desert/UI/Source/UI" ),
+    M( "DesertUI",        { "Render2DCore", "CoreReflection" },   "UMG/Slate",       { Folder = "Desert/UI/Source/UI", Reflected = true } ),
     M( "AnimationCore",   { "GeometryCore", "CoreReflection" },   "AnimationCore" ),
     -- L3
     M( "Localization",    { "AssetCore" },                        "Internationalization" ),
@@ -56,17 +70,17 @@ DesertModules.Modules = {
                                                                   "RHI + VulkanRHI + RenderCore" ),
     -- L5
     M( "Engine",          { "RenderCore", "Render2DCore", "Localization", "PhysicsCore", "AnimationCore", "GeometryCore",
-                            "DesertUI", "TextCore", "Audio" },    "Engine" ),
+                            "DesertUI", "TextCore", "Audio" },    "Engine",         { Reflected = true } ),
     -- L6: the renderer sits ABOVE Engine (UE layering, plan sec. 3.2); features are plugins over Engine
     M( "Renderer",        { "Engine" },                           "Renderer" ),
     M( "Media",           { "Engine", "Audio" },                  "MediaAssets" ),
     M( "Landscape",       { "Engine" },                           "Landscape" ),
-    M( "Destruction",     { "Engine" },                           "GeometryCollectionEngine" ),
-    M( "VFX",             { "Engine" },                           "Niagara" ),
+    M( "Destruction",     { "Engine" },                           "GeometryCollectionEngine", { Reflected = true } ),
+    M( "VFX",             { "Engine" },                           "Niagara",         { Reflected = true } ),
     M( "Water",           { "Engine" },                           "Water" ),
     M( "Hair",            { "Engine" },                           "HairStrands" ),
     -- L7
-    M( "Foliage",         { "Landscape" },                        "Foliage" ),
+    M( "Foliage",         { "Landscape" },                        "Foliage",         { Reflected = true } ),
     -- L8
     -- the language-free script host: Engine's public reflected layer only (FUNCTION/EVENT), no feature module
     M( "Scripting",       { "Engine" },                           "ScriptPlugin" ),
@@ -323,6 +337,10 @@ function DesertModules.Validate()
                                       DesertModules.Find( dep ) and "listed after it (a cycle or a layer inversion)"
                                                                  or "not a module" ) )
             end
+        end
+        if not module.SourceRoot or module.SourceRoot == "" then
+            error( string.format( "DesertModules.lua: module '%s' has Folder '%s', which is not <source root>/<dir>",
+                                  module.Name, module.Folder ) )
         end
         position[module.Name] = index
     end

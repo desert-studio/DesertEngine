@@ -66,12 +66,8 @@ local function DesertRunnerSettings(deps)
         -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
         "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
     }
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         -- Engine suites read header-only editor types (component editors' data, command records).
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
@@ -127,14 +123,10 @@ end
 -- before BUILD1, each with the reason it is there.
 local kRunners = {
     Common = function(deps)
+        includedirs(DesertModuleLibs.IncludeDirs())
         includedirs {
-            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
             -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
             -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
-            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source",
             -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source",

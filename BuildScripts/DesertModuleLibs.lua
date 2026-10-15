@@ -52,6 +52,79 @@ function DesertModuleLibs.HasOwnProject( module )
     return os.isfile( _MAIN_SCRIPT_DIR .. "/" .. path.getdirectory( path.getdirectory( module.Folder ) ) .. "/premake5.lua" )
 end
 
+-- THE ENGINE'S SOURCE ROOTS, from the module table alone (ENG-MODULES P0c): no premake5.lua lists a module's
+-- Desert/<Dir>/Source by hand, so the commit that creates a module's Folder puts it on every include path and under
+-- every DesertHeaderTool --check / --context / --reflect-root without touching another build file.
+-- A module is on disk once its Folder exists; until then its files are the legacy tree's, which LegacyRoot covers.
+function DesertModuleLibs.HasFolder( module )
+    return os.isdir( _MAIN_SCRIPT_DIR .. "/" .. module.Folder )
+end
+
+-- Repository-relative roots, DEPENDANTS FIRST (the order Link() uses): LegacyRoot while it holds files, then the
+-- source root of every module with a Folder, highest layer first. The order is only observable through the one
+-- file name several roots share, pch.hpp (LegacyRoot, DesertUI, Render2DCore), and keeps the order every project
+-- listed them in by hand: the legacy tree's first, then DesertUI's, then Render2DCore's.
+-- `modules`: nil for the whole engine, else a set of module names (no LegacyRoot then: a module with its own
+-- Folder project compiles against Folders only).
+local function SourceRoots( modules )
+    local roots = {}
+    if not modules and next( DesertModuleLibs.LegacyFiles() ) ~= nil then
+        table.insert( roots, DesertModules.LegacyRoot )
+    end
+    for i = #DesertModules.Modules, 1, -1 do
+        local module = DesertModules.Modules[i]
+        if ( not modules or modules[module.Name] ) and DesertModuleLibs.HasFolder( module ) then
+            table.insert( roots, module.SourceRoot )
+        end
+    end
+    return roots
+end
+
+local function Tokenised( roots )
+    local dirs = {}
+    for _, root in ipairs( roots ) do
+        table.insert( dirs, "%{_MAIN_SCRIPT_DIR}/" .. root )
+    end
+    return dirs
+end
+
+-- includedirs( DesertModuleLibs.IncludeDirs() ): every engine source root, for a project that uses the engine.
+function DesertModuleLibs.IncludeDirs()
+    return Tokenised( SourceRoots() )
+end
+
+-- includedirs( DesertModuleLibs.ClosureIncludeDirs( "DesertUI" ) ): the Folders of the modules `name` may include
+-- (its declared Deps, transitively) - for the module's own Folder project, which lists its own "Source/".
+function DesertModuleLibs.ClosureIncludeDirs( name )
+    return Tokenised( SourceRoots( DesertModules.Closure( name ) ) )
+end
+
+-- ' --<flag> "<root>"' for every engine source root, absolute: DesertHeaderTool's --check (the engine's own run)
+-- and --context (every run over sources that include the engine).
+function DesertModuleLibs.HeaderToolRoots( flag )
+    local text = ""
+    for _, root in ipairs( SourceRoots() ) do
+        text = text .. " --" .. flag .. ' "' .. _MAIN_SCRIPT_DIR .. "/" .. root .. '"'
+    end
+    return text
+end
+
+-- The trees DesertHeaderTool scans for reflected types, { Root = <abs source root>, Dir = <scan dir> } in layer
+-- order: the legacy tree's LegacyReflectDir while it holds files, then every Reflected module with a Folder. The
+-- first is the --reflect request, the rest its --reflect-root operands.
+function DesertModuleLibs.ReflectRoots()
+    local roots = {}
+    if next( DesertModuleLibs.LegacyFiles() ) ~= nil then
+        table.insert( roots, { Root = _MAIN_SCRIPT_DIR .. "/" .. DesertModules.LegacyRoot, Dir = DesertModules.LegacyReflectDir } )
+    end
+    for _, module in ipairs( DesertModules.Modules ) do
+        if module.Reflected and DesertModuleLibs.HasFolder( module ) then
+            table.insert( roots, { Root = _MAIN_SCRIPT_DIR .. "/" .. module.SourceRoot, Dir = module.ScanDir } )
+        end
+    end
+    return roots
+end
+
 -- The libraries a module is linked as: its own project, then its legacy library, each when it exists.
 function DesertModuleLibs.LibrariesOf( module )
     local libraries = {}

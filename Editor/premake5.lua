@@ -13,15 +13,9 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 -- Compiling a translation unit that includes editor headers takes the same paths and macros in both
 -- projects, so they are written once, here.
 local function EditorCompileSettings()
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source/",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/",
-
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
-
     }
     externalincludedirs {
 
@@ -107,11 +101,7 @@ project "EditorCore"
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/CoreReflection/Source"'
+            .. DesertModuleLibs.HeaderToolRoots("context")
             .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
     }
