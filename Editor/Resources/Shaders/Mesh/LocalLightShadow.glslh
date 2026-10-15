@@ -43,9 +43,11 @@ float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
     return lit / 9.0;
 }
 
-// One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel (more as the
-// light grazes it) and compared with a depth bias in texels at its own distance: one texel of a perspective map
-// grows with the distance from the light, so both biases are measured in it rather than in centimetres.
+// One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel at its own
+// distance (more as the light grazes it): one texel of a perspective map grows with the distance from the light,
+// so the offset is measured in it rather than in centimetres. The depth bias is not applied here: every caster
+// of the view drew its depth already pushed back by the light's Shadow Bias / Shadow Slope Bias
+// (Graphic::LocalCasterBias, Common/ShadowCasterBias.glslh), the mesh cells and the terrain by one rule.
 float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
 {
     const LocalShadowView v       = localShadowViews[viewIndex];
@@ -60,9 +62,7 @@ float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
     const vec2 uv  = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
         return 1.0;
-    const float tanTheta = sqrt(max(1.0 - NdotL * NdotL, 0.0)) / max(NdotL, 1e-3);
-    const float bias     = v.params.z * clip.w * (v.params.w + v.params2.x * min(tanTheta, 4.0));
-    return LocalShadowPCF(v, uv, clip.w - bias);
+    return LocalShadowPCF(v, uv, clip.w);
 }
 
 // The cube face a direction FROM the light falls in, in the order the faces were drawn

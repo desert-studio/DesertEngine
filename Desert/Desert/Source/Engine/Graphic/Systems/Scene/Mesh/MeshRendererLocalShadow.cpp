@@ -305,13 +305,17 @@ namespace Desert::Graphic::System
                 point.ShadowView = static_cast<int32_t>( firstRow );
             }
 
-            // The caster side of each view: its matrix and its caster materials. No caster bias — a local
-            // view's bias is the receiver's, in texels at the receiver (Mesh/LocalLightShadow.glslh).
+            // The caster side of each view: its matrix, its bias and its caster materials. The bias is the
+            // light's (Shadow Bias / Shadow Slope Bias, in texels at the caster) and every caster of the view
+            // takes it, the meshes through CameraUB and the terrain through its push (LocalCasterBias); the
+            // receiver adds only its normal offset (Mesh/LocalLightShadow.glslh).
             for ( uint32_t v = 0; v < viewCount; ++v )
             {
-                const uint32_t view       = kMaxShadowCascades + firstRow + v;
-                m_CascadeCasterVP[view]   = m_LocalShadowRows[firstRow + v].ViewProj;
-                m_CascadeCasterBias[view] = CascadeCasterBias{};
+                const uint32_t                view = kMaxShadowCascades + firstRow + v;
+                const LocalShadowViewPayload& row  = m_LocalShadowRows[firstRow + v];
+                m_CascadeCasterBias[view] =
+                     LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
+                m_CascadeCasterVP[view]   = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
                 EnsureShadowViewMaterials( view );
             }
 
@@ -362,6 +366,9 @@ namespace Desert::Graphic::System
                 SignatureHash hash;
                 hash.Add( *signature );
                 AddViews( hash, &m_LocalShadowRows[plan.Caster.FirstView - kMaxShadowCascades], light.ViewCount );
+                // The casters' bias is drawn into the depth: a changed Shadow Bias redraws the views.
+                for ( uint32_t v = 0; v < plan.Caster.ViewCount; ++v )
+                    hash.Add( m_CascadeCasterBias[plan.Caster.FirstView + v] );
                 signature = hash.Value;
             }
             const bool cached = signature.has_value() && light.Signature == signature;

@@ -63,6 +63,10 @@
 
         #include <Common/LandscapeWeights.glslh>
 
+        // The ground's roughness: a matte dielectric (metallic 0). One value for both programs — the G-buffer
+        // stores it (TerrainGBuffer.shader) and the forward program shades with it (Terrain.shader).
+        const float kTerrainRoughness = 0.9;
+
         struct TerrainSurface
         {
             vec3 N;

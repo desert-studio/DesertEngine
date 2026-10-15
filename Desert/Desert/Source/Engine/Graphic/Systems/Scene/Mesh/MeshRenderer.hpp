@@ -977,7 +977,7 @@ namespace Desert::Graphic::System
         // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
         // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
         // Indexed by SHADOW VIEW (kMaxShadowViews): the cascades first, then the local views, whose matrices
-        // UpdateLocalShadows writes and whose bias is zero (a local view's bias is the receiver's, in texels).
+        // UpdateLocalShadows writes with the light's bias (Graphic::LocalCasterBias, texels at the caster).
         std::array<glm::mat4, kMaxShadowViews>                      m_CascadeCasterVP = IdentityShadowViews();
         CascadeCasterBias                                           m_CascadeCasterBias[kMaxShadowViews]{};
         [[nodiscard]] static std::array<glm::mat4, kMaxShadowViews> IdentityShadowViews()

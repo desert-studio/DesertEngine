@@ -109,44 +109,47 @@ Shader "Terrain"
         #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
         #include <Common/ContactShadow.glslh>
         #include <Mesh/ForwardLocalLights.glslh>
+        // THE ONE BRDF: every light the forward ground receives (the sun and each point/spot light) goes through
+        // the shading model dispatch the forward meshes and the deferred composite call
+        // (ShadingModels/ShadingModelContract.glslh), on the surface the Deferred path's G-buffer stores for the
+        // same texel (TerrainGBuffer.shader: DefaultLit, the tinted albedo, metallic 0, kTerrainRoughness). So
+        // one light gives the forward ground, the deferred ground and a forward mesh of that material the same
+        // radiance — diffuse albedo / PI and the GGX lobe.
+        #include <Generated/ShadingModels.glslh>
 
         void main()
         {
             TerrainSurface s = EvaluateTerrainSurface();
             vec3 N           = s.N;
-            vec3 albedo      = s.Albedo;
 
-            // Diffuse lighting using the SCENE directional light (dir/color/intensity). The ground is matte:
-            // no layer carries a specular term.
-            vec3 L      = normalize( -u.SunDir.xyz );          // to-light (engine stores travel direction)
-            vec3 sun    = u.SunColor.rgb * max( u.SunColor.a, 0.0001 );
-
-            float ndl = max( dot( N, L ), 0.0 );
+            // The eye from the view matrix (rigid: its inverse rotation is its transpose).
+            const vec3          eye     = -transpose( mat3( u.View ) ) * u.View[3].xyz;
+            const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos,
+                                                             s.Albedo * u_Material.Tint.rgb, 0.0, kTerrainRoughness );
+            const DesertPayload payload = DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
             // Soft sky/ground ambient (hemisphere): brighter from above, cooler/darker from below.
             vec3  skyCol  = vec3( 0.45, 0.52, 0.62 );
             vec3  gndCol  = vec3( 0.20, 0.18, 0.14 );
             vec3  ambient = mix( gndCol, skyCol, N.y * 0.5 + 0.5 ) * 0.5;
 
+            // The SCENE directional light (TerrainUB SunDir / SunColor: intensity 0 when the scene has none).
             // The cloud layer attenuates the SUN and nothing else: the hemisphere ambient above is the
             // whole sky dome, which a deck occludes with a different geometry than a direction. Same
             // split the deferred composite and the mesh shaders make.
-            float cloudShadow = CloudShadowFactor( v_WorldPos );
+            vec3 light = DesertEvaluateShadingModel(
+                 SHADING_MODEL_INDEX_DEFAULT_LIT,
+                 DesertSunLight( u.SunDir.xyz, u.SunColor.rgb * u.SunColor.a, CloudShadowFactor( v_WorldPos ) ),
+                 surface, payload );
 
-            // The point and spot lights of the pixel's froxel, each by its radiance and shadow through the
-            // engine's Lambert BRDF (albedo / PI, Mesh/DirectLighting.glslh) — the diffuse the meshes and the
-            // deferred composite give them. The ground is matte: no specular here either.
-            vec3                   localLight = vec3( 0.0 );
-            const ForwardLightList lights     = ForwardLightListAt( gl_FragCoord.xy, v_WorldPos );
+            // The point and spot lights of the pixel's froxel, each with its shadow (Mesh/ForwardLocalLights.glslh).
+            const ForwardLightList lights = ForwardLightListAt( gl_FragCoord.xy, v_WorldPos );
             for ( uint j = 0u; j < lights.Count; j++ )
-            {
-                const DesertLight light = ForwardLocalLightAt( lights, j, v_WorldPos, N, -1.0 );
-                localLight += light.Radiance * light.Shadow * max( dot( N, light.L ), 0.0 ) / PI;
-            }
+                light += DesertEvaluateShadingModel( SHADING_MODEL_INDEX_DEFAULT_LIT,
+                                                     ForwardLocalLightAt( lights, j, v_WorldPos, N, -1.0 ), surface,
+                                                     payload );
 
-            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow + localLight );
-
-            o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
+            o_Color   = vec4( surface.BaseColor * ambient + light, 1.0 );
             oVelocity = TerrainVelocity();
         }
     }

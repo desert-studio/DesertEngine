@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Units.hpp>
+#include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -45,6 +46,10 @@ namespace Desert::Graphic
     // receiver at a face's edge reads texels of its own view, never the neighbouring tile.
     inline constexpr float kLocalShadowGuardTexels = 2.0f;
 
+    // Where a local view's slope bias stops growing (tan = 4, 76 degrees): the clamp the light's Shadow Slope Bias
+    // tooltip states, kept from when the receiver applied the term (LocalCasterBias).
+    inline constexpr float kLocalShadowMaxSlope = 4.0f;
+
     // The atlas side for a renderer's shadow budget: twice the cascade side (UE scales its local-light pool with
     // the same r.Shadow quality as the cascades). 0 = the renderer holds no shadow at all (kNoShadowQuality).
     [[nodiscard]] inline constexpr uint32_t LocalShadowAtlasSize( const uint32_t cascadeMapSize )
@@ -56,8 +61,8 @@ namespace Desert::Graphic
     struct LocalLightShadowSettings
     {
         bool  CastShadows     = false;
-        float DepthBias       = 0.5f; // texels at the receiver
-        float SlopeBias       = 0.5f; // texels per unit of slope at the receiver
+        float DepthBias       = 0.5f; // the casters' depth bias, in texels at the caster (LocalCasterBias)
+        float SlopeBias       = 0.5f; // texels per unit of the caster's slope to the view's axis
         float ResolutionScale = 1.0f;
         // The light's identity across frames (its entity + 1; 0 = none), so a light keeps its tiles and their
         // cached depth while it and its casters stand still.
@@ -72,9 +77,9 @@ namespace Desert::Graphic
     {
         glm::mat4 ViewProj{ 1.0f };  // world -> clip of this view (standard Z, [0,1])
         glm::vec4 AtlasRect{ 0.0f }; // xy = the tile's top-left in atlas UV, zw = its size in atlas UV
-        glm::vec4 Params{ 0.0f };    // x = near, y = far, z = world size of one texel at unit distance,
-                                     // w = depth bias in texels
-        glm::vec4 Params2{ 0.0f };   // x = slope bias in texels, y = 1 / atlas side, zw = unused
+        glm::vec4 Params{ 0.0f };    // x = near, y = far, z = world size of one texel at unit distance, w = unused
+        glm::vec4 Params2{ 0.0f };   // x = unused, y = 1 / atlas side, zw = unused
+        // No depth bias here: the casters carry it (LocalCasterBias), the receiver only its normal offset.
     };
     static_assert( sizeof( LocalShadowViewPayload ) == 112 );
 
@@ -273,8 +278,30 @@ namespace Desert::Graphic
         row.AtlasRect = glm::vec4( static_cast<float>( tile.X ) * inv, static_cast<float>( tile.Y ) * inv,
                                    static_cast<float>( tile.Size ) * inv, static_cast<float>( tile.Size ) * inv );
         row.Params    = glm::vec4( nearPlane, farPlane, 2.0f * tanHalf / static_cast<float>( tile.Size ),
-                                   settings.DepthBias );
-        row.Params2   = glm::vec4( settings.SlopeBias, inv, 0.0f, 0.0f );
+                                   0.0f );
+        row.Params2   = glm::vec4( 0.0f, inv, 0.0f, 0.0f );
         return row;
+    }
+
+    // THE CASTERS' BIAS IN A POINT/SPOT LIGHT'S VIEW (UE: the spot/point light's ShadowBias and ShadowSlopeBias
+    // applied by the shadow DEPTH pass, ShadowDepthVertexShader.usf; the receiver adds only its normal offset).
+    // Every caster of the view takes it through the same two inputs a cascade's casters do — the constant part
+    // in the caster matrix (CasterViewProj), the slope part per vertex (Common/ShadowCasterBias.glslh) — the mesh
+    // cells and the terrain alike, so a caster drawn at another level of detail than the receiver (the terrain at
+    // the light's LOD) is pushed back by the same rule as any other. The light's settings are in TEXELS at the
+    // caster: one texel of a perspective map grows with the distance from the light, d * texelAtUnit, and a
+    // clip-z shift k of a standard-Z perspective [n, f] lengthens the linear depth by d * k * (f - n) / (n f).
+    // So k = texels * texelAtUnit * n f / (f - n) moves the caster back by that many texels at its own depth
+    // (to first order in texels * texelAtUnit, a few thousandths at any tile size the atlas holds).
+    [[nodiscard]] inline CascadeCasterBias LocalCasterBias( const float nearPlane, const float farPlane,
+                                                            const float                     texelAtUnit,
+                                                            const LocalLightShadowSettings& settings )
+    {
+        if ( farPlane <= nearPlane || nearPlane <= 0.0f || texelAtUnit <= 0.0f )
+            return {};
+        const float clipPerTexel = texelAtUnit * nearPlane * farPlane / ( farPlane - nearPlane );
+        return { .DepthBias  = settings.DepthBias * clipPerTexel,
+                 .SlopeBias  = settings.SlopeBias * clipPerTexel,
+                 .SlopeClamp = kLocalShadowMaxSlope };
     }
 } // namespace Desert::Graphic

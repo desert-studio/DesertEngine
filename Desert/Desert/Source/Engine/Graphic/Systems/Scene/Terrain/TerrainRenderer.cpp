@@ -48,8 +48,10 @@ namespace Desert::Graphic::System
         // Resolve the scene's main directional light (or a sensible default sun if none exists).
         void GetSun( const SceneRenderer* sr, glm::vec4& outDir, glm::vec4& outColor )
         {
-            outDir   = glm::vec4( glm::normalize( glm::vec3( -0.4f, -0.85f, -0.35f ) ), 0.0f );
-            outColor = glm::vec4( 1.0f, 0.98f, 0.92f, 3.0f );
+            // No directional light in the scene: no sun (intensity 0), as the deferred composite and the forward
+            // meshes light the same scene. The direction is only kept unit length.
+            outDir   = glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
+            outColor = glm::vec4( 0.0f );
             if ( sr )
             {
                 const auto& dl = sr->GetDirectionLights().DirectionLights;
@@ -628,7 +630,9 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         // The view's slope term, as the mesh casters get it (their CameraUB, MaterialShadow): a push value
         // like the matrix beside it, so the one shadow material per group still serves every view. The
-        // constant part is already in casterViewProj (Graphic::CasterViewProj); a local view's is zero.
+        // constant part is already in casterViewProj (Graphic::CasterViewProj). A point/spot view's pair is
+        // the light's (Graphic::LocalCasterBias), the same the meshes in that view take: the terrain drawn at
+        // the light's LOD is pushed back by the rule every caster is, not by a constant of its own.
         for ( const auto& group : m_FrameGroups )
             m_Materials.at( group.Key ).Shadow->SetShadowSlopeBias( bias.SlopeBias, bias.SlopeClamp );
         // Its own row inside the view's: the terrain's share of the shadow cost, summed over views.

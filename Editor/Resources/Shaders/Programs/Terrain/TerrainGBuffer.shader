@@ -49,11 +49,10 @@ Shader "TerrainGBuffer"
         {
             TerrainSurface s = EvaluateTerrainSurface();
 
-            // Ground is a matte dielectric, as the forward program's diffuse-only lighting draws it.
-            const float roughness = 0.9;
-
+            // Ground is a matte dielectric (kTerrainRoughness, TerrainSurface.glslh), as the forward program
+            // shades it.
             oGBufferA        = vec4( s.Albedo * u_Material.Tint.rgb, 0.0 );
-            oGBufferB        = vec4( s.N, roughness );
+            oGBufferB        = vec4( s.N, kTerrainRoughness );
             oGBufferShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, 1.0 ); // no emission; material AO 1 (the ground has none)
             oVelocity        = TerrainVelocity();

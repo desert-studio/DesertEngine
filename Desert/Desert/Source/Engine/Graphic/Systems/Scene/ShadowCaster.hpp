@@ -40,7 +40,7 @@ namespace Desert::Graphic::System
      * `casterViewProj` is the matrix the CASTERS draw the view with (standard-Z, clip from world): the
      * receivers' matrix with the light's constant depth bias folded in (Graphic::CasterViewProj), so a caster
      * that projects with it is biased like every mesh caster without knowing the bias exists. `bias` is the
-     * same view's CascadeCasterBias (zero for a local view: its bias is the receiver's); its DepthBias is the one
+     * same view's CascadeCasterBias (a local view's: the light's, LocalCasterBias); its DepthBias is the one
      * already in `casterViewProj`; its SlopeBias / SlopeClamp are the slope term the caster's VERTEX stage adds
      * (Common/ShadowCasterBias.glslh: the mesh cells' vertex headers, Programs/Terrain/TerrainVertex.glslh for the
      * terrain).

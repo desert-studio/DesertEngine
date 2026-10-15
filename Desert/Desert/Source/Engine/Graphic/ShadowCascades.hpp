@@ -228,13 +228,18 @@ namespace Desert::Graphic
                  .SlopeClamp = kShadowMaxSlope };
     }
 
-    // The matrix a CASTER draws a cascade with: the receivers' matrix with its depth pushed back by the
-    // constant bias. The projection is orthographic (w = 1), so a translation of clip z is exactly a
-    // constant shift of the written depth - every caster (mesh cells, the terrain, any IShadowCaster)
-    // gets the constant bias through the matrix it already takes, and none can be left without it.
+    // The matrix a CASTER draws a shadow view with: the receivers' matrix with its clip z pushed back by the
+    // constant bias, clip.z += depthBias (times the world point's w, 1). Every caster (mesh cells, the terrain,
+    // any IShadowCaster) gets the constant bias through the matrix it already takes, and none can be left
+    // without it. In a cascade (orthographic, clip w = 1) that is exactly a constant shift of the written depth.
+    // In a local light's view (standard-Z perspective, LocalCasterBias) the same constant clip shift lengthens
+    // the linear depth by a share of it, depth * depthBias * (f - n) / (n f): a bias that grows with the
+    // distance from the light as one texel of that map does.
     [[nodiscard]] inline glm::mat4 CasterViewProj( const glm::mat4& viewProj, const float depthBias )
     {
-        return glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, depthBias ) ) * viewProj;
+        glm::mat4 caster = viewProj;
+        caster[3][2] += depthBias;
+        return caster;
     }
 
     struct CascadeSetup
