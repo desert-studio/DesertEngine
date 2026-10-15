@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9c9c08149fc4034cefc3171c96cebec1",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 56,
             "UNIT": 1
         },
         "Dependencies": []
@@ -2145,8 +2145,8 @@
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
