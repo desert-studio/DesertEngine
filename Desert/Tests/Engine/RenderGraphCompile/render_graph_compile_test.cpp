@@ -2133,12 +2133,20 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     };
     const auto bodyOf = [&source]( std::string_view function ) -> std::string
     {
-        // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid).
+        // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid),
+        // or the screen traces' shared inputs (AddFrameSSR's FrameSSR; AddFrameScreenTrace, whose nested return
+        // type clang-format puts on its own line). A definition this misses would extend the body before it over
+        // its own, and a call back into that one (AddFrameSSR / AddFrameScreenTrace call AddFrameHZB) would
+        // recurse without end.
         const auto definition = [&source]( std::string_view name, size_t from )
         {
-            return std::min( { source.find( std::format( "void SceneRenderer::{}", name ), from ),
-                               source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ),
-                               source.find( std::format( "OverlayTargets SceneRenderer::{}", name ), from ) } );
+            return std::min(
+                 { source.find( std::format( "void SceneRenderer::{}", name ), from ),
+                   source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ),
+                   source.find( std::format( "OverlayTargets SceneRenderer::{}", name ), from ),
+                   source.find( std::format( "FrameSSR SceneRenderer::{}", name ), from ),
+                   source.find( std::format( "SceneRenderer::FrameScreenTrace\n    SceneRenderer::{}", name ),
+                                from ) } );
         };
         const size_t begin = definition( std::format( "{}(", function ), 0 );
         if ( begin == std::string::npos )
