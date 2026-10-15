@@ -253,7 +253,8 @@ namespace Desert::Graphic
             return missing( "Exposure" );
         if ( inputs.Quality == nullptr )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
-                 "{}: no resolved quality was given (the preset of each DLSS mode is a Scalability row)", DebugName() );
+                 "{}: no resolved quality was given (the preset of each DLSS mode is a Scalability row)",
+                 DebugName() );
         const auto mode = ModeFor( frame.Split );
         if ( !mode )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), mode.GetError() );
@@ -263,18 +264,20 @@ namespace Desert::Graphic
         std::shared_ptr<ITemporalUpscalerHistory> history = inputs.PrevHistory;
         if ( dynamic_cast<DlssHistory*>( history.get() ) == nullptr )
             history = std::make_shared<DlssHistory>();
-        auto& feature = static_cast<DlssHistory&>( *history );
+        auto&                         feature = static_cast<DlssHistory&>( *history );
         const Streamline::DlssOptions options{
              .Mode         = mode.GetValue(),
              .OutputWidth  = frame.Split.Output.Width,
              .OutputHeight = frame.Split.Output.Height,
              .Preset = inputs.Quality->As<Common::Scalability::DlssPreset>( PresetParameter( mode.GetValue() ) ) };
         if ( const auto applied = feature.Apply( options ); !applied )
-            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), applied.GetError() );
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
+                                                                        applied.GetError() );
 
         const Common::ResultStr<RDG::TextureRef> exposure = m_Exposure.AddPass( graph, inputs.Exposure );
         if ( !exposure )
-            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), exposure.GetError() );
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
+                                                                        exposure.GetError() );
 
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
@@ -306,9 +309,9 @@ namespace Desert::Graphic
                                  static_cast<float>( std::max( frame.Split.Output.Height, 1u ) );
         evaluation.Reset = !frame.HistoryValid();
 
-        const RDG::TextureRef color    = inputs.SceneColor;
-        const RDG::TextureRef depth    = inputs.SceneDepth;
-        const RDG::TextureRef velocity = inputs.Velocity;
+        const RDG::TextureRef color       = inputs.SceneColor;
+        const RDG::TextureRef depth       = inputs.SceneDepth;
+        const RDG::TextureRef velocity    = inputs.Velocity;
         const RDG::TextureRef exposureRef = exposure.GetValue();
         graph.AddPass(
              kPassName, RDG::PassFlags::Compute,

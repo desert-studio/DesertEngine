@@ -165,8 +165,9 @@ namespace Desert::Graphic
             case Scal::AntiAliasingMethod::SMAA:
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
-            // A vendor's native AA ("DLAA", "FSR Native AA"). Above 100 % the vendor method is selected too, and its
-            // Supports refuses the supersample split, so ResolveViewResolution clamps the view to 100 % and says why.
+            // A vendor's native AA ("DLAA", "FSR Native AA"). Above 100 % the vendor method is selected too, and
+            // its Supports refuses the supersample split, so ResolveViewResolution clamps the view to 100 % and
+            // says why.
             case Scal::AntiAliasingMethod::DLAA:
                 if ( kDlssBuilt )
                     return Common::MakeSuccess( TemporalMethod::DLSS );

@@ -40,8 +40,8 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
             case TemporalMethod::TAAU:
                 return std::make_unique<TemporalAA>( method );
-            // A vendor method outside its SDK's build is never selected (SelectTemporalMethod reads UpscalerBuild.hpp);
-            // null is "no implementation", which SceneViewState::BeginFrame names.
+            // A vendor method outside its SDK's build is never selected (SelectTemporalMethod reads
+            // UpscalerBuild.hpp); null is "no implementation", which SceneViewState::BeginFrame names.
             case TemporalMethod::DLSS:
 #if defined( DESERT_UPSCALER_DLSS )
                 return std::make_unique<DLSSUpscaler>();

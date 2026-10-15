@@ -92,22 +92,22 @@ namespace Desert::Graphic::Streamline
         glm::vec3 CameraUp{ 0.0f };
         glm::vec3 CameraRight{ 0.0f };
         glm::vec3 CameraForward{ 0.0f };
-        float     NearPlane    = 0.0f;
-        float     FarPlane     = 0.0f;
-        float     VerticalFov  = 0.0f; // radians
-        float     AspectRatio  = 0.0f;
-        bool      Reset        = false; // the view's history is invalid (camera cut, resize, first frame)
-        uint64_t  EngineFrame  = 0;     // FrameManager absolute frame count: the frame token
+        float     NearPlane   = 0.0f;
+        float     FarPlane    = 0.0f;
+        float     VerticalFov = 0.0f; // radians
+        float     AspectRatio = 0.0f;
+        bool      Reset       = false; // the view's history is invalid (camera cut, resize, first frame)
+        uint64_t  EngineFrame = 0;     // FrameManager absolute frame count: the frame token
     };
 
     // What one view's DLSS feature is created with. A change re-options the feature (slDLSSSetOptions), which
     // Streamline answers by recreating the NGX feature when the mode, the output size or the preset differ.
     struct DlssOptions
     {
-        DlssMode   Mode         = DlssMode::DLAA;
-        uint32_t   OutputWidth  = 0;
-        uint32_t   OutputHeight = 0;
-        Common::Scalability::DlssPreset Preset = Common::Scalability::DlssPreset::Default; // for Mode
+        DlssMode                        Mode         = DlssMode::DLAA;
+        uint32_t                        OutputWidth  = 0;
+        uint32_t                        OutputHeight = 0;
+        Common::Scalability::DlssPreset Preset       = Common::Scalability::DlssPreset::Default; // for Mode
 
         [[nodiscard]] bool operator==( const DlssOptions& ) const = default;
     };
@@ -158,16 +158,16 @@ namespace Desert::Graphic::Streamline
         struct Library; // the loaded interposer and its function table (StreamlineRuntime.cpp)
         void Refuse( std::string reason );
 
-        mutable std::mutex              m_Mutex;
-        std::unique_ptr<Library>        m_Library;
-        bool                            m_Initialized   = false; // slInit succeeded
-        bool                            m_DlssCandidate = false; // supported + requirements enabled on the device
-        bool                            m_DlssReady     = false; // slSetVulkanInfo accepted
-        std::string                     m_Refusal;
-        std::vector<std::string>        m_InstanceExtensionNames; // storage for InstanceExtensions()'s pointers
-        std::set<uint32_t>              m_Viewports;              // acquired and not yet released
-        uint32_t                        m_NextViewport = 1;
-        uint64_t                        m_TokenFrame = UINT64_MAX;
-        void*                           m_Token      = nullptr; // sl::FrameToken* of m_TokenFrame
+        mutable std::mutex       m_Mutex;
+        std::unique_ptr<Library> m_Library;
+        bool                     m_Initialized   = false; // slInit succeeded
+        bool                     m_DlssCandidate = false; // supported + requirements enabled on the device
+        bool                     m_DlssReady     = false; // slSetVulkanInfo accepted
+        std::string              m_Refusal;
+        std::vector<std::string> m_InstanceExtensionNames; // storage for InstanceExtensions()'s pointers
+        std::set<uint32_t>       m_Viewports;              // acquired and not yet released
+        uint32_t                 m_NextViewport = 1;
+        uint64_t                 m_TokenFrame   = UINT64_MAX;
+        void*                    m_Token        = nullptr; // sl::FrameToken* of m_TokenFrame
     };
 } // namespace Desert::Graphic::Streamline

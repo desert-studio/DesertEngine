@@ -169,9 +169,9 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's: every method it offers runs here - FSRNative and DLAA only where the
-            // device and the build have the vendor upscaler (Graphic/API/UpscalerBuild.hpp). TAA (TAA1-B) and the
-            // vendor methods are the ones that let Resolution.Percent go below 100 %.
+            // MSAA. The list is the catalog's: every method it offers runs here - FSRNative and DLAA only where
+            // the device and the build have the vendor upscaler (Graphic/API/UpscalerBuild.hpp). TAA (TAA1-B) and
+            // the vendor methods are the ones that let Resolution.Percent go below 100 %.
             const std::vector<SC::AntiAliasingMethod> methods( catalog.AntiAliasingMethods.begin(),
                                                                catalog.AntiAliasingMethods.end() );
 

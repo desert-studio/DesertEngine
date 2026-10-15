@@ -839,11 +839,12 @@ namespace Desert::Editor
                 if ( it->is_regular_file( dirEc ) )
                     vendorRuntime.push_back( it->path() );
             if ( dirEc )
-                return { false,
-                         std::format( "The DLSS runtime (NVIDIA Streamline) the game loads could not be listed from "
-                                      "{}: {}",
-                                      streamline.string(), dirEc.message() ),
-                         "" };
+                return {
+                     false,
+                     std::format( "The DLSS runtime (NVIDIA Streamline) the game loads could not be listed from "
+                                  "{}: {}",
+                                  streamline.string(), dirEc.message() ),
+                     "" };
             if ( std::ranges::none_of( vendorRuntime, []( const fs::path& file )
                                        { return file.filename() == "sl.interposer.dll"; } ) )
                 return { false,
@@ -924,7 +925,8 @@ namespace Desert::Editor
         {
             fs::copy_file( file, gameDir / file.filename(), fs::copy_options::overwrite_existing, ec );
             if ( ec )
-                return { false, std::format( "Cannot copy the DLSS runtime file {}: {}", file.string(), ec.message() ),
+                return { false,
+                         std::format( "Cannot copy the DLSS runtime file {}: {}", file.string(), ec.message() ),
                          "" };
             ++stats.Files;
         }

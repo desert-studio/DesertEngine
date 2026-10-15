@@ -541,13 +541,15 @@ namespace Desert::Graphic::Streamline
              m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetOptimalSettings", getOptimal );
         const sl::Result optionsResult =
              m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSSetOptions", setOptions );
-        const sl::Result stateResult = m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetState", getState );
-        if ( optimalResult != sl::Result::eOk || optionsResult != sl::Result::eOk || stateResult != sl::Result::eOk )
+        const sl::Result stateResult =
+             m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetState", getState );
+        if ( optimalResult != sl::Result::eOk || optionsResult != sl::Result::eOk ||
+             stateResult != sl::Result::eOk )
         {
-            Refuse( std::format( "the DLSS plugin's entry points: slDLSSGetOptimalSettings {}, slDLSSSetOptions {}, "
-                                 "slDLSSGetState {}",
-                                 ResultName( optimalResult ), ResultName( optionsResult ),
-                                 ResultName( stateResult ) ) );
+            Refuse( std::format(
+                 "the DLSS plugin's entry points: slDLSSGetOptimalSettings {}, slDLSSSetOptions {}, "
+                 "slDLSSGetState {}",
+                 ResultName( optimalResult ), ResultName( optionsResult ), ResultName( stateResult ) ) );
             return;
         }
         m_Library->GetOptimalSettings = reinterpret_cast<PFun_slDLSSGetOptimalSettings*>( getOptimal );
@@ -624,7 +626,8 @@ namespace Desert::Graphic::Streamline
         if ( m_Viewports.erase( viewport ) == 0 || !m_Initialized )
             return; // freed at device destruction already
         // eErrorInvalidParameter only means the viewport never evaluated: there was no feature to free.
-        if ( const sl::Result result = m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
+        if ( const sl::Result result =
+                  m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
              result != sl::Result::eOk && result != sl::Result::eErrorInvalidParameter )
             LOG_ERROR( "[Streamline] slFreeResources(DLSS, viewport {}): {}", viewport, ResultName( result ) );
     }
@@ -650,8 +653,8 @@ namespace Desert::Graphic::Streamline
         if ( const sl::Result result = m_Library->SetOptions( handle, options ); result != sl::Result::eOk )
             return Common::MakeFormattedError<uint64_t>(
                  "slDLSSSetOptions(viewport {}, {}, preset {}, {}x{}): {}", viewport, DlssModeName( input.Mode ),
-                 Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )], input.OutputWidth,
-                 input.OutputHeight, ResultName( result ) );
+                 Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )],
+                 input.OutputWidth, input.OutputHeight, ResultName( result ) );
         sl::DLSSState state;
         if ( const sl::Result result = m_Library->GetState( handle, state ); result != sl::Result::eOk )
             return Common::MakeFormattedError<uint64_t>( "slDLSSGetState(viewport {}): {}", viewport,
@@ -678,7 +681,7 @@ namespace Desert::Graphic::Streamline
             m_Token      = token;
             m_TokenFrame = input.EngineFrame;
         }
-        const sl::FrameToken& token = *static_cast<sl::FrameToken*>( m_Token );
+        const sl::FrameToken&    token = *static_cast<sl::FrameToken*>( m_Token );
         const sl::ViewportHandle viewport( input.Viewport );
 
         sl::Constants constants;
@@ -712,9 +715,9 @@ namespace Desert::Graphic::Streamline
 
         // Tagged locally, for this evaluation only: the images are graph resources valid for this pass, so nothing
         // is copied and nothing outlives the call.
-        sl::Resource                   color  = ToSl( input.Color );
-        sl::Resource                   depth  = ToSl( input.Depth );
-        sl::Resource                   motion = ToSl( input.MotionVectors );
+        sl::Resource                   color    = ToSl( input.Color );
+        sl::Resource                   depth    = ToSl( input.Depth );
+        sl::Resource                   motion   = ToSl( input.MotionVectors );
         sl::Resource                   output   = ToSl( input.Output );
         sl::Resource                   exposure = ToSl( input.Exposure );
         const sl::Extent               render{ 0, 0, input.Color.Width, input.Color.Height };
@@ -728,10 +731,11 @@ namespace Desert::Graphic::Streamline
                               &render ),
              sl::ResourceTag( &output, sl::kBufferTypeScalingOutputColor,
                               sl::ResourceLifecycle::eValidUntilPresent, &full ),
-             sl::ResourceTag( &exposure, sl::kBufferTypeExposure, sl::ResourceLifecycle::eValidUntilPresent, &texel ),
+             sl::ResourceTag( &exposure, sl::kBufferTypeExposure, sl::ResourceLifecycle::eValidUntilPresent,
+                              &texel ),
         };
-        const std::array<const sl::BaseStructure*, 6> inputs{ &viewport, &tags[0], &tags[1], &tags[2], &tags[3],
-                                                              &tags[4] };
+        const std::array<const sl::BaseStructure*, 6> inputs{ &viewport, &tags[0], &tags[1],
+                                                              &tags[2],  &tags[3], &tags[4] };
         if ( const sl::Result result = m_Library->EvaluateFeature(
                   sl::kFeatureDLSS, token, const_cast<const sl::BaseStructure**>( inputs.data() ),
                   static_cast<uint32_t>( inputs.size() ), commandBuffer );
