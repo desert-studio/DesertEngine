@@ -260,6 +260,12 @@ namespace Desert::Core::Formats
         return domain == kMeshPathDomain;
     }
 
+    // The program a custom mesh shader (the mesh path's domain written as stage blocks, no `Surface` block) draws
+    // its depth with in the forward depth prepass, registered as "<Shader>/<this>": the parser derives it for an
+    // opaque one (Core::Preprocess::kCustomDepthPrepassPass, DShaderParser.hpp, says how), and it is that
+    // shader's (Static x DepthPrepass) cell (Graphic::TemplateCellShader).
+    inline constexpr std::string_view kCustomDepthPrepassPassName = "DepthPrepass";
+
     constexpr bool DrawnByTerrainPath( ShaderDomain domain )
     {
         return domain == kTerrainPathDomain;

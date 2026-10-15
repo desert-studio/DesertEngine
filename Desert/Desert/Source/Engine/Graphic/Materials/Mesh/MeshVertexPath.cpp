@@ -51,11 +51,20 @@ namespace Desert::Graphic
                                                    const std::function<bool( std::string_view )>& isRegistered )
     {
         auto cell = MeshShaderFor( templateName, path, pass );
-        if ( cell && MeshCellPath( *cell ) && !isRegistered( *cell ) )
-            cell = ( path == MeshVertexPath::Static && pass == MeshPass::Forward )
-                        ? std::optional<std::string>( templateName )
-                        : std::nullopt;
-        return cell;
+        if ( !cell || !MeshCellPath( *cell ) || isRegistered( *cell ) )
+            return cell;
+        // No Surface block: the default program is the (Static x Forward) cell, and an opaque one's depth-prepass
+        // program (Core::Formats::kCustomDepthPrepassPassName) its (Static x DepthPrepass) cell.
+        if ( path != MeshVertexPath::Static )
+            return std::nullopt;
+        if ( pass == MeshPass::Forward )
+            return std::string( templateName );
+        if ( pass == MeshPass::DepthPrepass )
+            if ( std::string prepass =
+                      std::format( "{}/{}", templateName, Core::Formats::kCustomDepthPrepassPassName );
+                 isRegistered( prepass ) )
+                return prepass;
+        return std::nullopt;
     }
 
     ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend )

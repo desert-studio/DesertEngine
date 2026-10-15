@@ -203,9 +203,9 @@ namespace Desert::Editor
         }
 
         // Level of Detail + the static-only rendering flags (outline, per-submesh visibility) live on the
-        // STATIC mesh component; a skinned entity gets the one rendering control its component carries —
-        // Cast Shadows, in the same section and wording as the static twin, so the toggle is found in the
-        // same place on both kinds of mesh.
+        // STATIC mesh component; a skinned entity gets the rendering controls its component carries —
+        // Cast Shadows and Cast Contact Shadow, in the same section and wording as the static twin, so the
+        // toggles are found in the same place on both kinds of mesh.
         if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
         {
             if ( entity.HasComponent<ECS::SkinnedMeshComponent>() &&
@@ -216,6 +216,14 @@ namespace Desert::Editor
                 Utils::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
                                                          "Skip this mesh in the shadow (depth) passes" );
                 ImGui::Checkbox( "##castshadows", &skinnedComp.CastShadows );
+                Utils::ImGuiUtilities::EndPropertyRow();
+
+                Utils::ImGuiUtilities::BeginPropertyRow(
+                     "Cast Contact Shadow",
+                     "A light's contact-shadow ray that hits this mesh darkens with the light's Contact Shadow "
+                     "Casting Intensity; off = its Non Casting Intensity (0 by default: no contact shadow from this "
+                     "mesh). Forward path (the depth prepass); a skinned mesh is outside the deferred G-buffer" );
+                ImGui::Checkbox( "##castcontactshadow", &skinnedComp.CastContactShadow );
                 Utils::ImGuiUtilities::EndPropertyRow();
             }
             return;

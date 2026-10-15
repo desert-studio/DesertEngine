@@ -391,6 +391,16 @@ namespace
                "a material's own pipeline, requested when the material loads and compiled on a worker; "
                "the reveal draws with DefaultSurfaceFallback below until it is ready" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+               "std::format( kGenericMeshPrepassNameFormat, shaderName )", Verdict::Shipped,
+               "an opaque custom shader's depth-prepass program in the forward depth prepass (compiled on demand; the "
+               "default surface stands in until it and its base-pass twin are ready)" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+               "std::format( kGenericMeshPrepassedNameFormat, shaderName )", Verdict::Shipped,
+               "an opaque custom shader's base-pass pipeline after the forward depth prepass (EQUAL, no depth write)" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+               "\"DefaultSurfaceFallbackNoDepthWrite\"", Verdict::Shipped,
+               "the stand-in of a ZWrite Off custom shader in the read-only-depth node after the forward prepass" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
                "\"DefaultSurfaceFallback\"", Verdict::Shipped,
                "the engine stand-in pipeline every mesh draws with until its own material's pipeline "
                "finishes compiling; the product needs it every frame a material hasn't loaded yet" },

@@ -204,6 +204,8 @@ namespace Desert::Graphic
         auto* mesh    = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        // The custom-shader meshes' programs bind the scene/view inputs they have slots for (MeshRenderer).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         AddRaster(
              graph, "Forward: DepthPrepass", targets,
              textures.ColorLoads( targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
@@ -214,10 +216,10 @@ namespace Desert::Graphic
                      return BOOLSUCCESS;
                  return mesh->RenderDepthPrepassManual( context );
              },
-             [mesh]( RDG::PassBuilder& pass )
+             [mesh, view]( RDG::PassBuilder& pass )
              {
                  if ( mesh != nullptr )
-                     mesh->DeclareDepthPrepassDraws( pass );
+                     mesh->DeclareDepthPrepassDraws( pass, view );
              } );
         if ( terrain != nullptr )
             AddRaster(
@@ -465,11 +467,16 @@ namespace Desert::Graphic
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // After the forward depth prepass this node holds only the custom shaders that are not opaque (ZWrite Off or
+        // blending; drawn writing no depth, as UE's translucency - the opaque ones drew in the prepass and the base
+        // pass): the depth read-only, so a shader sampling the scene depth reads the prepass's. On Deferred it holds every custom
+        // shader, the opaque ones writing depth.
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGenericManual( context ); },
-             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
+             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); },
+             /*depthWrite*/ !UsesForwardDepthPrepass() );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,

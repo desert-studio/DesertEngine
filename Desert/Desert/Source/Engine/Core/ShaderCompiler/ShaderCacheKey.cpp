@@ -335,6 +335,9 @@ namespace Desert::Core
         if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
             for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
                 scanned.append( std::format( "\n#include <{}>\n", header ) );
+        // A custom mesh shader's depth-prepass program compiles the engine tail its text never names either.
+        if ( passName == Preprocess::kCustomDepthPrepassPass )
+            scanned.append( std::format( "\n#include <{}>\n", Preprocess::kCustomDepthPrepassInclude ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );

@@ -119,6 +119,28 @@ namespace Desert::Core::Preprocess
     // an opaque cell declares no material binding in that stage. A Masked cell evaluates the surface for its clip.
     inline constexpr std::string_view kSurfaceDepthPrepassPass = "DepthPrepass";
 
+    // THE CUSTOM MESH SHADER'S DEPTH PREPASS (UE: every opaque material has its own depth-only shader, drawn by
+    // FDepthPassMeshProcessor before the base pass). A `Domain Surface` shader written as stage blocks rather than a
+    // `Surface` block (a hand-written mesh shader, drawn by MeshRenderer's generic queue) that is OPAQUE (writes
+    // depth, does not blend; CustomShaderWritesOpaqueDepth) gets one more named program, derived by the parser:
+    //   - its vertex stage is the author's, verbatim; the default program's vertex stage and this one both declare
+    //     `invariant gl_Position`, so the base pass's EQUAL test finds the depth this program wrote;
+    //   - its fragment stage is the author's with every `out` declaration turned into a private global and the
+    //     author's main() renamed kCustomSurfaceMainName, then kCustomDepthPrepassInclude, whose main() runs the
+    //     author's (a `discard` clips, as a Masked surface's prepass cell clips) and writes the prepass's one
+    //     colour target, the contact-shadow word.
+    // A custom shader that blends is translucent whatever its ZWrite says: no prepass program, and after the prepass
+    // it is drawn writing no depth (UE: translucency writes none; MeshRenderer GenericDrawSet::AfterOpaque).
+    inline constexpr std::string_view kCustomDepthPrepassPass    = Formats::kCustomDepthPrepassPassName;
+    inline constexpr std::string_view kCustomDepthPrepassInclude = "Mesh/Surface/Pass_CustomDepthPrepass.glslh";
+    inline constexpr std::string_view kCustomSurfaceMainName     = "DesertCustomSurfaceMain";
+    // Whether a custom mesh shader of @p state draws in the depth prepass: it writes depth (the pipeline defaults:
+    // depth test and write on) and does not blend.
+    constexpr bool CustomShaderWritesOpaqueDepth( const Formats::ShaderRenderState& state )
+    {
+        return state.DepthTest.value_or( true ) && state.DepthWrite.value_or( true ) && !state.Blend.value_or( false );
+    }
+
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
     // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
     // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).

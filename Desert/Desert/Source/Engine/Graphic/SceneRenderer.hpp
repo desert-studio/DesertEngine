@@ -123,7 +123,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
-            bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
+            bool                   CastContactShadow        = true; // UE bCastContactShadow (static, skinned)
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 

@@ -1209,9 +1209,9 @@ namespace Desert::Graphic
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        // The custom-shader meshes have no surface cells, so no prepass cell: after the prepass they cannot draw in
-        // the read-only base pass and draw in their own node after it, writing depth - as on Deferred, outside the
-        // contact-shadow depth.
+        // After the prepass the custom-shader meshes that write no depth (ZWrite Off) draw in their own node after
+        // the base pass, the depth read-only; the opaque ones drew their depth in the prepass (their shader's
+        // depth-prepass program) and their colour in the base pass.
         if ( prepassed )
             AddFrameGeneric( graph, textures, meshRenderer );
         AddFrameSilhouette( graph, textures );

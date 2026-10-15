@@ -575,7 +575,8 @@ namespace Desert::ECS
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices,
-                              std::move( morphWeights ), morphRevision, isSelected, mesh.CastShadows );
+                              std::move( morphWeights ), morphRevision, isSelected, mesh.CastShadows,
+                              mesh.CastContactShadow );
                      } );
             }
         }

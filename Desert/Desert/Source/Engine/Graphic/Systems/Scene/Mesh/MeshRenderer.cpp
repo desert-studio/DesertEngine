@@ -390,10 +390,11 @@ namespace Desert::Graphic::System
                 return;
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
-            // After the depth prepass the custom-shader meshes (no surface cells, so no prepass cell; they write
-            // depth) draw in their own node after this one (SceneRenderer, "Deferred: Generic").
-            if ( !m_SceneRenderer->UsesForwardDepthPrepass() )
-                BuildGenericDraws( m_ForwardDraws );
+            // After the depth prepass only the OPAQUE custom-shader meshes, at EQUAL against the depth their own
+            // depth-prepass program wrote; the rest (ZWrite Off) draw in their own node after this one
+            // (SceneRenderer, "Deferred: Generic"), reading the prepass depth.
+            BuildGenericDraws( m_ForwardDraws, m_SceneRenderer->UsesForwardDepthPrepass() ? GenericDrawSet::OpaqueBase
+                                                                                         : GenericDrawSet::All );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 
@@ -574,6 +575,7 @@ namespace Desert::Graphic::System
                 skinnedData.BoneMatrices  = data.BoneMatrices;
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                skinnedData.CastContactShadow = data.CastContactShadow;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps Instance below alive (A8-3)
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                 {

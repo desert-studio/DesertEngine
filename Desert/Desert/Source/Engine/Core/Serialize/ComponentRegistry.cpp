@@ -1783,6 +1783,8 @@ namespace Desert::Core::Serialize
                 // like the static mesh above.
                 if ( !smc.CastShadows )
                     meshSer.CastShadows = smc.CastShadows;
+                if ( !smc.CastContactShadow )
+                    meshSer.CastContactShadow = smc.CastContactShadow;
 
                 return Common::Json::FromStruct( meshSer );
             };
@@ -1816,7 +1818,8 @@ namespace Desert::Core::Serialize
                     }
                 }
 
-                smc.CastShadows = meshData.CastShadows.value_or( smc.CastShadows );
+                smc.CastShadows       = meshData.CastShadows.value_or( smc.CastShadows );
+                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
             };
 
             Register( std::move( s ) );

@@ -205,10 +205,11 @@ namespace Desert::Graphic
     // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
     // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
     // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
-    // default program on the generic path, which is its (Static x Forward) and nothing else — so every other cell
-    // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
-    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
-    // here" and "what draws here" cannot disagree. Empty = no cell.
+    // default program on the generic path, which is its (Static x Forward), and an opaque one's depth-prepass
+    // program ("<Template>/<Core::Formats::kCustomDepthPrepassPassName>", derived by the parser) is its (Static x
+    // DepthPrepass) — every other cell is a hole the caller must refuse. @p isRegistered answers whether a program
+    // of that name is registered (ShaderService at run time); MaterialService builds by this and answers CellOf by
+    // it, so "can this draw here" and "what draws here" cannot disagree. Empty = no cell.
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered );

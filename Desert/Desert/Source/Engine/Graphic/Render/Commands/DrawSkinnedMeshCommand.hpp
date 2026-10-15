@@ -25,15 +25,16 @@ namespace Desert::Graphic::Render
         std::vector<float>              MorphWeights;
         uint64_t                        MorphRevision = 0;
         bool                            Outlined    = false;
-        bool                            CastShadows = true;
+        bool                            CastShadows       = true;
+        bool                            CastContactShadow = true; // SkinnedMeshComponent::CastContactShadow
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
                                 const std::vector<glm::mat4>& bones, std::vector<float> morphWeights,
-                                uint64_t morphRevision, bool outlined, bool castShadows )
+                                uint64_t morphRevision, bool outlined, bool castShadows, bool castContactShadow )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( bones ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               Outlined( outlined ), CastShadows( castShadows )
+               Outlined( outlined ), CastShadows( castShadows ), CastContactShadow( castContactShadow )
         {
         }
 
@@ -47,8 +48,9 @@ namespace Desert::Graphic::Render
                                    .BoneMatrices  = BoneMatrices,
                                    .MorphWeights  = MorphWeights,
                                    .MorphRevision = MorphRevision,
-                                   .Outlined      = Outlined,
-                                   .CastShadows   = CastShadows } );
+                                   .Outlined          = Outlined,
+                                   .CastShadows       = CastShadows,
+                                   .CastContactShadow = CastContactShadow } );
         }
     };
 } // namespace Desert::Graphic::Render

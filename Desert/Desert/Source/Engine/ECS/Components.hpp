@@ -232,6 +232,9 @@ namespace Desert::ECS
                  RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
         uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
+        // UE's bCastContactShadow, as StaticMeshComponent::CastContactShadow: carried into the forward depth
+        // prepass's shading word (a skinned mesh is outside the deferred G-buffer and casts nothing there).
+        bool CastContactShadow = true;
 
         // In-editor rig: a skinned mesh built at runtime by "Convert to Skinned" (from a static mesh + placed
         // bones, auto-weighted), NOT yet a cooked asset. When set, RuntimeMesh overrides MeshHandle in the

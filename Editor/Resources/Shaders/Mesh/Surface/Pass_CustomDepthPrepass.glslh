@@ -1,0 +1,19 @@
+// The engine tail of a CUSTOM mesh shader's depth-prepass program (UE: an opaque material's own depth-only shader,
+// FDepthPassMeshProcessor / DepthOnlyPixelShader.usf). A `Domain Surface` shader written as stage blocks has no
+// surface function to evaluate, so the parser (DShaderParser.hpp, kCustomDepthPrepassPass) hands this header the
+// author's whole fragment stage instead: its colour outputs made private globals and its main() renamed
+// DesertCustomSurfaceMain. This main() runs it - a `discard` there clips the depth exactly as the base pass's EQUAL
+// test will need it, the colour it computes is dead code - and writes the prepass's one colour target, the opaque
+// scene's shading word with only the contact-shadow cast bit meaningful (Mesh/Surface/Pass_DepthPrepass.glslh).
+#include <ShadingModels/ShadingModelContract.glslh>
+// The ONE engine push block (PrimitiveFlags); guarded, so a stage that already declares it is unchanged.
+#include <Common/MaterialTransport.glslh>
+
+layout( location = 0 ) out uvec2 oContactShadowWord;
+
+void main()
+{
+    DesertCustomSurfaceMain();
+    oContactShadowWord = DesertMarkContactShadowCast(
+         uvec2( 0u ), ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+}

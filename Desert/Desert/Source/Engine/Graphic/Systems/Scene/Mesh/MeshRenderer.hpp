@@ -211,8 +211,9 @@ namespace Desert::Graphic::System
             MaterialSlotBindingPtr      MaterialSlots;
             MaterialInstance*           Instance = nullptr; // instance applied during Bind; owned by MaterialSlots
             std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
-            bool                        Outlined    = false;
-            bool                        CastShadows = true;
+            bool                        Outlined          = false;
+            bool                        CastShadows       = true;
+            bool                        CastContactShadow = true; // UE bCastContactShadow: the prepass's word
         };
 
         // A UE-style Instanced Static Mesh: ONE mesh + ONE Lit material drawn N times. The material and the
@@ -419,10 +420,12 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
-        // SETUP of "Forward: DepthPrepass" (SceneRenderer::UsesForwardDepthPrepass): the frame's prepass draw list -
-        // the static, instanced and skinned meshes the base pass draws, each through its template's (path x
-        // DepthPrepass) cell - and its binding blocks (the cells sample no scene/view input). The exec records it.
-        void                                DeclareDepthPrepassDraws( RDG::PassBuilder& pass );
+        // SETUP of "Forward: DepthPrepass" (SceneRenderer::UsesForwardDepthPrepass): the frame's prepass draw list
+        // - the static, instanced and skinned meshes the base pass draws, each through its template's (path x
+        // DepthPrepass) cell, and the opaque custom-shader meshes through their shader's depth-prepass program
+        // (DShaderParser.hpp kCustomDepthPrepassPass) - and its binding blocks, @p view bound where a custom
+        // shader samples it (the cells sample none). The exec records it.
+        void DeclareDepthPrepassDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderDepthPrepassManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
@@ -724,7 +727,16 @@ namespace Desert::Graphic::System
         // The pipeline whose fixed state a draw of @p path takes in the pass being built (m_BuildPass): the
         // G-buffer's, the prepass's, or the forward one - its EQUAL twin after a prepass, the wireframe variant in
         // that view (static only). Null: that pass has none for the path.
-        [[nodiscard]] GraphicsPipeline* BuildPassPipeline( MeshVertexPath path ) const;
+        [[nodiscard]] GraphicsPipeline* BuildPassPipeline( MeshVertexPath path ) const
+        {
+            return PassPipeline( path, m_BuildPass );
+        }
+        [[nodiscard]] GraphicsPipeline* PassPipeline( MeshVertexPath path, MeshPass pass ) const;
+        // THE OTHER HALF OF A PREPASSED DRAW: after the forward depth prepass a mesh is drawn twice, its depth in
+        // the prepass and its colour in the base pass at EQUAL, so the pass being built (DepthPrepass / Forward)
+        // answers readiness for both (UE draws a mesh in both passes or in neither). Null: no pairing (no
+        // prepass this frame, or another pass).
+        [[nodiscard]] std::optional<MeshPass> PrepassPairOf( MeshPass pass ) const;
         // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
         // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
         // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
@@ -748,8 +760,29 @@ namespace Desert::Graphic::System
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
-        // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
+        // per-object data-driven materials (v3 slots + overrides). Which of the queue's draws a list holds, and
+        // through which program: without the forward depth prepass, all of them (the forward base pass; Deferred's
+        // "Deferred: Generic"); with it, the OPAQUE custom shaders (the parser gave them a depth-prepass program,
+        // DShaderParser.hpp kCustomDepthPrepassPass) draw their depth in the prepass and their colour in the base
+        // pass at EQUAL, and the rest (ZWrite Off) draw after the base pass, reading the prepass depth.
+        enum class GenericDrawSet : uint8_t
+        {
+            All,
+            OpaqueDepth, // "Forward: DepthPrepass": the depth-prepass program
+            OpaqueBase,  // the forward base pass after the prepass: the default program at EQUAL, no depth write
+            AfterOpaque, // "Deferred: Generic" after the prepass: the shaders that write no depth
+        };
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list, GenericDrawSet set );
+        // An opaque custom shader's two pipelines after the prepass: its depth-prepass program on the prepass's
+        // target, and its default program at EQUAL writing no depth. Null when either is refused (logged once).
+        struct PrepassedGenericPipelines
+        {
+            GraphicsPipeline* Depth = nullptr;
+            GraphicsPipeline* Base  = nullptr;
+        };
+        [[nodiscard]] std::optional<PrepassedGenericPipelines>
+        PrepassedGenericPipelinesOf( const std::string& shaderName, const std::string& depthProgram,
+                                          const std::shared_ptr<Shader>& shader );
         // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
         // its cache and its MOVABLE ones over the copied cache, every frame.
         enum class ShadowCasterLayer : uint8_t
@@ -1148,6 +1181,8 @@ namespace Desert::Graphic::System
         // one's textures.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
+        // The same keys' twins on the shader's depth-prepass program (GenericDrawSet::OpaqueDepth).
+        std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericPrepassMaterials;
 
         // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has
         // read the process-wide on-load request list; the stand-in every not-yet-ready material draws with.
@@ -1251,8 +1286,8 @@ namespace Desert::Graphic::System
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
-            std::shared_ptr<GraphicsPipeline> Pipeline;
-            uint32_t                          Row = 0;
+            GraphicsPipeline*                 Pipeline = nullptr; // owned by the pipeline cache / m_CellPipelines
+            uint32_t                          Row      = 0;
         };
         // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.
         struct MaterialRows
@@ -1325,6 +1360,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
                                                                   m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
+        std::vector<DataDrivenMaterial*>         m_ScratchSkinnedForwardMaterials; // BuildSkinnedDraws
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
         double                                                    m_PrevWorldTimeSeconds = 0.0;

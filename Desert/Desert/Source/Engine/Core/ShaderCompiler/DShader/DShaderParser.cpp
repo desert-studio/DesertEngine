@@ -1380,8 +1380,10 @@ namespace Desert::Core::Preprocess
             return out;
         }
 
+        // @p preamble: global declarations the parser adds before the author's text (the custom depth prepass's
+        // `invariant gl_Position`), after which `#line` restores the author's numbering.
         std::string AssembleStage( ShaderStage stage, const RawBlock& code, const RawBlock& include,
-                                   const std::string& autoDecls )
+                                   const std::string& autoDecls, const std::string_view preamble = {} )
         {
             std::ostringstream out;
             // 460, not 450: GL_EXT_ray_query (rayQueryEXT, accelerationStructureEXT) requires GLSL 460, and
@@ -1400,6 +1402,7 @@ namespace Desert::Core::Preprocess
 
             if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ) )
                 out << autoDecls;
+            out << preamble;
 
             if ( !include.Content.empty() )
             {
@@ -1462,6 +1465,32 @@ namespace Desert::Core::Preprocess
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
                                   passInclude );
             return AssembleStage( stage, code, include, autoDecls );
+        }
+
+        // The vertex stages of an opaque custom mesh shader's two programs (default, kCustomDepthPrepassPass): the
+        // same author's text, rasterised by two programs whose depths the base pass compares EQUAL - GLSL guarantees
+        // the same gl_Position across programs only for an invariant one. Not added twice if the author wrote it.
+        std::string CustomVertexPreamble( const RawBlock& vertex )
+        {
+            static const std::regex kInvariantPosition( R"(\binvariant\s+gl_Position\b)" );
+            return std::regex_search( vertex.Content, kInvariantPosition ) ? std::string()
+                                                                           : std::string( "invariant gl_Position;\n" );
+        }
+
+        // The fragment stage of an opaque custom mesh shader's depth-prepass program (DShaderParser.hpp,
+        // kCustomDepthPrepassPass): the author's stage as assembled, its colour outputs made private globals (the
+        // prepass has one target, the contact-shadow word, which the author's outputs would not match) and its
+        // main() renamed, then the engine tail whose main() runs it and writes the word. A `discard` in the author's
+        // code still clips; the colour it computes is dead code.
+        std::string AssembleCustomDepthPrepassFragment( const RawBlock& fragment, const RawBlock& include,
+                                                        const std::string& autoDecls )
+        {
+            static const std::regex kColourOutput( R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*out\s+)" );
+            static const std::regex kAuthorMain( R"(\bvoid\s+main\s*\(\s*(void\s*)?\))" );
+            std::string text = AssembleStage( ShaderStage::Fragment, fragment, include, autoDecls );
+            text             = std::regex_replace( text, kColourOutput, "" );
+            text = std::regex_replace( text, kAuthorMain, std::format( "void {}()", kCustomSurfaceMainName ) );
+            return std::format( "{}\n#include <{}>\n", text, kCustomDepthPrepassInclude );
         }
 
     } // namespace
@@ -2045,13 +2074,28 @@ namespace Desert::Core::Preprocess
             }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
-        const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )
+        // A custom mesh shader (stage blocks, no `Surface` block): opaque ones get their depth-prepass program
+        // below (DShaderParser.hpp, kCustomDepthPrepassPass).
+        const bool customMeshShader = !surfaceBlock && Formats::DrawnByMeshPath( result.Meta.Domain ) &&
+                                      defaultPass.Blocks.contains( ShaderStage::Vertex ) &&
+                                      defaultPass.Blocks.contains( ShaderStage::Fragment );
+        const bool customDepthPrepass =
+             customMeshShader && CustomShaderWritesOpaqueDepth( defaultPass.State ) &&
+             std::none_of( namedPasses.begin(), namedPasses.end(),
+                           []( const PendingPass& pass ) { return pass.Name == kCustomDepthPrepassPass; } );
+        const std::string customVertexPreamble =
+             customDepthPrepass ? CustomVertexPreamble( defaultPass.Blocks.at( ShaderStage::Vertex ) ) : std::string();
+
+        const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state,
+                                       const std::string_view vertexPreamble = {} )
         {
             DShaderPass out;
             out.Name  = pending.Name;
             out.State = state;
             for ( const auto& [stage, block] : pending.Blocks )
-                out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
+                out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls,
+                                                          stage == ShaderStage::Vertex ? vertexPreamble
+                                                                                       : std::string_view() ) );
             return out;
         };
 
@@ -2167,12 +2211,28 @@ namespace Desert::Core::Preprocess
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass doubles as the default program.
         if ( !defaultPass.Blocks.empty() )
-            result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
+            result.Passes.push_back( assemblePass( defaultPass, defaultPass.State, customVertexPreamble ) );
 
         for ( const auto& pass : namedPasses )
         {
             result.Passes.push_back( assemblePass( pass, MergeState( defaultPass.State, pass.State ) ) );
             result.Meta.PassNames.push_back( pass.Name );
+        }
+
+        // The opaque custom mesh shader's depth-prepass program, after every authored pass (their order unchanged).
+        if ( customDepthPrepass )
+        {
+            DShaderPass prepass;
+            prepass.Name  = std::string( kCustomDepthPrepassPass );
+            prepass.State = defaultPass.State;
+            prepass.Stages.emplace( ShaderStage::Vertex,
+                                    AssembleStage( ShaderStage::Vertex, defaultPass.Blocks.at( ShaderStage::Vertex ),
+                                                   includeBlock, autoDecls, customVertexPreamble ) );
+            prepass.Stages.emplace( ShaderStage::Fragment,
+                                    AssembleCustomDepthPrepassFragment( defaultPass.Blocks.at( ShaderStage::Fragment ),
+                                                                        includeBlock, autoDecls ) );
+            result.Meta.PassNames.push_back( prepass.Name );
+            result.Passes.push_back( std::move( prepass ) );
         }
 
         // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template

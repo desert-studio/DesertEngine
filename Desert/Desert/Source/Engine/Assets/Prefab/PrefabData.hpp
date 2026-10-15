@@ -61,6 +61,7 @@ namespace Desert::Assets
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         // Written only when false, like the static twin's flag above.
         std::optional<bool> CastShadows;
+        std::optional<bool> CastContactShadow; // written only when false, like the static twin's
     };
 
     // UE-style Instanced Static Mesh mirror: one mesh (asset path OR primitive) + N per-instance world
