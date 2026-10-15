@@ -223,8 +223,8 @@ namespace Desert::Editor
             // pane will bake at; what it is not is a promise that the bake will use it.
             int32_t CloudVolumeResolution = 128;
 
-            // Direction the light TRAVELS (sun -> scene), which is what TransformComponent::Translation on
-            // a directional light means. Derived, never stored: two copies of one direction is how a sky
+            // Unit direction the light TRAVELS (sun -> scene); the preview light's Rotation is aimed along it
+            // (ECS::AimDirectionalLight). Derived, never stored: two copies of one direction is how a sky
             // ends up lit from below.
             [[nodiscard]] glm::vec3 LightTravel() const;
 

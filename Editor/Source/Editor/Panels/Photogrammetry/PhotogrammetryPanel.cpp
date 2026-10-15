@@ -18,6 +18,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -639,7 +640,7 @@ namespace Desert::Editor
         auto& lightC          = light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = 3.5f;
         lightC.Data.Color     = { 1.0f, 0.97f, 0.92f };
-        light.GetComponent<ECS::TransformComponent>().Translation = { 2.0f, -6.0f, 5.0f };
+        ECS::AimDirectionalLight( *light.GetRegistry(), light.GetHandle(), glm::vec3( 2.0f, -6.0f, 5.0f ) );
 
         m_PreviewTarget = m_PreviewScene->CreateNewEntity( "PrevTarget" );
         m_PreviewTarget.AddComponent<ECS::StaticMeshComponent>();

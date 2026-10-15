@@ -268,8 +268,7 @@ namespace Desert::ECS
             m_SunFx.OuterSpaceIlluminance             = light.Data.Color * light.Data.Intensity;
             m_SunFx.SunDiskColorScale                 = light.Data.AtmosphereSunDiskColorScale;
 
-            const auto& transform = registry.get<ECS::TransformComponent>( *sun );
-            return Rules::AtmosphereSunDirection( transform.Translation );
+            return Rules::AtmosphereSunDirection( WorldRotation( registry, *sun ) );
         }
 
         // The evaluated FX slice of the chosen sun light, refreshed by ResolveAtmosphereSun each frame

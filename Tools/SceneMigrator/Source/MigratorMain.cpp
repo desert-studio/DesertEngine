@@ -522,6 +522,13 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSkySunFromLight << "->v"
                 << Desert::Migration::kSceneVersionSunCalendar << " (" << report.SunCalendar.Clocks
                 << " clock(s) state the equinox calendar)";
+        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
+                                           report.SunRotation.Undirected > 0 ) )
+            out << std::format( " scene v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
+                                "with an identity parent, {} without a direction kept their Rotation)",
+                                Desert::Migration::kSceneVersionSunCalendar,
+                                Desert::Migration::kSceneVersionSunRotation, report.SunRotation.Aimed,
+                                report.SunRotation.Overrides, report.SunRotation.Undirected );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

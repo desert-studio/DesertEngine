@@ -17,6 +17,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -515,9 +516,9 @@ namespace Desert::Editor
     }
 
     // Directional light: the reflected fields, plus the thing that is NOT a field — where the sun is.
-    // The engine stores the sun as the direction light TRAVELS in TransformComponent.Translation
-    // (Scene.cpp uploads normalize(Translation); the sky negates it), which is unauthorable as three
-    // raw numbers. This edits it as azimuth/elevation.
+    // The light travels along the entity's world forward axis (its Rotation, as in UE), which is
+    // unauthorable as three Euler angles when what an artist means is "sun at 40 deg, in the south-west".
+    // This edits the same Rotation as azimuth/elevation; the transform gizmo's rotate tool edits it too.
     static ComponentEditorEntry MakeDirectionalLightEntry()
     {
         using C = ::Desert::ECS::DirectionLightComponent;
@@ -538,19 +539,9 @@ namespace Desert::Editor
             if ( ctx.FieldFilter || !en.HasComponent<::Desert::ECS::TransformComponent>() )
                 return; // while searching, only the matched fields are on screen
 
-            auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
-
-            // Translation is the TRAVEL direction; the sun sits the other way.
-            // Through the rules on both counts. The threshold was a fourth spelling of
-            // kSunDirectionEpsilon, and `-travel / length` was a fourth copy of the negation that
-            // SystemRules.hpp calls "the engine's ONE negation" — in the widget a user reaches for to
-            // aim a sun, so a disagreement here shows a direction for a light the renderer has already
-            // thrown away.
-            glm::vec3 travel = t.Translation;
-            if ( !::Desert::ECS::Rules::IsSunDirectionValid( travel ) )
-                travel = glm::vec3( -0.4f, -1.0f, -0.5f ); // the dial's placeholder aim, not a light
-            const float     length = glm::length( travel );
-            const glm::vec3 toSun  = ::Desert::ECS::Rules::AtmosphereSunDirection( travel );
+            entt::registry& registry = *en.GetRegistry();
+            const glm::vec3  toSun    = ::Desert::ECS::Rules::AtmosphereSunDirection(
+                 ::Desert::ECS::WorldRotation( registry, en.GetHandle() ) );
 
             float elevation = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
             float azimuth   = glm::degrees( std::atan2( toSun.x, toSun.z ) );
@@ -580,9 +571,7 @@ namespace Desert::Editor
                 const float     el = glm::radians( elevation );
                 const glm::vec3 dir( std::cos( el ) * std::sin( az ), std::sin( el ),
                                      std::cos( el ) * std::cos( az ) );
-                // Keep the vector's length: some scenes author it as a "sun position" and only the
-                // direction is read, so rewriting the magnitude would be a silent edit.
-                t.Translation = -dir * length;
+                ::Desert::ECS::AimDirectionalLight( registry, en.GetHandle(), -dir );
             }
 
             ImGui::Unindent( 6.0f );

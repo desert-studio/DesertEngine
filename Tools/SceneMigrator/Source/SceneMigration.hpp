@@ -322,7 +322,18 @@ namespace Desert::Migration
     //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
     inline constexpr int kSceneVersionSunCalendar = 58;
 
-    static_assert( kSceneVersionSunCalendar == kSceneVersion,
+    //  61 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (LEG-SUN-ROTATION), as in UE: the light travels along
+    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
+    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
+    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
+    //       Rotations divided out - and a zero Translation, so no direction is stored twice. A light whose
+    //       Translation was no direction emitted nothing before; it keeps its Rotation and is counted. A prefab
+    //       override that states a Translation beside a DirectionLight block is converted the same way, its
+    //       parent rotation unknown here and taken as identity, and counted (MigrateSunRotationV58ToV61).
+    //       Scenes and prefabs alike. 59 and 60 are taken on other branches.
+    inline constexpr int kSceneVersionSunRotation = 61;
+
+    static_assert( kSceneVersionSunRotation == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -633,6 +644,18 @@ namespace Desert::Migration
     // PURE.
     SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateSunRotationV58ToV61 did to one file.
+    struct SunRotationReport
+    {
+        std::size_t Aimed      = 0; // records whose Translation became their Rotation
+        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
+        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
+    };
+
+    // Moves every directional light's direction from its Translation into its Rotation, under the rule
+    // kSceneVersionSunRotation states. PURE.
+    SunRotationReport MigrateSunRotationV58ToV61( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -912,6 +935,9 @@ namespace Desert::Migration
         bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
         SunCalendarReport SunCalendar;
 
+        bool              SunRotationRaised = false; // below kSceneVersionSunRotation
+        SunRotationReport SunRotation;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -926,7 +952,7 @@ namespace Desert::Migration
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised ||
-                   SunCalendarRaised;
+                   SunCalendarRaised || SunRotationRaised;
         }
     };
 

@@ -27,7 +27,9 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
@@ -665,59 +667,45 @@ namespace Desert::Core
             const ECS::AtmosphereSunPick pick = ECS::PickAtmosphereSun( m_Registry, ECS::SunCandidacy::Lit );
             if ( const auto sun = pick.Sun() )
             {
-                const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *sun );
-                const auto& transform = m_Registry.get<ECS::TransformComponent>( *sun );
-                // Chosen implies DirectionValid, so the gate below cannot refuse; asked anyway, because the
-                // optional is the one place that normalizes a light's Translation.
-                if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
-                    sceneRendererInfo.DirLights.DirectionLights.push_back(
-                         { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+                const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
+                const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
+                sceneRendererInfo.DirLights.DirectionLights.push_back(
+                     { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
-            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
-            //
-            // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation, so a
-            // sun aimed with the rotation gizmo has a Translation of (0,0,0) and cannot be collected; and
-            // every visible light that is not the sun contributes nothing at all. Both used to be silent or
-            // truncated with a different rule than the sky's. Hidden lights are not in the pick: a light
-            // the artist deliberately hid is not one they mis-authored.
+            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT: every visible directional
+            // light that is not the sun contributes nothing at all. Hidden lights are not in the pick: a
+            // light the artist deliberately hid is not one they mis-authored.
             const auto nameOf = [&]( entt::entity entity ) -> std::string
             {
                 return m_Registry.has<ECS::TagComponent>( entity )
                             ? m_Registry.get<ECS::TagComponent>( entity ).Tag
                             : std::string( "<untagged>" );
             };
-            std::string degenerate;
             std::string unused;
             for ( size_t i = 0; i < pick.Candidates.size(); ++i )
             {
-                if ( !pick.Candidates[i].DirectionValid )
-                    degenerate += ( degenerate.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
-                else if ( pick.Selection.Chosen != i )
-                    unused += ( unused.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
+                if ( pick.Selection.Chosen != i )
+                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
+                                    nameOf( pick.Entities[i] ) );
             }
 
             // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
             // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
             // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
             // changes — including back to empty, which is the line that tells a user their fix worked.
-            const std::string report = degenerate + "|" + unused + "|" + ( pick.Sun() ? "sun" : "" );
+            const std::string report = std::format( "{}|{}", unused, pick.Sun() ? "sun" : "" );
             if ( report != m_DirLightsReported )
             {
                 m_DirLightsReported = report;
-                if ( !degenerate.empty() )
-                    LOG_ERROR( "[Scene] directional light(s) {} have a Translation shorter than {} and "
-                               "emit NOTHING. A directional light takes its direction from its "
-                               "TRANSLATION (the direction the light travels), not from its Rotation.",
-                               degenerate, ECS::Rules::kSunDirectionEpsilon );
                 if ( !unused.empty() && pick.Sun() )
                     LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders one directional "
                                "light, the atmosphere sun '{}'. Remove them, or mark the one you want as "
                                "Atmosphere Sun Light (index 0).",
                                unused, nameOf( *pick.Sun() ) );
                 if ( !pick.Sun() && m_Registry.view<ECS::DirectionLightComponent>().size() > 0 )
-                    LOG_ERROR( "[Scene] no visible directional light with a usable direction: the scene has "
-                               "NO sun — no direct light, no shadows, no atmosphere sun." );
+                    LOG_ERROR( "[Scene] no visible directional light: the scene has NO sun — no direct light, "
+                               "no shadows, no atmosphere sun." );
             }
         }
 
