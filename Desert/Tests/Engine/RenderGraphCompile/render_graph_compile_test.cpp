@@ -2422,9 +2422,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "extension[Overlay]",
          "UI: BackdropBlur{}",
          "extension[UI]",
-         "PostFX: JumpFloodInit",
-         "PostFX: JumpFloodStep{}",
-         "PostFX: JumpFloodFinal",
          "PostFX: BloomDownsample{}",
          "PostFX: BloomUpsample{}",
          "PostFX: LightShaftMask",
@@ -2438,6 +2435,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: SMAAEdges",
          "PostFX: SMAAWeights",
          "PostFX: SMAABlend",
+         // AE-METER-3: the selection outline over the display image after the tonemap and the AA (UE
+         // EPass::SelectionOutline), before the editor primitives (EPass::EditorPrimitive).
+         "PostFX: JumpFloodInit",
+         "PostFX: JumpFloodStep{}",
+         "PostFX: JumpFloodFinal",
          // AE-METER-2: the editor primitives after the tonemap and the AA (UE EPass::EditorPrimitive): the editor
          // depth populated from the scene depth, the engine's debug lines, the registered passes, the composite.
          "system[mesh->DebugLinesPass()]",
@@ -2530,11 +2532,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
                 "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
     // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
-    // overdraw, outline); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split.
+    // overdraw); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split. The outline
+    // keeps no image (its seeds are graph transients).
     declares( "ResizeRenderTargets",
               { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
                 "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
-                "overdrawFb->Resize(width,height);", "->OnResize(width,height);" } );
+                "overdrawFb->Resize(width,height);" } );
     declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
                           "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
                           "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
@@ -4176,7 +4179,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     EXPECT_LT( fill, declare ) << "the material is filled before its route fill is declared";
     EXPECT_LT( declare, exec ) << "both in the setup, before the exec";
 
-    // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
+    // The jump-flood composite's uniforms (outline colour, width, smoothness, display gamma) the same way.
     const std::string jfa = SqueezedSource( root, std::format( "{}JumpFloodOutlineRenderer.cpp", dir ).c_str() );
     EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
                     .find( "m_MaterialComposite->SetParams(" ),
@@ -4184,8 +4187,8 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
          << "the composite's values are set by FillFinalMaterial";
     const std::string jfaNode =
          SqueezedBody( postFx, "voidSceneRenderer::AddFrameJumpFlood(", "voidSceneRenderer::" );
-    const size_t jfaFill    = jfaNode.find( "jfa->FillFinalMaterial();" );
-    const size_t jfaDeclare = jfaNode.find( "jfa->DeclareFinalBindings(pass,seed,scene);" );
+    const size_t jfaFill    = jfaNode.find( "jfa->FillFinalMaterial(gamma);" );
+    const size_t jfaDeclare = jfaNode.find( "jfa->DeclareFinalBindings(pass,seed);" );
     const size_t jfaExec    = jfaNode.find( "jfa->RecordFinal(context)" );
     ASSERT_NE( jfaFill, std::string::npos );
     ASSERT_NE( jfaDeclare, std::string::npos );

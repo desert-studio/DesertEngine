@@ -6,11 +6,13 @@ namespace Desert::Graphic
     {
     }
 
-    void MaterialJFAComposite::SetParams( const glm::vec4& outlineColor, float outlineWidth, float smoothness )
+    void MaterialJFAComposite::SetParams( const glm::vec4& outlineColor, float outlineWidth, float smoothness,
+                                          float displayGamma )
     {
         SetOutlineColor( outlineColor );
         SetOutlineWidth( outlineWidth );
         SetSmoothness( smoothness );
+        SetDisplayGamma( displayGamma );
 
         UploadRegisteredProperties();
 

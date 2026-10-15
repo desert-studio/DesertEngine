@@ -24,15 +24,19 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName   = "EditorCubemapPreviewPipeline";
         spec.Shader      = shader;
-        spec.TargetLayout = Desert::Graphic::SceneTargetLayout();
-        // A real object, not an overlay: the ball writes its own ray-traced depth so the scene's
-        // backdrop stays behind it whichever order the graph runs the sky, and tests against what the
-        // geometry pass left so a mesh in the same scene would still occlude it correctly.
+        // AN EDITOR PRIMITIVE (RDG::ExtensionPoint::EditorPrimitives): drawn after the tonemap into the view's
+        // editor-primitives target, in display-linear colour by the editor's exposure-independent display mapping
+        // (Graphic::PreviewDisplayMappingOf, the shader's CubemapDisplayUB), so the viewport's adapted exposure,
+        // the bloom and the tone curve of the preview scene never touch it and it never feeds the exposure meter.
+        spec.TargetLayout = Desert::Graphic::EditorPrimitivesLayout();
+        // A real object: the ball writes its own ray-traced depth into the editor depth, which holds the scene's
+        // depth (populated before this point), so a mesh in the same scene still occludes it and the scene's own
+        // backdrop stays behind it.
         spec.DepthTestEnabled  = true;
         spec.DepthWriteEnabled = true;
         spec.DepthCompareOp    = Graphic::DepthCompare::Closer;
         spec.CullMode          = Graphic::CullMode::None;
-        spec.BlendEnable       = false; // radiance, opaque; the post chain tonemaps it like any sky
+        spec.BlendEnable       = false; // opaque: alpha 1, full coverage for the composite
 
         const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
         if ( !pipeline )
@@ -43,7 +47,7 @@ namespace Desert::Editor::Render
 
         Graphic::ExtensionPass pass;
         pass.Name                  = "CubemapPreview";
-        pass.Point                 = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Point                 = Graphic::RDG::ExtensionPoint::EditorPrimitives;
         pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext&           context ) -> Common::BoolResultStr
         {

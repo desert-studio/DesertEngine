@@ -36,6 +36,16 @@ Shader "CubemapSphere"
         } u;
 
         Uniform(1) samplerCube u_CubeMap;
+
+        #include <Common/FilmToneMap.glslh>
+        // THE DISPLAY MAPPING (an editor primitive, drawn after the tonemap into the display-linear editor target):
+        // the editor's exposure-independent one, Graphic::PreviewDisplayMappingOf - the default grade at the
+        // default manual exposure, the mapping the HDR thumbnail uses - never the viewport's adapted exposure.
+        Uniform(3) CubemapDisplayUB
+        {
+            FilmGradeParams Grade;
+            vec4            Exposure; // x: multiplies the radiance before Grade
+        } display;
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The Details
         // panel's ball beside the Rotation slider must turn with it.
         Uniform(2) SkyLookUB
@@ -51,10 +61,16 @@ Shader "CubemapSphere"
         In(2) vec2 v_Ndc;
         Out(0) vec4 o_Color;
 
-        vec3 SkyBy( vec3 direction )
+        vec3 RadianceBy( vec3 direction )
         {
             return ApplySkyGain( textureLod( u_CubeMap, SkyLookDirection( direction, skyLook.YawCosSin.xy ), u.Params.z ).rgb,
                                  skyLook.Gain.rgb );
+        }
+
+        // Display-linear colour of the cube in @p direction (the composite encodes it for the display).
+        vec3 SkyBy( vec3 direction )
+        {
+            return FilmDisplayLinear( RadianceBy( direction ) * display.Exposure.x, display.Grade );
         }
 
         // THE BACKDROP (the skybox viewer's mode): a ray that misses the ball sees the cube by its OWN direction,
@@ -96,7 +112,7 @@ Shader "CubemapSphere"
             vec3 n   = hit / R; // unit by construction: |hit| == R
 
             // The wrap itself: the cube by the sphere's outward direction. No lighting on purpose — a
-            // cubemap is radiance, not a surface; the scene's post chain tonemaps it like any sky.
+            // cubemap is radiance, not a surface; SkyBy maps it to the display by the preview mapping.
             o_Color = vec4( SkyBy( n ), 1.0 );
 
             // Zero-to-one reversed-Z device depth, no remap (Core/Projection.hpp; same as Grid.shader).

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 #include <glm/glm.hpp>
 
@@ -72,5 +73,22 @@ namespace Desert::Graphic
                                .Gamma      = grade.ColorGammaHighlights,
                                .Gain       = grade.ColorGainHighlights,
                                .Offset     = grade.ColorOffsetHighlights } };
+    }
+
+    // THE EDITOR'S EXPOSURE-INDEPENDENT DISPLAY MAPPING, for content that has no scene to meter: a radiance shown
+    // as an object (the HDR thumbnail in the Content Browser, the cubemap preview ball after the tonemap) is graded
+    // by the default view grade at the default manual exposure (compensation 0), never by the viewport's adapted
+    // exposure. One definition, so the preview ball and its thumbnail read the same.
+    struct PreviewDisplayMapping
+    {
+        FilmGradeParams Grade;
+        float           Exposure; // multiplies scene-linear radiance before Grade
+    };
+
+    inline PreviewDisplayMapping PreviewDisplayMappingOf()
+    {
+        const Core::PostProcessSettings defaults{};
+        return PreviewDisplayMapping{ .Grade    = FilmGradeOf( defaults ),
+                                      .Exposure = ManualExposureScale( defaults.ManualExposureEV100, 1.0f ) };
     }
 } // namespace Desert::Graphic

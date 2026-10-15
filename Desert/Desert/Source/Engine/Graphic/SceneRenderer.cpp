@@ -346,11 +346,9 @@ namespace Desert::Graphic
             }
             case 5:
             {
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
-                                                         jumpFloodSystem->GetSystemFramebuffer() );
+                // The tonemap's source is a graph input (the resolved scene colour, AddFrameTonemap); the scene
+                // target only sizes its output until the first resize to the display extent.
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -1295,9 +1293,10 @@ namespace Desert::Graphic
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
         // THE METER READS THE SCENE, NOT WHAT IS DRAWN OVER IT. Passes run in the order they are added
-        // (RDGCompile.cpp: never reordered), so the histogram is added here, before the dev views, the HDR Overlay
-        // passes (the cubemap preview) and the UI canvas draw into the same image (the editor primitives never do:
-        // they draw after the tonemap, AddFrameEditorPrimitives): as UE meters scene colour before editor
+        // (RDGCompile.cpp: never reordered), so the histogram is added here, before the dev views, the passes
+        // registered at the HDR Overlay point and the UI canvas draw into the same image (the editor-only overlays
+        // never do: the selection outline, the editor primitives and the cubemap preview draw after the tonemap,
+        // AddFrameJumpFlood / AddFrameEditorPrimitives): as UE meters scene colour before editor
         // primitives and UI are composited. Added after
         // them, those overlays fed the exposure, and how much of the screen they cover changes with the view.
         AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
@@ -1311,9 +1310,10 @@ namespace Desert::Graphic
                                   postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
-        // The HDR overlays that must be exposed and tonemapped like the scene (the cubemap preview shows
-        // radiance). The editor primitives (grid, colliders, tool previews, debug lines) are NOT here: they draw
-        // after the tonemap (AddFrameEditorPrimitives), so no editor-only pixel reaches the bloom or any HDR pass.
+        // The point for an outside pass that must be exposed and tonemapped like the scene. Nothing editor-only is
+        // here: the editor primitives (grid, colliders, tool previews, debug lines, the cubemap preview with its own
+        // display mapping) and the selection outline draw after the tonemap (AddFrameEditorPrimitives,
+        // AddFrameJumpFlood), so no editor-only pixel reaches the bloom or any HDR pass.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
@@ -1324,7 +1324,6 @@ namespace Desert::Graphic
         // The UI canvas, last before the post chain.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
-        AddFrameJumpFlood( graph, textures );
         if ( m_BloomEnabled )
         {
             AddFrameBloom( graph, textures, postInput );
@@ -1341,8 +1340,10 @@ namespace Desert::Graphic
         {
             AddFrameSMAA( graph, textures );
         }
-        // The editor primitives over the display image, last (UE: EPass::EditorPrimitive after the tonemap and
-        // FXAA).
+        // The editor overlays over the display image, last, in UE's order: the selection outline
+        // (EPass::SelectionOutline), then the editor primitives (EPass::EditorPrimitive), both after the tonemap and
+        // FXAA. Neither writes an image the tonemap or any HDR pass reads.
+        AddFrameJumpFlood( graph, textures );
         AddFrameEditorPrimitives( graph, textures, overlay );
         // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
         if ( const auto extracted =
@@ -1542,10 +1543,6 @@ namespace Desert::Graphic
                   UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetOverdrawFramebuffer() )
             overdrawFb->Resize( width, height );
 #endif
-
-        // The outline's composite reads the scene target: the scene's extent.
-        UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
-             ->OnResize( width, height );
     }
 
     namespace

@@ -449,8 +449,9 @@ namespace
              // ── the Jump Flood outline ──────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp",
                "debugName", Verdict::Shipped,
-               "JFA_Init, JFA_Step and JFA_Final from one helper. Init and Final run on EVERY frame of"
-               " every build: the composite is what hands the scene colour to tonemap" },
+               "JFA_Init, JFA_Step and JFA_Final from one helper. They run in every build on a frame that"
+               " outlines something (a shipped scene's OutlineDraw mesh), over the display image after the"
+               " tonemap" },
 
              // ── sky, terrain, clouds, fog ───────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp", "debugName",
@@ -841,9 +842,10 @@ TEST( ShippingPipelines, OutlineFamilyIsReachableFromASavedScene )
             "an outlined mesh and the outline pipelines would be developer-only.";
 }
 
-// The other half of "the family draws": the composite runs whether or not anything is outlined, because
-// it is what hands the scene colour to tonemap. Only the propagation steps are skipped.
-TEST( ShippingPipelines, TheOutlineCompositeRunsOnEveryFrame )
+// The other half of "the family draws": the outline chain is gated on one thing only - whether this frame
+// outlines something (JumpFloodOutlineRenderer::Runs) - never on a developer switch, and its last node, the
+// composite, is what puts the band on the display image.
+TEST( ShippingPipelines, TheOutlineRunsOnEveryFrameThatOutlinesSomething )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -857,16 +859,17 @@ TEST( ShippingPipelines, TheOutlineCompositeRunsOnEveryFrame )
     const size_t body = postFx.find( "void SceneRenderer::AddFrameJumpFlood" );
     ASSERT_NE( body, std::string::npos );
     const size_t bodyEnd = postFx.find( "void SceneRenderer::", body + 1 );
+    const std::string node = postFx.substr( body, bodyEnd - body );
 
-    const size_t active = postFx.find( "RunsSteps()", body );
-    const size_t final  = postFx.find( "\"PostFX: JumpFloodFinal\"", body );
-    ASSERT_NE( active, std::string::npos ) << "AddFrameJumpFlood no longer consults RunsSteps()";
+    const size_t active = node.find( "jfa->Runs()" );
+    const size_t final  = node.find( "\"PostFX: JumpFloodFinal\"" );
+    ASSERT_NE( active, std::string::npos ) << "AddFrameJumpFlood no longer consults Runs()";
     ASSERT_NE( final, std::string::npos ) << "AddFrameJumpFlood no longer adds the JumpFloodFinal composite";
-    EXPECT_LT( final, bodyEnd ) << "the JumpFloodFinal composite is no longer added by AddFrameJumpFlood";
-    EXPECT_GT( final, active )
-         << "the JumpFloodFinal composite is no longer the LAST node AddFrameJumpFlood adds. It is added "
-            "unconditionally, after the RunsSteps() check that skips only the propagation steps — "
-            "which is why the outline pipelines are part of the product and not a developer's tool.";
+    EXPECT_EQ( node.find( "DESERT_DEV_INSTRUMENTS" ), std::string::npos )
+         << "the outline chain is behind the developer boundary: a shipped scene's outlined mesh would not draw";
+    EXPECT_GT( final, active ) << "the JumpFloodFinal composite is no longer added after the Runs() gate";
+    EXPECT_EQ( node.find( "graph.AddPass(", final ), std::string::npos )
+         << "the JumpFloodFinal composite is no longer the LAST node AddFrameJumpFlood adds";
 }
 
 // THE PACKAGE'S SHADER SET FOLLOWS THE BOUNDARY (owner decision, PKG2b). A Shipping package leaves out the

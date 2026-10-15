@@ -338,7 +338,8 @@ namespace Desert::Graphic
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 3 } );
+        // The two ping-pong seeds: graph transients on a frame that outlines something.
+        add( { "JFA.Seed", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 2 } );
         add( { "Tonemap", "TonemapRenderer.cpp", F::kTonemap, width, height } );
         add( { "FXAA", "FXAARenderer.cpp", F::kFXAA, width, height } );
         add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", F::kSMAAEdges, width, height, 1, 2 } );

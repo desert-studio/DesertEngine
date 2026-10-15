@@ -8,7 +8,8 @@
 
 namespace Desert::Editor::Render
 {
-    // The Material Editor preview's cubemap presenter: a Debug-phase external pass that ray-traces a
+    // The Material Editor preview's cubemap presenter: an editor-primitives pass (after the tonemap, with its own
+    // exposure-independent display mapping) that ray-traces a
     // ball at the origin and wraps a cubemap onto it (shader "CubemapSphere" — see it for why the ball
     // is a fullscreen triangle and why nothing lights it).
     //

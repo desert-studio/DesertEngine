@@ -21,12 +21,15 @@ namespace Desert::Graphic::System
     // "PostFX: JumpFlood*", and the graph opens the render pass on the image the node declares):
     //   Init   : silhouette mask        -> seed[0]
     //   Step xN: seed[i%2]              -> seed[(i+1)%2]   (ping-pong, halving step length)
-    //   Final  : seed[N%2] + scene color -> output (outlined scene)
+    //   Final  : seed[N%2]              -> blended over the DISPLAY image (the outline band only)
     // The two seeds are transients of that graph (Builder::CreateTexture with GetSeedDesc); the renderer keeps
-    // no image for them. Only the output is a member: the tonemap reads it (TonemapRenderer::Inputs::Source).
+    // no image at all.
     //
-    // The output framebuffer is what the tonemap stage consumes. When the outline is disabled the
-    // Final pass simply passes the scene color through (see JFA_Final.glsl.frag).
+    // AN EDITOR OVERLAY AFTER THE TONEMAP (UE EPass::SelectionOutline, composited after the tonemap and FXAA and
+    // before EPass::EditorPrimitive). The selection depth is the scene's own: the silhouette mask MeshRenderer draws
+    // for the selected meshes. The chain runs only on a frame that outlines something, after the spatial AA, and the
+    // Final pass blends the band (One, OneMinusSrcAlpha) over the display image, encoded for the view's output
+    // device; the scene colour the tonemap reads is never written by it.
     class JumpFloodOutlineRenderer final : public RenderSystem
     {
     public:
@@ -38,14 +41,9 @@ namespace Desert::Graphic::System
 
         // False: nothing can be recorded this frame (the scene framebuffer is gone); the error is logged.
         [[nodiscard]] bool Prepare() const;
-        // Init runs when the outline is enabled and the silhouette mask exists, selected or not, so seed[0]
-        // is written this frame and the composite may sample it.
-        [[nodiscard]] bool RunsInit() const;
-        // The ~log2(width) propagation steps run only when something is outlined this frame.
-        [[nodiscard]] bool RunsSteps() const
-        {
-            return RunsInit() && m_OutlineActive;
-        }
+        // The chain (Init, the ~log2(width) steps, Final) runs when the outline is enabled, the silhouette mask
+        // exists and something is outlined this frame; otherwise the frame graph gets no outline node at all.
+        [[nodiscard]] bool Runs() const;
         // ~log2 of this frame's scene size (the seeds are sized from it).
         [[nodiscard]] uint32_t GetStepCount() const;
         // Step @p step samples seed[GetStepSource(step)] and writes the other seed.
@@ -53,25 +51,20 @@ namespace Desert::Graphic::System
         {
             return step % 2;
         }
-        // The seed the composite samples: the last step's target, or seed[0] when no step ran.
+        // The seed the composite samples: the last step's target.
         [[nodiscard]] uint32_t GetFinalSeedIndex() const
         {
-            return RunsSteps() ? GetStepCount() % 2 : 0u;
+            return GetStepCount() % 2;
         }
         // The seed transients of this frame: the scene's size, ViewTargetFormats::kJFASeed. Nullopt: the scene
         // framebuffer is gone (logged).
         [[nodiscard]] std::optional<RDG::TextureDesc> GetSeedDesc() const;
 
         [[nodiscard]] std::shared_ptr<Image2D> GetMaskImage() const;
-        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
-        // What the tonemap consumes: the outlined scene (or the scene passed through).
-        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
-        {
-            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage() : nullptr;
-        }
 
         // Each records one fullscreen triangle inside the render pass the frame graph opens on its target:
-        // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
+        // Init on seed[0], Step on the seed GetStepSource does not name, Final on the display image (the tonemap's
+        // or the spatial AA's output, ViewTargetFormats::kTonemap), loaded.
         // Every Declare* adds block 0 to the node's setup; its Record* draws from that block only.
         // Init: the silhouette @p mask -> seed[0].
         void DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const;
@@ -80,15 +73,12 @@ namespace Desert::Graphic::System
         // away.
         void DeclareStepBindings( RDG::PassBuilder& pass, RDG::TextureRef source ) const;
         [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step );
-        // Final: @p seed (the final seed, or FrameTextures::System.Black when Init did not run) composited over
-        // @p scene. No steps ran -> width 0, which makes JFA_Final pass the scene through unchanged. The
-        // composite's uniform block is filled by FillFinalMaterial, called in the setup before the declaration.
-        void FillFinalMaterial();
-        void DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed, RDG::TextureRef scene ) const;
+        // Final: the band around @p seed (the last step's seed) blended over the display image. The composite's
+        // uniform block is filled by FillFinalMaterial (@p displayGamma: the view's Film Gamma, the output device
+        // the tonemap encoded for), called in the setup before the declaration.
+        void FillFinalMaterial( float displayGamma );
+        void DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed ) const;
         [[nodiscard]] Common::BoolResultStr RecordFinal( const RDG::PassContext& context );
-
-        // Resizes the output (the only image the renderer keeps); the seeds follow the scene size per frame.
-        void OnResize( uint32_t width, uint32_t height );
 
         // The silhouette mask is produced by MeshRenderer; wired once after both systems init.
         void SetMaskFramebuffer( const std::weak_ptr<Framebuffer>& maskFramebuffer )
@@ -112,9 +102,7 @@ namespace Desert::Graphic::System
         {
             m_Enabled = enabled;
         }
-        // When false (nothing selected) the graph gets no ~log2(width) ping-pong STEP nodes (it still gets
-        // the cheap Init, so seed[0] is written this frame and the composite may sample it; the graph
-        // orders Init's colour write before the composite's sampled read).
+        // When false (nothing selected) the graph gets no outline node.
         void SetOutlineActive( bool active )
         {
             m_OutlineActive = active;
@@ -126,7 +114,7 @@ namespace Desert::Graphic::System
         static uint32_t ComputeStepCount( uint32_t width, uint32_t height );
 
     private:
-        // The final output is m_Framebuffer (RenderSystem base); the ping-pong seeds are graph transients.
+        // No image: the ping-pong seeds are graph transients and Final draws onto the display image.
         std::shared_ptr<GraphicsPipeline> m_InitPipeline;
         std::shared_ptr<GraphicsPipeline> m_StepPipeline;
         std::shared_ptr<GraphicsPipeline> m_FinalPipeline;

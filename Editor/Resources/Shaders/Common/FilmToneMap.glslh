@@ -525,11 +525,11 @@ vec3 FilmLinToLog(vec3 linearColor)
     return clamp(LogColor, vec3(0.0f), vec3(1.0f));
 }
 
-// UE's CombineLUTsCommon for the sRGB output device: exposed scene-linear sRGB in, the DEVICE colour (sRGB-encoded,
-// 0..1) out. White balance, then in AP1: gamut expansion (Filmic), the colour correction of every range, the tone
-// curve (Filmic, or extended Reinhard on the corrected colour), and the display transfer. The bake stores exactly
-// this per texel of the table; the thumbnail calls it per pixel.
-vec3 FilmCombine(vec3 linearColor, FilmGradeParams grade)
+// UE's CombineLUTsCommon up to the output device: exposed scene-linear sRGB in, DISPLAY-linear sRGB out. White
+// balance, then in AP1: gamut expansion (Filmic), the colour correction of every range and the tone curve (Filmic,
+// or extended Reinhard on the corrected colour). A pass that draws into a display-linear target (the editor
+// primitives, encoded by their composite) stops here; FilmCombine adds the display transfer.
+vec3 FilmDisplayLinear(vec3 linearColor, FilmGradeParams grade)
 {
     vec3 BalancedColor = linearColor;
     if (grade.WhiteBalance.z > 0.5f)
@@ -547,5 +547,13 @@ vec3 FilmCombine(vec3 linearColor, FilmGradeParams grade)
         displayLinear = FilmColorNoGamma(ColorAP1, grade.Curve, grade.Look);
     else
         displayLinear = FilmReinhard(max(FilmAP1_2_SRGB() * ColorAP1, vec3(0.0f)), grade.Output.z);
-    return FilmEncodeDisplay(displayLinear, grade.Output.x);
+    return displayLinear;
+}
+
+// UE's CombineLUTsCommon for the sRGB output device: exposed scene-linear sRGB in, the DEVICE colour (sRGB-encoded,
+// 0..1) out - FilmDisplayLinear, then the display transfer. The bake stores exactly this per texel of the table; the
+// thumbnail calls it per pixel.
+vec3 FilmCombine(vec3 linearColor, FilmGradeParams grade)
+{
+    return FilmEncodeDisplay(FilmDisplayLinear(linearColor, grade), grade.Output.x);
 }
