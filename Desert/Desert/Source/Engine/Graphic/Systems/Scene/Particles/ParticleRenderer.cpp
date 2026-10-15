@@ -232,7 +232,23 @@ namespace Desert::Graphic::System
                 if ( renderer.Kind == VFXRendererKind::Mesh && meshes != nullptr )
                 {
                     // Streamed (MeshService::Get is null until resident): the row draws from the frame its mesh is.
+                    // A mesh that never will be (its read or build failed, or no such mesh) is said once by name.
                     draw.StaticMesh = meshes->Get( renderer.Mesh );
+                    if ( draw.StaticMesh == nullptr )
+                    {
+                        const auto residency = meshes->GetResidency( renderer.Mesh );
+                        if ( residency != Runtime::MeshService::Residency::Pending &&
+                             m_MissingMeshes.emplace( static_cast<uint64_t>( renderer.Mesh ), true ).second )
+                        {
+                            LOG_ERROR( "[Particles] emitter {} renderer row {} (Mesh) draws nothing: its mesh '{}' ({}) "
+                                       "{}",
+                                       fe.EntityId, renderer.Row, renderer.MeshPath,
+                                       static_cast<uint64_t>( renderer.Mesh ),
+                                       residency == Runtime::MeshService::Residency::Failed
+                                            ? "failed to load (MeshService said why above)"
+                                            : "is no mesh the content registry knows" );
+                        }
+                    }
                     if ( draw.StaticMesh != nullptr )
                         for ( const auto& sub : draw.StaticMesh->GetSubmeshes() )
                         {

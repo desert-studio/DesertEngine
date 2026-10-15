@@ -177,7 +177,10 @@ namespace Desert::Graphic::System
             drawn.Material = Assets::Serialization::VFXRendererMaterialHandle( r );
             drawn.Mesh     = Assets::Serialization::VFXRendererMeshHandle( r );
             if ( r.Mesh )
+            {
                 drawn.MeshFacing = r.Mesh->Facing;
+                drawn.MeshPath   = r.Mesh->Mesh.Path;
+            }
             if ( r.Ribbon )
             {
                 drawn.RibbonFacing   = r.Ribbon->Facing;

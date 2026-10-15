@@ -300,6 +300,16 @@ namespace Desert::Runtime
         return m_Meshes[handle].get();
     }
 
+    MeshService::Residency MeshService::GetResidency( const Assets::AssetHandle& handle ) const
+    {
+        if ( m_Meshes.contains( handle ) )
+            return Residency::Resident;
+        const Entry* entry = FindOrDiscover( handle );
+        if ( entry == nullptr )
+            return Residency::Unknown;
+        return entry->Failed ? Residency::Failed : Residency::Pending;
+    }
+
     Assets::MeshAsset* MeshService::GetAsset( const Assets::AssetHandle& handle ) const
     {
         Entry* entry = FindOrDiscover( handle );

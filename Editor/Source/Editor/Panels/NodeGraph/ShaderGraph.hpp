@@ -82,7 +82,7 @@ namespace Desert::Editor
         inline constexpr const char* kParticlesCategory = "Particles";
 
         /// True for the node kinds that read the particle half of SurfaceInput (i.Particle), which only the
-        /// ParticleSprite cell fills: a graph using one must be UsedWithParticleSprites.
+        /// particle cells fill: a graph using one must be used with particle sprites, meshes or ribbons.
         [[nodiscard]] bool ReadsParticleInputs( const std::string& kind );
 
         const std::vector<NodeSpec>& Specs();

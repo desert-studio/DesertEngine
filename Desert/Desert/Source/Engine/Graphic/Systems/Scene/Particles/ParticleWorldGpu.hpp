@@ -125,7 +125,8 @@ namespace Desert::Graphic::System
         Assets::Serialization::VFXRendererKind Kind = Assets::Serialization::VFXRendererKind::Sprite;
         uint32_t                               Row  = 0;
         Common::AssetHandle                    Material;
-        Common::AssetHandle                    Mesh; // Kind == Mesh
+        Common::AssetHandle                    Mesh;     // Kind == Mesh
+        std::string                            MeshPath; // Kind == Mesh: the row's Mesh.Path, for its log lines
         Assets::Serialization::VFXMeshFacing   MeshFacing     = Assets::Serialization::VFXMeshFacing::Default;
         Assets::Serialization::VFXRibbonFacing RibbonFacing   = Assets::Serialization::VFXRibbonFacing::Screen;
         float                                  RibbonUVTiling = 1.0f;

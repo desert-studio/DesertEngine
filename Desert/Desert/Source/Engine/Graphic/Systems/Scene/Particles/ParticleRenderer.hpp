@@ -333,6 +333,8 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::unique_ptr<CellDraw>> m_Cells;
         // The opaque particle-mesh templates that have no G-buffer / shadow cell (said once each).
         std::unordered_map<std::string, bool> m_RefusedOpaque;
+        // The mesh rows' meshes that will never be drawn (failed or unknown to MeshService), said once each.
+        std::unordered_map<uint64_t, bool> m_MissingMeshes;
         std::shared_ptr<Framebuffer>          m_CascadeFramebuffer;
         // Per emitter entity (raw entt entity value), per (emitter index << 32 | renderer row), per view: every
         // emitter of a system and every row of an emitter keeps its own instance.
