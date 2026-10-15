@@ -1287,7 +1287,6 @@ namespace Desert::Graphic
             AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, sunShadowMask, meshRenderer,
                                lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
-            AddFrameSkinned( graph, textures, meshRenderer );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );

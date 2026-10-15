@@ -176,8 +176,9 @@ namespace Desert::Graphic
     // holes are deliberate and each has a reason:
     //
     //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of every surface
-    //                          template, which has every path. The skinned mesh is still drawn forward
-    //                          (MeshRenderer::RenderSkinnedManual); the cell exists unused.
+    //                          template, which has every path. The deferred path draws the skinned mesh
+    //                          through it in the G-buffer node (MeshRenderer::BuildSkinnedDraws), as UE's
+    //                          base pass; there is no forward redraw over the composite.
     //   (* x Glass)          — no cell of its own: the translucency pass draws a translucent template's
     //                          (Static x Forward) cell (MeshShaderFor); no skinned or instanced glass exists.
     //

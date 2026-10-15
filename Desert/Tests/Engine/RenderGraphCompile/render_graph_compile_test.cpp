@@ -2384,7 +2384,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: GIResolve",
          "Deferred: Composite",
          "Deferred: Generic",
-         "Deferred: Skinned",
          "Deferred: SceneCopy",
          "Deferred: Water",
          "Deferred: Glass",
@@ -3182,7 +3181,7 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
     for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
+                               "\"Deferred: Generic\"", "\"Deferred: Glass\"",
                                "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
@@ -3208,8 +3207,6 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", "RenderRSMManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
            "RenderGenericManual" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-           "RenderSkinnedManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "RenderGlassManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
            "RenderOverdrawAccumManual" },
@@ -4510,7 +4507,6 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
         ++declared;
     EXPECT_EQ( declared, 0u ) << "a mesh node declares SceneViewInputs::Refs() wholesale instead of its blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
-    EXPECT_NE( frame.find( "meshRenderer->DeclareSkinnedDraws( pass, view );" ), std::string::npos );
     EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
     // The glass declares its inputs as its draw list's blocks in setup (MeshDrawList::DeclareBlocks binds them
     // where a cell's shader has slots for them; RDG-PSO: one block per cell), plus the scene copy it refracts.

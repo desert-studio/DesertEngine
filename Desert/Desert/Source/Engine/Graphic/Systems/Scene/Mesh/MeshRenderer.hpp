@@ -474,11 +474,6 @@ namespace Desert::Graphic::System
         // draw whose shader has slots for it); the exec records that list.
         void DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context ) const;
-        // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
-        // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
-        // otherwise). Forward path draws them inside MeshGeometryPass.
-        void DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
-        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
         // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
@@ -794,10 +789,8 @@ namespace Desert::Graphic::System
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
-        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer" static
+        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
-        MeshRendererDetail::MeshDrawList m_SkinnedDraws;
-        // "Deferred: Skinned"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
@@ -853,6 +846,12 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
+        // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
+        // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal.
+        // Null if the cell is missing, and SetupGBufferPass says skinned meshes are then absent from a deferred
+        // scene. The unowned material is the skinned twin of m_GBufferUnownedMaterial (same reason).
+        std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
+        std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials

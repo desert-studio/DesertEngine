@@ -400,22 +400,6 @@ namespace Desert::Graphic
              [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
-    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
-    {
-        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
-        if ( !targets || meshRenderer == nullptr )
-            return;
-        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
-        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
-        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        AddRaster(
-             graph, "Deferred: Skinned", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
-             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderSkinnedManual( context ); },
-             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareSkinnedDraws( pass, view ); } );
-    }
-
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                                        System::MeshRenderer* meshRenderer )
     {

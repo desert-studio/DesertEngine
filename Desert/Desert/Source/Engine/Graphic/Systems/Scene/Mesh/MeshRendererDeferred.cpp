@@ -15,8 +15,11 @@ namespace Desert::Graphic::System
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
         // shaders sample no scene input: every block is the material's alone.
+        // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
+        // redraw follows on the deferred path.
         m_DeferredGeometry = true;
         BuildStaticDraws( m_GBufferDraws );
+        BuildSkinnedDraws( m_GBufferDraws );
         m_DeferredGeometry = false;
         m_GBufferDraws.Declare( pass, std::nullopt );
     }
@@ -162,6 +165,36 @@ namespace Desert::Graphic::System
             LOG_ERROR( "[MeshRenderer] shader '{}' is missing; Instanced Static Meshes will not be drawn "
                        "while the scene renders deferred.",
                        DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::GBuffer ).value_or( "?" ) );
+        }
+
+        // (Skinned x GBuffer): skinned meshes are drawn in the base pass on the deferred path (BuildSkinnedDraws
+        // under m_DeferredGeometry), never forward over the composite. Optional like the instanced cell: a
+        // refusal costs skinned meshes in a deferred scene, said here.
+        if ( const auto skinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer ) )
+        {
+            GraphicsPipelineSpecification sspec;
+            sspec.DebugName                 = "SkinnedMeshGBuffer";
+            sspec.Layout                    = MeshVertexLayout( MeshVertexPath::Skinned );
+            sspec.DepthCompareOp            = DepthCompare::CloserOrEqual;
+            sspec.CullMode                  = CullMode::Back;
+            sspec.Shader                    = skinnedShader;
+            sspec.TargetLayout              = GBufferLayout();
+            const auto skinned              = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec );
+            m_SkinnedGBufferUnownedMaterial = CreateCellMaterial( MeshVertexPath::Skinned, MeshPass::GBuffer );
+            if ( !skinned )
+                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: {}",
+                           skinned.GetError() );
+            else if ( !m_SkinnedGBufferUnownedMaterial )
+                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: "
+                           "the (Skinned x GBuffer) cell material was refused." );
+            else
+                m_SkinnedGBufferPipeline = skinned.GetValue();
+        }
+        else
+        {
+            LOG_ERROR( "[MeshRenderer] shader '{}' is missing; skinned meshes will not be drawn while the scene "
+                       "renders deferred.",
+                       DefaultSurfaceShaderName( MeshVertexPath::Skinned, MeshPass::GBuffer ).value_or( "?" ) );
         }
         return true;
     }

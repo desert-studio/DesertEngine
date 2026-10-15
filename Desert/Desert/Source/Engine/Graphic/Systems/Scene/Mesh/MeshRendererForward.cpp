@@ -1330,16 +1330,20 @@ namespace Desert::Graphic::System
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
 
-        // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
-        // cascades and the environment cubes included. Skinned meshes have no G-buffer variant, so in a
-        // deferred scene they are drawn FORWARD over the composite and receive nothing the composite
-        // computed: this is the only route by which the sun's shadows, the baked sky and the cloud
-        // layer's shadow reach them at all.
+        // The SAME snapshot, from the SAME gather, that every static mesh in this frame binds: the view's
+        // ObjectMotions/ObjectBones on both passes, and on the forward pass the cascades, the environment
+        // cubes and the cloud layer's shadow.
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
 
-        // One pipeline on both paths: it is built against SceneTargetLayout, and the graph opens the pass with
-        // each slot's load op (LOAD over the deferred composite, CLEAR on the forward path's first writer).
-        GraphicsPipeline* pipeline = m_SkinnedPipeline.get();
+        // The pass decides the state (UE: the skinned mesh is drawn in the base pass). Deferred ("Deferred:
+        // GBuffer", m_DeferredGeometry): the (Skinned x GBuffer) cell into the G-buffer, so the composite shades
+        // it and the ray-traced sun trace reads its depth and normal. Forward (MeshGeometryPass): the (Skinned x
+        // Forward) cell into the scene target.
+        const bool        gbuffer  = m_DeferredGeometry;
+        GraphicsPipeline* pipeline = gbuffer ? m_SkinnedGBufferPipeline.get() : m_SkinnedPipeline.get();
+        if ( pipeline == nullptr )
+            return; // SetupGBufferPass / SetupSkinnedGeometryPass said which cell is missing
+        const MeshPass cellPass = gbuffer ? MeshPass::GBuffer : MeshPass::Forward;
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -1360,16 +1364,30 @@ namespace Desert::Graphic::System
             groups.emplace_back( mat, std::vector<const SkinnedMeshRenderData*>{} );
             return groups.back().second;
         };
+        // The group's material is the queue's (surface x Skinned x Forward) material on the forward pass and its
+        // (Skinned x GBuffer) sibling of the same `.demat` on the G-buffer pass: the sets come from the cell that
+        // is bound (DrawStaticMeshes says why). A renderer-built material has no sibling; it takes the pass's
+        // spare cell material, as the static path's m_GBufferUnownedMaterial.
+        auto* const materials    = Runtime::ResourceRegistry::GetMaterialService();
+        const auto  passMaterial = [&]( DataDrivenMaterial* mat ) -> DataDrivenMaterial*
+        {
+            if ( !gbuffer )
+                return mat;
+            if ( materials->Owns( mat ) )
+                return materials->GetVariant( mat, MeshVertexPath::Skinned, MeshPass::GBuffer );
+            return m_SkinnedGBufferUnownedMaterial.get();
+        };
         for ( const auto& data : m_SkinnedQueue )
             if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
-                groupFor( data.Material ).push_back( &data );
+                if ( DataDrivenMaterial* const mat = passMaterial( data.Material ) )
+                    groupFor( mat ).push_back( &data );
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
         // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its
         // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
         // recording the cell itself would fail the node and drop the frame graph.
         using CellDraw                        = MaterialPipelineTracker::CellDraw;
-        StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, MeshPass::Forward );
+        StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, cellPass );
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
         {
@@ -1437,23 +1455,6 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
-    {
-        m_SkinnedDraws.Clear();
-        if ( m_SkinnedQueue.empty() )
-            return;
-        if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
-             m_SceneRenderer->GetMainCamera() == nullptr )
-            return;
-        // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildSkinnedDraws( m_SkinnedDraws );
-        m_SkinnedDraws.Declare( pass, view );
-    }
-
-    Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context ) const
-    {
-        return m_SkinnedDraws.Record( context );
-    }
 
     bool MeshRenderer::SetupGeometryPass()
     {
