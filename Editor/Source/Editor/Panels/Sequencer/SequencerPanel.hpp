@@ -182,7 +182,7 @@ namespace Desert::Editor
             return false;
         }
 
-        // DELIBERATELY A NO-OP, as in AnimGraphPanel and ParticleEditorPanel, which say why at length: the
+        // DELIBERATELY A NO-OP, as in AnimGraphPanel, which says why at length: the
         // subject is an entity UUID and UUIDs belong to one registry, so following the active-scene fanout
         // would point this window at a scene where the id names nothing — or names somebody else's entity.
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& /*scene*/ ) override

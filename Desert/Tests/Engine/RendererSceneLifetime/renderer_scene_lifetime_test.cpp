@@ -198,15 +198,17 @@ TEST( RendererSceneLifetime, RebindWaitsForTheDeviceBeforeItReleasesAnything )
 // cannot draw over the next one. Red if a renderer-side copy (the prefix) comes back or the bracket breaks.
 TEST( RendererSceneLifetime, TheRendererReadsExtensionPassesFromTheSceneItIsHanded )
 {
-    const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+    std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
     EXPECT_EQ( source.find( "\"External:\"" ), std::string::npos ) << "a renderer-side external-pass key is back";
+    // Spaces dropped: clang-format aligns a run of assignments, which must not read as a broken bracket.
+    std::erase( source, ' ' );
     const std::size_t begin = source.find( "SceneRenderer::BeginScene(" );
     const std::size_t end   = source.find( "SceneRenderer::EndScene()" );
     ASSERT_NE( begin, std::string::npos );
     ASSERT_NE( end, std::string::npos );
-    EXPECT_NE( source.find( "m_FrameExtensions = &scene.GetExtensionPasses();", begin ), std::string::npos )
+    EXPECT_NE( source.find( "m_FrameExtensions=&scene.GetExtensionPasses();", begin ), std::string::npos )
          << "BeginScene no longer takes the scene's extension passes";
-    EXPECT_NE( source.find( "m_FrameExtensions = nullptr;", end ), std::string::npos )
+    EXPECT_NE( source.find( "m_FrameExtensions=nullptr;", end ), std::string::npos )
          << "EndScene no longer lets go of the scene's extension passes";
 }
 
@@ -504,8 +506,8 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     ASSERT_FALSE( prepare.empty() );
     EXPECT_NE( prepare.find( "scene.GetVFXWorld()" ), std::string::npos )
          << "the particles' steps no longer come from the scene's VFXWorld.";
-    // The step table is uploaded from the world's EmitterInstance by PrepareEmitter (PrepareTick's helper).
-    EXPECT_NE( particles.find( "instance.Steps[s]" ), std::string::npos )
+    // VFX-HOST: each emitter's step table is filled by a helper PrepareTick calls per system instance.
+    EXPECT_NE( particles.find( "instance->Steps" ), std::string::npos )
          << "the step table is not the world's steps.";
     EXPECT_EQ( particles.find( "SpawnAccum" ), std::string::npos )
          << "a spawn carry of the renderer's own integrates a second clock beside the VFXWorld.";

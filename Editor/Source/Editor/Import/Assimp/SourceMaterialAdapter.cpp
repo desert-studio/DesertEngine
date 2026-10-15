@@ -7,6 +7,7 @@
 
 #include <format>
 #include <optional>
+#include <string_view>
 
 namespace Desert::Editor
 {
@@ -17,6 +18,20 @@ namespace Desert::Editor
             c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
         return ext == ".gltf" || ext == ".glb" ? "gltf" : "fbx";
     }
+
+    namespace
+    {
+        /// Whether the source states the material two-sided: assimp's AI_MATKEY_TWOSIDED (glTF `doubleSided`),
+        /// or — for an FBX, whose material has no such property — the ORCA ".DoubleSided" name suffix. glTF passes
+        /// an empty name: its own flag is the whole statement there.
+        bool SourceStatesTwoSided( const aiMaterial& mat, const std::string_view fbxName )
+        {
+            int twoSided = 0;
+            if ( mat.Get( AI_MATKEY_TWOSIDED, twoSided ) == AI_SUCCESS && twoSided != 0 )
+                return true;
+            return fbxName.ends_with( ".DoubleSided" );
+        }
+    } // namespace
 
     SourceMaterialRead
     ReadSourceMaterial( const aiMaterial& mat, std::string_view format, std::string name,
@@ -142,6 +157,13 @@ namespace Desert::Editor
             // opacity slot's source and the value half names its channel (3 = A), as glTF's alphaMask below.
             if ( read.Alpha.Kind == SourceAlphaKind::Mask && read.Alpha.AlphaCutoff > 0.0f && baseColour )
                 put( "alphaMask", glm::vec4( 3.0f, 0, 0, 0 ), baseColour );
+            // Two-sidedness. FBX's surface material has no property for it, so a file states it the way its
+            // authoring pipeline does: assimp's AI_MATKEY_TWOSIDED when a converter sets one, or the
+            // ".DoubleSided" material-name suffix of the ORCA scenes (Bistro: Foliage_Leaves.DoubleSided, the
+            // convention Falcor reads them by). Unread, every leaf card was culled from behind and the leaves that
+            // stayed were lit as single-sided — the dark blue fringe of Bistro's cypresses and hedges.
+            if ( SourceStatesTwoSided( mat, read.Material.Name ) )
+                put( "doubleSided", glm::vec4( 1.0f, 0, 0, 0 ) );
             return read;
         }
 
@@ -191,8 +213,7 @@ namespace Desert::Editor
                  set != 0 )
                 put( "texCoord", glm::vec4( static_cast<float>( set ), 0, 0, 0 ) );
         }
-        int twoSided = 0;
-        if ( mat.Get( AI_MATKEY_TWOSIDED, twoSided ) == AI_SUCCESS && twoSided != 0 )
+        if ( SourceStatesTwoSided( mat, {} ) )
             put( "doubleSided", glm::vec4( 1.0f, 0, 0, 0 ) );
         int shading = 0;
         if ( mat.Get( AI_MATKEY_SHADING_MODEL, shading ) == AI_SUCCESS && shading == aiShadingMode_Unlit )

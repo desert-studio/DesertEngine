@@ -2,8 +2,8 @@
 -- Attach to any mesh entity (Details -> Add Component -> Script) and press Play.
 --
 -- Showcases the scripting API:
---   self:setMaterialParam(name, x, y, z, w)  -- params by shader-schema name (Lit or custom)
---   self:getMaterialParam(name)              -- -> x, y, z, w
+--   self:setMaterialParam(name, {x=, y=, z=, w=}) -- params by shader-schema name (Lit or custom)
+--   self:getMaterialParam(name)              -- -> {x, y, z, w}
 --   self:setShader(name) / self:getShader()  -- assign a surface shader ("" = Lit slots)
 --   Log.info / Log.warn / Log.error          -- leveled output into the Logs panel
 --
@@ -33,8 +33,8 @@ function OnUpdate(dt)
 
     -- Same param name drives the lit tint AND the Unlit shader's Color — one protocol.
     if self:getShader() == "Unlit" then
-        self:setMaterialParam("Color", r, g, b, 1.0)
+        self:setMaterialParam("Color", { x = r, y = g, z = b, w = 1.0 })
     else
-        self:setMaterialParam("AlbedoColor", r, g, b, 1.0)
+        self:setMaterialParam("AlbedoColor", { x = r, y = g, z = b, w = 1.0 })
     end
 end

@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "a818816ace4cfcadaec60e24855458b8",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["707b4be308bb41c990f65b7b52e1737e"]
     },
     "SceneName": "Particle World-Space Probe",
     "Entities": [
@@ -110,28 +110,6 @@
             "Translation": [-350.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "ParticleEmitter": {
-                "Enabled": true,
-                "MaxParticles": 4000,
-                "SpawnRate": 600.0,
-                "Looping": true,
-                "WorldSpace": true,
-                "Lifetime": 1.5,
-                "LifetimeVariance": 0.0,
-                "StartSpeed": 10.0,
-                "SpeedVariance": 0.0,
-                "Direction": [0.0, 1.0, 0.0],
-                "ConeAngle": 180.0,
-                "Gravity": [0.0, 0.0, 0.0],
-                "StartSize": 22.0,
-                "SizeCurvePower": 1.0,
-                "EndSize": 22.0,
-                "StartColor": [1.0, 0.44999998807907104, 0.10000000149011612],
-                "EndColor": [1.0, 0.25, 0.05000000074505806],
-                "StartAlpha": 1.0,
-                "EndAlpha": 0.800000011920929,
-                "Material": ""
-            },
             "Script": {
                 "Scripts": [
                     {
@@ -139,6 +117,10 @@
                         "Props": []
                     }
                 ]
+            },
+            "VFX": {
+                "System": "VFX/Particle_World-Space_Probe_2001.dfx",
+                "AutoActivate": true
             }
         },
         {
@@ -170,11 +152,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

@@ -87,7 +87,8 @@ local function DesertRunnerSettings(deps)
         externalincludedirs { p }
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
-    links { "Desert", "DesertUI", "Render2DCore", "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
+    DesertModuleLibs.Link()
+    links { "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
@@ -240,8 +241,7 @@ local kRunners = {
         -- Nothing of Editor/ or Tools/ is compiled here (TEST-LAYERS; TestRunnerLayout holds it): a suite that
         -- tests editor code is Editor/<Suite>, one that tests a tool's is Tools/<Suite>, in those runners.
         includedirs {
-            -- Two suites share the EditMesh suite's fixture builders, and one reads SettingConsumers' table.
-            "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/EditMesh",
+            -- One suite reads SettingConsumers' table.
             "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Engine/SettingConsumers",
             -- Header-only tool cores the image and lattice censuses measure with.
             "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",

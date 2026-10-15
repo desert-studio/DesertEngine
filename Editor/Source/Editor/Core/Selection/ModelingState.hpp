@@ -5,7 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
@@ -84,7 +84,7 @@ namespace Desert::Editor::Core
         // the cursor, falling back to the ground where there is none (UE's placement Ground / On Scene).
         // What a creating tool's Accept leaves in the scene (UE: UCreateMeshObjectTypeProperties::OutputType).
         // StaticMesh (the default, owner decision B4) writes a new .stmesh and the entity draws the asset;
-        // Dynamic keeps the EditMesh on the entity, editable in place and saved inside the scene.
+        // Dynamic keeps the editable mesh on the entity, editable in place and saved inside the scene.
         enum class OutputType
         {
             StaticMesh,
@@ -133,6 +133,9 @@ namespace Desert::Editor::Core
             Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
             Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
             Placement                    Place  = Placement::OnScene;
+            // UE's bAlignToNormal (UAddPrimitiveTool's shape settings, on by default): the shape's up axis
+            // turns to the normal of the surface it is placed on; off, it stands upright wherever it lands.
+            bool AlignToNormal = true;
 
             bool operator==( const ShapeSettings& ) const = default;
         };
@@ -281,11 +284,10 @@ namespace Desert::Editor::Core
         Geometry::PatternSettings XformPattern;
         bool                      XformPatternSeparate = false;
 
-        // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
-        // looks (the palette's way to place without a mouse).
+        // Create tool: the shape a click places (the palette places it at the viewport centre directly,
+        // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).
         ShapeSettings CreateShape;
         OutputSettings Output; // shared by Create Shape and Cube Grid, as UE's modeling mode shares it
-        bool          ReqPlaceCentre = false;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;
         bool CornerMode = false; // the tool is currently in Corner Mode

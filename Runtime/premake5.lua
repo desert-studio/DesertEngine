@@ -59,9 +59,6 @@ project "Runtime"
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
 
     links{
-        "Desert",
-        "DesertUI",
-        "Render2DCore",
         "GLFW",
         "Optick",
         "MeshOptimizer",
@@ -69,6 +66,8 @@ project "Runtime"
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }
+    -- The engine, one library per module (BuildScripts/DesertModuleLibs.lua), after what uses it.
+    DesertModuleLibs.Link()
 
     filter "configurations:Debug"
     for name, path in DesertSortedPairs(deps.EditorSpecific.Libraries.Debug) do

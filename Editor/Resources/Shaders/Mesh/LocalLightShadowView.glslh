@@ -1,0 +1,14 @@
+#ifndef LOCAL_LIGHT_SHADOW_VIEW_GLSLH
+#define LOCAL_LIGHT_SHADOW_VIEW_GLSLH
+
+// One row of a view's local shadow table: what the buffer that holds them (LocalShadowViewsUB) is made of, so an
+// includer can declare that buffer before Mesh/LocalLightShadow.glslh reads it.
+// std430 layout — must match Graphic::LocalShadowViewPayload (112 bytes).
+struct LocalShadowView {
+    mat4 viewProj;   // world -> clip, standard Z (0 at the near plane)
+    vec4 atlasRect;  // xy = the tile's top-left in atlas UV, zw = its size in atlas UV
+    vec4 params;     // x = near, y = far, z = world size of one texel at unit distance, w = depth bias (texels)
+    vec4 params2;    // x = slope bias (texels per unit slope), y = 1 / atlas side
+};
+
+#endif // LOCAL_LIGHT_SHADOW_VIEW_GLSLH

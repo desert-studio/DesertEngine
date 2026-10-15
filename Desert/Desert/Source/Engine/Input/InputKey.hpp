@@ -34,6 +34,15 @@ namespace Desert::Input
         uint16_t Code = 0;
 
         [[nodiscard]] bool operator==( const InputKey& ) const = default;
+
+        [[nodiscard]] static constexpr InputKey Of( const Common::KeyCode code )
+        {
+            return { Device::Keyboard, static_cast<uint16_t>( code ) };
+        }
+        [[nodiscard]] static constexpr InputKey Of( const Common::MouseButton button )
+        {
+            return { Device::MouseButton, static_cast<uint16_t>( button ) };
+        }
     };
 
     /// The key a mapping's name states: "A".."Z", "0".."9", Space, Enter, Escape, Tab, Backspace, Up, Down,

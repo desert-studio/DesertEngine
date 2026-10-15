@@ -27,11 +27,15 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     {
         const auto& image = type.image;
 
-        // Arrayed images need a different view type and a different bind path, and the engine builds
-        // neither. Approximating them by their base dimension is what the old name heuristic effectively
-        // did — refuse instead.
+        // Arrayed images need a different view type and a different bind path. The one the engine builds is
+        // the CUBE ARRAY, and only through the render graph: an RDG::TextureDim::CubeArray texture's views are
+        // CUBE_ARRAY views at every layer count (the reflection captures, samplerCubeArray / imageCubeArray),
+        // so it shares the cube buckets - the view, not the bucket, carries the type. Every other arrayed
+        // image is refused rather than approximated by its base dimension.
         if ( image.arrayed )
         {
+            if ( image.dim == spv::DimCube && !image.ms )
+                return ImageKind::ImageCube;
             return ImageKind::Unsupported;
         }
         // A multisampled image is only ever 2D (Vulkan has no 3D or cube MS image); its view is a plain 2D

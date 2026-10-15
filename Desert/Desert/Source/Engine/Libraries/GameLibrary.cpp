@@ -1,0 +1,64 @@
+#include <Engine/Libraries/GameLibrary.hpp>
+
+#include <Common/Core/Logger.hpp>
+#include <Engine/Audio/AudioEngine.hpp>
+#include <Engine/Core/LevelTravel.hpp>
+#include <Engine/Core/TimerManager.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Engine/Project/GameSettings.hpp>
+#include <Engine/Project/ProjectContext.hpp>
+
+namespace Desert::Libraries
+{
+    void LogLibrary::Info( const std::string& message )
+    {
+        LOG_INFO( "[Script] {}", message );
+    }
+
+    void LogLibrary::Warn( const std::string& message )
+    {
+        LOG_WARN( "[Script] {}", message );
+    }
+
+    void LogLibrary::Error( const std::string& message )
+    {
+        LOG_ERROR( "[Script] {}", message );
+    }
+
+    void AudioLibrary::Play( const std::string& clip, float volume )
+    {
+        Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects, volume );
+    }
+
+    void AudioLibrary::StopAll()
+    {
+        Audio::AudioEngine::Get().StopAll();
+    }
+
+    std::string ProjectLibrary::Name()
+    {
+        return Project::ProjectContext::HasProject() ? Project::ProjectContext::Current().Name : std::string();
+    }
+
+    std::string ProjectLibrary::Company()
+    {
+        return Project::CurrentGameSettings().Company;
+    }
+
+    Common::BoolResultStr LevelLibrary::Open( const std::string& level )
+    {
+        // Core::OpenLevel logs its refusal; the script hears it as (false, reason).
+        return Core::OpenLevel( level );
+    }
+
+    void TimerLibrary::After( float seconds, const Reflection::Callable& callback )
+    {
+        const Core::WorldContext* context = Core::WorldContext::Current();
+        if ( context == nullptr || context->Timers == nullptr )
+        {
+            LOG_ERROR( "[Script] Timer.after: no world with timers runs this call" );
+            return;
+        }
+        context->Timers->After( seconds, callback );
+    }
+} // namespace Desert::Libraries

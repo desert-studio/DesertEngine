@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "7af7a467f0d19a0c944420b0c36d1657",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["3facba2f99300a42b32d1af712ab96e9"]
     },
     "SceneName": "UI_SpriteSlots",
     "Entities": [
@@ -680,11 +680,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

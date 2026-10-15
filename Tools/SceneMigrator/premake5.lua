@@ -63,15 +63,10 @@ project "SceneMigrator"
         -- THE VFX SYSTEM FORMAT, for the v42 -> v43 step (VFX-08): the `.dfx` it writes from a ParticleEmitter is
         -- the engine's own WriteVFXSystem output, not a second statement of the format.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp",
-        -- THE EDITMESH AND ITS SAVED FORM, for the v21 -> v22 step: the step welds the v21 render arrays with
-        -- the editor's own Geometry::FromRenderMesh and writes Geometry::ToSerialized, so the block it stores
-        -- is the one the loader reads - not a second statement of either format.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp", -- RefusalOf: the serializer's one admission rule for enum values
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp", -- FieldTypeName, called by FieldValue
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
@@ -83,6 +78,7 @@ project "SceneMigrator"
         -- restating either. Pure over the parsed tree, like everything else in this project: no GPU, no
         -- asset manager.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp", -- v43 gathers Header.Dependencies by the save's rule
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- v35 reads and writes one file per entity (WP16)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
 
@@ -122,7 +118,11 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }
 
-    dependson { "Desert" }
+    DesertModuleLibs.DependOnCodegen()
+
+    -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
+    -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).
+    defines { "DESERT_REFLECTION_DATA_ONLY" }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",

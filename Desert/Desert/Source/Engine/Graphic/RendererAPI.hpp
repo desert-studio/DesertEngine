@@ -101,9 +101,9 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                           RDG::ExternalBuffer&                 into ) = 0;
 
-        // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
-        virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                  const MaterialExecutor* materialExecutor )                            = 0;
+        // Vertexless draw in the pipeline's topology (the vertex stage pulls from a storage buffer by index).
+        virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                   const MaterialExecutor* materialExecutor ) = 0;
 
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
         // into the command buffer of the pass the bindings were built in, with descriptor sets written for this
@@ -173,6 +173,19 @@ namespace Desert::Graphic
         // used by the 2D batcher to clip UI children to a parent rect. Reset by passing the full viewport;
         // every BeginRenderPass also resets it. No-op outside a recording command buffer.
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) = 0;
+
+        // DRAW INTO ONE RECTANGLE OF THE OPEN RENDER PASS'S TARGET (framebuffer pixels, top-left origin): the
+        // viewport (the engine's negative-height convention, so +Y stays up inside the rectangle) and the scissor
+        // both set to it. A shadow atlas tile is drawn this way (MeshRenderer::LocalShadowPasses). No-op outside a
+        // recording command buffer.
+        virtual void SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height ) = 0;
+
+        // Clear ONE RECTANGLE of every attachment of the open render pass on @p framebuffer: colour attachments to
+        // @p color, the depth attachment to @p depth (and its stencil, when the format has one, to 0). The rest
+        // of the target keeps what it holds - an atlas tile is cleared without touching its neighbours' cached
+        // depth. No-op outside a recording command buffer.
+        virtual void ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                  uint32_t height, const glm::vec4& color, float depth ) = 0;
 
         // Copy the DEPTH aspect of @p src into @p dst (same format + extent). Must be called OUTSIDE any
         // render pass. Used by the Deferred path to resolve the G-buffer depth into the scene target depth

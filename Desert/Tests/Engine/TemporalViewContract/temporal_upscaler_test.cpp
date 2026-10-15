@@ -86,12 +86,14 @@ namespace
             inputs.SceneColor = graph.CreateTexture( Tex2D( w, h, ImageFormat::RGBA16F ), "SceneColor" );
             inputs.SceneDepth = graph.CreateTexture( Tex2D( w, h, ImageFormat::DEPTH32F ), "SceneDepth" );
             inputs.Velocity   = graph.CreateTexture( Tex2D( w, h, ImageFormat::RG16F ), "Velocity" );
+            inputs.ResponsiveAA = graph.CreateTexture( Tex2D( w, h, ImageFormat::R8_UNORM ), "ResponsiveAA" );
             graph.AddPass(
                  "Scene", PassFlags::Raster,
                  [&]( PassBuilder& pass )
                  {
                      pass.ColorTarget( 0, inputs.SceneColor, LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                      pass.ColorTarget( 1, inputs.Velocity, LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.ColorTarget( 2, inputs.ResponsiveAA, LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
                      pass.DepthTarget( inputs.SceneDepth, LoadOp::ClearDepth( 0.0f ) );
                  },
                  []( PassContext& ) -> ::Common::BoolResultStr { return BOOLSUCCESS; } );

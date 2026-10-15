@@ -6,8 +6,8 @@
 
 #include "TestSupport/source_roots.hpp"
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleSimGraph.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
@@ -387,17 +387,31 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     EXPECT_EQ( plan.Ranges[1].KeyBase, 4096u );
     EXPECT_EQ( plan.KeyCount, 4096u + 16u );
 
+    // VFX-SPRITE-DRAW: the sort and the draw read the particles where the simulation wrote them - the emitter's
+    // attribute columns - through its draw layout (uploaded, imported); the pool slots are the compact's alone.
     ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    ExternalBuffer   drawLayoutBuffer( BufferDesc{ Sys::kParticleDrawLayoutSize }, Access::None );
     Builder          graph( "particle sort" );
-    const BufferRef  particles = graph.CreateBuffer( BufferDesc{ 3380u * 64u }, "ParticlePool" );
-    const BufferRef  alive     = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
-    const BufferRef  counters  = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
-    const TextureRef back      = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    const BufferRef  slots = graph.CreateBuffer( BufferDesc{ 3380u * Sys::kParticleSlotStride }, "ParticleSlots" );
+    const BufferRef  floats     = graph.CreateBuffer( BufferDesc{ 3380u * 16u * 4u }, "VFXAttributeFloats" );
+    const BufferRef  drawLayout = graph.RegisterExternal( drawLayoutBuffer, "ParticleDrawLayout" );
+    const BufferRef  alive      = graph.CreateBuffer( BufferDesc{ 2u * 3380u * 4u }, "ParticleAliveList" );
+    const BufferRef  counters   = graph.CreateBuffer( BufferDesc{ 64 }, "ParticleCounters" );
+    const TextureRef back       = graph.RegisterExternal( backbuffer, "Backbuffer" );
+    graph.AddPass(
+         "Particles: Spawn+Update 0", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Write( slots, Access::StorageWrite );
+             pass.Write( floats, Access::StorageWrite );
+             pass.Write( alive, Access::StorageWrite );
+         },
+         Ok );
     graph.AddPass(
          "Particles: Compact 1", PassFlags::Compute,
          [&]( PassBuilder& pass )
          {
-             pass.Write( particles, Access::StorageWrite );
+             pass.Write( slots, Access::StorageWrite );
              pass.Write( alive, Access::StorageWrite );
              pass.Write( counters, Access::StorageWrite );
          },
@@ -406,13 +420,14 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
     const auto [keys, sorted] = Sys::CreateParticleSortBuffers( graph, plan, 2u * 3380u * 4u );
     const auto layout         = std::make_shared<const ShaderBindingLayout>(
          ShaderBindingLayout{ "ParticleSort",
-                                      { { "Particles", ShaderResourceKind::StorageBuffer },
+                                      { { "AttributeFloats", ShaderResourceKind::StorageBuffer },
+                                        { "DrawLayout", ShaderResourceKind::StorageBuffer },
                                         { "AliveList", ShaderResourceKind::StorageBuffer },
                                         { "Counters", ShaderResourceKind::StorageBuffer },
                                         { "SortKeys", ShaderResourceKind::StorageBuffer },
                                         { "SortedAlive", ShaderResourceKind::StorageBuffer } },
                               Sys::kParticleSortPushBytes } );
-    const Sys::ParticleSortBuffers buffers{ particles, alive, counters, keys, sorted };
+    const Sys::ParticleSortBuffers buffers{ floats, drawLayout, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     for ( const Sys::ParticleSortRange& range : plan.Ranges )
     {
@@ -430,7 +445,8 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
          "ParticlePass", PassFlags::Raster,
          [&]( PassBuilder& pass )
          {
-             pass.Read( particles, Access::StorageRead );
+             pass.Read( floats, Access::StorageRead );
+             pass.Read( drawLayout, Access::StorageRead );
              pass.Read( alive, Access::StorageRead );  // the opaque / masked emitters
              pass.Read( sorted, Access::StorageRead ); // the translucent / additive ones
              pass.Read( counters, Access::IndirectArgs );
@@ -463,131 +479,6 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
         const int at = position( name );
         EXPECT_GT( at, previous ) << name << " is culled or runs out of its stage order / before the compact";
         EXPECT_LT( at, draw ) << name << " runs after the draw that reads its sorted list";
-        previous = at;
-    }
-}
-
-// VFX-03g (R6). A VFXComponent-only scene: its emitters run their compiled stacks' simulation programs as the
-// Spawn+Update node, between Compact 0 / Dispatch Args 0 and Compact 1, each emitter its own block on its own
-// program's layout (VFX::SimulationBinding: Floats, Ints, Params, Curves, StepTable, FreeList, AliveList,
-// Counters, Slots). Red when DeclareParticleSimulateStep declares other than one block per emitter (two emitters
-// of one entity are two blocks), when a stack block binds a slot the program does not have or leaves one unbound
-// (a declaration fault), or when a node is culled or out of order. The source half: ParticleRenderer imports a
-// stack emitter (StackProgramFor) instead of skipping it with the old "does not simulate or draw yet" error.
-TEST( RenderGraphCompile, AVFXComponentOnlySceneRunsEachEmittersStackAsItsOwnSimulateBlock )
-{
-    namespace Sys = Desert::Graphic::System;
-    {
-        const fs::path root = RepoRoot();
-        std::ifstream  file(
-             ( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" )
-                  .string() );
-        ASSERT_TRUE( file.is_open() );
-        const std::string source( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
-        EXPECT_EQ( source.find( "does not simulate or draw yet" ), std::string::npos );
-        EXPECT_NE( source.find( "ve.Program = StackProgramFor( *ve.Frame->Stack );" ), std::string::npos );
-    }
-
-    ExternalTexture       backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
-    Builder               graph( "vfx stack simulate" );
-    Sys::ParticlePoolRefs pool;
-    pool.Particles = graph.CreateBuffer( BufferDesc{ 256u * 64u }, "ParticlePool" );
-    pool.Slots     = graph.CreateBuffer( BufferDesc{ 256u * 8u }, "ParticleSlots" );
-    pool.Floats    = graph.CreateBuffer( BufferDesc{ 256u * 12u * 4u }, "ParticleFloats" );
-    pool.Ints      = graph.CreateBuffer( BufferDesc{ 256u * 4u }, "ParticleInts" );
-    pool.Free      = graph.CreateBuffer( BufferDesc{ 256u * 4u }, "ParticleFreeList" );
-    pool.Alive     = graph.CreateBuffer( BufferDesc{ 2u * 256u * 4u }, "ParticleAliveList" );
-
-    const auto stackLayout = std::make_shared<const ShaderBindingLayout>(
-         ShaderBindingLayout{ "VFX/Simulate/00000000000000a1",
-                              { { "Floats", ShaderResourceKind::StorageBuffer },
-                                { "Ints", ShaderResourceKind::StorageBuffer },
-                                { "Params", ShaderResourceKind::StorageBuffer },
-                                { "Curves", ShaderResourceKind::StorageBuffer },
-                                { "StepTable", ShaderResourceKind::StorageBuffer },
-                                { "FreeList", ShaderResourceKind::StorageBuffer },
-                                { "AliveList", ShaderResourceKind::StorageBuffer },
-                                { "Counters", ShaderResourceKind::StorageBuffer },
-                                { "Slots", ShaderResourceKind::StorageBuffer } },
-                              48u } );
-    // Two emitters of one entity (ParticleEmitterKey index 0 and 1): two ranges, two sets of per-emitter buffers.
-    std::vector<Sys::ParticleSimEmitterRefs> emitters( 2 );
-    for ( uint32_t e = 0; e < 2; ++e )
-    {
-        Sys::ParticleSimEmitterRefs& refs = emitters[e];
-        refs.Steps     = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleSteps{}", e ) );
-        refs.Counters  = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleCounters{}", e ) );
-        refs.Args      = graph.CreateBuffer( BufferDesc{ 32 }, std::format( "ParticleDispatchArgs{}", e ) );
-        refs.Params    = graph.CreateBuffer( BufferDesc{ 64 }, std::format( "ParticleParams{}", e ) );
-        refs.Curves    = graph.CreateBuffer( BufferDesc{ 256 }, std::format( "ParticleCurves{}", e ) );
-        refs.Stack     = true;
-        refs.Layout    = stackLayout;
-        refs.PushBytes = 48u;
-    }
-    TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
-
-    graph.AddPass(
-         "Particles: Compact 0", PassFlags::Compute,
-         [&]( PassBuilder& pass )
-         {
-             // Stands in for the uploads and the first compact: everything the simulate reads has a producer.
-             for ( const BufferRef buffer : { pool.Slots, pool.Floats, pool.Ints, pool.Free, pool.Alive } )
-                 pass.Write( buffer, Access::StorageWrite );
-             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
-                 for ( const BufferRef buffer : { refs.Steps, refs.Counters, refs.Params, refs.Curves } )
-                     pass.Write( buffer, Access::StorageWrite );
-         },
-         Ok );
-    graph.AddPass(
-         "Particles: Dispatch Args 0", PassFlags::Compute,
-         [&]( PassBuilder& pass )
-         {
-             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
-             {
-                 pass.Read( refs.Steps, Access::StorageRead );
-                 pass.Write( refs.Counters, Access::StorageWrite );
-                 pass.Write( refs.Args, Access::StorageWrite );
-             }
-         },
-         Ok );
-    uint32_t blocks = 0;
-    graph.AddPass(
-         "Particles: Spawn+Update 0", PassFlags::Compute,
-         [&]( PassBuilder& pass ) { blocks = Sys::DeclareParticleSimulateStep( pass, pool, emitters ); }, Ok );
-    graph.AddPass(
-         "Particles: Compact 1", PassFlags::Compute,
-         [&]( PassBuilder& pass )
-         {
-             pass.Write( pool.Slots, Access::StorageWrite );
-             pass.Write( pool.Alive, Access::StorageWrite );
-             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
-                 pass.Write( refs.Counters, Access::StorageWrite );
-         },
-         Ok );
-    graph.AddPass(
-         "ParticlePass", PassFlags::Raster,
-         [&]( PassBuilder& pass )
-         {
-             pass.Read( pool.Floats, Access::StorageRead );
-             pass.Read( pool.Alive, Access::StorageRead );
-             for ( const Sys::ParticleSimEmitterRefs& refs : emitters )
-                 pass.Read( refs.Counters, Access::IndirectArgs );
-             pass.ColorTarget( 0, back, LoadOp::DontCare() );
-         },
-         Ok );
-
-    const CompileResult result = CompileOrFail( graph );
-    EXPECT_TRUE( result.Faults.empty() ) << ( result.Faults.empty() ? "" : result.Faults[0].Reason );
-    EXPECT_EQ( blocks, 2u ) << "two emitters of one entity are two simulate blocks";
-    int previous = -1;
-    for ( const char* name : { "Particles: Compact 0", "Particles: Dispatch Args 0", "Particles: Spawn+Update 0",
-                               "Particles: Compact 1" } )
-    {
-        const auto it = std::find_if( result.Passes.begin(), result.Passes.end(),
-                                      [&]( const auto& pass ) { return pass.Name == name; } );
-        ASSERT_NE( it, result.Passes.end() ) << name << " is culled: the stack emitters declare no node";
-        const int at = static_cast<int>( it - result.Passes.begin() );
-        EXPECT_GT( at, previous ) << name << " runs out of order";
         previous = at;
     }
 }
@@ -2431,6 +2322,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     collect( body, 0 );
 
     const std::vector<std::string> frameOrder = {
+         // REFL-CAPTURE: the scene's reflection captures (IReflectionCaptures::AddPasses) re-capture before any
+         // node, so every lit node after them reads this frame's cube array.
+         "temporal[m_FrameReflectionCaptures]",
          "ClearMainFramebuffer",
          // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
          // next compact.
@@ -2445,6 +2339,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // mask (cleared).
          "system[mesh->ShadowCascadePasses()]",
          "rasters[cascades,true]",
+         // SHADOW-LOCAL: the point/spot shadow views of the local-light atlas, LOADING it: each clears and
+         // draws only its own stale tile.
+         "system[mesh->LocalShadowPasses()]",
+         "rasters[local,false]",
          "system[sky->SkyPass()]",
          "system[mesh->GeometryPass()]",
          "system[terrain->GeometryPass()]",
@@ -3502,7 +3400,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    EXPECT_NE( particles.find( ".Storage(\"Slots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
                                ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
@@ -3514,32 +3412,29 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
                std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    // Spawn+Update's block is declared device-free in ParticleSimGraph.hpp (VFX-03g), one per running emitter,
-    // bound to the layout of the program that emitter dispatches; the legacy program's block is this one.
-    const std::string simGraph = SqueezedSource(
-         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleSimGraph.hpp" );
-    EXPECT_NE( simGraph.find( ".Storage(\"Particles\",pool.Particles,RDG::Access::StorageWrite)"
-                              ".Storage(\"StepTable\",emitter.Steps,RDG::Access::StorageRead)"
-                              ".Storage(\"FreeList\",pool.Free,RDG::Access::StorageRead)"
-                              ".Storage(\"AliveList\",pool.Alive,RDG::Access::StorageWrite)"
-                              ".Storage(\"Counters\",emitter.Counters,RDG::Access::StorageRead)"
-                              ".Storage(\"ChannelSpawns\",emitter.Channel,RDG::Access::StorageRead)"
-                              ".Storage(\"Slots\",pool.Slots,RDG::Access::StorageWrite)"
-                              ".PushConstantBytes(emitter.PushBytes);" ),
-               std::string::npos );
-    EXPECT_NE( simGraph.find( "pass.Read(emitter.Args,RDG::Access::IndirectArgs);" ), std::string::npos );
-    EXPECT_NE( particles.find( "(void)DeclareParticleSimulateStep(pass,PoolRefs(),running);" ),
+    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
+                               ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)"
+                               ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"AttributeInts\",ve.IntsRef,RDG::Access::StorageWrite)"
+                               ".Storage(\"StackParams\",ve.ParamsRef,RDG::Access::StorageRead)"
+                               ".Storage(\"StackCurves\",ve.CurvesRef,RDG::Access::StorageRead)"
+                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
+                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );
     // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
     // only Dispatch Args (one thread) and compact 0 (the range's full scan).
-    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,pipeline,ve.ArgsRef,"
+    EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*ve.Frame->Pipeline,ve.ArgsRef,"
                                "kParticleSimulateArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*m_CompactPipeline,ve.ArgsRef,"
                                "kParticleCompactArgsOffset)" ),
                std::string::npos );
     EXPECT_NE( particles.find( "renderer.DispatchCompute(bindings,*m_ArgsPipeline,1,1,1)" ), std::string::npos );
-    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*m_SimPipeline" ), std::string::npos )
+    EXPECT_EQ( particles.find( "DispatchCompute(bindings,*ve.Frame->Pipeline" ), std::string::npos )
          << "Spawn+Update is dispatched over a CPU count";
     EXPECT_NE( particles.find( "Renderer::DrawProceduralIndirect(bindings,*sprite.Pipeline,"
                                "sprite.Material->GetMaterialExecutor(),ve.CountersRef,slot)" ),
@@ -3549,10 +3444,11 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     EXPECT_EQ( particles.find( "DrawProcedural(" ), std::string::npos ) << "the billboards draw a fixed count";
     EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&compact<=ve.Frame->StepCount;" ),
                std::string::npos );
-    EXPECT_NE( particles.find( "returnm_Simulates&&ve.Declared&&step<ve.Frame->StepCount;" ), std::string::npos );
-    // The draw is every view's: it is not gated by the claim.
-    EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr&&ve.Program==nullptr;" ),
+    EXPECT_NE( particles.find(
+                    "returnm_Simulates&&ve.Declared&&ve.Frame->Pipeline!=nullptr&&step<ve.Frame->StepCount;" ),
                std::string::npos );
+    // The draw is every view's: it is not gated by the claim.
+    EXPECT_NE( particles.find( "returnve.Declared&&ve.Sprite!=nullptr;" ), std::string::npos );
     EXPECT_NE( particles.find( "m_Simulates=world.PrepareTick(scene);" ), std::string::npos );
 
     // The pool is the scene's: ParticleWorldGpu, owned by the VFXWorld, claims each tick once; ParticleRenderer
@@ -3591,7 +3487,7 @@ TEST( RenderGraphCompile, TwoViewsOfOneSceneSimulateParticlesOnceAndDrawTwice )
         for ( const char* viewName : { "view A", "view B" } )
         {
             Builder         graph( viewName );
-            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticlePool" );
+            const BufferRef poolRef     = graph.RegisterExternal( pool, "ParticleSlots" );
             const BufferRef freeRef     = graph.RegisterExternal( freeList, "ParticleFreeList" );
             const BufferRef aliveRef    = graph.RegisterExternal( aliveList, "ParticleAliveList" );
             const BufferRef countersRef = graph.RegisterExternal( counters, "ParticleCounters0" );
@@ -3872,7 +3768,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)" },
+           ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
@@ -4403,7 +4299,8 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"Particles\",m_Pool.ParticlesRef,RDG::Access::StorageRead)"
+    EXPECT_NE( declaration.find( ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)"
+                                 ".Storage(\"DrawLayout\",ve.DrawLayoutRef,RDG::Access::StorageRead)"
                                  ".Storage(\"AliveList\",ve.Sorted?m_SortedRef:m_Pool.AliveRef,"
                                  "RDG::Access::StorageRead);" ),
                std::string::npos );
@@ -4615,8 +4512,17 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
     EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
-    EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
-         << "SceneViewInputs::Refs() must name every input it binds, the cloud map included";
+    // Matched with whitespace removed: clang-format wraps the list.
+    std::string refsFlat = refs;
+    refsFlat.erase( std::remove_if( refsFlat.begin(), refsFlat.end(),
+                                    []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                    refsFlat.end() );
+    EXPECT_NE( refsFlat.find( "{EnvIrradiance,EnvSpecular,BrdfLut,CloudShadowMap,LocalShadowAtlas,"
+                              "ReflectionCaptureCubes}" ),
+               std::string::npos )
+         << "SceneViewInputs::Refs() must name every input it binds: the cloud map, the local shadow atlas and "
+            "the "
+            "reflection capture cubes included";
 
     std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     composite.erase( std::remove_if( composite.begin(), composite.end(),
@@ -5202,6 +5108,13 @@ namespace
                                        ResourceKind::Texture, texture.Index, access, range, sampler } );
             return *this;
         }
+        // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
+        CollectedBlock& Storage( std::string_view name, BufferRef buffer, Access access )
+        {
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer,
+                                       buffer.Index, access, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
+            return *this;
+        }
     };
 
     Desert::Graphic::SceneViewInputs DistinctSceneViewInputs()
@@ -5527,7 +5440,7 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     const std::string shader =
          SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
     EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "boolfromChannel=t<u_Steps[step].ChannelCount;" ), std::string::npos );
+    EXPECT_NE( shader.find( "if(t<u_Steps[step].ChannelCount)" ), std::string::npos );
     EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
          << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

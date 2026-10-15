@@ -5,8 +5,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <glm/glm.hpp>

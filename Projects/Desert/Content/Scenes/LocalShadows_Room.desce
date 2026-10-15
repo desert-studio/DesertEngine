@@ -1,0 +1,298 @@
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "d3da77e5d6647c2b1639eab79236bc8c",
+        "Versions": {
+            "SCNE": 53,
+            "UNIT": 1
+        },
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "91bde2ac45c15dd230d961a447b6fba7", "df51ca6ed9cb71779a9b5634db0863bc", "e04d99eaf3ddd30e0184e38e5c3bcc57"]
+    },
+    "SceneName": "Local Shadows Room",
+    "Entities": [
+        {
+            "id": 4960535144328969501,
+            "siblingIndex": 0,
+            "Tag": "LS_Floor",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 0.20000000298023224, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 6947944340324631162,
+            "siblingIndex": 1,
+            "Tag": "LS_Back",
+            "Translation": [0.0, 300.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 6.0, 0.20000000298023224],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 4603376415955196345,
+            "siblingIndex": 2,
+            "Tag": "LS_LeftRed",
+            "Translation": [-300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Red.demat"],
+                "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 6251329586465216627,
+            "siblingIndex": 3,
+            "Tag": "LS_RightGreen",
+            "Translation": [300.0, 300.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 6.0, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Green.demat"],
+                "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 8011679822839272741,
+            "siblingIndex": 4,
+            "Tag": "LS_Ceiling",
+            "Translation": [0.0, 600.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 0.20000000298023224, 6.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 7201276654953434049,
+            "siblingIndex": 5,
+            "Tag": "LS_Front",
+            "Translation": [0.0, 300.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 6.0, 0.20000000298023224],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 605046436864578495,
+            "siblingIndex": 6,
+            "Tag": "LS_OrangeCube",
+            "Translation": [60.0, 70.0, -120.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 7914721975335257083,
+            "siblingIndex": 7,
+            "Tag": "LS_Pillar",
+            "Translation": [-140.0, 150.0, -40.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.5, 3.0, 0.5],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 7078545425782864448,
+            "siblingIndex": 8,
+            "Tag": "LS_SpotTarget",
+            "Translation": [170.0, 40.0, 140.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 0.800000011920929, 0.6000000238418579],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 702581255183091012,
+            "siblingIndex": 9,
+            "Tag": "LS_Sun",
+            "Translation": [50.70925521850586, -84.51541900634766, 16.90308380126953],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [1.0, 1.0, 1.0],
+                "CastShadows": true,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
+                "CascadeSplitLambda": 0.6000000238418579
+            }
+        },
+        {
+            "id": 2992178433648615738,
+            "siblingIndex": 10,
+            "Tag": "LS_RoomLight",
+            "Translation": [0.0, 420.0, -60.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "PointLight": {
+                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
+                "Intensity": 6.0,
+                "Radius": 1200.0,
+                "MinRadius": 0.0,
+                "Falloff": 1,
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0
+            }
+        },
+        {
+            "id": 1272567027871599440,
+            "siblingIndex": 11,
+            "Tag": "LS_OutsideLight",
+            "Translation": [480.0, 250.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "PointLight": {
+                "Color": [0.30000001192092896, 0.550000011920929, 1.0],
+                "Intensity": 10.0,
+                "Radius": 1500.0,
+                "MinRadius": 0.0,
+                "Falloff": 1,
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0
+            }
+        },
+        {
+            "id": 8203331569295786523,
+            "siblingIndex": 12,
+            "Tag": "LS_CeilingSpot",
+            "Translation": [170.0, 560.0, 140.0],
+            "Rotation": [-1.5707963705062866, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "SpotLight": {
+                "Color": [1.0, 0.949999988079071, 0.8500000238418579],
+                "Intensity": 10.0,
+                "Range": 900.0,
+                "InnerConeAngle": 18.0,
+                "OuterConeAngle": 28.0,
+                "Falloff": 1,
+                "ShowCone": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0
+            }
+        },
+        {
+            "id": 5675727451936004381,
+            "siblingIndex": 13,
+            "Tag": "PostProcessVolume",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "PostProcessVolume": {
+                "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
+                "Settings": {
+                    "EnableSSAO": true,
+                    "GlobalIlluminationMethod": 2,
+                    "GIIntensity": 2.0,
+                    "ReflectionsMethod": 2,
+                    "SSRIntensity": 1.0,
+                    "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
+                    "Tonemapper": 0,
+                    "Exposure": 1.0,
+                    "Gamma": 2.200000047683716,
+                    "WhitePoint": 8.0,
+                    "AutoExposure": false,
+                    "AutoExposureKey": 0.18000000715255737,
+                    "AutoExposureSpeed": 1.5,
+                    "AutoExposureMin": 0.019999999552965164,
+                    "AutoExposureMax": 8.0,
+                    "EnableBloom": false,
+                    "BloomThreshold": 2.0,
+                    "BloomIntensity": 0.800000011920929,
+                    "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
+                    "EnableLensFlare": false,
+                    "LensFlareIntensity": 0.3499999940395355,
+                    "LensFlareTint": [1.0, 1.0, 1.0],
+                    "LensFlareThreshold": 4.0,
+                    "LensFlareGhostCount": 4,
+                    "LensFlareGhostSpacing": 0.3499999940395355,
+                    "LensFlareGhostSizeNear": 1.0,
+                    "LensFlareGhostSizeFar": 3.0,
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+                    "LensFlareHaloIntensity": 0.25,
+                    "LensFlareHaloRadius": 0.18000000715255737,
+                    "LensFlareStreakIntensity": 8.0,
+                    "LensFlareStreakLength": 0.3499999940395355,
+                    "LensFlareStreakAngle": 0.0,
+                    "LensFlareChromaShift": 0.15000000596046448
+                }
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

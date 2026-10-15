@@ -1,0 +1,11 @@
+// THE SEAM of the particle simulation host (Programs/Particles/ParticleSimulate.shader, VFX-HOST). This file's
+// BYTES are what an emitter replaces: ParticleWorldGpu acquires ParticleSimulate under a ShaderVariant whose virtual
+// source for this name is the emitter's compiled stack (VFXCompiledEmitter, its Particle block) followed by one
+// `#define VFX_ATTR_<NAME> <float component>u` per attribute the host draws from (Position, SpriteSize, Color, Age,
+// Lifetime, Velocity). On disk it is the EMPTY stack, so the shipped program compiles and draws nothing.
+
+#include <Common/VFXParticleContract.glslh>
+
+void VFX_SimulateParticle( uint particle, inout VFXSim sim )
+{
+}

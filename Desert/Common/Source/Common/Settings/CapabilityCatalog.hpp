@@ -76,9 +76,9 @@ namespace Common::Scalability
         Spatial, // the engine's edge-adaptive spatial upscale (FSR1 EASU port) — always offered, no history
     };
 
-    // How rays may be traced on this device. Reader: the ray-traced shadows / reflections / GI parameters
-    // (Shadows, Reflections, GlobalIllumination groups) — a level that asks for RT on a device that lists only
-    // None resolves to the raster technique with one logged fallback.
+    // How rays may be traced on this device. Reader: Graphic::ResolveRenderMethods — a traced render method
+    // (Common/Settings/RenderMethods.hpp NeedsRayQuery) on a device that lists only None is lowered down its
+    // ladder with one logged line.
     enum class RayTracingMode : int
     {
         None = 0,
@@ -182,7 +182,7 @@ namespace Common::Scalability
         // Reader: ResolutionScale group (RenderScalePercent).
         RenderScaleRange RenderScale;
 
-        // Reader: Shadows / Reflections / GlobalIllumination ray-traced parameters. Always contains None.
+        // Reader: Graphic::ResolveRenderMethods (the traced GI / reflection / shadow methods). Always contains None.
         // Mac: None, plus RayQuery where MoltenVK exposes VK_KHR_ray_query (Apple7+ GPU, MoltenVK >= 1.2.x);
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;

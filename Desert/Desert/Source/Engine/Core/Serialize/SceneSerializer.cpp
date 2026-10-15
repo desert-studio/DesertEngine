@@ -8,6 +8,7 @@
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
@@ -396,6 +397,19 @@ namespace Desert::Core
             scene.Settings =
                  Common::Json::Value( Reflection::SerializeReflected( *st, &m_Scene->GetSettings(), &resolver ) );
         }
+
+        // What the records and the settings name, by the one rule SceneMigrator applies too (SCENE-DEPS).
+        {
+            const auto assetsRoot = Common::Constants::Path::FullPath(
+                 Common::Constants::Path::Dir( Common::Constants::Path::ContentDir::Assets ) );
+            SceneDependencyGather gather = GatherSceneDependencies(
+                 scene.Entities, scene.Settings.has_value() ? &*scene.Settings : nullptr, assetsRoot );
+            if ( !gather.Refused.empty() )
+                return Common::MakeFormattedError<Common::Json::TextDocument>(
+                     "[Scene] the dependency list does not gather: {}", gather.Refused.front() );
+            scene.Header->Dependencies = std::move( gather.Guids );
+        }
+        m_Scene->SetAssetHeader( scene.Header );
 
         // WHAT THIS BUILD KNOWS, MERGED ONTO WHAT THE FILE SAID. Everything above enumerates a
         // REGISTRY — SceneSettings' 51 reflected fields, ComponentRegistry's 45 keys — so up to this

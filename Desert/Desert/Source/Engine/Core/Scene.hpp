@@ -41,6 +41,7 @@
 namespace Desert::Graphic
 {
     class SceneRenderer;
+    class ReflectionCaptureRenderer;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -68,7 +69,8 @@ namespace Desert::Core
         bool         Hit      = false;
         Common::UUID Entity;                       // hit entity's UUID (valid only when Hit)
         glm::vec3    Point    = glm::vec3( 0.0f );  // world hit point
-        glm::vec3    Normal   = glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal
+        glm::vec3    Normal =
+             glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal; triangle normal (RaycastComplex)
         float        Distance = 0.0f;
     };
 
@@ -301,6 +303,13 @@ namespace Desert::Core
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept,
                                     const RaycastLandscapeSet&                        landscape ) const;
+        // The COMPLEX trace (UE FCollisionQueryParams::bTraceComplex, as ToolSceneQueriesUtil traces for the
+        // Modeling tools): a static mesh is met on its own triangles, not its submesh boxes, so the hit point
+        // lies on the surface and Normal is the face normal of the triangle the ray crossed (turned toward the
+        // ray). A box is still the broad phase. A skinned mesh is met on its posed bounds, as UE meets one on its
+        // physics bodies.
+        [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                           const std::function<bool( const Common::UUID& )>& accept = {} ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and
@@ -532,6 +541,14 @@ namespace Desert::Core
             return m_ExtensionPasses;
         }
 
+        // THE SCENE'S REFLECTION CAPTURES (UE: FScene's FReflectionEnvironmentSceneData): one set, rendered once
+        // per frame before the views (OnUpdate) and read by every view of this scene. Renderer state cached on
+        // the scene, not its data: a view that renders a const scene publishes them into its own graph.
+        [[nodiscard]] Graphic::ReflectionCaptureRenderer& GetReflectionCaptures() const
+        {
+            return *m_ReflectionCaptures;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -599,6 +616,11 @@ namespace Desert::Core
     private:
         void OnEntityCreated_Camera();
 
+        // Both traces: @p complex meets a static mesh on its triangles (RaycastComplex), else on its boxes.
+        [[nodiscard]] bool Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                  const std::function<bool( const Common::UUID& )>& accept,
+                                  const RaycastLandscapeSet& landscape, bool complex ) const;
+
         // Picks the active camera from the play state (Edit -> EditorCamera, Play -> the main
         // CameraComponent). Skipped entirely while a camera is pinned.
         void UpdateActiveCameraSource();
@@ -640,6 +662,9 @@ namespace Desert::Core
         // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
+
+        // See GetReflectionCaptures. Never null: made by both constructors.
+        std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

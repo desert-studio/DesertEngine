@@ -259,7 +259,29 @@ namespace Desert::Migration
     //       has no WorldPartition block.
     inline constexpr int kSceneVersionHLODLayers = 50;
 
-    static_assert( kSceneVersionHLODLayers == kSceneVersion,
+    //  51 - THE PARTICLE EMITTER IS A VFX SYSTEM (VFX-HOST). Every ParticleEmitter block becomes a `.dfx`
+    //       system of one emitter whose module stack reproduces it, played by `VFX { System, AutoActivate: true }`
+    //       (MigrateParticleEmittersToVFX); the component is deleted. A prefab override stating ParticleEmitter
+    //       keys refuses the file. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionParticleEmittersToVFX = 51;
+
+    //  52 - A SCENE STATES WHAT IT REFERENCES (SCENE-DEPS, UE's AssetRegistry dependencies). Header.Dependencies,
+    //       written [] by every earlier build, lists every asset the scene names, unique and sorted: each
+    //       asset a component or the Settings block names and each prefab instance's prefab, by the ONE rule
+    //       the engine's save applies too (Core::GatherSceneDependencies, MigrateSceneDependenciesV51ToV52).
+    //       Scenes only.
+    inline constexpr int kSceneVersionSceneDependencies = 52;
+
+    //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
+    //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
+    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
+    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
+    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
+    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
+    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionRenderMethods = 53;
+
+    static_assert( kSceneVersionRenderMethods == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -437,12 +459,9 @@ namespace Desert::Migration
     ParticleSpriteMaterialsReport
     MigrateParticleSpriteMaterialsV46ToV47( std::vector<Assets::EntityData>& entities );
 
-    // VFX-03, NOT YET CHAINED (see REMAINDER-VFX-03: it is chained, with the next scene version, in the
-    // same commit that makes the renderer draw VFXComponent and deletes ParticleEmitterComponent - chained
-    // earlier, the loader's migration would turn every emitter into a block nothing draws).
-    //
-    // A ParticleEmitter block becomes a `.dfx` system of ONE emitter whose module stack reproduces it, and the
-    // block becomes `VFX { System: {Guid, Path}, AutoActivate: true }`. The file is written next to the owner
+    // The v51 step (kSceneVersionParticleEmittersToVFX). A ParticleEmitter block becomes a `.dfx` system of ONE
+    // emitter whose module stack reproduces it, and the block becomes `VFX { System: <assets-relative path>,
+    // AutoActivate: true }`. The file is written next to the owner
     // under VFX/<owner>_<entity uuid>.dfx (relative to the assets root), its GUID MigrationGuidForPath of that
     // path, so a rerun writes the same bytes; emitters of one file with the same numbers share the first's file.
     // System seed 0: VFXWorld seeds an emitter from (system seed, entity uuid, emitter index), and the old
@@ -511,9 +530,33 @@ namespace Desert::Migration
     // states. PURE.
     SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateRenderMethodsV52ToV53 did to one file.
+    struct RenderMethodsReport
+    {
+        std::size_t              Rewritten = 0; // GlobalIllumination / EnableSSR keys re-stated as methods
+        std::vector<std::string> Refused;       // a Settings block or old value that is not the declared type
+    };
+
+    // Re-states PostProcessVolume.Settings GlobalIllumination / EnableSSR as GlobalIlluminationMethod /
+    // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
+    // override. PURE.
+    RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
+
+    // What MigrateSceneDependenciesV51ToV52 did to one scene.
+    struct SceneDependenciesReport
+    {
+        std::size_t              Stated = 0; // GUIDs the header lists after the step
+        std::vector<std::string> Refused;    // one line per prefab instance whose file states no GUID
+    };
+
+    // Header.Dependencies under the rule kSceneVersionSceneDependencies states. Prefab paths are located
+    // against @p assetsRoot (LocateMeshFile's rule) and read for their header GUID.
+    SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -751,11 +794,20 @@ namespace Desert::Migration
         bool               SSRDefaultOnRaised = false; // below kSceneVersionSSRDefaultOn
         SSRDefaultOnReport SSRDefaultOn;
 
+        bool ParticleEmittersToVFXRaised = false; // below kSceneVersionParticleEmittersToVFX
+        ParticleEmittersToVFXReport ParticleEmittersToVFX;
+
         bool        ShadowBiasCentimetresRaised = false; // below kSceneVersionShadowBiasCentimetres
         std::size_t ShadowBiasesRestated        = 0;
 
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
+
+        bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
+        SceneDependenciesReport SceneDependencies;
+
+        bool                RenderMethodsRaised = false; // below kSceneVersionRenderMethods
+        RenderMethodsReport RenderMethods;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -769,7 +821,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised;
         }
     };
 

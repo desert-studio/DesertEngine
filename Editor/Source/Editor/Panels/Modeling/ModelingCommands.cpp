@@ -69,14 +69,8 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "Modeling", "Create shape: place at the viewport centre", []
-                              {
-                                  auto& ms = Core::ModelingState::Get();
-                                  if ( ms.ActiveTool != Core::ModelingState::Tool::CreateShape )
-                                      return PaletteCommandOutcome( false, "the Create Shape tool is not active" );
-                                  ms.ReqPlaceCentre = true;
-                                  return PaletteCommandDone();
-                              } } );
+        commands.push_back( { "Modeling", "Create shape: place at the viewport centre",
+                              [] { return Editor::ViewportPanel::PlaceShapeInActiveViewport(); } } );
     }
 
     void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,
@@ -412,6 +406,8 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Create shape: Place on Scene", []( MS& ms, bool on )
                        { ms.CreateShape.Place = on ? MS::Placement::OnScene : MS::Placement::Ground; } );
+        modelingOnOff( "Modeling", "Create shape: Align to Normal",
+                       []( MS& ms, bool on ) { ms.CreateShape.AlignToNormal = on; } );
         for ( const auto& [label, type] : std::initializer_list<std::pair<const char*, MS::OutputType>>{
                    { "Output type: Static Mesh", MS::OutputType::StaticMesh },
                    { "Output type: Dynamic Mesh", MS::OutputType::Dynamic } } )

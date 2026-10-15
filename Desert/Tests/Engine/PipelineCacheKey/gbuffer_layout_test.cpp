@@ -6,7 +6,7 @@
 //      kGBufferEmissive, kGBufferDepth, in that order, and from nothing else.
 //      Mutations: a position target re-added (any slot, a ViewTargetFormats constant or an ImageFormat literal),
 //      two slots swapped -> red.
-//  (2) Slot 2 is the R32_UINT shading word, an integer format (never blended, ColourAttachmentBlendEnables); no
+//  (2) Slot 2 is the RG32_UINT shading word, an integer format (never blended, ColourAttachmentBlendEnables); no
 //      G-buffer slot is RGBA32F. Mutation: kGBufferShadingWord back to a float format -> red.
 //  (3) Every shader that writes the G-buffer (an output named oGBuffer*) declares location i with the type slot
 //  i's
@@ -96,7 +96,7 @@ TEST( GBufferLayout, TheGBufferIsBuiltFromTheViewTargetFormatsInSlotOrder )
 
 TEST( GBufferLayout, SlotTwoIsTheIntegerShadingWordAndNoSlotIsAFloat4Position )
 {
-    EXPECT_EQ( F::kGBufferShadingWord, ImageFormat::R32_UINT );
+    EXPECT_EQ( F::kGBufferShadingWord, ImageFormat::RG32_UINT );
     EXPECT_TRUE( Desert::Core::Formats::IsIntegerFormat( kGBuffer[2].Format ) );
     for ( size_t i = 0; i < kGBuffer.size(); ++i )
     {
@@ -151,7 +151,10 @@ TEST( GBufferLayout, EveryGBufferWriterDeclaresTheSlotsTypeAtTheSlotsLocation )
                  << " colour slots and the velocity after them";
             EXPECT_EQ( name, kGBuffer[index].ShaderName ) << file << " location " << index;
             const char* wanted =
-                 Desert::Core::Formats::IsIntegerFormat( kGBuffer[index].Format ) ? "uint" : "vec4";
+                 Desert::Core::Formats::IsIntegerFormat( kGBuffer[index].Format )
+                      ? ( Desert::Core::Formats::PreservedChannelCount( kGBuffer[index].Format ) == 2 ? "uvec2"
+                                                                                                      : "uint" )
+                      : "vec4";
             EXPECT_EQ( type, wanted ) << file << ": " << name << " vs " << kGBuffer[index].Constant;
         }
     }

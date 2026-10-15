@@ -17,7 +17,11 @@ namespace Common::Scalability
         using P                         = Parameter;
         using G                         = Group;
         using CL                        = CatalogList;
-        constexpr ParameterValue kRtMax = static_cast<ParameterValue>( RayTracingMode::RayTracingPipeline );
+        // The last enumerator of a by-name list (RenderMethods.hpp's name arrays are one entry per enumerator).
+        constexpr ParameterValue LastOf( std::size_t count )
+        {
+            return static_cast<ParameterValue>( count ) - 1;
+        }
 
         // THE spec list (Scalability.hpp: one row per Parameter, in enum order - the census asserts it).
         // The three shadow rows' High values are the renderer constant kSceneShadowQuality (ShadowCascades.hpp).
@@ -62,6 +66,16 @@ namespace Common::Scalability
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)" },
              { P::DepthOfFieldQuality, G::PostProcess, "PostProcess.DepthOfFieldQuality", 0, 2, CL::None,
                "Graphic::DofRingsForQuality (SceneRenderer::BeginScene -> DepthOfField gather rings)" },
+             { P::ReflectionCaptureSize, G::Reflections, "Reflections.CaptureSize", 32, 1024, CL::None,
+               "Graphic::ReflectionCaptureFaceSize (ReflectionCaptureRenderer: the scene's capture cube face)" },
+             { P::GlobalIlluminationMethod, G::GlobalIllumination, "GlobalIllumination.Method", 0,
+               LastOf( kGIMethodNames.size() ), CL::None,
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the GI method ceiling" },
+             { P::ReflectionsMethod, G::Reflections, "Reflections.Method", 0,
+               LastOf( kReflectionMethodNames.size() ), CL::None,
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
+             { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ),
+               CL::None, "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
              { P::FoliageCullDistancePercent, G::ViewDistance, "ViewDistance.FoliageCullPercent", 25, 100,
                CL::None,
                "Graphic::FoliageQualityFor -> MeshRenderer::SetFoliageQuality -> CollectIsmInstances cull fade" },
@@ -77,12 +91,6 @@ namespace Common::Scalability
                "mipLodBias (and every graph read naming it)" },
              { P::StreamingRangePercent, G::ViewDistance, "ViewDistance.StreamingRangePercent", 25, 100, CL::None,
                "Core::WorldStreamer::GatherSources -> Rules::ScaleComponentSourceRanges -> SourceRadius" },
-             { P::ShadowRayTracing, G::Shadows, "Shadows.RayTracing", 0, kRtMax, CL::RayTracingModes,
-               std::nullopt },
-             { P::GlobalIlluminationRayTracing, G::GlobalIllumination, "GlobalIllumination.RayTracing", 0, kRtMax,
-               CL::RayTracingModes, std::nullopt },
-             { P::ReflectionRayTracing, G::Reflections, "Reflections.RayTracing", 0, kRtMax, CL::RayTracingModes,
-               std::nullopt },
              { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None,
                std::nullopt },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None,
@@ -96,14 +104,19 @@ namespace Common::Scalability
         // tied to its name list (CapabilityCatalog.hpp owns the lists).
         std::span<const std::string_view> ValueNames( Parameter parameter )
         {
+            // The method ceilings are named by their enum (RenderMethods.hpp), not by a catalog list.
+            if ( parameter == Parameter::GlobalIlluminationMethod )
+                return kGIMethodNames;
+            if ( parameter == Parameter::ReflectionsMethod )
+                return kReflectionMethodNames;
+            if ( parameter == Parameter::ShadowsMethod )
+                return kShadowMethodNames;
             switch ( SpecOf( parameter ).NarrowedBy )
             {
                 case CatalogList::AntiAliasingMethods:
                     return kAntiAliasingMethodNames;
                 case CatalogList::Upscalers:
                     return kUpscalerNames;
-                case CatalogList::RayTracingModes:
-                    return kRayTracingModeNames;
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
                 case CatalogList::RenderScale:
@@ -456,7 +469,7 @@ namespace Common::Scalability
         constexpr std::string_view kNotOffered = "not offered by this device";
 
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
-        // and start at 1, RayTracingModes ascending from None).
+        // and start at 1).
         template <typename T>
         ParameterValue LargestOfferedAtMost( const std::vector<T>& list, ParameterValue value )
         {
@@ -493,9 +506,6 @@ namespace Common::Scalability
                     return;
                 case CatalogList::AnisotropyLevels:
                     r.Set( spec.Id, LargestOfferedAtMost( catalog.AnisotropyLevels, value ), kNotOffered );
-                    return;
-                case CatalogList::RayTracingModes:
-                    r.Set( spec.Id, LargestOfferedAtMost( catalog.RayTracingModes, value ), kNotOffered );
                     return;
                 case CatalogList::Upscalers:
                 {

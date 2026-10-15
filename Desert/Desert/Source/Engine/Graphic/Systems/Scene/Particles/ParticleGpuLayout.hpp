@@ -4,25 +4,27 @@
 
 namespace Desert::Graphic::System
 {
-    // THE TWO NUMBERS ParticleRenderer SHARES WITH ITS SHADERS, somewhere a test can reach them.
+    // THE NUMBERS ParticleRenderer SHARES WITH ITS SHADERS, somewhere a test can reach them.
     //
-    // Neither is a tunable and neither is a length: each is a C++ restatement of something declared in
-    // Programs/Particles/ParticleSimulate.shader, and until Г4 the whole of their protection was the
+    // None is a tunable: each is a C++ restatement of something declared in the particle programs
+    // (Programs/Particles, Common/Particle*.glslh), and until Г4 the whole of their protection was the
     // words "must match" in a comment. Tests/Engine/ShaderCacheKey now compiles the real shaders and
-    // reads both numbers back out of the SPIR-V, so a change to either side alone is a red test rather
+    // reads the numbers back out of the SPIR-V, so a change to either side alone is a red test rather
     // than a frame that renders wrongly and says nothing.
     //
-    // They are equal by coincidence and NOT by derivation — one is a byte count and the other a thread
-    // count. Neither may be written in terms of the other.
+    // Neither may be written in terms of another: each restates its own shader declaration.
 
-    // The size of one element of the particle state storage, in bytes: Common/ParticleState.glslh's
-    // `struct Particle`, which is six vec4s in a std430 array. ParticleRenderer allocates the storage
-    // as MaxParticles * this and zeroes it with a buffer of the same size, so a member appended to the
-    // GLSL and not to this number gives the simulation and the draw a different idea of where particle
-    // i begins — visible only as an emitter that has come apart.
-    // VFX-10b: + Tint (the Spawn from Channel colour, rgba multiplier of the colour over life) - 4 -> 5 vec4s.
-    // VFX-10c: + SizeScale (x = the Spawn from Channel base-size scale, multiplies the size over life) - 6 vec4s.
-    constexpr std::uint32_t kParticleStride = 96;
+    // The size of one slot of the scene's particle pool, in bytes: Common/ParticleState.glslh's `struct
+    // ParticleSlot` (uint Id, uint Alive) in a std430 array - the pool's bookkeeping, none of the particle's data
+    // (that is the emitter's attribute columns, the one store the simulation writes and the sprite draw and the
+    // sort read). ParticleWorldGpu allocates the pool as capacity * this; a member appended to the GLSL and not
+    // here gives the simulation and the compact a different idea of where slot i begins. VFX-SPRITE-DRAW: the
+    // 80-byte `struct Particle` (a per-step copy of the drawn attributes) -> the slot, 8.
+    constexpr std::uint32_t kParticleSlotStride = 8;
+
+    // The size of an emitter's draw layout (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`, the
+    // C++ ParticleDrawLayoutGpu): four 16-byte members - range, two rows of attribute columns, emitter position.
+    constexpr std::uint32_t kParticleDrawLayoutSize = 64;
 
     // The x of ParticleSimulate's LocalSize, which is the number the dispatch divides MaxParticles by
     // to get its group count. Too large here and the tail of every emitter is never simulated (those

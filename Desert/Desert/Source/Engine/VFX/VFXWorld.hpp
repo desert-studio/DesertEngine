@@ -2,21 +2,17 @@
 
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
-#include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
-#include <Engine/VFX/VFXStackCompiler.hpp>
+
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 
 #include <glm/glm.hpp>
 
 #include <entt/entt.hpp>
 
-#include <Engine/Assets/Common.hpp>
-
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace Desert::VFX
@@ -58,15 +54,18 @@ namespace Desert::VFX
         VFXChannelSpawnReport               ChannelReport;
         std::uint64_t                       ChannelOverflowTotal = 0;
 
-        // A VFXComponent emitter's compiled stack and what its simulation program reads (null / empty for a
-        // ParticleEmitterComponent, which ParticleSimulate runs): the parameter rows (BuildEmitterParams, this
-        // tick's values), the system's curve atlas and the particles its range of the pool holds.
-        std::shared_ptr<const VFXCompiledEmitter> Stack;
-        std::vector<glm::vec4>                    Params;
-        std::vector<float>                        Curves;
-        std::uint32_t                             Capacity = 0;
-
         bool Seen = false; // visited by the current Tick; instances not visited are dropped
+    };
+
+    // One placed system (a VFXComponent), keyed by entity UUID: the system data its plans were built from (a new
+    // pointer = reloaded or renamed: the instance starts over), each emitter's spawn plan and instance.
+    struct SystemInstance
+    {
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
+        std::vector<VFXSpawnPlan>                                   Plans;
+        std::vector<bool>                                           Runs; // enabled and its plan compiled
+        std::vector<EmitterInstance>                                Emitters;
+        bool                                                        Seen = false;
     };
 
     /// One instance's steps for a tick of @p stepCount fixed steps: the plan's rate and bursts per step, and -
@@ -92,35 +91,8 @@ namespace Desert::VFX
         virtual ~WorldGpuState() = default;
     };
 
-    // How the world turns a VFXComponent's system handle into the system's data. Set once by the host that owns
-    // the AssetManager (the scene has none): it returns the data of a loaded VFXSystemAsset, nullptr otherwise.
-    using VFXSystemLookup = std::function<const Assets::Serialization::VFXSystemData*( Assets::AssetHandle )>;
-
-    // An emitter instance's identity: the entity, the emitter's index in its system, and which component it came
-    // from - a ParticleEmitterComponent (one emitter, index 0) or a VFXComponent's system.
-    struct EmitterKey
-    {
-        std::uint64_t Uuid    = 0;
-        std::uint32_t Emitter = 0;
-        bool          System  = false;
-
-        [[nodiscard]] bool operator==( const EmitterKey& ) const = default;
-    };
-
-    struct EmitterKeyHash
-    {
-        [[nodiscard]] std::size_t operator()( const EmitterKey& k ) const noexcept
-        {
-            std::uint64_t h = k.Uuid * 0x9E3779B97F4A7C15ull;
-            h ^= ( static_cast<std::uint64_t>( k.Emitter ) << 1 | ( k.System ? 1u : 0u ) ) +
-                 0x632BE59BD9B4E019ull + ( h << 6 ) + ( h >> 2 );
-            return static_cast<std::size_t>( h );
-        }
-    };
-
-    // The instances are ParticleEmitterComponents (one emitter each) and the enabled emitters of each
-    // VFXComponent's system, keyed by EmitterKey; their GPU state is the world's WorldGpuState (VFX-07b), one per
-    // scene, not one per view.
+    // The instances are VFXComponents' systems, keyed by entity UUID (one EmitterInstance per emitter); their GPU
+    // state is the world's WorldGpuState (VFX-07b), one per scene, not one per view.
     class VFXWorld
     {
     public:
@@ -129,7 +101,7 @@ namespace Desert::VFX
         }
 
         // One scene update. `seconds` is the scene's own time for this update: the editor delta in Edit,
-        // the gameplay delta in Play, zero while paused. Consumes ParticleEmitterComponent::RequestRestart and
+        // the gameplay delta in Play, zero while paused. Consumes VFXComponent::RequestRestart and
         // the data channels' entries written since the last tick.
         void Tick( entt::registry& registry, double seconds );
 
@@ -165,24 +137,7 @@ namespace Desert::VFX
         {
             return m_Plan;
         }
-        // The ParticleEmitterComponent instance of the entity.
-        [[nodiscard]] const EmitterInstance* FindEmitter( std::uint64_t entityUuid ) const;
-        // Emitter @p emitterIndex of the system the entity's VFXComponent plays; nullptr when the component is not
-        // activated, the system is unknown, the emitter is disabled or its stack does not compile.
-        [[nodiscard]] const EmitterInstance* FindSystemEmitter( std::uint64_t entityUuid,
-                                                                std::uint32_t emitterIndex ) const;
-
-        // Every instance this tick planned, by key (the renderer runs the system emitters' stacks from here).
-        [[nodiscard]] const std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash>& GetEmitters() const
-        {
-            return m_Emitters;
-        }
-
-        // Unset = no VFXComponent plays: each is reported once (naming the entity) and spawns nothing.
-        void SetSystemLookup( VFXSystemLookup lookup )
-        {
-            m_SystemLookup = std::move( lookup );
-        }
+        [[nodiscard]] const SystemInstance* FindSystem( std::uint64_t entityUuid ) const;
 
         // The scene's data channels (VFX-10): gameplay registers channels and writes entries here (C++ Write,
         // Lua VFX.writeChannel); the next Tick spawns from them and clears them.
@@ -214,29 +169,14 @@ namespace Desert::VFX
 
     private:
         void ResetInstance( EmitterInstance& instance );
-        EmitterInstance& Visit( const EmitterKey& key, std::uint32_t seed, bool restart );
-        // True the first time @p key is reported; a report is not repeated every tick.
-        bool FirstReport( const EmitterKey& key );
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
         double                                             m_SpawnCountScale = 1.0; // SetSpawnCountScale
-        std::unordered_map<EmitterKey, EmitterInstance, EmitterKeyHash> m_Emitters;
-        VFXSystemLookup                                                 m_SystemLookup;
-        std::unordered_set<EmitterKey, EmitterKeyHash>                  m_Reported;
-        // The compiled stack of each playing system emitter and the system data it was compiled from: compiled
-        // again when the lookup hands other data (the asset reloaded) or the instance restarts (the editor's
-        // Restart after an edit), never per tick - the compile reads the engine's module files.
-        struct CompiledStack
-        {
-            const Assets::Serialization::VFXSystemData* Source = nullptr;
-            std::shared_ptr<const VFXCompiledEmitter>   Stack;
-            VFXCurveAtlas                               Curves;
-        };
-        std::unordered_map<EmitterKey, CompiledStack, EmitterKeyHash> m_Stacks;
+        std::unordered_map<std::uint64_t, SystemInstance>  m_Systems;
         std::uint64_t                                      m_LastGeneration = 0;
-        std::uint64_t                                                 m_TickSerial     = 0;
-        VFXDataChannels                                               m_Channels;
-        mutable std::unique_ptr<WorldGpuState>                        m_GpuState;
+        std::uint64_t                                      m_TickSerial     = 0;
+        VFXDataChannels                                    m_Channels;
+        mutable std::unique_ptr<WorldGpuState>             m_GpuState;
     };
 } // namespace Desert::VFX

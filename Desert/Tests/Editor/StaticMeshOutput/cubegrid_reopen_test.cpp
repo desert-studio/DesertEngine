@@ -1,6 +1,6 @@
 // M11: the Cube Grid tool reopens on a blockout it built. The relations pinned, on the editor's own path:
 //  - the voxels a blockout carries survive the scene block (WriteCubeGridBlockout -> ReadCubeGridBlockout);
-//  - the key of the mesh they baked to is the SAME whether the entity holds the EditMesh (Output: Dynamic) or
+//  - the key of the mesh they baked to is the SAME whether the entity holds the editable mesh (Output: Dynamic) or
 //    the .stmesh Output: Static Mesh wrote and a tool lifts back - otherwise every static-mesh blockout would be
 //    refused as stale;
 //  - reopen refuses, by reason, what it cannot edit, and a session never touches the state Cancel / undo
@@ -17,8 +17,8 @@
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
@@ -53,7 +53,7 @@ namespace
     // RegenMesh's path: Bake -> FromRenderMesh -> the DynamicMesh the component holds.
     Geometry::DynamicMesh3 MeshOf( const VB::Volume& v )
     {
-        auto edit = Geometry::FromRenderMesh( v.Bake() );
+        auto edit = Geometry::DynamicMeshFromRenderMesh( v.Bake() );
         EXPECT_TRUE( edit.IsSuccess() ) << edit.GetError();
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue().Mesh ), "M11" );
         EXPECT_TRUE( dyn.IsSuccess() ) << dyn.GetError();
@@ -93,7 +93,7 @@ namespace
     };
 } // namespace
 
-TEST_F( ReopenProject, AnAcceptedBlockoutReopensOnItsStaticMeshAsOnItsEditMesh )
+TEST_F( ReopenProject, AnAcceptedBlockoutReopensOnItsStaticMeshAsOnItsEditableMesh )
 {
     const VB::Volume             built = FloorWithBlock();
     const Geometry::DynamicMesh3 mesh  = MeshOf( built );
@@ -123,7 +123,7 @@ TEST_F( ReopenProject, AnAcceptedBlockoutReopensOnItsStaticMeshAsOnItsEditMesh )
     auto lifted = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
     EXPECT_EQ( Editor::Tools::MeshKeyOf( lifted.GetValue().Mesh ), key )
-         << "the lifted .stmesh must key as the EditMesh it was written from";
+         << "the lifted .stmesh must key as the mesh it was written from";
 
     // Reopened on the entity, moved and turned since: two layers, in the world.
     const glm::mat4 world  = glm::rotate( glm::translate( glm::mat4( 1.0f ), { 300.0f, 0.0f, 20.0f } ),

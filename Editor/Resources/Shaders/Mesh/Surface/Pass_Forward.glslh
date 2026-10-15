@@ -80,7 +80,7 @@ void main()
     oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
-                              v_Surface.VertexColor );
+                              v_Surface.VertexColor, gl_FrontFacing );
     const SurfaceOutput s = EvaluateSurface( i );
     DESERT_SURFACE_CLIP( s );
 
@@ -96,7 +96,8 @@ void main()
     const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
                                                      s.BaseColor, s.Metallic, s.Roughness );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
-    const DesertPayload payload = DesertQuantizePayload( DesertPayload( s.CustomData0, s.CustomData1 ) );
+    const DesertPayload payload = DesertQuantizePayload(
+         DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
 
     // The sun is occluded by the cascades (unless the surface does not receive them) and then by the cloud
     // layer — the cloud factor AFTER the toggle, exactly as the deferred composite assembles it.

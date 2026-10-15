@@ -11,8 +11,10 @@ namespace Desert::Graphic::Render
     struct SpotLightCommand : RenderCommand
     {
         ShaderProtocols::SpotLightPayload Light;
+        LocalLightShadowSettings          Shadow;
 
-        SpotLightCommand( const ShaderProtocols::SpotLightPayload& light ) : Light( light )
+        SpotLightCommand( const ShaderProtocols::SpotLightPayload& light, const LocalLightShadowSettings& shadow )
+             : Light( light ), Shadow( shadow )
         {
         }
 
@@ -23,7 +25,7 @@ namespace Desert::Graphic::Render
             // so a command that hands its payload away serves the first view and gives the second one a
             // moved-from value. For a light that is a light which exists in one viewport and not in the
             // other, with nothing in the log.
-            renderer.AddSpotLight( Light );
+            renderer.AddSpotLight( Light, Shadow );
         }
     };
 } // namespace Desert::Graphic::Render

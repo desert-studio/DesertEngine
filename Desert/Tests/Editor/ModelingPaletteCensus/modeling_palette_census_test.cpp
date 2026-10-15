@@ -112,6 +112,7 @@ namespace
         { "BeginCombo", "\"Polygroups\"", Reach::Palette, { "\"Create shape polygroups: \"" } },
         { "BeginCombo", "\"Pivot\"", Reach::Palette, { "\"Create shape pivot: \"" } },
         { "Checkbox", "\"Place on Scene\"", Reach::Palette, { "\"Create shape: Place on Scene\"" } },
+        { "Checkbox", "\"Align to Normal\"", Reach::Palette, { "\"Create shape: Align to Normal\"" } },
         { "Combo", "\"##OutputType\"", Reach::Palette, { "\"Output type: Static Mesh\"", "\"Output type: Dynamic Mesh\"" } },
         { "InputTextWithHint", "\"##OutputFolder\"", Reach::Exempt, { "text: `set` carries numbers" } },
         { "InputTextWithHint", "\"##OutputName\"", Reach::Exempt, { "text: `set` carries numbers" } },

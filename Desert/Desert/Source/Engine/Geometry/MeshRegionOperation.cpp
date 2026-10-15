@@ -55,6 +55,18 @@ namespace Desert::Geometry
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr EnsureTangentSpace( DynamicMesh3& mesh, const char* name )
+    {
+        DynamicMeshAttributeSet* attributes = mesh.Attributes();
+        if ( attributes == nullptr )
+            return Common::MakeFormattedError<bool>( "Mesh {}: the mesh has no attribute set to hold tangents",
+                                                     name );
+        if ( attributes->HasTangentSpace() )
+            return Common::MakeSuccess( true );
+        attributes->EnableTangents();
+        return RecomputeTangentSpace( mesh, name );
+    }
+
     namespace
     {
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
@@ -161,7 +173,7 @@ namespace Desert::Geometry
             const GroupTopology afterTopology( mesh.get(), true );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
     }
 
     Common::ResultStr<RegionOutcome> InsertEdgeLoop( const DynamicMesh3& before, const ElementSelection& selection,
@@ -217,7 +229,7 @@ namespace Desert::Geometry
             if ( auto added = result.Add( *mesh, e ); !added.IsSuccess() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Insert Edge Loop: new edge {}: {}", e,
                                                                   added.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
     }
 
     Common::ResultStr<RegionOutcome> WeldEdges( const DynamicMesh3& before, ElementMode mode )
@@ -245,7 +257,7 @@ namespace Desert::Geometry
                  merger.m_MergeVertexTolerance, merger.m_InitialNumBoundaryEdges );
         if ( auto tangents = RecomputeTangentSpace( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
 
     Common::ResultStr<RegionOutcome> RunRegionOperation( RegionOperation operation, const DynamicMesh3& before,
@@ -328,7 +340,7 @@ namespace Desert::Geometry
             const GroupTopology afterTopology( mesh.get(), true );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
     }
     int MaxSubdivisionLevel( int faces )
     {
@@ -379,7 +391,7 @@ namespace Desert::Geometry
             mesh->Attributes()->EnableTangents();
         if ( auto tangents = RecomputeTangentSpace( *mesh, "Subdivide" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
 
     const char* ToString( SimplifyTarget target )
@@ -450,6 +462,6 @@ namespace Desert::Geometry
         auto tangents = RecomputeTangentSpace( *mesh, "Mesh Simplify" );
         if ( !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
 } // namespace Desert::Geometry

@@ -1,10 +1,10 @@
 // DynamicMeshAttributeSet / DynamicMeshOverlay / per-triangle attributes / PolygroupSet (ported from UE
 // GeometryCore and GeometryProcessing), driven through DynamicMesh3's edit operators. The mesh carries every
-// layer Desert's EditMesh stores: a UV overlay with a real seam, normals, colours, MaterialID and a polygroup
-// layer. After every accepted edit -- split/flip/collapse/poke/merge and CompactInPlace -- the mesh must pass
-// CheckValidity WITH attributes (DynamicMesh3::CheckValidity descends into every overlay); a split on the UV seam
-// must leave two UV elements at the new vertex and a split off it one; per-triangle values must be inherited the
-// way UE's handlers inherit them (a new triangle copies its source triangle's MaterialID and group).
+// layer Desert's saved mesh form stores: a UV overlay with a real seam, normals, colours, MaterialID and a
+// polygroup layer. After every accepted edit -- split/flip/collapse/poke/merge and CompactInPlace -- the mesh must
+// pass CheckValidity WITH attributes (DynamicMesh3::CheckValidity descends into every overlay); a split on the UV
+// seam must leave two UV elements at the new vertex and a split off it one; per-triangle values must be inherited
+// the way UE's handlers inherit them (a new triangle copies its source triangle's MaterialID and group).
 #include <gtest/gtest.h>
 
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>

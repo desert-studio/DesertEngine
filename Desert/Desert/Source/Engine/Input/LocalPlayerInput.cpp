@@ -4,7 +4,6 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/Core/Input.hpp>
 #include <Engine/ECS/Components.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
@@ -13,6 +12,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 
 namespace Desert::Input
 {
@@ -20,6 +20,11 @@ namespace Desert::Input
 
     namespace
     {
+        uint32_t KeyStateId( const InputKey& key )
+        {
+            return ( static_cast<uint32_t>( key.Kind ) << 16 ) | key.Code;
+        }
+
         std::string StemOf( const std::filesystem::path& path )
         {
             return path.stem().string();
@@ -90,7 +95,9 @@ namespace Desert::Input
     void LocalPlayerInput::BeginPlay( entt::registry& registry, Assets::AssetManager& assets,
                                       const entt::entity pawn )
     {
-        EndPlay();
+        // Not EndPlay: a key the player already holds when the world begins (the press that reached the
+        // viewport this frame, before the first Tick) stays held.
+        ResetPlay();
         if ( const std::filesystem::path file = UserKeyBindingsFile(); !file.empty() )
         {
             if ( auto bindings = LoadUserKeyBindings( file ); bindings )
@@ -129,7 +136,19 @@ namespace Desert::Input
         {
             for ( const auto& [handle, priority] : PlayerContextPriorities( player ) )
             {
-                const auto context = assets.FindByHandle<Assets::InputMappingContextAsset>( handle );
+                // The component holds the context's handle (its header GUID fold); nothing else in Play loads
+                // that asset, so a context not already open in some editor is created here from its registry
+                // row, exactly as AddContext creates one it finds by name.
+                auto context = assets.FindByHandle<Assets::InputMappingContextAsset>( handle );
+                if ( !context )
+                {
+                    if ( const auto row =
+                              Assets::ContentRegistry::RowOf( Common::Content::ContentKind::InputMappingContext,
+                                                              static_cast<uint64_t>( handle ) ) )
+                        context =
+                             assets.CreateAsset<Assets::InputMappingContextAsset>( row->Path,
+                                                                                   /*loadAfterCreate=*/false );
+                }
                 if ( !context )
                 {
                     LOG_ERROR( "[Input] the player names mapping context handle {} that no loaded asset carries",
@@ -152,7 +171,7 @@ namespace Desert::Input
         }
     }
 
-    void LocalPlayerInput::EndPlay()
+    void LocalPlayerInput::ResetPlay()
     {
         m_Subsystem = EnhancedInputSubsystem{};
         m_ActionNames.clear();
@@ -160,11 +179,53 @@ namespace Desert::Input
         m_PawnContexts.clear();
     }
 
+    void LocalPlayerInput::EndPlay()
+    {
+        ResetPlay();
+        m_Keys.clear();
+    }
+
+    void LocalPlayerInput::InputKey( const Input::InputKey& key, const bool pressed )
+    {
+        KeyState& state = m_Keys[KeyStateId( key )];
+        if ( pressed && !state.Down )
+            state.PressedSinceTick = true;
+        state.Down = pressed;
+    }
+
+    void LocalPlayerInput::FlushPressedKeys()
+    {
+        for ( auto& [id, state] : m_Keys )
+            state.Down = false;
+    }
+
+    bool LocalPlayerInput::IsKeyDown( const Input::InputKey& key ) const
+    {
+        const auto it = m_Keys.find( KeyStateId( key ) );
+        return it != m_Keys.end() && it->second.Down;
+    }
+
+    bool LocalPlayerInput::WasKeyPressed( const Input::InputKey& key ) const
+    {
+        const auto it = m_Keys.find( KeyStateId( key ) );
+        return it != m_Keys.end() && it->second.PressedThisFrame;
+    }
+
     void LocalPlayerInput::Tick( const glm::vec2 mouseDelta, const float deltaSeconds )
     {
+        for ( auto& [id, state] : m_Keys )
+            state.PressedThisFrame = std::exchange( state.PressedSinceTick, false );
+        // A key reads as down this frame when it is held, or when it was pressed since the last frame and
+        // already let go (a tap shorter than a frame still triggers, as UE's per-frame event counts make it).
+        const auto heldThisFrame = [this]( const Input::InputKey& key )
+        {
+            const auto it = m_Keys.find( KeyStateId( key ) );
+            return it != m_Keys.end() && ( it->second.Down || it->second.PressedThisFrame );
+        };
         const RawInputFrame frame = SampleRawInput(
-             m_Subsystem.MappedKeys(), mouseDelta, []( Common::KeyCode k ) { return Keyboard::IsKeyPressed( k ); },
-             []( Common::MouseButton b ) { return Mouse::Get().IsMouseButtonPressed( b ); } );
+             m_Subsystem.MappedKeys(), mouseDelta,
+             [&]( Common::KeyCode k ) { return heldThisFrame( Input::InputKey::Of( k ) ); },
+             [&]( Common::MouseButton b ) { return heldThisFrame( Input::InputKey::Of( b ) ); } );
         m_Subsystem.Tick( frame, deltaSeconds );
     }
 

@@ -183,8 +183,9 @@ TEST( FractureTool, InteriorMaterialIsPickedFromMaterialAssetsAsOneUndoStep )
 // the panel. Red when the group is not registered, loses an entry the frame needs, or planes become read-only.
 TEST( FractureTool, TheModeIsDrivenFromThePaletteAndPlanarPlanesAreEditable )
 {
-    const std::string layer = ReadText( "Editor/Source/EditorLayer.cpp" );
-    EXPECT_NE( layer.find( "AppendFractureCommands( out, m_Workspace.ActiveScene() )" ), std::string::npos );
+    // The level editor's palette groups live in LevelEditorCommands.cpp since EditorLayer was split.
+    const std::string layer = ReadText( "Editor/Source/Editor/LevelEditor/LevelEditorCommands.cpp" );
+    EXPECT_NE( layer.find( "AppendFractureCommands( out, workspace.ActiveScene() )" ), std::string::npos );
 
     const std::string commands = ReadText( "Editor/Source/Editor/Panels/Fracture/FractureCommands.cpp" );
     for ( const char* label :
