@@ -326,7 +326,31 @@ namespace Desert::Graphic::SurfaceCache
         // for (a card the full atlas placed smaller keeps what it got until then - reallocating it every frame
         // recaptured it every frame and the cache never settled), or a quarter of what it holds on both sides
         // (hysteresis: a camera wobbling at a level boundary does not recapture).
-        for ( std::size_t i = 0; i < cards.size(); ++i )
+        // A full atlas makes room for a nearer card by evicting a whole PHYSICAL PAGE whose every occupant is
+        // farther than it (the page of the farthest such nearest occupant), and only when such a page exists.
+        // Evicting farther cards one by one freed bin elements that never added up to a page the nearer card
+        // could use: it failed anyway, the evicted cards took their slots back later in the same frame, and
+        // each of them was recaptured - every frame, for ever (Bistro: 256 captures a frame at frame 600).
+        const uint32_t                     pagesPerSide = AtlasPagesPerSide( m_Budget.AtlasSize );
+        std::vector<std::vector<uint32_t>> occupants( static_cast<std::size_t>( pagesPerSide ) * pagesPerSide );
+        const auto pageOf = [pagesPerSide]( const AtlasRect& rect )
+        { return rect.Y / kPhysicalPageSize * pagesPerSide + rect.X / kPhysicalPageSize; };
+        const auto occupy = [&]( const uint32_t index )
+        {
+            for ( const AtlasRect& rect : cards[index]->Pages )
+                occupants[pageOf( rect )].push_back( index );
+        };
+        const auto evict = [&]( const uint32_t index )
+        {
+            for ( const AtlasRect& rect : cards[index]->Pages )
+                std::erase( occupants[pageOf( rect )], index );
+            FreeCard( *cards[index] );
+        };
+        for ( uint32_t i = 0; i < cards.size(); ++i )
+            occupy( i );
+        // Once no page is wholly farther than a card, none is for any farther card either.
+        bool evictable = true;
+        for ( uint32_t i = 0; i < cards.size(); ++i )
         {
             Card&      card     = *cards[i];
             const bool resident = card.ResX != 0;
@@ -334,10 +358,9 @@ namespace Desert::Graphic::SurfaceCache
                  card.WantY <= std::max( card.ResY, card.AskedY ) &&
                  !( card.WantX * 4u <= card.ResX && card.WantY * 4u <= card.ResY ) )
                 continue;
-            FreeCard( card );
-            card.AskedX        = card.WantX;
-            card.AskedY        = card.WantY;
-            std::size_t victim = cards.size();
+            evict( i );
+            card.AskedX = card.WantX;
+            card.AskedY = card.WantY;
             for ( ;; )
             {
                 uint32_t resX = card.WantX, resY = card.WantY;
@@ -355,13 +378,32 @@ namespace Desert::Graphic::SurfaceCache
                     resY = std::max( minRes, resY / 2u );
                 }
                 if ( placed )
+                {
+                    occupy( i );
                     break;
-                // The atlas is full: the farthest card holding pages pays, if it is farther than this one.
-                while ( victim > i + 1 && cards[victim - 1]->ResX == 0 )
-                    --victim;
-                if ( victim <= i + 1 )
+                }
+                // The page whose nearest occupant is the farthest, if that occupant is farther than this card.
+                std::size_t victimPage = occupants.size();
+                uint32_t    victimNear = i;
+                for ( std::size_t page = 0; evictable && page < occupants.size(); ++page )
+                {
+                    if ( occupants[page].empty() )
+                        continue;
+                    const uint32_t nearest = *std::min_element( occupants[page].begin(), occupants[page].end() );
+                    if ( nearest > victimNear )
+                    {
+                        victimNear = nearest;
+                        victimPage = page;
+                    }
+                }
+                if ( victimPage == occupants.size() )
+                {
+                    evictable = false;
                     break;
-                FreeCard( *cards[--victim] );
+                }
+                const std::vector<uint32_t> victims = occupants[victimPage];
+                for ( const uint32_t victim : victims )
+                    evict( victim );
             }
         }
 
@@ -375,6 +417,7 @@ namespace Desert::Graphic::SurfaceCache
                 const std::lock_guard lock( m_ExecutedMutex );
                 executed.swap( m_ExecutedCaptureFrames );
             }
+
             for ( auto& [key, instance] : m_Instances )
                 for ( Card& card : instance.Cards )
                 {
