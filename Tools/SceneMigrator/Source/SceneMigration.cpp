@@ -1200,6 +1200,30 @@ namespace Desert::Migration
         return report;
     }
 
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr std::array<const char*, 6> kCalendarKeys = { "Longitude", "TimeZone", "DaylightSavingTime",
+                                                               "Year",      "Month",    "Day" };
+        SunCalendarReport                    report;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "TimeOfDay",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           for ( const char* key : kCalendarKeys )
+                               if ( block.get( key ).has_value() )
+                                   return false;
+                           block["Longitude"]          = rfl::Generic( 0.0 );
+                           block["TimeZone"]           = rfl::Generic( 0.0 );
+                           block["DaylightSavingTime"] = rfl::Generic( false );
+                           block["Year"]               = rfl::Generic( 2026 );
+                           block["Month"]              = rfl::Generic( 3 );
+                           block["Day"]                = rfl::Generic( 20 );
+                           ++report.Clocks;
+                           return true;
+                       } );
+        return report;
+    }
+
     SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
     {
         SkySunFromLightReport report;
@@ -3766,6 +3790,13 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.SkySunFromLight.Refused );
                     return;
                 }
+            }
+
+            // The clock has a calendar (TOD1).
+            if ( statedSceneVersion < kSceneVersionSunCalendar )
+            {
+                report.SunCalendarRaised = true;
+                report.SunCalendar       = MigrateSunCalendarV57ToV58( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

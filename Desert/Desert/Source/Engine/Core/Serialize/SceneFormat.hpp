@@ -96,8 +96,9 @@ namespace Desert::Core
     // IntensityUnits (UE ELightUnits) and the exposure range is EV100 (Tools/SceneMigrator,
     // MigrateLightUnitsV55ToV56); v55 is the SourceAngle step. v57 (LIGHT-UNITS-2): the Physical Atmosphere
     // sky takes its sun from the atmosphere sun light (UE) and manual exposure is EV100 (Tools/SceneMigrator,
-    // MigrateSkySunFromLightV56ToV57).
-    inline constexpr int kSceneVersion = 57;
+    // MigrateSkySunFromLightV56ToV57). v58 (TOD1): the TimeOfDay clock has UE SunPosition's calendar - date,
+    // longitude, time zone, daylight saving (Tools/SceneMigrator, MigrateSunCalendarV57ToV58).
+    inline constexpr int kSceneVersion = 58;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

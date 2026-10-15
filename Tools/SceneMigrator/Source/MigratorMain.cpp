@@ -518,6 +518,10 @@ namespace
                 << Desert::Migration::kSceneVersionSkySunFromLight << " (" << report.SkySunFromLight.Skies
                 << " physical sky sun(s) folded into UE factors, " << report.SkySunFromLight.Volumes
                 << " manual exposure(s) in EV100)";
+        if ( report.SunCalendarRaised && report.SunCalendar.Clocks > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionSkySunFromLight << "->v"
+                << Desert::Migration::kSceneVersionSunCalendar << " (" << report.SunCalendar.Clocks
+                << " clock(s) state the equinox calendar)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

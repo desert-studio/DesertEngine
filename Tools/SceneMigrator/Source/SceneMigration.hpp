@@ -313,7 +313,16 @@ namespace Desert::Migration
     //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
     inline constexpr int kSceneVersionSkySunFromLight = 57;
 
-    static_assert( kSceneVersionSkySunFromLight == kSceneVersion,
+    //  58 - THE CLOCK HAS A CALENDAR (TOD1, UE SunPosition). TimeOfDay gained Longitude, TimeZone,
+    //       DaylightSavingTime, Year, Month, Day, and the sun is NOAA's / UE's solar position for that date and
+    //       place instead of the equinox path in solar time. Every TimeOfDay block in a record states the
+    //       calendar closest to that path - 2026-03-20 at longitude 0 in UTC, no daylight saving - so an old
+    //       clock keeps its sun to within the equation of time (minutes) and the equinox declination (under a
+    //       degree); a block that already states a calendar key is left alone, and an override (a delta) is
+    //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSunCalendar = 58;
+
+    static_assert( kSceneVersionSunCalendar == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -614,6 +623,16 @@ namespace Desert::Migration
     // PURE.
     SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateSunCalendarV57ToV58 did to one file.
+    struct SunCalendarReport
+    {
+        std::size_t Clocks = 0; // TimeOfDay blocks that now state the equinox calendar
+    };
+
+    // States the calendar kSceneVersionSunCalendar names on every record's TimeOfDay block that states none.
+    // PURE.
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -890,6 +909,9 @@ namespace Desert::Migration
         bool                  SkySunFromLightRaised = false; // below kSceneVersionSkySunFromLight
         SkySunFromLightReport SkySunFromLight;
 
+        bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
+        SunCalendarReport SunCalendar;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -903,7 +925,8 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised ||
+                   SunCalendarRaised;
         }
     };
 
