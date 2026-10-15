@@ -3,6 +3,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
 
 #include <algorithm>
 #include <array>
@@ -1357,6 +1358,10 @@ namespace Desert::Core::Preprocess
             static const std::regex kAutoOut( R"(\bOut\b(?!\s*\())" );
             // One combined pattern over the four binding keywords so they share ONE binding space in text order.
             static const std::regex kAutoBinding( R"(\b(Uniform|ReadBuffer|WriteBuffer|Buffer)\b(?!\s*\())" );
+            // `Uniform sampler <name>;` is a SHARED SAMPLER STATE: it takes no number from this text (which is blind
+            // to the other stages, the included headers and every macro-spelled binding) but the marker the
+            // program build renumbers once every stage is compiled (SharedSamplerBinding.hpp).
+            static const std::regex kSharedSampler( R"(^\s+sampler\b)" );
 
             std::string out;
             for ( auto& run : runs )
@@ -1376,8 +1381,13 @@ namespace Desert::Core::Preprocess
                         replaceFirst( run.Text, kAutoBinding,
                                       [&]( const std::smatch& m )
                                       {
-                                          const int         n  = alloc( usedBind );
                                           const std::string kw = m[1].str();
+                                          if ( kw == "Uniform" &&
+                                               std::regex_search( m.suffix().first, m.suffix().second,
+                                                                  kSharedSampler ) )
+                                              return std::format( "layout(binding = {}) uniform",
+                                                                  kAutoSamplerBinding );
+                                          const int n = alloc( usedBind );
                                           if ( kw == "Uniform" )
                                               return "layout(binding = " + std::to_string( n ) + ") uniform";
                                           if ( kw == "ReadBuffer" )

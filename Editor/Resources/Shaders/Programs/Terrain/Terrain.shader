@@ -73,7 +73,7 @@ Shader "Terrain"
         // every material binds by name (Graphic::CloudShadowBind).
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(13) sampler u_LinearRepeatSampler;
+        Uniform sampler u_LinearRepeatSampler;
         Uniform(6) texture2D u_CloudShadowMap;
         #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
         Uniform(7) CloudShadowUB

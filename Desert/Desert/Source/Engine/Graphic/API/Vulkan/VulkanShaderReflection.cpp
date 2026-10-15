@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
 
 #include <algorithm>
 #include <array>
@@ -190,6 +191,17 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                      "resource '{}' (set {}, binding {}) is in the set reserved for the bindless texture table; "
                      "only Common/BindlessTextures.glslh declares set {} — move the resource to another set",
                      resource.name, set, binding, kBindlessSetIndex ) );
+                return;
+            }
+            // The shared-sampler marker is renumbered by the program build (ShaderMapBuild.cpp
+            // AssignSharedSamplerBindings) before any reflection: SPIR-V that still carries it did not come
+            // through that build, and its sampler has no slot of its own.
+            if ( binding == Core::kAutoSamplerBinding )
+            {
+                diagnostics.push_back( std::format(
+                     "resource '{}' (set {}) is still on the shared-sampler marker binding {}: the SPIR-V did not "
+                     "come through the program build that numbers `Uniform sampler` declarations (BuildShaderMap)",
+                     resource.name, set, binding ) );
                 return;
             }
             const auto [it, inserted] = claimed.emplace( std::pair{ set, binding }, resource.name );

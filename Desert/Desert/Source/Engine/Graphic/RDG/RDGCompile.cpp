@@ -429,12 +429,15 @@ namespace Desert::Graphic::RDG
                                      std::vector<RdgSubUse>& uses, std::string& error ) const
     {
         const ResourceRecord& record   = m_Resources[use.Resource];
-        const AccessState     state    = GetAccessState( use.Usage );
+        AccessState           state    = GetAccessState( use.Usage );
         bool                  consumes = true;
         if ( use.Attachment >= 0 )
         {
-            const LoadAction load = pass.Attachments[static_cast<size_t>( use.Attachment )].Load.Action;
-            consumes              = load == LoadAction::Load;
+            const AttachmentRecord& attachment = pass.Attachments[static_cast<size_t>( use.Attachment )];
+            consumes                           = attachment.Load.Action == LoadAction::Load;
+            // The render pass's store op writes the attachment, a read-only depth one too (AttachmentAccessState):
+            // the barrier after this pass must make that write available.
+            state = AttachmentAccessState( use.Usage, attachment.IsDepth );
         }
         for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount; ++layer )
         {

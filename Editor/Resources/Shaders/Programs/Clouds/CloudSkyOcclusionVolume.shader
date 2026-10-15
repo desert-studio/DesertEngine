@@ -44,7 +44,7 @@ Shader "CloudSkyOcclusionVolume"
         // than the one the eye marches would darken clouds that are not there.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(19) sampler u_LinearRepeatSampler;
+        Uniform sampler u_LinearRepeatSampler;
         Uniform(3) texture3D u_CloudNoise;
         #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
         Uniform(10) texture3D u_CloudNoise1;

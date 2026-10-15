@@ -8,10 +8,9 @@ Shader "SSRResolveTiled"
     Vertex
     {
         #include <Common/FullscreenTriangle.glslh>
-        // Shared sampler states (UE's shared samplers), declared before the includes that sample through them.
-        Uniform(4) sampler u_LinearClampSampler;
-        Uniform(5) sampler u_LinearRepeatSampler;
-        Uniform(6) sampler u_PointClampSampler;
+        // The shared sampler state SSRTiles.glslh samples through, declared before it; numbered by the program
+        // build (SharedSamplerBinding.hpp).
+        Uniform sampler u_PointClampSampler;
         #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;
@@ -24,10 +23,10 @@ Shader "SSRResolveTiled"
 
     Fragment
     {
-        // The vertex stage's shared states: a declaration is per stage, and SSRDenoise samples through all three.
-        Uniform(4) sampler u_LinearClampSampler;
-        Uniform(5) sampler u_LinearRepeatSampler;
-        Uniform(6) sampler u_PointClampSampler;
+        // Shared sampler states SSRDenoise.glslh samples through, declared before it.
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform sampler u_PointClampSampler;
         #include <Common/SSRDenoise.glslh>
 
         In(0) vec2 v_TexCoord;
