@@ -171,12 +171,12 @@ namespace Desert::Graphic
             shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
             // A card texel has no screen depth to march: the block states the view's contact settings with no
             // steps (GetContactShadowSettings), so the cache reads the same ShadowUB layout with the march off.
-            shadow.Contact              = GetContactShadowSettings( frame, false );
-            lighting.Shadow             = PackDeferredShadow( shadow );
-            lighting.Cloud              = CloudShadowPackUniforms( GetCloudShadowInput() );
-            const FrameSun sun          = GetFrameSun();
-            lighting.LightDir           = sun.Direction;
-            lighting.LightColor         = sun.ColorIntensity;
+            shadow.Contact      = GetContactShadowSettings( frame, false );
+            lighting.Shadow     = PackDeferredShadow( shadow );
+            lighting.Cloud      = CloudShadowPackUniforms( GetCloudShadowInput() );
+            const FrameSun sun  = GetFrameSun();
+            lighting.LightDir   = sun.Direction;
+            lighting.LightColor = sun.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).

@@ -390,30 +390,30 @@ namespace Desert::Graphic
         }
         const FrameGraphRefs                          refs = textures.GraphRefs();
         GlobalIllumination::RadianceCacheUpdateInputs inputs;
-        inputs.GBufferDepth        = depth;
-        inputs.GBufferA            = gbuffer[0];
-        inputs.GBufferB            = gbuffer[1];
-        inputs.GBufferEmissive     = gbuffer[3];
-        inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        inputs.Tracer              = MakeTracerFrame( graph, textures, m_GIPipeline );
+        inputs.GBufferDepth    = depth;
+        inputs.GBufferA        = gbuffer[0];
+        inputs.GBufferB        = gbuffer[1];
+        inputs.GBufferEmissive = gbuffer[3];
+        inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
+        inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
         // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
         // refused by the consumers (SurfaceCacheFrameMissing), never traced against stale records.
         if ( m_SurfaceCacheFrame )
             inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
-        inputs.PointLights         = t.Lights.Point;
-        inputs.SpotLights          = t.Lights.Spot;
-        inputs.WorldGridParams     = t.Lights.WorldGridParams;
-        inputs.WorldGridCells      = t.Lights.WorldGridCells;
-        inputs.CameraPosition      = frame.CameraPosition;
-        inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        inputs.PointLights     = t.Lights.Point;
+        inputs.SpotLights      = t.Lights.Spot;
+        inputs.WorldGridParams = t.Lights.WorldGridParams;
+        inputs.WorldGridCells  = t.Lights.WorldGridCells;
+        inputs.CameraPosition  = frame.CameraPosition;
+        inputs.Extent          = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         GlobalIllumination::GIFramePayload payload;
-        payload.InvViewProjection                   = frame.InvJitteredViewProjection;
-        payload.ViewProjection                      = glm::inverse( frame.InvJitteredViewProjection );
-        payload.Camera                              = glm::vec4( frame.CameraPosition, 1.0f );
-        const bool hasSun                           = !m_DirectionLights.DirectionLights.empty();
-        payload.SunTravel   = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        payload.InvViewProjection = frame.InvJitteredViewProjection;
+        payload.ViewProjection    = glm::inverse( frame.InvJitteredViewProjection );
+        payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
+        const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
+        payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
+        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
         if ( const auto& env = GetEnvironment(); env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
@@ -538,9 +538,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                           System::MeshRenderer* meshRenderer,
-                                           const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                           const ViewFrame& frame )
+                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                           const glm::vec4& lightColor, const ViewFrame& frame )
     {
         // w: whether u_SSR holds this frame's traced reflection (DeferredLighting.shader DeferredUB).
         const glm::vec4 cameraPos( frame.CameraPosition, ssr.IsValid() ? 1.0f : 0.0f );

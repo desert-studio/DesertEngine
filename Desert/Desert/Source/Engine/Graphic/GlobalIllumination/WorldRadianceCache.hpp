@@ -63,20 +63,20 @@ namespace Desert::Graphic::GlobalIllumination
     // This frame's graph resources the update reads.
     struct RadianceCacheUpdateInputs
     {
-        RDG::TextureRef                GBufferDepth;
-        RDG::TextureRef                GBufferA; // albedo
-        RDG::TextureRef                GBufferB; // normal
-        RDG::TextureRef                GBufferEmissive;
-        RDG::TextureRef                EnvSpecular; // the sky's radiance cube (or the system black cube)
-        TracerFrame                    Tracer;      // the active tracer and its reads (GITracing.hpp)
-        SurfaceCacheFrame              SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
-        RDG::BufferRef                 PointLights;
-        RDG::BufferRef                 SpotLights;
-        RDG::BufferRef                 WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
-        RDG::BufferRef                 WorldGridCells;
-        RDG::BufferRef                 GIFrame; // this frame's GIFramePayload (GITracing.hpp), "GIFrameUB"
-        glm::vec3                      CameraPosition{ 0.0f };
-        glm::uvec2                     Extent{ 0u };
+        RDG::TextureRef   GBufferDepth;
+        RDG::TextureRef   GBufferA; // albedo
+        RDG::TextureRef   GBufferB; // normal
+        RDG::TextureRef   GBufferEmissive;
+        RDG::TextureRef   EnvSpecular;  // the sky's radiance cube (or the system black cube)
+        TracerFrame       Tracer;       // the active tracer and its reads (GITracing.hpp)
+        SurfaceCacheFrame SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
+        RDG::BufferRef    PointLights;
+        RDG::BufferRef    SpotLights;
+        RDG::BufferRef    WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
+        RDG::BufferRef    WorldGridCells;
+        RDG::BufferRef    GIFrame; // this frame's GIFramePayload (GITracing.hpp), "GIFrameUB"
+        glm::vec3         CameraPosition{ 0.0f };
+        glm::uvec2        Extent{ 0u };
     };
 
     // What a reader of this frame's cache binds (Common/RadianceCache.glslh, the read section).

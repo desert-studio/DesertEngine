@@ -115,8 +115,8 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef    GBufferA; // albedo
         RDG::TextureRef    GBufferB; // normal
         RDG::TextureRef    GBufferEmissive;
-        RDG::TextureRef    EnvSpecular; // the sky's radiance cube (or the system black cube)
-        TracerFrame        Tracer;      // the active tracer and its reads (GITracing.hpp)
+        RDG::TextureRef    EnvSpecular;  // the sky's radiance cube (or the system black cube)
+        TracerFrame        Tracer;       // the active tracer and its reads (GITracing.hpp)
         SurfaceCacheFrame  SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
         RDG::BufferRef     PointLights;
         RDG::BufferRef     SpotLights;

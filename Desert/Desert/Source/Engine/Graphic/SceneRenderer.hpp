@@ -841,9 +841,9 @@ namespace Desert::Graphic
         // (GlobalIllumination::WorldRadianceCache), then the final gather that reads it — the screen probe gather
         // (GlobalIllumination::ScreenProbeGather) or, under ProbeVolume, the irradiance field gather
         // (GlobalIllumination::IrradianceFieldGather) — into FrameTransients::GIDiffuse / GISpecular.
-        void            AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
-                                          const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                          const glm::vec4& lightColor, const ViewFrame& frame );
+        void AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
+                               const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                               const glm::vec4& lightColor, const ViewFrame& frame );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,

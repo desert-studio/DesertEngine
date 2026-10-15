@@ -276,7 +276,6 @@ namespace Desert::Graphic::System
             // The movable layer draws the same cascade with the same matrix and bias, through its own view.
             m_CascadeCasterVP[kCascadeMovableViewBase + c]   = m_CascadeCasterVP[c];
             m_CascadeCasterBias[kCascadeMovableViewBase + c] = m_CascadeCasterBias[c];
-
         }
 
         PlanCascadeCache();

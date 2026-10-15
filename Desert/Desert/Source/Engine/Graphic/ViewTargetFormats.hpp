@@ -75,7 +75,7 @@ namespace Desert::Graphic::ViewTargetFormats
     // The closest-depth hierarchy (HZBRenderer): one 32-bit float per texel, the reversed-Z device depth exactly
     // as the depth attachment stores it (a 16-bit depth would quantise the far half of the scene into a few
     // hundred values).
-    inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
+    inline constexpr ImageFormat kHZB = ImageFormat::R32F;
     // The screen-space denoiser (System::ScreenSpaceDenoiser), every signal: the reconstructed signal, its
     // accumulation history and its output (premultiplied / straight rgb + coverage); the history's sample count,
     // one 32-bit float (R32F: the single-channel storage format every device writes).
