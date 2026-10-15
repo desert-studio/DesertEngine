@@ -4,7 +4,7 @@
 // jittered inside its texel every frame. The ray goes through the GI ray contract (Common/GITracing.glslh: the
 // permutation's tracer, GIHitRadiance on a hit) only as far as the world radiance cache's coverage asks
 // (minTraceDistanceBeforeCache: past it the cache's probes see what the ray would); a ray that gets there without a
-// hit reads the cache's RADIANCE in its direction at the probe (RadianceCacheRadianceAt, UE
+// hit reads the cache's RADIANCE in its direction at the probe, from the probes that see it (RadianceCacheRadianceAt, UE
 // SampleRadianceCacheInterpolated). Outside the cache, or where its probes have not traced yet, the ray goes on to
 // the full trace distance and the sky. The program is compiled per tracer (GlobalIllumination::TracerVariant);
 // it names none. .a keeps the distance the ray's radiance came from (the filter's angle test).
@@ -138,7 +138,7 @@ Shader "ScreenProbeTrace"
                 result = vec4( GIHitRadiance( near.surface, dir ), near.surface.distance );
             else
             {
-                const vec4 far = coverage.valid ? RadianceCacheRadianceAt( origin, dir, noise.z ) : vec4( 0.0, 0.0, 0.0, -1.0 );
+                const vec4 far = coverage.valid ? RadianceCacheRadianceAt( origin, N, dir, noise.z ) : vec4( 0.0, 0.0, 0.0, -1.0 );
                 if ( far.a > 0.0 )
                     result = vec4( far.rgb, SP_TRACE_DISTANCE );
                 else
