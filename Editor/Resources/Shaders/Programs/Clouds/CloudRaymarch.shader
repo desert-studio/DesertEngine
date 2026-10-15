@@ -162,8 +162,8 @@ Shader "CloudRaymarch"
         // averages foreground and background into a distance where nothing is.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_GlobalFilterSampler;
-        Uniform(8) sampler u_LinearRepeatSampler;
+        Uniform(18) sampler u_GlobalFilterSampler;
+        Uniform(19) sampler u_LinearRepeatSampler;
         Uniform(2) texture2D u_SceneDepth;
         #define u_SceneDepth sampler2D(u_SceneDepth, u_GlobalFilterSampler)
 

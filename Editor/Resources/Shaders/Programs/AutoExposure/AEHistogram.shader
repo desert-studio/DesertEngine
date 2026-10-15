@@ -16,7 +16,7 @@ Shader "AEHistogram"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_PointClampSampler;
+        Uniform(2) sampler u_PointClampSampler;
         Uniform(0) texture2D u_Scene;
         #define u_Scene sampler2D(u_Scene, u_PointClampSampler)
         Buffer(1) Histogram

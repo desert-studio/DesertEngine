@@ -24,6 +24,10 @@ Shader "SSRResolveTiled"
 
     Fragment
     {
+        // The vertex stage's shared states: a declaration is per stage, and SSRDenoise samples through all three.
+        Uniform(4) sampler u_LinearClampSampler;
+        Uniform(5) sampler u_LinearRepeatSampler;
+        Uniform(6) sampler u_PointClampSampler;
         #include <Common/SSRDenoise.glslh>
 
         In(0) vec2 v_TexCoord;

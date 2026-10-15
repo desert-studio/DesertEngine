@@ -14,7 +14,7 @@ Shader "PrefilterEnvMap"
         // The source is a separate texture read through the bake's one shared state
         // (Graphic::kComputeImagesSamplerBinding).
         Uniform(0, 0) textureCube inputTexture;
-        Uniform(2, 0) sampler u_LinearRepeatSampler;
+        Uniform(0, 2) sampler u_LinearRepeatSampler;
         #define inputTexture samplerCube(inputTexture, u_LinearRepeatSampler)
         layout(set=0, binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 

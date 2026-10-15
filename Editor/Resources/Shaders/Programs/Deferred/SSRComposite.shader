@@ -32,6 +32,7 @@ Shader "SSRComposite"
 
         In(0) vec2 v_TexCoord;
 
+        Uniform(4) sampler u_LinearRepeatSampler; // the vertex stage's shared state, declared per stage
         Uniform(1) texture2D u_SSR;           // rgb = reflected colour, a = reflectance
         #define u_SSR sampler2D(u_SSR, u_LinearRepeatSampler)
         Uniform(2) texture2D u_GBufferNormal; // rgb = world normal, a = roughness

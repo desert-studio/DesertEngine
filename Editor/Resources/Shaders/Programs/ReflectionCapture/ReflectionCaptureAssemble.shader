@@ -12,7 +12,7 @@ Shader "ReflectionCaptureAssemble"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(6) sampler u_LinearClampSampler;
+        Uniform(8) sampler u_LinearClampSampler;
         Uniform(0) texture2D u_FacePosX;
         #define u_FacePosX sampler2D(u_FacePosX, u_LinearClampSampler)
         Uniform(1) texture2D u_FaceNegX;

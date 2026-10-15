@@ -37,7 +37,7 @@ Shader "SkyMultiScatterLut"
         // SkyboxRenderer orders the two. Binding = Graphic::kSkyTransmittanceLutBinding.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_GlobalFilterSampler;
+        Uniform(3) sampler u_GlobalFilterSampler;
         Uniform(2) texture2D u_TransmittanceLut;
         #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
 

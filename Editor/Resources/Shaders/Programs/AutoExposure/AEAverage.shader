@@ -16,7 +16,7 @@ Shader "AEAverage"
         };
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(0) sampler u_PointClampSampler;
+        Uniform(3) sampler u_PointClampSampler;
         Uniform(1) texture2D u_PrevLum;             // 1x1 previous adapted luminance
         #define u_PrevLum sampler2D(u_PrevLum, u_PointClampSampler)
         layout(binding = 2, rgba32f) writeonly uniform image2D u_OutLum; // 1x1 new adapted luminance

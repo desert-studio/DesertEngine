@@ -44,7 +44,7 @@ Shader "ProceduralSky"
         // and the branch below never samples them.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_LinearClampSampler;
+        Uniform(4) sampler u_LinearClampSampler;
         Uniform(2) texture2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
         #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_LinearClampSampler)
         Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
