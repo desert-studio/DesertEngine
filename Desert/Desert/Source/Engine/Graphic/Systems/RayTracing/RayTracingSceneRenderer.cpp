@@ -78,6 +78,16 @@ namespace Desert::Graphic::RayTracing
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
 
+        // The records BEFORE the TLAS rows are encoded: each instance's GeometryRecordOffset is its SBT offset.
+        // Masked materials are not gathered yet (no template declares its opacity mask; REMAINDER item 2): every
+        // submesh answers "opaque", and a BLAS segment built masked is refused here rather than traced untested.
+        const Common::ResultStr<RayTracingMetadata> metadata = BuildRayTracingMetadata(
+             m_Instances.Instances, m_Gather.Primitives,
+             []( const RayTracingPrimitive&, uint32_t ) -> std::optional<RayTracingMaterialRecord>
+             { return std::nullopt; } );
+        if ( !metadata )
+            return Common::MakeError( metadata.GetError() );
+
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
@@ -85,6 +95,8 @@ namespace Desert::Graphic::RayTracing
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();
+        if ( m_Frame.Built )
+            m_Frame.Metadata = AddRayTracingMetadataUpload( graph, metadata.GetValue() );
 
         m_Stats.Built           = m_Frame.Built;
         m_Stats.InstancesByKind = m_Instances.InstancesByKind;

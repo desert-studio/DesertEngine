@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -77,6 +78,9 @@ namespace Desert::Graphic::RayTracing
         RDG::BufferRef Tlas;
         RDG::BufferRef Instances;
         uint32_t       InstanceCount = 0;
+        // The per-segment geometry and material records the TLAS rows' SBT offsets index (a ray query's hit ->
+        // its vertex/index streams and alpha-test material). Valid exactly when Built.
+        RayTracingMetadataFrame Metadata;
     };
 
     // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
