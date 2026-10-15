@@ -121,7 +121,7 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuObjectMotion" );
-    ASSERT_EQ( members.size(), 6u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, Pad0, Pad1
+    ASSERT_EQ( members.size(), 10u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, SkinCache x3, Pad0-2
     EXPECT_EQ( members[0].second, "World" );
     EXPECT_EQ( members[1].second, "PrevWorld" );
     EXPECT_EQ( members[2].second, "BoneOffset" );

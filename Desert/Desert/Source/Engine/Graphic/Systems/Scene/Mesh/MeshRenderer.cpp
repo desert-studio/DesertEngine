@@ -460,7 +460,9 @@ namespace Desert::Graphic::System
         return frame;
     }
 
-    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion )
+    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion,
+                                                             RayTracing::RayTracingSkinCache* const skinCache,
+                                                             const uint64_t                         frame )
     {
         // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
         // records of one object share it, slots stable per submission); this function only gathers the queued
@@ -507,6 +509,9 @@ namespace Desert::Graphic::System
         }
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
+        // The GPU skin cache: each skinned row learns where its posed vertices are, before the rows are uploaded.
+        if ( skinCache != nullptr )
+            skinCache->PrepareRows( *this, built.Rows, frame );
         const auto& rows     = built.Rows;
         const auto& palettes = built.Palettes;
 

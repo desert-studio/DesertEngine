@@ -55,8 +55,8 @@ namespace Desert::Graphic::RayTracing
         const auto firstSkinned =
              static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
         if ( const Common::BoolResultStr skinned =
-                  cache.GetSkinCache().AddPasses( graph, meshes, m_BonesImport, m_Gather.Primitives, firstSkinned,
-                                                  cache.GetFrame(), m_DynamicBlas );
+                  cache.GetSkinCache().AddPasses( graph, meshes, m_Gather.Primitives, firstSkinned, cache.GetFrame(),
+                                                  m_DynamicBlas );
              !skinned )
             return skinned;
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );

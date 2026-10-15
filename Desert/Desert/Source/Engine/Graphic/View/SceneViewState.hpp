@@ -177,10 +177,17 @@ namespace Desert::Graphic
         // primitive, so every pass that draws the primitive skins it from the same bytes. 0 for a rigid primitive.
         uint32_t BoneOffset     = 0;
         uint32_t PrevBoneOffset = 0;
-        uint32_t Pad0           = 0;
-        uint32_t Pad1           = 0;
+        // Skinned, the GPU skin cache on (RayTracing::RayTracingSkinCache::PrepareRows): the device address of the
+        // primitive's cached streams (current / previous positions, tangent frame) and its vertex count. The view
+        // passes then fetch the posed vertex instead of skinning it; 0 = skin in the vertex stage.
+        uint32_t SkinCacheAddressLo   = 0;
+        uint32_t SkinCacheAddressHi   = 0;
+        uint32_t SkinCacheVertexCount = 0;
+        uint32_t Pad0                 = 0;
+        uint32_t Pad1                 = 0;
+        uint32_t Pad2                 = 0;
     };
-    static_assert( sizeof( GpuObjectMotion ) == 144, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( sizeof( GpuObjectMotion ) == 160, "std430 twin in Common/ObjectMotion.glslh" );
     static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
     static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132,
                    "std430 twin in Common/ObjectMotion.glslh" );

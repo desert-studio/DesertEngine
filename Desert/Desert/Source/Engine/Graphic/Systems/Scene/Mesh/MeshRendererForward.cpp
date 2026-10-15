@@ -1442,6 +1442,10 @@ namespace Desert::Graphic::System
         // The graph opens the render pass (LOAD, over the deferred lighting composite).
         BuildSkinnedDraws( m_SkinnedDraws );
         m_SkinnedDraws.Declare( pass, view );
+        // The skin cache's streams the view-pass cells fetch by address (Vertex_Skinned.glslh): this pass reads them
+        // after "SkinCache: Skin" wrote them.
+        for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+            pass.Read( streams, RDG::Access::StorageRead );
     }
 
     Common::BoolResultStr MeshRenderer::RenderSkinnedManual( const RDG::PassContext& context ) const

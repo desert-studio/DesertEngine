@@ -48,6 +48,7 @@
 #include <string>
 #include <utility>
 #include <unordered_map>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -311,7 +312,33 @@ namespace Desert::Graphic::System
         // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
-        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex stage)
+        // writes each skinned row's cached-streams address before the upload (RayTracingSkinCache::PrepareRows), for
+        // the absolute frame @p frame.
+        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                   motion,
+                                                                RayTracing::RayTracingSkinCache* skinCache = nullptr,
+                                                                uint64_t                         frame     = 0 );
+
+        // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
+        void SetSkinCacheEnabled( const bool enabled )
+        {
+            m_SkinCacheEnabled = enabled;
+        }
+        [[nodiscard]] bool IsSkinCacheEnabled() const
+        {
+            return m_SkinCacheEnabled;
+        }
+        // This view's graph refs of the skin-cache streams its skinned rows address (RayTracingSkinCache::
+        // AddSkinPasses fills them, SceneRenderer clears them per frame): DeclareSkinnedDraws reads them.
+        [[nodiscard]] std::vector<RDG::BufferRef>& SkinCacheReads()
+        {
+            return m_SkinCacheReads;
+        }
+        // This view's ObjectBones as the skin pass's graph external.
+        [[nodiscard]] RDG::ExternalBuffer& SkinCacheBonesImport()
+        {
+            return m_SkinCacheBonesImport;
+        }
 
         // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
         // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
@@ -1209,5 +1236,9 @@ namespace Desert::Graphic::System
         ObjectMotionRows                                m_ScratchMotionRows;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
+        // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
+        std::vector<RDG::BufferRef> m_SkinCacheReads;
+        RDG::ExternalBuffer         m_SkinCacheBonesImport;
+        bool                        m_SkinCacheEnabled = true;
     };
 } // namespace Desert::Graphic::System

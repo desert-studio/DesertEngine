@@ -27,6 +27,82 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    Common::ResultStr<bool> VulkanSkinCacheStreams::Prepare( const uint32_t vertexCount )
+    {
+        if ( m_Buffer != VK_NULL_HANDLE && vertexCount == m_VertexCount )
+            return Common::MakeSuccess( false );
+        if ( vertexCount == 0 )
+            return Common::MakeError<bool>( "SkinCache: the skinned mesh has no vertex" );
+        const auto logical = LogicalDevice();
+        if ( !logical )
+            return Common::MakeError<bool>( "SkinCache: no Vulkan device" );
+        if ( !logical->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::BufferDeviceAddress ) )
+            return Common::MakeError<bool>(
+                 "SkinCache: the device has no buffer device addresses (the view passes fetch the streams by "
+                 "address)" );
+
+        Release();
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        m_Bytes = static_cast<VkDeviceSize>( vertexCount ) * RayTracing::kSkinCacheFloatsPerVertex * sizeof( float );
+        const auto allocated = allocator->RT_AllocateBuffer(
+             "SkinCache_Streams",
+             DeviceAddressBufferInfo( m_Bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                                    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR ),
+             VMA_MEMORY_USAGE_GPU_ONLY, m_Buffer );
+        if ( !allocated.IsSuccess() )
+        {
+            m_Buffer = VK_NULL_HANDLE;
+            Release();
+            return Common::MakeFormattedError<bool>( "SkinCache streams ({} bytes): {}", m_Bytes, allocated.GetError() );
+        }
+        m_Memory = allocated.GetValue();
+        m_Ledger = ResourceOwnership::Take( ResourceKind::StorageBuffer, VulkanAllocator::AllocationSize( m_Memory ) );
+
+        VkBufferDeviceAddressInfo addressInfo{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+        addressInfo.buffer = m_Buffer;
+        m_Address          = vkGetBufferDeviceAddress( logical->GetVulkanLogicalDevice(), &addressInfo );
+        if ( m_Address == 0 )
+        {
+            Release();
+            return Common::MakeError<bool>( "SkinCache: vkGetBufferDeviceAddress answered 0 for the streams" );
+        }
+        m_VertexCount = vertexCount;
+
+        // Starts untouched; each graph hands back the state it leaves it in.
+        m_External                  = RDG::ExternalBuffer( RDG::BufferDesc{ m_Bytes }, RDG::Access::None );
+        m_External.Physical         = VulkanRdgBuffer::Wrap( m_Buffer, m_Bytes );
+        m_External.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
+        {
+            m_External.State = state;
+            return BOOLSUCCESS;
+        };
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanSkinCacheStreams::Release()
+    {
+        // On the frame ring: a frame in flight may still draw from or trace these positions.
+        if ( m_Buffer != VK_NULL_HANDLE )
+            SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                 ->GetVulkanAllocator()
+                 ->RT_DestroyBuffer( m_Buffer, m_Memory );
+        m_Buffer      = VK_NULL_HANDLE;
+        m_Memory      = nullptr;
+        m_Bytes       = 0;
+        m_Address     = 0;
+        m_VertexCount = 0;
+        m_Ledger      = ResourceOwnership{};
+        m_External    = RDG::ExternalBuffer{};
+    }
+
+    VulkanSkinCacheStreams::~VulkanSkinCacheStreams()
+    try
+    {
+        Release();
+    }
+    DESERT_DESTRUCTOR_GUARD( "~VulkanSkinCacheStreams" )
+
     Common::ResultStr<Prepared> VulkanSkinnedRayTracingGeometry::Prepare( const SkinnedMesh& mesh,
                                                                           const uint64_t     hiddenSubmeshes )
     {
@@ -66,28 +142,9 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
-        // The cached positions: kDeformedPositionLayout (one float3 per vertex, the mesh's vertex order), written
-        // by the skin pass as a storage buffer and read by the BLAS build by address.
-        m_PositionsBytes = static_cast<VkDeviceSize>( vertexCount ) * RayTracing::kDeformedPositionLayout.Stride;
-        const auto positions = allocator->RT_AllocateBuffer(
-             "SkinCache_Positions",
-             DeviceAddressBufferInfo( m_PositionsBytes,
-                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                           VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR ),
-             VMA_MEMORY_USAGE_GPU_ONLY, m_Positions );
-        if ( !positions.IsSuccess() )
-        {
-            m_Positions = VK_NULL_HANDLE;
-            Release();
-            return Common::MakeFormattedError<Prepared>( "SkinCache positions: {}", positions.GetError() );
-        }
-        m_PositionsMemory = positions.GetValue();
-        m_PositionsLedger = ResourceOwnership::Take( ResourceKind::StorageBuffer,
-                                                     VulkanAllocator::AllocationSize( m_PositionsMemory ) );
-
         m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
         const VulkanBlasBuildInput input =
-             TranslateBlasGeometry( m_Segments, functions.BufferAddress( device, m_Positions ), m_IndexAddress );
+             TranslateBlasGeometry( m_Segments, 0, m_IndexAddress ); // sizes ignore addresses; RecordBuild passes the streams'
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
         build.flags                                       = kSkinnedBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -142,14 +199,7 @@ namespace Desert::Graphic::API::Vulkan
         m_HiddenSubmeshes = hiddenSubmeshes;
         m_VertexCount     = vertexCount;
 
-        // Both start untouched; each graph hands back the state it leaves them in.
-        m_PositionsExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_PositionsBytes }, RDG::Access::None );
-        m_PositionsExternal.Physical         = VulkanRdgBuffer::Wrap( m_Positions, m_PositionsBytes );
-        m_PositionsExternal.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
-        {
-            m_PositionsExternal.State = state;
-            return BOOLSUCCESS;
-        };
+        // Starts untouched; each graph hands back the state it leaves it in.
         m_StorageExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
         m_StorageExternal.Physical =
              VulkanRdgBuffer::WrapAccelerationStructure( m_Storage, m_StorageBytes, m_Handle );
@@ -212,8 +262,6 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyAccelerationStructure( m_Handle, m_Destroy );
         if ( m_Storage != VK_NULL_HANDLE )
             allocator->RT_DestroyBuffer( m_Storage, m_StorageMemory );
-        if ( m_Positions != VK_NULL_HANDLE )
-            allocator->RT_DestroyBuffer( m_Positions, m_PositionsMemory );
         m_Handle            = VK_NULL_HANDLE;
         m_Storage           = VK_NULL_HANDLE;
         m_StorageMemory     = nullptr;
@@ -221,11 +269,6 @@ namespace Desert::Graphic::API::Vulkan
         m_DeviceAddress     = 0;
         m_StorageLedger     = ResourceOwnership{};
         m_StorageExternal   = RDG::ExternalBuffer{};
-        m_Positions         = VK_NULL_HANDLE;
-        m_PositionsMemory   = nullptr;
-        m_PositionsBytes    = 0;
-        m_PositionsLedger   = ResourceOwnership{};
-        m_PositionsExternal = RDG::ExternalBuffer{};
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();

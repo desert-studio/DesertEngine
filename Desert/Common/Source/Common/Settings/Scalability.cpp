@@ -71,6 +71,8 @@ namespace Common::Scalability
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
              { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ),
                CL::None, "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
+             { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> RayTracingSkinCache::SetEnabled" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },

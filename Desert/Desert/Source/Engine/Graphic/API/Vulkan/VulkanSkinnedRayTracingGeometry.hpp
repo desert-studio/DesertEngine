@@ -15,14 +15,47 @@ namespace Desert::Graphic
     class VertexBuffer;
 } // namespace Desert::Graphic
 
-// THE VULKAN SKIN-CACHE ENTRY OF ONE SKINNED PRIMITIVE (SkinnedRayTracingGeometry): the cached positions buffer
-// the "SkinCache: Positions" pass writes and the BLAS built from it. Both live across frames; they are recreated
-// only when the mesh's buffers or the hidden mask change, and every other frame the BLAS is REFIT in place (UE
+// THE VULKAN SKIN-CACHE ENTRY OF ONE SKINNED PRIMITIVE: its cached streams (VulkanSkinCacheStreams, written by
+// "SkinCache: Skin") and the BLAS built from their current positions (VulkanSkinnedRayTracingGeometry). Both live
+// across frames; the BLAS is recreated only when the mesh's buffers or the hidden mask change, and every other frame the BLAS is REFIT in place (UE
 // FRayTracingDynamicGeometryUpdateParams with bAllowUpdate: ALLOW_UPDATE + PREFER_FAST_BUILD, MODE_UPDATE with
 // src == dst). The build is recorded by the graph pass "RayTracingScene.DynamicGeometry"
 // (RayTracingSkinCache.cpp).
 namespace Desert::Graphic::API::Vulkan
 {
+    // One entry's streams buffer (RayTracingSkinCache.hpp layout, kSkinCacheFloatsPerVertex floats per vertex):
+    // STORAGE (skin pass write, raster fetch by device address) + AS build input (the BLAS reads its first 3V
+    // floats). Recreated only when the vertex count changes.
+    class VulkanSkinCacheStreams final : public RayTracing::SkinCacheStreams
+    {
+    public:
+        VulkanSkinCacheStreams() = default;
+        ~VulkanSkinCacheStreams() override;
+        VulkanSkinCacheStreams( const VulkanSkinCacheStreams& )            = delete;
+        VulkanSkinCacheStreams& operator=( const VulkanSkinCacheStreams& ) = delete;
+
+        [[nodiscard]] Common::ResultStr<bool> Prepare( uint32_t vertexCount ) override;
+        [[nodiscard]] RDG::ExternalBuffer&    GetBuffer() override
+        {
+            return m_External;
+        }
+        [[nodiscard]] uint64_t GetDeviceAddress() const override
+        {
+            return m_Address;
+        }
+
+    private:
+        void Release();
+
+        VkBuffer            m_Buffer      = VK_NULL_HANDLE;
+        VmaAllocation       m_Memory      = nullptr;
+        VkDeviceSize        m_Bytes       = 0;
+        VkDeviceAddress     m_Address     = 0;
+        uint32_t            m_VertexCount = 0;
+        RDG::ExternalBuffer m_External;
+        ResourceOwnership   m_Ledger;
+    };
+
     class VulkanSkinnedRayTracingGeometry final : public RayTracing::SkinnedRayTracingGeometry
     {
     public:
@@ -33,10 +66,6 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] Common::ResultStr<RayTracing::SkinnedBlasPrepared>
                                            Prepare( const SkinnedMesh& mesh, uint64_t hiddenSubmeshes ) override;
-        [[nodiscard]] RDG::ExternalBuffer& GetPositions() override
-        {
-            return m_PositionsExternal;
-        }
         [[nodiscard]] RDG::ExternalBuffer& GetStorage() override
         {
             return m_StorageExternal;
@@ -64,12 +93,6 @@ namespace Desert::Graphic::API::Vulkan
         VkDeviceSize                                       m_BuildScratch  = 0;
         VkDeviceSize                                       m_UpdateScratch = 0;
         bool m_Built = false; // a build was recorded into the storage: the next one may refit it
-
-        VkBuffer            m_Positions       = VK_NULL_HANDLE;
-        VmaAllocation       m_PositionsMemory = nullptr;
-        VkDeviceSize        m_PositionsBytes  = 0;
-        RDG::ExternalBuffer m_PositionsExternal;
-        ResourceOwnership   m_PositionsLedger;
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;

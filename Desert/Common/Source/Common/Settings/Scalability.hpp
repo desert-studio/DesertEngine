@@ -119,6 +119,10 @@ namespace Common::Scalability
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // GPU skin cache (RayTracing::RayTracingSkinCache): 1 = each skinned primitive skinned once per frame in compute,
+        // the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no skinned TLAS
+        // geometry. Values: 0/1
+        SkinCache,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

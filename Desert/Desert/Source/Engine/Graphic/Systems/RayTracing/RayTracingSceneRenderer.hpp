@@ -191,7 +191,6 @@ namespace Desert::Graphic::RayTracing
     private:
         std::unique_ptr<RayTracingSceneTarget> m_Target;
         RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
-        RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
         std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;

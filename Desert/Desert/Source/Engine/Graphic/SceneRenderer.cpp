@@ -1,3 +1,4 @@
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -843,6 +844,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
@@ -1153,13 +1156,32 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, the first view
+            // of the frame skins each skinned primitive once, the raster and the TLAS read the result.
+            const uint64_t                   frameNumber = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            RayTracing::RayTracingSkinCache* skinCache   = nullptr;
+            if ( m_FrameRayTracingCache != nullptr )
+            {
+                m_FrameRayTracingCache->BeginViewFrame( frameNumber );
+                skinCache = &m_FrameRayTracingCache->GetSkinCache();
+                skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+            }
+            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion(), skinCache, frameNumber );
+                 !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
                            "frame: {}",
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
+            meshes->SkinCacheReads().clear();
+            if ( skinCache != nullptr )
+                if ( const Common::BoolResultStr skinned = skinCache->AddSkinPasses(
+                          graph, *meshes, meshes->SkinCacheBonesImport(), frameNumber, meshes->SkinCacheReads() );
+                     !skinned )
+                    LOG_ERROR( "[SceneRenderer] {}: the skin cache's passes could not be declared; its skinned "
+                               "primitives read stale streams this frame: {}",
+                               m_ViewResources.GetName(), skinned.GetError() );
         }
 
         const auto sceneColor = [this, &textures]()

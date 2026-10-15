@@ -96,19 +96,24 @@
         },
         "Effects": {
             "Low": {
-                "Effects.CloudQuality": 0
+                "Effects.CloudQuality": 0,
+                "Effects.SkinCache": 0
             },
             "Medium": {
-                "Effects.CloudQuality": 1
+                "Effects.CloudQuality": 1,
+                "Effects.SkinCache": 1
             },
             "High": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudQuality": 2,
+                "Effects.SkinCache": 1
             },
             "Epic": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudQuality": 2,
+                "Effects.SkinCache": 1
             },
             "Cinematic": {
-                "Effects.CloudQuality": 2
+                "Effects.CloudQuality": 2,
+                "Effects.SkinCache": 1
             }
         },
         "Textures": {

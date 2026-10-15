@@ -2,6 +2,14 @@
 // PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
 // vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
+// GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp): when the view pass's row carries a streams address, the
+// primitive was skinned ONCE this frame by "SkinCache: Skin" and this stage only FETCHES its posed position, last
+// frame's posed position and its posed tangent frame by vertex index (UE FGPUSkinPassthroughVertexFactory). A row
+// without one (skin cache off, or the entry refused) skins here from the palettes, as a light view always does.
+#ifdef DESERT_SURFACE_VIEW_PASS
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#endif
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;
 layout( location = 2 ) in vec3 a_Tangent;
@@ -52,36 +60,85 @@ bones;
 #define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )]
 #endif
 
+#ifdef DESERT_SURFACE_VIEW_PASS
+// One entry's streams, all float, V = row.SkinCacheVertexCount: current positions [0,3V), previous [3V,6V),
+// normal/tangent/bitangent [6V,15V) (RayTracingSkinCache.hpp). gl_VertexIndex is the vertex of the mesh's own
+// vertex buffer (the draw binds it at offset 0), so it addresses the streams unchanged.
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer SkinCacheStreams
+{
+    float Values[];
+};
+vec3 DesertSkinCacheFetch( SkinCacheStreams streams, uint first )
+{
+    return vec3( streams.Values[first], streams.Values[first + 1u], streams.Values[first + 2u] );
+}
+#endif
+
 void main()
 {
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // View pass: see Vertex_Static. The previous pose is the palette the view drew this primitive with last
-    // frame, at the row's PrevBoneOffset in the same ObjectBones buffer.
+    // View pass: see Vertex_Static. The previous pose is the one the view drew this primitive with last frame:
+    // the skin cache's previous positions, or the palette at the row's PrevBoneOffset in the same ObjectBones.
     const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
     const mat4            model     = row.World * m_PushConstants.Transform;
     const mat4            prevModel = row.PrevWorld * m_PushConstants.Transform;
-    // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
-    const int  b        = int( row.BoneOffset );
-    const int  pb       = int( row.PrevBoneOffset );
-    const mat4 prevSkin = DESERT_SKIN_MATRIX( pb, a_BoneIndices.x ) * a_BoneWeights.x +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.y ) * a_BoneWeights.y +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.z ) * a_BoneWeights.z +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.w ) * a_BoneWeights.w;
+    vec3                  posed;
+    vec3                  prevPosed;
+    vec3                  skinnedNormal;
+    vec3                  skinnedTangent;
+    vec3                  skinnedBitangent;
+    if ( row.SkinCacheVertexCount != 0u )
+    {
+        const SkinCacheStreams streams = SkinCacheStreams( uvec2( row.SkinCacheAddressLo, row.SkinCacheAddressHi ) );
+        const uint             count   = row.SkinCacheVertexCount;
+        const uint             vertex  = uint( gl_VertexIndex );
+        posed                          = DesertSkinCacheFetch( streams, vertex * 3u );
+        prevPosed                      = DesertSkinCacheFetch( streams, count * 3u + vertex * 3u );
+        skinnedNormal                  = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u );
+        skinnedTangent                 = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u + 3u );
+        skinnedBitangent               = DesertSkinCacheFetch( streams, count * 6u + vertex * 9u + 6u );
+    }
+    else
+    {
+        // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
+        const int  b        = int( row.BoneOffset );
+        const int  pb       = int( row.PrevBoneOffset );
+        const mat4 prevSkin = DESERT_SKIN_MATRIX( pb, a_BoneIndices.x ) * a_BoneWeights.x +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.y ) * a_BoneWeights.y +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.z ) * a_BoneWeights.z +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.w ) * a_BoneWeights.w;
+        const mat4 skin     = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
+        const mat3 skin3 = mat3( skin );
+        posed            = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+        prevPosed        = ( prevSkin * vec4( a_Position, 1.0 ) ).xyz;
+        skinnedNormal    = skin3 * a_Normal;
+        skinnedTangent   = skin3 * a_Tangent;
+        skinnedBitangent = skin3 * a_Bitangent;
+    }
 #else
     const mat4 model = m_PushConstants.Transform;
     const int  b     = int( m_PushConstants.BoneOffset );
-#endif
-    const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+    const mat4 skin  = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
                       DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
                       DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
                       DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
-    const vec4 worldPos = model * ( skin * vec4( a_Position, 1.0 ) );
+    const vec3 posed = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    const mat3 skin3            = mat3( skin );
+    const vec3 skinnedNormal    = skin3 * a_Normal;
+    const vec3 skinnedTangent   = skin3 * a_Tangent;
+    const vec3 skinnedBitangent = skin3 * a_Bitangent;
+#endif
+#endif
+    const vec4 worldPos = model * vec4( posed, 1.0 );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
-    const mat3 skin3         = mat3( skin );
-    const vec3 T             = normalize( normalMatrix * ( skin3 * a_Tangent ) );
-    const vec3 B             = normalize( normalMatrix * ( skin3 * a_Bitangent ) );
-    const vec3 N             = normalize( normalMatrix * ( skin3 * a_Normal ) );
+    const vec3 T             = normalize( normalMatrix * skinnedTangent );
+    const vec3 B             = normalize( normalMatrix * skinnedBitangent );
+    const vec3 N             = normalize( normalMatrix * skinnedNormal );
     v_Surface.WorldPosition  = worldPos.xyz;
     v_Surface.Normal         = N;
     v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
@@ -91,7 +148,7 @@ void main()
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
-    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * ( prevSkin * vec4( a_Position, 1.0 ) ) );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * vec4( prevPosed, 1.0 ) );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );

@@ -506,7 +506,9 @@ TEST( TemporalViewContract, ASceneChangeClearsMotion )
 // 16-byte std430 stride. VelocityTarget.GpuObjectMotionHasAStd430TwinInGlsl pins the GLSL twin member by member.
 TEST( TemporalViewContract, GpuObjectMotionIsTwoMatricesAndTwoPaletteOffsets )
 {
-    EXPECT_EQ( sizeof( GpuObjectMotion ), 144u );
+    EXPECT_EQ( sizeof( GpuObjectMotion ), 160u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheAddressLo ), 136u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheVertexCount ), 144u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
     EXPECT_EQ( offsetof( GpuObjectMotion, BoneOffset ), 128u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevBoneOffset ), 132u );
