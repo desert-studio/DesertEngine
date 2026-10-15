@@ -663,6 +663,11 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
+            // The caster takes the material the LIT draw shows, by the lit draw's own mapping: the batched Static
+            // draw (MeshRendererForward, DrawStaticMeshes' groupFor) shades every submesh it draws with the FIRST
+            // surface slot; slots holding a non-cell material left for the generic queue at submit
+            // (Rules::SplitMeshSlotDraws, submesh i -> slot min(i, slots - 1)). A per-slot caster here would cut
+            // holes the lit draw does not show. Per-section surface materials are a lit-pass change first.
             const SurfaceSlot         slot = rd.MaterialSlots != nullptr
                                                   ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
                                                   : SurfaceSlot{};
@@ -850,6 +855,11 @@ namespace Desert::Graphic::System
         // entity's submeshes between this queue and the lit one, but a caster is not
         // split, so honouring the mask here would carve the lit half out of the silhouette
         // while the lit record was already casting the whole of it.
+        //
+        // No masked route here, and none can apply: BlendMode Masked exists only on a Surface template
+        // (DShaderParser refuses it on a shader with no Surface block), a template draws only through its mesh
+        // cells, and a slot material with a mesh cell never reaches this queue (CustomSlotMaterial). The generic
+        // lit draw runs the shader's own program, which clips nothing, so an opaque caster is what it shows.
         for ( const auto& g : m_GenericQueue )
         {
             if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&

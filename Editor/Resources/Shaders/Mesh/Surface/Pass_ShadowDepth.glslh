@@ -1,7 +1,7 @@
 // Surface cell pass: shadow depth, DEPTH ONLY (ViewTargetFormats::kShadowDepth, D32F; no colour target — UE's
 // ShadowDepthPixelShader.usf writes depth and nothing else). The receivers sample the depth attachment itself. An opaque template's
-// cell reads no varyings and evaluates no surface — its layout is Shadow*'s; a Masked one evaluates the surface
-// only for its clip, so it carries the surface's bindings and the varyings.
+// cell reads no varyings and evaluates no surface — its layout is Shadow*'s; a Masked one evaluates only its
+// generated opacity mask (UE's masked FShadowDepthPS), so it carries the surface's bindings and the varyings.
 //
 // No gl_FragDepth: the whole caster bias is in the vertex stage's clip depth (constant through the caster matrix,
 // Graphic::CasterViewProj; slope through Common/ShadowCasterBias.glslh, as UE's ShadowDepthVertexShader.usf), so
@@ -13,9 +13,8 @@ DESERT_SURFACE_VARYINGS( in )
 void main()
 {
 #ifdef DESERT_SURFACE_MASKED
-    const SurfaceOutput s =
-         EvaluateSurface( DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
-                              v_Surface.VertexColor, gl_FrontFacing ) );
-    DESERT_SURFACE_CLIP( s );
+    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
 #endif
 }

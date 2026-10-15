@@ -25,6 +25,8 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
@@ -266,8 +268,31 @@ namespace Desert::Editor
                     data.SetParam( "RoughnessFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
                 if ( mat.Metallic )
                     data.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
-                if ( const float cutoff = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f ); cutoff > 0.0f )
-                    data.SetParam( "AlphaCutoff", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                // A CUT-OUT CARD IS A MASKED MATERIAL (UE: BlendMode Masked), and Masked is the template's, not a
+                // parameter: the material states the masked template (the one shader declaring
+                // `Role StandardSurfaceMasked`) and its Opacity Mask Clip Value. The mask is the separate
+                // opacity map's R when the manifest names one, else the albedo's alpha (channel 3).
+                const float cutoff       = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
+                const bool  cutsOut      = cutoff > 0.0f;
+                bool        maskIsAlbedo = false;
+                if ( cutsOut )
+                {
+                    const auto masked =
+                         Assets::FindTemplateByRole( mgr, Common::Content::kStandardSurfaceMaskedRole );
+                    if ( const auto stated = masked ? Assets::SurfaceMaterialAsset::StateShader( data, mgr,
+                                                                                                 masked.GetValue() )
+                                                    : Common::MakeError( masked.GetError() );
+                         !stated )
+                    {
+                        LOG_ERROR( "[Collections] material '{}' cuts out but was not cooked: {}", key,
+                                   stated.GetError() );
+                        continue;
+                    }
+                    data.SetParam( "OpacityMaskClipValue", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                    maskIsAlbedo = static_cast<uint64_t>( opacity ) == 0;
+                    if ( maskIsAlbedo )
+                        data.SetParam( "OpacityChannel", glm::vec4( 3.0f, 0.0f, 0.0f, 0.0f ) );
+                }
                 // The texture slots, by each imported asset's header GUID (MATL 3): a runtime handle is a fold
                 // of that GUID and cannot be turned back into it.
                 const auto stateTexture = [&]( const char* sampler, const Assets::AssetHandle& handle )
@@ -286,7 +311,8 @@ namespace Desert::Editor
                 stateTexture( "u_AlbedoTexture", albedo );
                 stateTexture( "u_NormalTexture", normal );
                 stateTexture( "u_ORMTexture", ormTexture );
-                stateTexture( "u_OpacityTexture", opacity );
+                if ( cutsOut )
+                    stateTexture( "u_OpacityTexture", maskIsAlbedo ? albedo : opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
                 auto text   = Assets::WriteMaterialJson( data );
