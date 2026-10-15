@@ -415,8 +415,7 @@ namespace Desert::Graphic::SurfaceCache
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
                  if ( layout )
-                     SceneViewDetail::BindWhere( block, inputs.View,
-                                                 [&bound = *layout]( std::string_view name )
+                     SceneViewDetail::BindWhere( block, inputs.View, [&bound = *layout]( std::string_view name )
                                                  { return SceneViewDetail::LayoutSamples( bound, name ); } );
                  pass.ColorTarget( 0, direct, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
