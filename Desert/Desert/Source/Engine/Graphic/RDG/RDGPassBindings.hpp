@@ -71,6 +71,12 @@ namespace Desert::Graphic::RDG
     public:
         BindingBlockBuilder& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
                                       SubresourceRange range, SamplerDesc sampler );
+        // A separate texture slot (ShaderResourceKind::Texture): the image alone, sampled through a Sampler slot
+        // of the same pass. An element of an arrayed slot is named "<name>[<element>]".
+        BindingBlockBuilder& Texture( std::string_view shaderName, TextureRef texture, Access declared,
+                                      SubresourceRange range );
+        // A separate sampler slot (ShaderResourceKind::Sampler): the state, no resource.
+        BindingBlockBuilder& Sampler( std::string_view shaderName, SamplerDesc sampler );
         BindingBlockBuilder& Storage( std::string_view shaderName, TextureRef texture, Access declared,
                                       uint32_t mip = 0 );
         BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
@@ -139,8 +145,11 @@ namespace Desert::Graphic::RDG
         // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
         // mip alone (the shader samples it at lod 0), All the whole image. A storage image: one mip over every
         // layer.
-        void ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
-                             SubresourceRange range, SamplerDesc sampler );
+        // A separate texture (ShaderResourceKind::Texture) resolves the same way with no @p sampler.
+        void ResolveSampled( std::string_view shaderName, ShaderResourceKind kind, TextureRef texture,
+                             Access declared, SubresourceRange range, std::optional<SamplerDesc> sampler );
+        // A sampler slot: no resource, only the state.
+        void ResolveSampler( std::string_view shaderName, SamplerDesc sampler );
         void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
 
         const PassContext&        m_Context;

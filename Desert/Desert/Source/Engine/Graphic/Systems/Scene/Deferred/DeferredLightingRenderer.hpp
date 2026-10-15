@@ -127,32 +127,32 @@ namespace Desert::Graphic::System
                                     environment );
         }
 
-        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and
-        // GI with the sampler the material route sampled them with (the image's own: linear, REPEAT, all mips),
-        // the two light buffers as StorageRead entries, the scene/view inputs the shader samples.
+        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). UE's shared-sampler
+        // form: every input is a separate texture and the shader reads each through one of three sampler states
+        // the pass binds once (the G-buffer, AO and GI linear REPEAT, as the material route sampled them; the
+        // integer shading word and depth point-clamped; the LUT, the cubes and the reflection captures
+        // linear-clamped). One combined sampler per input was 17 in the fragment stage, over MoltenVK's 16
+        // (maxPerStageDescriptorSamplers), and the device refused the program. Then the two light buffers as
+        // StorageRead entries and the scene/view inputs the shader samples.
         void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
                                        const DeferredCompositeLights& lights ) const
         {
             if ( !m_Pipeline || !m_Material )
                 return;
-            constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
-            const auto&                layout   = m_BindingLayout.Get( m_Shader );
+            constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
+            constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
+            const auto&                     layout = m_BindingLayout.Get( m_Shader );
             auto block = pass.Bindings( layout, m_Material->GetMaterialExecutor()->GetRouteFill() );
-            block.Sampled( "u_GBufferA", inputs.GBufferA, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler )
-                 .Sampled( "u_GBufferB", inputs.GBufferB, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler )
-                 // The word is an integer (texelFetch only) and depth is never filtered: both point-sampled.
-                 .Sampled( "u_GBufferShadingWord", inputs.GBufferShadingWord, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferDepth", inputs.GBufferDepth, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), kSampler )
-                 .Sampled( "u_SSAO", inputs.SSAO, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_GI", inputs.GI, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
+            block.Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferA", inputs.GBufferA, kRead, kWhole )
+                 .Texture( "u_GBufferB", inputs.GBufferB, kRead, kWhole )
+                 .Texture( "u_GBufferShadingWord", inputs.GBufferShadingWord, kRead, kWhole )
+                 .Texture( "u_GBufferDepth", inputs.GBufferDepth, kRead, kWhole )
+                 .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kRead, kWhole )
+                 .Texture( "u_SSAO", inputs.SSAO, kRead, kWhole )
+                 .Texture( "u_GI", inputs.GI, kRead, kWhole )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
                  .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );

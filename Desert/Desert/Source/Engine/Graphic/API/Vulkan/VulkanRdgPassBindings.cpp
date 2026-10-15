@@ -3,8 +3,10 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <format>
 #include <optional>
 #include <string>
+#include <tuple>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -14,7 +16,7 @@ namespace Desert::Graphic::API::Vulkan
         struct ReflectedSlot
         {
             RdgSlotKey       Slot;
-            std::string_view Name;
+            std::string      Name; // "<name>[<element>]" for an element of an arrayed binding
             std::string_view Bucket;
             // Empty for a slot the block cannot fill (an acceleration structure).
             std::optional<RDG::ShaderResourceKind> Kind;
@@ -25,7 +27,23 @@ namespace Desert::Graphic::API::Vulkan
                       std::optional<RDG::ShaderResourceKind> kind )
         {
             for ( const auto& [binding, resource] : map )
-                out.push_back( ReflectedSlot{ { set, binding }, resource.Name, bucket, kind } );
+            {
+                // Each element of an arrayed binding is its own slot, named by its index, so the block fills,
+                // validates and reports it like any other slot.
+                uint32_t elements = 1;
+                if constexpr ( requires( const typename Map::mapped_type& r ) { r.ArraySize; } )
+                    elements = resource.ArraySize;
+                if ( elements <= 1 )
+                {
+                    out.push_back( ReflectedSlot{ { set, binding, 0 }, resource.Name, bucket, kind } );
+                    continue;
+                }
+                for ( uint32_t element = 0; element < elements; ++element )
+                    out.push_back( ReflectedSlot{ { set, binding, element },
+                                                  std::format( "{}[{}]", resource.Name, element ),
+                                                  bucket,
+                                                  kind } );
+            }
         }
 
         std::vector<ReflectedSlot> CollectSlots( const ShaderResource::ReflectionData& reflection )
@@ -43,12 +61,15 @@ namespace Desert::Graphic::API::Vulkan
                 Collect( slots, set, descriptors.StorageImage3DSamplers, "storage 3D image",
                          Kind::StorageTexture );
                 Collect( slots, set, descriptors.AccelerationStructures, "acceleration structure", std::nullopt );
+                Collect( slots, set, descriptors.SampledImages, "separate texture", Kind::Texture );
+                Collect( slots, set, descriptors.Samplers, "sampler", Kind::Sampler );
             }
             // Deterministic order, so the reported slot does not depend on hash-map iteration.
             std::sort( slots.begin(), slots.end(),
-                       []( const ReflectedSlot& a, const ReflectedSlot& b ) {
-                           return a.Slot.Set != b.Slot.Set ? a.Slot.Set < b.Slot.Set
-                                                           : a.Slot.Binding < b.Slot.Binding;
+                       []( const ReflectedSlot& a, const ReflectedSlot& b )
+                       {
+                           return std::tie( a.Slot.Set, a.Slot.Binding, a.Slot.Element ) <
+                                  std::tie( b.Slot.Set, b.Slot.Binding, b.Slot.Element );
                        } );
             return slots;
         }
@@ -61,6 +82,10 @@ namespace Desert::Graphic::API::Vulkan
                     return "Sampled texture";
                 case RDG::ShaderResourceKind::StorageTexture:
                     return "Storage texture";
+                case RDG::ShaderResourceKind::Texture:
+                    return "Separate texture";
+                case RDG::ShaderResourceKind::Sampler:
+                    return "Sampler";
                 case RDG::ShaderResourceKind::UniformBuffer:
                     return "Uniform buffer";
                 case RDG::ShaderResourceKind::StorageBuffer:
@@ -78,7 +103,7 @@ namespace Desert::Graphic::API::Vulkan
         for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
         {
             if ( slot.Kind )
-                layout.Slots.push_back( { std::string( slot.Name ), *slot.Kind } );
+                layout.Slots.push_back( { slot.Name, *slot.Kind } );
         }
         layout.PushConstantBytes = reflection.PushConstantRanges ? reflection.PushConstantRanges->Size : 0;
         return layout;

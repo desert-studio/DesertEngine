@@ -142,6 +142,36 @@ namespace Desert::Graphic
                                              sampler } );
                 return *this;
             }
+            // A separate texture slot (RDG::ShaderResourceKind::Texture), read through a Sampler slot of the
+            // block.
+            BlockDeclaration& Texture( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
+                                       RDG::SubresourceRange range )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::Texture,
+                                             texture,
+                                             {},
+                                             {},
+                                             {},
+                                             access,
+                                             range,
+                                             std::nullopt } );
+                return *this;
+            }
+            // A separate sampler slot (RDG::ShaderResourceKind::Sampler): a state, no resource.
+            BlockDeclaration& Sampler( std::string_view shaderName, RDG::SamplerDesc sampler )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::Sampler,
+                                             {},
+                                             {},
+                                             {},
+                                             {},
+                                             RDG::Access::None,
+                                             RDG::SubresourceRange::All(),
+                                             sampler } );
+                return *this;
+            }
             // An engine image its system owns, sampled whole (resolved to its import, see BlockEntry).
             BlockDeclaration& Sampled( std::string_view shaderName, std::shared_ptr<Image> image,
                                        RDG::Access access, RDG::SamplerDesc sampler, std::string importName )
@@ -308,7 +338,11 @@ namespace Desert::Graphic
         {
             for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
             {
+                // A sampler slot names no resource.
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                    continue;
                 const bool texture = entry.Kind == RDG::ShaderResourceKind::SampledTexture ||
+                                     entry.Kind == RDG::ShaderResourceKind::Texture ||
                                      entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                 // An engine image is not a ref yet: its import is checked where it is resolved (ResolveDeclared).
                 if ( texture && entry.Image )
@@ -371,6 +405,13 @@ namespace Desert::Graphic
                 {
                     case RDG::ShaderResourceKind::SampledTexture:
                         bindings.Sampled( entry.ShaderName, texture, entry.Access, entry.Range,
+                                          entry.Sampler.value_or( RDG::SamplerDesc::LinearClamp() ) );
+                        break;
+                    case RDG::ShaderResourceKind::Texture:
+                        bindings.Texture( entry.ShaderName, texture, entry.Access, entry.Range );
+                        break;
+                    case RDG::ShaderResourceKind::Sampler:
+                        bindings.Sampler( entry.ShaderName,
                                           entry.Sampler.value_or( RDG::SamplerDesc::LinearClamp() ) );
                         break;
                     case RDG::ShaderResourceKind::StorageTexture:

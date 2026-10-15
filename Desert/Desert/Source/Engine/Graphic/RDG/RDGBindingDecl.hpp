@@ -87,6 +87,13 @@ namespace Desert::Graphic::RDG
     enum class ShaderResourceKind : uint8_t
     {
         SampledTexture, // sampler2D, read with the entry's SamplerDesc
+        // A separate texture2D / textureCube(Array) (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE), read through a Sampler
+        // slot the same pass fills. An element of an arrayed slot is named "<name>[<element>]".
+        Texture,
+        // A separate `sampler` slot (VK_DESCRIPTOR_TYPE_SAMPLER): the entry's SamplerDesc, no resource. UE's
+        // shared sampler state: a few of them serve every Texture input of a pass, which keeps a screen pass under
+        // maxPerStageDescriptorSamplers (16 on MoltenVK) however many inputs it reads.
+        Sampler,
         StorageTexture, // image2D, one mip
         UniformBuffer,
         StorageBuffer,
@@ -126,7 +133,7 @@ namespace Desert::Graphic::RDG
         uint32_t                   Index    = kInvalidResource;
         Access                     Declared = Access::None;
         SubresourceRange           Range    = SubresourceRange::All();
-        std::optional<SamplerDesc> Sampler; // SampledTexture only
+        std::optional<SamplerDesc> Sampler; // SampledTexture and Sampler only
     };
 
     struct DeclaredBindingBlock

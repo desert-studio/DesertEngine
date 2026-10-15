@@ -866,11 +866,10 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
-                                                                  VkDescriptorType           type,
-                                                                  const RDG::TextureBinding& texture,
-                                                                  RDG::SubresourceRange      range,
-                                                                  VkImageLayout layout, VkSampler sampler )
+    Common::BoolResultStr
+    VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
+                                            const RDG::TextureBinding& texture, RDG::SubresourceRange range,
+                                            VkImageLayout layout, VkSampler sampler, uint32_t element )
     {
         const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
@@ -890,11 +889,25 @@ namespace Desert::Graphic::API::Vulkan
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
         write.dstBinding      = binding;
+        write.dstArrayElement = element;
         write.descriptorCount = 1;
         write.descriptorType  = type;
         write.pImageInfo      = &image;
         vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgPassDescriptors::WriteSampler( VkDescriptorSet set, uint32_t binding, VkSampler sampler )
+    {
+        const VkDescriptorImageInfo image{ sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+        VkWriteDescriptorSet        write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
+        write.pImageInfo      = &image;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
     }
 
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,

@@ -53,6 +53,10 @@ namespace Desert::Graphic::API::Vulkan
             // Nothing is seeded into these: a fallback acceleration structure would be a traced scene the
             // author never asked for, so the pass that declares one writes it before it dispatches.
             AccelerationStructureMap AccelerationStructures;
+            // Separate textures and sampler states outside the bindless set: filled only by a pass's RDG bindings
+            // (RDG::ShaderResourceKind::Texture / Sampler), never by the material route or a fallback image.
+            std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::SampledImage>    SampledImages;
+            std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::SeparateSampler> Samplers;
 
             operator bool()
             {

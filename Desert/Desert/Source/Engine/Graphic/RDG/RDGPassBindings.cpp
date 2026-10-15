@@ -30,8 +30,9 @@ namespace Desert::Graphic::RDG
             firstError = fmt::format( "{}: '{}' <- '{}': {}", pass, shaderName, resource, why );
     }
 
-    void PassBindings::ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
-                                       SubresourceRange range, SamplerDesc sampler )
+    void PassBindings::ResolveSampled( std::string_view shaderName, ShaderResourceKind kind, TextureRef texture,
+                                       Access declared, SubresourceRange range,
+                                       std::optional<SamplerDesc> sampler )
     {
         if ( !m_FirstError.empty() )
             return;
@@ -61,12 +62,33 @@ namespace Desert::Graphic::RDG
         }
         m_Textures.push_back( BoundTexture{
              .ShaderName = std::string( shaderName ),
-             .Kind       = ShaderResourceKind::SampledTexture,
+             .Kind       = kind,
              .Texture    = resolved.GetValue(),
              // A FaultDefault read binds the 1x1 system texture whole.
              .Range    = resolved.GetValue().Resource == texture.Index ? range : SubresourceRange::All(),
              .Declared = declared,
              .Sampler  = sampler } );
+    }
+
+    void PassBindings::ResolveSampler( std::string_view shaderName, SamplerDesc sampler )
+    {
+        if ( !m_FirstError.empty() )
+            return;
+        const bool taken = std::any_of( m_Textures.begin(), m_Textures.end(),
+                                        [&]( const BoundTexture& t ) { return t.ShaderName == shaderName; } );
+        if ( taken )
+        {
+            KeepFirstError( m_FirstError, m_Context.GetPassName(), shaderName, "sampler",
+                            "the slot is already bound in this block" );
+            return;
+        }
+        // No resource: the graph neither orders nor barriers a sampler state, and Texture stays empty.
+        m_Textures.push_back( BoundTexture{ .ShaderName = std::string( shaderName ),
+                                            .Kind       = ShaderResourceKind::Sampler,
+                                            .Texture    = {},
+                                            .Range      = SubresourceRange::All(),
+                                            .Declared   = Access::None,
+                                            .Sampler    = sampler } );
     }
 
     void PassBindings::ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared,
@@ -206,6 +228,10 @@ namespace Desert::Graphic::RDG
                     return "sampled texture";
                 case ShaderResourceKind::StorageTexture:
                     return "storage texture";
+                case ShaderResourceKind::Texture:
+                    return "separate texture";
+                case ShaderResourceKind::Sampler:
+                    return "sampler";
                 case ShaderResourceKind::UniformBuffer:
                     return "uniform buffer";
                 case ShaderResourceKind::StorageBuffer:
@@ -294,6 +320,25 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
+    BindingBlockBuilder& BindingBlockBuilder::Texture( std::string_view shaderName, TextureRef texture,
+                                                       Access declared, SubresourceRange range )
+    {
+        m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Texture" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index,
+               declared, range, std::nullopt } );
+        return *this;
+    }
+
+    BindingBlockBuilder& BindingBlockBuilder::Sampler( std::string_view shaderName, SamplerDesc sampler )
+    {
+        // No resource and no access: nothing for the graph to declare, only the slot to fill.
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
+               Access::None, SubresourceRange::All(), sampler } );
+        return *this;
+    }
+
     BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, TextureRef texture,
                                                        Access declared, uint32_t mip )
     {
@@ -349,8 +394,15 @@ namespace Desert::Graphic::RDG
             switch ( entry.Kind )
             {
                 case ShaderResourceKind::SampledTexture:
-                    ResolveSampled( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared, entry.Range,
-                                    entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
+                    ResolveSampled( entry.ShaderName, entry.Kind, TextureRef{ entry.Index }, entry.Declared,
+                                    entry.Range, entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
+                    break;
+                case ShaderResourceKind::Texture:
+                    ResolveSampled( entry.ShaderName, entry.Kind, TextureRef{ entry.Index }, entry.Declared,
+                                    entry.Range, std::nullopt );
+                    break;
+                case ShaderResourceKind::Sampler:
+                    ResolveSampler( entry.ShaderName, entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
                     break;
                 case ShaderResourceKind::StorageTexture:
                     ResolveStorageImage( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared,

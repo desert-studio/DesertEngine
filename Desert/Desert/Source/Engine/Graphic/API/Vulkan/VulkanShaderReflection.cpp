@@ -155,6 +155,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             remember( descriptorSet.StorageImage2DSamplers );
             remember( descriptorSet.StorageImage3DSamplers );
             remember( descriptorSet.AccelerationStructures );
+            remember( descriptorSet.SampledImages );
+            remember( descriptorSet.Samplers );
         }
 
         const auto claimSlot = [&]( const spirv_cross::Resource& resource )
@@ -342,16 +344,19 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             FillResource( as, binding, resource.name, stage );
         }
 
-        // THE BINDLESS TABLE: separate samplers and sampled images exist only as Common/BindlessTextures.glslh
+        // SEPARATE SAMPLERS AND TEXTURES. In the bindless set they exist only as Common/BindlessTextures.glslh
         // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
-        // runtime array u_BindlessTextures[] at kBindlessTextureBinding, both in kBindlessSetIndex. Recognised by
-        // set, binding and type (not by name); VulkanShader then takes the table's own layout for that set. Any
-        // other separate sampler or image is refused by name: no layout here would describe it.
+        // runtime array u_BindlessTextures[] at kBindlessTextureBinding. Recognised by set, binding and type (not
+        // by name); VulkanShader then takes the table's own layout for that set, and anything else there is
+        // refused by name. In every other set they are a pass's own inputs, UE's way: a `texture2D` (or a fixed
+        // array of them, textureCube, textureCubeArray) is a SAMPLED_IMAGE slot and a `sampler` a SAMPLER slot,
+        // both bound by the pass's RDG bindings (RDG::ShaderResourceKind::Texture / Sampler). A few shared sampler
+        // states then serve many inputs, which is what keeps a screen pass under maxPerStageDescriptorSamplers.
         const auto refuseBindless = [&]( const spirv_cross::Resource& resource, std::string_view expected )
         {
             diagnostics.push_back( std::format(
-                 "resource '{}' (set {}, binding {}) is a separate sampler/texture, which only the bindless table "
-                 "declares ({}); include Common/BindlessTextures.glslh instead of declaring one",
+                 "resource '{}' (set {}, binding {}) is a separate sampler/texture in the bindless table's set, "
+                 "which only the table declares ({}); include Common/BindlessTextures.glslh instead",
                  resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
                  compiler.get_decoration( resource.id, spv::DecorationBinding ), expected ) );
         };
@@ -360,9 +365,35 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             return compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ) == kBindlessSetIndex &&
                    compiler.get_decoration( resource.id, spv::DecorationBinding ) == binding;
         };
+        const auto inBindlessSet = [&]( const spirv_cross::Resource& resource )
+        { return compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ) == kBindlessSetIndex; };
+        const auto useTable = [&]()
+        {
+            data.UsesBindlessTable = true;
+            data.BindlessStages =
+                 ( Core::Formats::ShaderStage )( (uint32_t)data.BindlessStages | (uint32_t)stage );
+        };
         for ( const auto& resource : resources.separate_samplers )
         {
-            const auto& type = compiler.get_type( resource.type_id );
+            const auto&    type    = compiler.get_type( resource.type_id );
+            const uint32_t set     = compiler.get_decoration( resource.id, spv::DecorationDescriptorSet );
+            const uint32_t binding = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            if ( !inBindlessSet( resource ) )
+            {
+                claimSlot( resource );
+                if ( !type.array.empty() )
+                {
+                    diagnostics.push_back( std::format( "resource '{}' (set {}, binding {}) is an array of "
+                                                        "samplers; a pass's sampler slot is one "
+                                                        "shared state - declare one `sampler` per state",
+                                                        resource.name, set, binding ) );
+                    continue;
+                }
+                auto& sampler         = data.ShaderDescriptorSets[set].Samplers[binding];
+                sampler.DescriptorSet = set;
+                FillResource( sampler, binding, resource.name, stage );
+                continue;
+            }
             if ( !isBindlessSlot( resource, kBindlessSamplerBinding ) || type.array.size() != 1 ||
                  !type.array_size_literal[0] || type.array[0] != kBindlessSamplerStateCount )
             {
@@ -371,13 +402,36 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                              kBindlessSetIndex, kBindlessSamplerBinding ) );
                 continue;
             }
-            data.UsesBindlessTable = true;
-            data.BindlessStages =
-                 ( Core::Formats::ShaderStage )( (uint32_t)data.BindlessStages | (uint32_t)stage );
+            useTable();
         }
         for ( const auto& resource : resources.separate_images )
         {
-            const auto& type = compiler.get_type( resource.type_id );
+            const auto&    type    = compiler.get_type( resource.type_id );
+            const uint32_t set     = compiler.get_decoration( resource.id, spv::DecorationDescriptorSet );
+            const uint32_t binding = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            if ( !inBindlessSet( resource ) )
+            {
+                claimSlot( resource );
+                // A fixed array is ArraySize descriptors of one binding (dstArrayElement per element); a runtime
+                // array has no count a pass could fill, and more than one dimension no element name.
+                const bool fixedArray = type.array.size() == 1 && type.array_size_literal[0] && type.array[0] > 0;
+                const ImageKind kind  = ClassifyImage( type );
+                if ( ( !type.array.empty() && !fixedArray ) || kind == ImageKind::Image3D ||
+                     kind == ImageKind::Image2DMultisample || kind == ImageKind::Unsupported )
+                {
+                    diagnostics.push_back( std::format(
+                         "resource '{}' (set {}, binding {}) is a separate {}{}; a pass's separate texture is a "
+                         "texture2D, textureCube or textureCubeArray, alone or in a fixed-size array",
+                         resource.name, set, binding, DescribeImageType( type ),
+                         type.array.empty() ? "" : " array" ) );
+                    continue;
+                }
+                auto& image         = data.ShaderDescriptorSets[set].SampledImages[binding];
+                image.DescriptorSet = set;
+                image.ArraySize     = fixedArray ? type.array[0] : 1u;
+                FillResource( image, binding, resource.name, stage );
+                continue;
+            }
             // A runtime array (`[]`) reflects as one literal dimension of 0.
             if ( !isBindlessSlot( resource, kBindlessTextureBinding ) || type.image.dim != spv::Dim2D ||
                  type.image.arrayed || type.image.ms || type.array.size() != 1 || !type.array_size_literal[0] ||
@@ -387,9 +441,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                                        kBindlessTextureBinding ) );
                 continue;
             }
-            data.UsesBindlessTable = true;
-            data.BindlessStages =
-                 ( Core::Formats::ShaderStage )( (uint32_t)data.BindlessStages | (uint32_t)stage );
+            useTable();
         }
 
         // Push Constants
@@ -635,6 +687,13 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             add( binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, resource.ShaderStage );
         for ( const auto& [binding, resource] : set.AccelerationStructures )
             add( binding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, resource.ShaderStage );
+        for ( const auto& [binding, resource] : set.SampledImages )
+        {
+            add( binding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, resource.ShaderStage );
+            bindings.back().descriptorCount = resource.ArraySize;
+        }
+        for ( const auto& [binding, resource] : set.Samplers )
+            add( binding, VK_DESCRIPTOR_TYPE_SAMPLER, resource.ShaderStage );
 
         // Sorted because the buckets above are unordered_maps: the same shader would otherwise produce
         // the same SET of bindings in a different ORDER from run to run. Vulkan does not care, but a
@@ -654,9 +713,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             uint32_t    Count = 0;
             std::string Names;
 
-            void Add( std::string_view name )
+            void Add( std::string_view name, uint32_t descriptors = 1 )
             {
-                ++Count;
+                Count += descriptors;
                 std::format_to( std::back_inserter( Names ), "{}{}", Names.empty() ? "" : ", ", name );
             }
         };
@@ -683,9 +742,13 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             {
                 if ( !InStage( resource.ShaderStage, stage ) )
                     continue;
-                first.Add( resource.Name );
+                // An arrayed binding is ArraySize descriptors against the limit, not one.
+                uint32_t descriptors = 1;
+                if constexpr ( requires( const typename TBucket::mapped_type& r ) { r.ArraySize; } )
+                    descriptors = resource.ArraySize;
+                first.Add( resource.Name, descriptors );
                 if ( second != nullptr )
-                    second->Add( resource.Name );
+                    second->Add( resource.Name, descriptors );
             }
         }
 
@@ -702,6 +765,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 TallyBucket( set.StorageBuffers, stage, tallies.StorageBuffers, nullptr );
                 TallyBucket( set.StorageImage2DSamplers, stage, tallies.StorageImages, nullptr );
                 TallyBucket( set.StorageImage3DSamplers, stage, tallies.StorageImages, nullptr );
+                // A separate texture is sampled images only (ArraySize of them); a sampler slot is a sampler only.
+                TallyBucket( set.SampledImages, stage, tallies.SampledImages, nullptr );
+                TallyBucket( set.Samplers, stage, tallies.Samplers, nullptr );
             }
             return tallies;
         }

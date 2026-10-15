@@ -70,6 +70,28 @@ namespace Desert::ShaderResources::ShaderLayout
 
     // `uniform accelerationStructureEXT` (GL_EXT_ray_query) — a top-level acceleration structure the
     // shader traces against; bound as VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR.
+    // A SEPARATE texture outside the bindless set (texture2D / utexture2D / textureCube / textureCubeArray, or a
+    // fixed-size array of one of them): VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, ArraySize descriptors. It is read with a
+    // sampler from a SeparateSampler slot, so a pass can share a few sampler states over many inputs and stay
+    // under maxPerStageDescriptorSamplers (16 on MoltenVK), as UE's screen passes do with shared sampler states.
+    struct SampledImage
+    {
+        uint32_t                   BindingPoint  = 0;
+        uint32_t                   DescriptorSet = 0;
+        uint32_t                   ArraySize     = 1;
+        std::string                Name;
+        Core::Formats::ShaderStage ShaderStage = Core::Formats::ShaderStage::None;
+    };
+
+    // A separate `sampler` slot outside the bindless set: VK_DESCRIPTOR_TYPE_SAMPLER, one descriptor.
+    struct SeparateSampler
+    {
+        uint32_t                   BindingPoint  = 0;
+        uint32_t                   DescriptorSet = 0;
+        std::string                Name;
+        Core::Formats::ShaderStage ShaderStage = Core::Formats::ShaderStage::None;
+    };
+
     struct AccelerationStructure
     {
         uint32_t                   BindingPoint  = 0;

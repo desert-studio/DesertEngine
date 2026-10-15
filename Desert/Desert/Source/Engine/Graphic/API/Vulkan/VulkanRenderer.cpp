@@ -487,7 +487,19 @@ namespace Desert::Graphic::API::Vulkan
                          entry.Slot.Set, entry.Slot.Binding );
                 VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
-                if ( entry.Texture != nullptr )
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                {
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
+                             static_cast<int>( binding->descriptorType ) );
+                    const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
+                    if ( !made )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                }
+                else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
@@ -505,8 +517,14 @@ namespace Desert::Graphic::API::Vulkan
                             return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
                         sampler = made.GetValue();
                     }
+                    else if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
+                             "texture is read through a Sampler slot of the pass",
+                             pass, name, static_cast<int>( binding->descriptorType ) );
                     written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler );
+                                                        texture.Texture, texture.Range, layout, sampler,
+                                                        entry.Slot.Element );
                 }
                 else
                 {

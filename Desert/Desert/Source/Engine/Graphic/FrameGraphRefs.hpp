@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -135,6 +136,10 @@ namespace Desert::Graphic
     // shadow receiver).
     inline constexpr std::array<std::string_view, kSceneViewShadowCascades> kSceneViewShadowMapNames = {
          "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2", "u_ShadowMap3" };
+    // The same cascades in the separate-texture form (one `texture2D u_ShadowMaps[4]`, read through the pass's
+    // shared sampler; Programs/Deferred/DeferredLighting.shader): one slot per element.
+    inline constexpr std::array<std::string_view, kSceneViewShadowCascades> kSceneViewShadowMapElementNames = {
+         "u_ShadowMaps[0]", "u_ShadowMaps[1]", "u_ShadowMaps[2]", "u_ShadowMaps[3]" };
     inline constexpr std::string_view kSceneViewEnvIrradianceName  = "u_EnvIrradianceTex";
     inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
@@ -173,29 +178,42 @@ namespace Desert::Graphic
             return std::any_of( samplers.begin(), samplers.end(),
                                 [name]( const auto& sampler ) { return sampler.Name == name; } );
         }
-        // A sampled-texture slot of that name in the layout a pass's SETUP declares against (a 2D sampler and a
-        // cube are both ShaderResourceKind::SampledTexture there).
-        [[nodiscard]] inline bool LayoutSamples( const RDG::ShaderBindingLayout& layout, std::string_view name )
+        // The kind of the sampled slot of that name in the layout a pass's SETUP declares against: SampledTexture
+        // for a combined sampler (2D or cube), Texture for a separate texture read through the pass's own shared
+        // sampler; empty when the layout samples no such input.
+        [[nodiscard]] inline std::optional<RDG::ShaderResourceKind>
+        LayoutSamples( const RDG::ShaderBindingLayout& layout, std::string_view name )
         {
-            return std::any_of(
-                 layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
-                 { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::SampledTexture; } );
+            for ( const RDG::ShaderSlot& slot : layout.Slots )
+                if ( slot.Name == name && ( slot.Kind == RDG::ShaderResourceKind::SampledTexture ||
+                                            slot.Kind == RDG::ShaderResourceKind::Texture ) )
+                    return slot.Kind;
+            return std::nullopt;
         }
 
-        // THE one list of scene/view inputs with their samplers: binds each one @p samples( name ) admits. The
-        // cascades and the cloud map with the sampler the material route used (the image's own: linear, REPEAT);
-        // the cubes and the LUT clamped (a LUT edge must not wrap into the opposite one).
+        // THE one list of scene/view inputs with their samplers: binds each one @p samples( name ) admits, in the
+        // form the slot has (std::optional<RDG::ShaderResourceKind>). A combined slot takes the sampler named
+        // here: the cascades and the cloud map with the one the material route used (the image's own: linear,
+        // REPEAT), the cubes and the LUT clamped (a LUT edge must not wrap into the opposite one). A separate
+        // texture (UE's shared-sampler form) takes the image alone; the shader reads it through the pass's shared
+        // sampler of the same state (DeferredLighting.shader), which the pass binds with its own inputs' samplers.
         template <typename Block, typename Samples>
         void BindWhere( Block& block, const SceneViewInputs& inputs, const Samples& samples )
         {
             const auto bind = [&]( std::string_view name, RDG::TextureRef texture, RDG::SamplerDesc sampler )
             {
-                if ( samples( name ) )
+                const std::optional<RDG::ShaderResourceKind> kind = samples( name );
+                if ( kind == RDG::ShaderResourceKind::SampledTexture )
                     block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                    sampler );
+                else if ( kind == RDG::ShaderResourceKind::Texture )
+                    block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
             };
             for ( uint32_t c = 0; c < kSceneViewShadowCascades; ++c )
+            {
                 bind( kSceneViewShadowMapNames[c], inputs.ShadowMaps[c], RDG::SamplerDesc::LinearRepeat() );
+                bind( kSceneViewShadowMapElementNames[c], inputs.ShadowMaps[c], RDG::SamplerDesc::LinearRepeat() );
+            }
             bind( kSceneViewEnvIrradianceName, inputs.EnvIrradiance, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLutName, inputs.BrdfLut, RDG::SamplerDesc::LinearClamp() );
@@ -210,8 +228,8 @@ namespace Desert::Graphic
         template <typename Samples>
         [[nodiscard]] bool SamplesAny( const Samples& samples )
         {
-            for ( const std::string_view name : kSceneViewShadowMapNames )
-                if ( samples( name ) )
+            for ( uint32_t c = 0; c < kSceneViewShadowCascades; ++c )
+                if ( samples( kSceneViewShadowMapNames[c] ) || samples( kSceneViewShadowMapElementNames[c] ) )
                     return true;
             return samples( kSceneViewEnvIrradianceName ) || samples( kSceneViewEnvSpecularName ) ||
                    samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName ) ||
