@@ -85,6 +85,8 @@ Shader "WaterSurface"
 
         #include <Programs/Water/WaterSurfaceData.glslh>
         #include <Common/ObjectMotion.glslh>
+        // The view's fog at the surface's own depth: the water is drawn after the opaque fog composite.
+        #include <Mesh/Surface/SceneFog.glslh>
 
         void main()
         {
@@ -104,7 +106,8 @@ Shader "WaterSurface"
             vec3 H        = normalize( V + L );
             vec3 glint    = sun * pow( max( dot( N, H ), 0.0 ), 400.0 ) * fres * step( 0.0, L.y );
 
-            o_Color   = vec4( mix( body, skyCol, fres ) + glint, 1.0 );
+            const vec4 fog = DesertSceneFog( v_WorldPos );
+            o_Color        = vec4( ( mix( body, skyCol, fres ) + glint ) * fog.a + fog.rgb, 1.0 );
             vec4 world = vec4( v_WorldPos, 1.0 );
             oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
         }

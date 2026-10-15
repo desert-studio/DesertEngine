@@ -480,8 +480,8 @@ namespace Desert::Graphic
             case 16:
             {
                 // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
-                // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-                // translucency, below the particles by the order of AddFrameTranslucency's calls.
+                // compute evaluation of the opaque depth and its apply, once the opaque scene is complete and
+                // before every translucent draw, which fogs itself from the parameter block this system publishes.
                 // Non-fatal: neither must ever take a scene down.
                 RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer );
                 if ( const auto fogInit =
@@ -1211,6 +1211,7 @@ namespace Desert::Graphic
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
+        bool opaqueFogged = false;
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -1261,6 +1262,12 @@ namespace Desert::Graphic
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
+            // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE the
+            // scene copy, so the refraction sees the fogged scene, and before every translucent draw, which fogs
+            // itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
+            AddFrameOpaqueFog( graph, textures, frame );
+            opaqueFogged = true;
+
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
@@ -1273,14 +1280,15 @@ namespace Desert::Graphic
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
-            AddFrameWater( graph, textures );
+            // The water writes the scene depth: the clouds and the particles after it read the resolve again.
+            if ( AddFrameWater( graph, textures ) )
+                AddFrameSceneDepthResolve( graph, textures );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
-        AddFrameSceneDepthResolve( graph, textures );
-        AddFrameSkyAtmosphereLuts( graph, textures );
-        AddFrameVolumetricFog( graph, textures, frame );
-        AddFrameAtmosphericFog( graph, textures );
+        // The forward path's opaque scene is the base pass: its fog here, before the particles.
+        if ( !opaqueFogged )
+            AddFrameOpaqueFog( graph, textures, frame );
         AddFrameVolumetricClouds( graph, textures, frame );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside

@@ -94,6 +94,10 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
+    // Defined beside it in every cell of a `BlendMode Additive` template: an added surface is attenuated by the fog in
+    // front of it and gains none of the fog's own light (Mesh/Surface/Pass_ParticleSprite.glslh, UE's additive
+    // translucency fogging).
+    inline constexpr std::string_view kSurfaceAdditiveDefine = "DESERT_SURFACE_ADDITIVE";
     // Defined in every cell of a `ResponsiveAA` template (UE: the material's bResponsiveAA): the translucent pass
     // headers then write the coverage they composite into the scene target's responsive-AA slot (location 2,
     // Graphic::kSceneTargetResponsiveAASlot), and the temporal resolve trusts the current frame more there.

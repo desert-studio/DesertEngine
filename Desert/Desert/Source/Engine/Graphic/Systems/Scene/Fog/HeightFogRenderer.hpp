@@ -10,7 +10,6 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
-#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -36,24 +35,26 @@ namespace Desert::Graphic::System
      *                 closed-form fog integral of Common/HeightFog.glslh, samples the aerial-perspective
      *                 volume at that pixel's distance, and composes `Fog over AP`. Premultiplied
      *                 inscattering in .rgb, transmittance in .a.
-     *   S2  APPLY     a fullscreen triangle (ApplyPass), the FIRST translucency node: added by
-     *                 SceneRenderer::AddFrameTranslucency before everything else it composites, so
-     *                 every particle lands OVER the fogged scene rather than under it.
+     *   S2  APPLY     a fullscreen triangle (ApplyPass) over the OPAQUE scene: added by SceneRenderer right
+     *                 after S1, before the scene copy and every translucent draw, so the refraction reads the
+     *                 fogged scene and nothing translucent is fogged by the opaque depth behind it.
      *
-     * WHERE IT RUNS. S1 is an in-frame compute dispatch and must be issued OUTSIDE an open render pass,
-     * after the scene depth is finished. SceneRenderer::ExecuteAtmosphericFog() calls ExecuteInFrame()
-     * between the deferred block and ExecuteTransparency() —
-     * immediately AFTER SkyboxRenderer::ExecuteAtmosphereLuts filled this frame's AP volume, so the
-     * froxels a pixel reads were marched for the camera that pixel was drawn with.
+     * TRANSLUCENCY (UE's arrangement): glass, water, translucent meshes and particles fog THEMSELVES at their
+     * own depth, from the same evaluation (Common/ViewFog.glslh) and the same parameter block, which S1
+     * publishes every frame as FrameTransients::FogParams (gates 0 when there is no fog) beside the images it
+     * reads (FogAerialPerspective, FogDistantSkyLight, FogVolume; SceneRenderer imports them).
+     *
+     * WHERE IT RUNS. S1 is an in-frame compute dispatch, after the OPAQUE scene depth is final
+     * (SceneRenderer::AddFrameAtmosphericFog, after the sky's AP volume and the volumetric fog's froxels
+     * were filled this frame, so the froxels a pixel reads were marched for the camera it was drawn with).
      *
      * ZERO COST WHEN NEITHER IS PRESENT. A scene with no fog component (or the fog disabled) AND no
      * aerial perspective — every SkyModel::ArtisticGradient scene — dispatches nothing, allocates no
-     * target, and the apply pass draws nothing: the frame is what it was before this system existed.
-     * Either half alone is enough to run the pass, and the absent half composes as the exact arithmetic
-     * identity, so a gradient scene's pixels are unchanged bit for bit. What Initialize does build
-     * regardless is the two pipelines and the 80-byte parameter buffer
-     * exactly; the RGBA16F fog image is a transient of the frame graph (Builder::CreateTexture, sized
-     * from this frame's view), created only on a fogged frame and published as
+     * fog image, and the apply pass draws nothing: the frame is what it was before this system existed
+     * (the only cost is the gated-off parameter block the translucent cells declare). Either half alone is
+     * enough to run the pass, and the absent half composes as the exact arithmetic identity, so a gradient
+     * scene's pixels are unchanged bit for bit. The RGBA16F fog image is a transient of the frame graph
+     * (Builder::CreateTexture, sized from this frame's view), created only on a fogged frame and published as
      * FrameTransients::HeightFog for the apply.
      */
     class HeightFogRenderer final : public RenderSystem
@@ -100,8 +101,6 @@ namespace Desert::Graphic::System
         // reloaded.
         mutable ShaderBindingLayoutCache m_FogLayout;
         mutable ShaderBindingLayoutCache m_ApplyLayout;
-
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
 
         ECS::ExponentialHeightFogData m_Data{};
         float                         m_FogHeightY = 0.0f;

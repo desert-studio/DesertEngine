@@ -72,7 +72,16 @@ namespace Desert::Core
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.
     inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 4u;
     inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 5u;
-    inline constexpr uint32_t kSceneReadBindingCount  = 6u;
+    // The view's FOG, which a translucent surface applies at its own depth (UE: translucency fogs itself, it is not
+    // fogged by the opaque depth behind it): the height fog's parameter block (`FogParamsBuffer`), the sky's aerial
+    // perspective volume, its distant sky light and the volumetric fog's integrated froxels. Declared by
+    // Mesh/Surface/SceneFog.glslh in the translucent mesh cell and the particle sprite cell (and by the water program
+    // through the same header), bound by name (BindSceneFogInputs).
+    inline constexpr uint32_t kSceneFogParamsBinding            = kSceneReadBindingFirst + 6u;
+    inline constexpr uint32_t kSceneFogAerialPerspectiveBinding = kSceneReadBindingFirst + 7u;
+    inline constexpr uint32_t kSceneFogDistantSkyLightBinding   = kSceneReadBindingFirst + 8u;
+    inline constexpr uint32_t kSceneFogVolumeBinding            = kSceneReadBindingFirst + 9u;
+    inline constexpr uint32_t kSceneReadBindingCount            = 10u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -80,8 +89,8 @@ namespace Desert::Core
     }
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
-    // shading word and the light grid joined it), to sit above the scene-read range; see the paragraph on moving
-    // it above.
+    // shading word and the light grid joined it), then from 31 (the view's fog joined it), to sit above the
+    // scene-read range; see the paragraph on moving it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 31u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 35u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

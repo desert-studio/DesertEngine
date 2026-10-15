@@ -16,7 +16,11 @@
 // The binding the fog parameter buffer is bound at. ComputePipeline::SetStorageBuffer takes the binding
 // as an explicit argument and does not consult reflection, so this number and Graphic::kFogParamsBinding
 // must be the same one — a mismatch lands the buffer on another descriptor, not on an error.
+// 1 in the opaque fog compute (Graphic::kFogParamsBinding); a surface cell defines it first to its scene-read slot
+// (Mesh/Surface/SceneFog.glslh, Core::kSceneFogParamsBinding) and finds the same buffer by the block's name.
+#ifndef FOG_PARAMS_BINDING
 #define FOG_PARAMS_BINDING 1
+#endif
 
 layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
 {
@@ -28,6 +32,10 @@ layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
     vec4 u_FogAmbient;      // rgb = sky-ambient contribution scale, w = 1 when the distant sky light must be sampled
     vec4 u_FogVolumetric0;  // x = froxel edge (px), y/z = froxels across/down, w = 1 when the volumetric fog is bound
     vec4 u_FogVolumetric1;  // xyz = B, O, S of the froxel slice mapping (cm), w = slices
+    vec4 u_FogView;         // xy = scene view size (px), z = AP volume depth (km), w = AP view-distance scale
+    vec4 u_FogGates;        // x = 1 when the AP volume is sampled, y = 1 when the height fog is enabled
+    vec4 u_FogForward;      // xyz = camera forward (world, normalized)
+    vec4 u_FogCamera;       // xyz = camera position (world units)
 };
 
 // Unpacks the block into the struct Common/HeightFog.glslh evaluates (include that first).

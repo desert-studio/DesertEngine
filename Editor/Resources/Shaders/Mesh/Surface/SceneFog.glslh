@@ -1,0 +1,35 @@
+// THE VIEW'S FOG, for a surface that applies it to ITSELF at its own depth: the translucent mesh cell
+// (Pass_Forward_Translucent.glslh), the particle sprite cell (Pass_ParticleSprite.glslh) and the water program
+// (Programs/Water/WaterSurface.shader). UE's arrangement: the height fog, the volumetric fog and the aerial
+// perspective are built before the translucency, the opaque composite fogs the opaque scene only, and every
+// translucent surface evaluates the same fog at the point it is drawn (Common/ViewFog.glslh), so a pane of glass in
+// front of a far wall is fogged by the air in front of the pane.
+//
+// Four resources at the scene-read range's last four slots (Core::kSceneFog*Binding, ShaderGraphBindings.hpp),
+// bound by name from the frame graph (BindSceneFogInputs): the height fog's parameter block (always uploaded; its
+// gates are 0 on a frame without fog, and every reader then leaves its colour untouched), the sky's aerial
+// perspective volume, its distant sky light and the volumetric fog's integrated froxels (each the engine's fallback
+// when absent, never sampled then).
+#ifndef DESERT_SCENE_FOG_GLSLH
+#define DESERT_SCENE_FOG_GLSLH
+
+#define FOG_PARAMS_BINDING 31 // = Core::kSceneFogParamsBinding
+#include <Common/HeightFog.glslh>
+#include <Common/FogParams.glslh>
+#include <Common/ViewFog.glslh>
+
+layout( binding = 32 ) uniform sampler3D u_SceneFogAerialPerspective; // 32 = Core::kSceneFogAerialPerspectiveBinding
+layout( binding = 33 ) uniform sampler2D u_SceneFogDistantSkyLight;   // 33 = Core::kSceneFogDistantSkyLightBinding
+layout( binding = 34 ) uniform sampler3D u_SceneFogVolume;            // 34 = Core::kSceneFogVolumeBinding
+
+// The fog between the camera and this fragment (@p worldPosition, world units): premultiplied inscattering in .rgb,
+// transmittance in .a. An alpha-blended surface writes colour * a + rgb (its coverage multiplies both); an additive
+// one writes colour * a (the fog's own light is already in the scene behind it).
+vec4 DesertSceneFog( vec3 worldPosition )
+{
+    const vec2 viewUv = gl_FragCoord.xy / max( u_FogView.xy, vec2( 1.0 ) );
+    return ViewFogEvaluate( viewUv, worldPosition, true, u_SceneFogAerialPerspective, u_SceneFogDistantSkyLight,
+                            u_SceneFogVolume );
+}
+
+#endif // DESERT_SCENE_FOG_GLSLH

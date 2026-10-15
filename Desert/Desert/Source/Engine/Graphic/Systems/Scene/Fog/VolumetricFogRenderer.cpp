@@ -1,6 +1,7 @@
 #include "VolumetricFogRenderer.hpp"
 
 #include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/Fog/FogPayload.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/Renderer.hpp>
@@ -44,12 +45,6 @@ namespace Desert::Graphic::System
                 fraction /= static_cast<float>( base );
             }
             return result;
-        }
-
-        // The camera's forward axis from a world -> view matrix (the camera looks down -z of its view space).
-        glm::vec3 ForwardOf( const glm::mat4& view )
-        {
-            return -glm::normalize( glm::vec3( view[0][2], view[1][2], view[2][2] ) );
         }
 
         // One world unit is a centimetre; UE's FogDensity / FogHeightFalloff are "per 1000 cm" in the exp2 form
@@ -215,9 +210,9 @@ namespace Desert::Graphic::System
                                      kVolumetricFogHistoryWeight );
         p.Camera        = glm::vec4( frame.CameraPosition,
                                      glm::clamp( m_Data.VolumetricFogScatteringDistribution, -0.9f, 0.9f ) );
-        p.CameraForward = glm::vec4( ForwardOf( frame.View ), 0.0f );
+        p.CameraForward = glm::vec4( FogCameraForward( frame.View ), 0.0f );
         p.PrevCamera    = glm::vec4( frame.PrevCameraPosition, 0.0f );
-        p.PrevCameraForward = glm::vec4( ForwardOf( frame.PrevView ), 0.0f );
+        p.PrevCameraForward = glm::vec4( FogCameraForward( frame.PrevView ), 0.0f );
         p.Albedo       = glm::vec4( glm::clamp( m_Data.VolumetricFogAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
                                     glm::max( m_Data.VolumetricFogExtinctionScale, 0.0f ) );
         p.Emissive     = glm::vec4( glm::max( m_Data.VolumetricFogEmissive, glm::vec3( 0.0f ) ),
@@ -268,8 +263,21 @@ namespace Desert::Graphic::System
 
         const std::string currentName =
              current == 0 ? "VolumetricFog.LightScatteringA" : "VolumetricFog.LightScatteringB";
+        // On a reset (first frame, scene swap, camera cut, grid change: PassHistoryStamp says it) the pass does
+        // not read the other volume at all - no graph read of a never-written or stale image is declared; the
+        // slot holds the engine's 3D fallback (a declared sampler needs an image) and GridPixel.w = 0 says the
+        // shader writes this frame's result only.
         const std::string historyName =
              history == 0 ? "VolumetricFog.LightScatteringA" : "VolumetricFog.LightScatteringB";
+
+        std::shared_ptr<Image> historyImage =
+             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        std::string historyImageName = "VolumetricFog.HistoryReset";
+        if ( historyValid )
+        {
+            historyImage     = std::shared_ptr<Image>( m_LightScattering[history] );
+            historyImageName = historyName;
+        }
 
         ComputeNodeDeclaration scattering;
         scattering.Name = "VolumetricFog: LightScattering";
@@ -278,8 +286,8 @@ namespace Desert::Graphic::System
                         Renderer::GetPipelineRouteFill( *m_ScatteringPipeline ) )
              .Storage( "u_LightScattering", std::shared_ptr<Image>( m_LightScattering[current] ),
                        RDG::Access::StorageWrite, currentName )
-             .Sampled( "u_LightScatteringHistory", std::shared_ptr<Image>( m_LightScattering[history] ),
-                       RDG::Access::SampledCompute, VolumeSampler(), historyName )
+             .Sampled( "u_LightScatteringHistory", historyImage, RDG::Access::SampledCompute, VolumeSampler(),
+                       historyImageName )
              // Read with textureGather (raw depths), so the filter mode is never used.
              .Sampled( kSceneViewShadowCascadesName, t.ShadowCascades, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )

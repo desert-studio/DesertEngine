@@ -565,7 +565,7 @@ namespace Desert::Graphic::System
         // Depth-tested, never written, and sampled for the depth fade in the same pass: the node holds the scene
         // depth READ-ONLY (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV).
         pass.DepthReadOnly = true;
-        pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             const ViewFrame* view = m_SceneRenderer->GetViewFrame();
             if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
@@ -597,6 +597,7 @@ namespace Desert::Graphic::System
             // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
             // read-only in this node), bound only where the cell's layout samples it.
             const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
+            const SceneViewInputs          fogInputs = SceneViewInputsOf( refs );
             for ( const ViewEmitter& ve : m_ViewEmitters )
             {
                 if ( !IsDrawn( ve ) )
@@ -613,6 +614,9 @@ namespace Desert::Graphic::System
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
                     block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
                                    RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
+                // Every sprite fogs itself at its own depth (Mesh/Surface/SceneFog.glslh): the frame's fog block
+                // and images, published by the opaque fog before this node.
+                BindSceneFogInputs( block, fogInputs, *layout );
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

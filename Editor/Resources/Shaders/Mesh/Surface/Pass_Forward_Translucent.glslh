@@ -72,6 +72,8 @@ layout( binding = 7 ) uniform ShadowUB
 #define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
 #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
+// The view's fog at this fragment's own depth (the opaque scene behind it, and so the refraction, is already fogged).
+#include <Mesh/Surface/SceneFog.glslh>
 
 void main()
 {
@@ -108,7 +110,13 @@ void main()
     const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
                                        skyLook.Gain.rgb );
 
-    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
+    // Fogged as UE fogs a translucent surface, at its own depth: the surface's own light (the sky's reflection
+    // weighted by its Fresnel coverage, the sun's hotspot, the emissive) is attenuated by the fog in front of it
+    // and the reflection's coverage gains the fog's inscattering; the refracted scene is the fogged scene copy
+    // already (the opaque fog ran before the copy), so it is not fogged a second time.
+    const vec4 fog     = DesertSceneFog( v_Surface.WorldPosition );
+    const vec3 surface = envRefl * fresnel + vec3( spec ) + s.Emissive;
+    oColor             = vec4( refracted * ( 1.0 - fresnel ) + surface * fog.a + fog.rgb * fresnel, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif

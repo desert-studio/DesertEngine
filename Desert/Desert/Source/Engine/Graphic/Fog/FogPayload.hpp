@@ -47,6 +47,25 @@ namespace Desert::Graphic
         //   Volumetric1: x/y/z = B, O, S of slice = log2(depth * B + O) * S (depth in cm), w = slices
         glm::vec4 Volumetric0;
         glm::vec4 Volumetric1;
+
+        // The per-VIEW facts of this frame, in the block (not the opaque pass's push constant) because the
+        // translucent surfaces evaluate the same fog at their own depth from this same buffer
+        // (Common/ViewFog.glslh): one block, read by the opaque composite and by every translucent draw.
+        // Not authored data: PackFogParams leaves both zero and HeightFogRenderer fills them every frame.
+        //   View:  xy = the scene view's size (render pixels), z = the AP volume's far extent (km,
+        //          AtmosphereEnv::AerialPerspectiveDepthKm), w = the read-side view-distance scale
+        //          (AtmosphereEnv::AerialPerspectiveViewDistanceScale)
+        //   Gates: x = 1 when there is an AP volume to sample, y = 1 when the height fog itself is enabled.
+        //          Either at 0 makes its half the exact arithmetic identity (fog-without-sky, sky-without-fog
+        //          and both from one shader, no permutation); both 0 = no fog this frame, every reader leaves
+        //          its colour untouched.
+        //   Forward: xyz = the camera's forward (normalized, world): a point's froxel slice is its distance
+        //          along it, the same for the opaque pixel and the translucent fragment.
+        //   Camera: xyz = the camera's position (world units): where every fog integral starts.
+        glm::vec4 View;
+        glm::vec4 Gates;
+        glm::vec4 Forward;
+        glm::vec4 Camera;
     };
 
     static_assert( offsetof( FogGpuPayload, SunDirection ) == 0 );
@@ -57,16 +76,16 @@ namespace Desert::Graphic
     static_assert( offsetof( FogGpuPayload, Ambient ) == 80 );
     static_assert( offsetof( FogGpuPayload, Volumetric0 ) == 96 );
     static_assert( offsetof( FogGpuPayload, Volumetric1 ) == 112 );
-    static_assert( sizeof( FogGpuPayload ) == 128, "Eight vec4s, nothing else — the shader reads exactly this." );
+    static_assert( offsetof( FogGpuPayload, View ) == 128 );
+    static_assert( offsetof( FogGpuPayload, Gates ) == 144 );
+    static_assert( offsetof( FogGpuPayload, Forward ) == 160 );
+    static_assert( offsetof( FogGpuPayload, Camera ) == 176 );
+    static_assert( sizeof( FogGpuPayload ) == 192, "Twelve vec4s, nothing else — the shader reads exactly this." );
 
-    // Already a multiple of std430's 16-byte block alignment, so the buffer size IS the struct size.
-    inline constexpr uint32_t kFogPayloadBytes = sizeof( FogGpuPayload );
-
-    // The fog compute pass's parameter buffer binding. SetStorageBuffer takes it as an explicit argument and
-    // never consults the shader's own reflection, so it must equal FOG_PARAMS_BINDING in
-    // Common/FogParams.glslh (the SkyPayload.hpp binding-number trap). The pass's images are entries of its
-    // binding block, by shader name (HeightFogRenderer::DeclareFrameNodes), and have no number here.
-    inline constexpr uint32_t kFogParamsBinding = 1;
+    // The block is a buffer of each frame's graph (HeightFogRenderer::DeclareFrameNodes, sized by the struct: already
+    // a multiple of std430's 16-byte alignment), found BY ITS NAME (kSceneFogParamsBlockName) in every layout that
+    // declares it - the fog compute at FOG_PARAMS_BINDING 1, a surface cell at Core::kSceneFogParamsBinding - so no
+    // binding number is spelled on this side.
 
     /**
      * Per-dispatch data: everything that changes with the CAMERA rather than with the fog settings.
@@ -76,21 +95,18 @@ namespace Desert::Graphic
     struct FogPush
     {
         glm::mat4 InverseViewProjection;
-        glm::vec4 CameraPosition; // xyz = world units, w unused (vec4 keeps the std430 block unambiguous)
-
-        // The aerial perspective this pass composes itself over, and the two switches that decide what
-        // the dispatch actually evaluates. Both gates are here rather than in the fog parameter block
-        // because both are per-VIEW facts about this frame, not authored fog:
-        //   x = the AP volume's far extent, kilometres  (AtmosphereEnv::AerialPerspectiveDepthKm)
-        //   y = the read-side view-distance scale       (AtmosphereEnv::AerialPerspectiveViewDistanceScale)
-        //   z = 1 when there is an AP volume to sample, 0 otherwise
-        //   w = 1 when the height fog itself is enabled, 0 otherwise
-        // Either gate at 0 makes its half of the composite the exact arithmetic identity, which is what
-        // lets one pass serve fog-without-sky, sky-without-fog and both, with no permutation.
-        glm::vec4 AerialPerspective;
+        // The camera position, the aerial-perspective extent and the two gates are in FogGpuPayload (Camera, View,
+        // Gates): the translucent surfaces read them too, and they have the block, not this push constant.
     };
 
-    static_assert( sizeof( FogPush ) == 96 );
+    static_assert( sizeof( FogPush ) == 64 );
+
+    // The camera's forward axis from a world -> view matrix (the camera looks down -z of its view space): the axis a
+    // froxel slice is measured along, by the volumetric fog that fills the grid and by every reader of it.
+    inline glm::vec3 FogCameraForward( const glm::mat4& view )
+    {
+        return -glm::normalize( glm::vec3( view[0][2], view[1][2], view[2][2] ) );
+    }
 
     // One world unit is one centimetre (Common::Units), so a kilometre is 100 000 of them.
     inline constexpr float kFogWorldUnitsPerKm = 100000.0f;

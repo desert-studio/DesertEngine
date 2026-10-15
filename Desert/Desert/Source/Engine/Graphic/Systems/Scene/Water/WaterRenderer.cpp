@@ -127,13 +127,15 @@ namespace Desert::Graphic::System
             tiles->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( WaterTileRow ) ) );
     }
 
-    void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass )
+    void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         // Exactly when RenderManual draws.
         if ( m_FrameDraws.empty() || !m_Pipeline )
             return;
-        (void)pass.Bindings( m_Layout.Get( m_Pipeline->GetSpecification().Shader ),
-                             m_Material->GetMaterialExecutor()->GetRouteFill() );
+        const auto& layout = m_Layout.Get( m_Pipeline->GetSpecification().Shader );
+        auto        block  = pass.Bindings( layout, m_Material->GetMaterialExecutor()->GetRouteFill() );
+        // The surface fogs itself at its own depth (Mesh/Surface/SceneFog.glslh): the frame's fog block and images.
+        BindSceneFogInputs( block, view, *layout );
     }
 
     Common::BoolResultStr WaterRenderer::RenderManual( const RDG::PassContext& context )

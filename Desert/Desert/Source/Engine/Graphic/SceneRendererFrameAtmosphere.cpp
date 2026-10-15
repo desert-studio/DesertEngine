@@ -3,6 +3,7 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -155,6 +156,14 @@ namespace Desert::Graphic
         AddComputeNodes( graph, textures, volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun ) );
     }
 
+    void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        AddFrameSceneDepthResolve( graph, textures );
+        AddFrameSkyAtmosphereLuts( graph, textures );
+        AddFrameVolumetricFog( graph, textures, frame );
+        AddFrameAtmosphericFog( graph, textures );
+    }
+
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -163,8 +172,38 @@ namespace Desert::Graphic
         auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
         const System::VolumetricFogFrameResult volumeResult =
              volume != nullptr ? volume->GetFrameResult() : System::VolumetricFogFrameResult{};
-        if ( fog != nullptr )
-            AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
+        if ( fog == nullptr )
+            return;
+        // The evaluation of the OPAQUE depth, then its apply over the scene target - the opaque composite only.
+        AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
+        // No fog image this frame (neither fog nor aerial perspective): no apply node at all.
+        if ( textures.Transients.HeightFog.IsValid() )
+            AddSystemRaster( graph, textures, fog->ApplyPass() );
+
+        // What every translucent surface after this point fogs itself with, at its own depth (Common/ViewFog.glslh,
+        // bound by name through SceneViewInputs): DeclareFrameNodes published the parameter block (always - gates
+        // 0 without fog); here the three images it reads, each the engine's fallback when absent (the block's
+        // gates say it is not sampled), so a translucent cell never has an unbound slot.
+        const AtmosphereEnv&         atmosphere = GetAtmosphere();
+        const std::shared_ptr<Image> fallback3D =
+             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        FrameTransients& t = textures.Transients;
+        if ( atmosphere.AerialPerspectiveVolume )
+            t.FogAerialPerspective = textures.Import( std::shared_ptr<Image>( atmosphere.AerialPerspectiveVolume ),
+                                                      "Sky.AerialPerspectiveLut" );
+        else
+            t.FogAerialPerspective = textures.Import( fallback3D, "HeightFog.AerialPerspectiveFallback" );
+        if ( atmosphere.DistantSkyLight )
+            t.FogDistantSkyLight =
+                 textures.Import( std::shared_ptr<Image>( atmosphere.DistantSkyLight ), "Sky.DistantLight" );
+        else
+            t.FogDistantSkyLight = textures.Import(
+                 FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ),
+                 "HeightFog.DistantSkyLightFallback" );
+        if ( volumeResult.Integrated != nullptr )
+            t.FogVolume = textures.Import( volumeResult.Integrated, "VolumetricFog.Integrated" );
+        else
+            t.FogVolume = textures.Import( fallback3D, "HeightFog.VolumetricFogFallback" );
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,

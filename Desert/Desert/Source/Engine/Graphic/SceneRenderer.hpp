@@ -689,8 +689,9 @@ namespace Desert::Graphic
         // position of this call. Nothing when the pass has no target (the system did not initialize).
         void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
                               const OverlayTargets& overlay = {} );
-        // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
-        // field), the particles, then the AfterTranslucency extension point.
+        // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
+        // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
+        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
@@ -717,16 +718,21 @@ namespace Desert::Graphic
         // node and the exposure nodes agree on which image is last frame's: returns the imported previous
         // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
         RDG::TextureRef PrepareFrameAutoExposure( FrameTextures& textures );
-        // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
-        // and the translucency (AddFrameTranslucency) — the one point in the frame where the scene depth is
-        // finished in BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its
-        // apply is the first node of AddFrameTranslucency, BELOW the particles, so they composite over the fogged
-        // scene. When Sky Phase 3 lands, this pass composes fog OVER the aerial perspective (UE's order).
+        // THE FOG OF THE OPAQUE SCENE, and the inputs the translucency fogs itself with (UE: the fog volumes are
+        // built before the translucent draws). Called once the OPAQUE scene is complete - after the deferred
+        // composite and the generic/skinned forward meshes, before the scene copy, the water, the glass and the
+        // particles - in both render paths: the scene depth resolve (MSAA > 1), the sky's AP/LUT nodes, the
+        // volumetric fog's froxels, then AddFrameAtmosphericFog.
+        void AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The height fog's evaluation of the opaque depth and its apply over the scene target (the opaque
+        // composite only), and FrameTransients::FogParams / FogAerialPerspective / FogDistantSkyLight / FogVolume,
+        // with which every translucent surface after it evaluates the same fog at its own depth
+        // (Common/ViewFog.glslh). The froxels are AddFrameVolumetricFog's, added just before.
 
-        // The cloud march and its noise bake. Issued immediately after the atmospheric fog: both are
-        // in-frame compute and must be outside an open render pass, and by that point the scene depth is
-        // final and this frame's atmosphere LUTs have been filled. The composite itself is the second node of
-        // AddFrameTranslucency, ABOVE the fog and BELOW the particles.
+        // The cloud march and its noise bake. Issued after the opaque fog and the water/glass: in-frame compute
+        // outside an open render pass, once the scene depth (water included) is final and this frame's atmosphere
+        // LUTs have been filled. The composite itself is the first node of AddFrameTranslucency, over the fogged
+        // opaque scene and BELOW the particles.
         // The cloud layer's shadow on the WORLD, which is a different pass at a different point in the
         // frame from the march above and belongs to a different consumer. Issued BEFORE the render graph
         // records, because the deferred lighting pass reads it and runs immediately after the graph. It
@@ -745,7 +751,9 @@ namespace Desert::Graphic
                             System::MeshRenderer* meshRenderer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass.
-        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
+        // Returns whether a water node was added (it writes the scene depth: the depth consumers after it need the
+        // resolve again at MSAA > 1).
+        bool AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
