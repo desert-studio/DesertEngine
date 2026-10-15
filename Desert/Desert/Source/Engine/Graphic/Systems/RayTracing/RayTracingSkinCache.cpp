@@ -104,7 +104,7 @@ namespace Desert::Graphic::RayTracing
                 entry.Geometry = CreateSkinnedRayTracingGeometry();
 
             const Common::ResultStr<SkinnedBlasPrepared> prepared =
-                 entry.Geometry->Prepare( DescribeDeformedMeshBlas( *record.Mesh, request.HiddenSubmeshes ) );
+                 entry.Geometry->Prepare( DescribeDeformedMeshBlas( *record.Mesh, request.Submeshes ) );
             if ( !prepared )
             {
                 if ( !entry.RefusalLogged )

@@ -19,8 +19,8 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRayTracingGeometry final : public RayTracing::RayTracingGeometryResource
     {
     public:
-        // Builds the BLAS of @p input (DescribeStaticMeshBlas: a mesh's LOD-0 triangles with a hidden mask left
-        // out) from its resident vertex and index buffers and waits for the build (the upload path is blocking,
+        // Builds the BLAS of @p input (DescribeStaticMeshBlas: a mesh's LOD-0 triangles, hidden submeshes left
+        // out, masked sections' segments non-opaque) from its resident vertex and index buffers and waits for the build (the upload path is blocking,
         // like the buffer copies before it). Null result value: the device has no acceleration structures, the
         // buffers are not resident, or the input has no segment (a skinned mesh, no triangle) — no BLAS by
         // design. An error: the device can build one and the build failed.

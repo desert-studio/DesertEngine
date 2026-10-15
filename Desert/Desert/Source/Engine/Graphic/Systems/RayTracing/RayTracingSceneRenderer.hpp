@@ -52,7 +52,8 @@ namespace Desert::Graphic::RayTracing
     };
 
     // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
-    // transform, customIndex:24 | mask:8, sbtOffset:24 | flags:8, the BLAS device address. At least one row: a
+    // transform, customIndex:24 | mask:8, sbtOffset:24 | flags:8, the BLAS device address. The SBT offset is the
+    // instance's first segment record (RayTracingSegmentRecord): a ray query adds the hit's geometry index to it. At least one row: a
     // graph buffer cannot be empty, and an empty TLAS is built with a primitive count of 0 over it.
     [[nodiscard]] inline std::vector<std::byte> EncodeInstanceRows( std::span<const RayTracingInstance> instances )
     {
@@ -65,7 +66,8 @@ namespace Desert::Graphic::RayTracing
             std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
             const uint32_t indexAndMask =
                  ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
-            const uint32_t sbtAndFlags = 0; // one hit group; culling is the ray's choice, not the instance's
+            // Flags 0: culling is the ray's choice and opacity each segment's (RayTracingGeometrySegment::Opaque).
+            const uint32_t sbtAndFlags = instance.FirstSegmentRecord & kMaxSegmentRecord;
             const uint64_t address =
                  static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
             std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );
@@ -151,11 +153,14 @@ namespace Desert::Graphic::RayTracing
     // Primitives a renderer outside the mesh queues produced for this view's TLAS (LandscapeRayTracing): the
     // primitives, the dynamic-geometry builds they need this frame, and the storage of their BLASes built in an
     // earlier frame (the TLAS reads both). Refs are valid only for the graph they were declared in.
+    // SegmentRecords: the primitives' segment records; their FirstSegmentRecord indexes this span, and AddPasses
+    // rebases it onto the frame's table.
     struct RayTracingExternalPrimitives
     {
         std::span<const RayTracingPrimitive>            Primitives;
         std::span<const RayTracingDynamicGeometryBuild> Builds;
         std::span<const RDG::BufferRef>                 Resident;
+        std::span<const RayTracingSegmentRecord>        SegmentRecords;
     };
 
     class RayTracingSceneRenderer

@@ -293,6 +293,22 @@ namespace Desert::Graphic::System
             std::string       DirectTextureSampler;
         };
 
+        // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
+        // (MeshRendererShadow.cpp) and the ray-tracing segments (RayTracingGather.cpp) both take, so a masked
+        // section is alpha-tested by a shadow map and by a ray alike.
+        struct SectionShading
+        {
+            MaterialInstance*            Instance = nullptr;
+            Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
+            bool                         Masked   = false;
+        };
+        [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        // A static entry's section: SectionSurface of its SectionSlot.
+        [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
+        // An ISM section group: its slot instance and that instance's parent surface.
+        [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
+        [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
+
         using RenderSystem::RenderSystem;
 
         // Gathers the scene's whole per-frame contribution (Graphic::SceneFrameBinding) from the scene

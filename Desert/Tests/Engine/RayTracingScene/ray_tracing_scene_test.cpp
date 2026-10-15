@@ -70,7 +70,7 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
     primitives[3].GpuSceneRow     = 9;
     primitives[3].CastShadows     = false;
     primitives[4].Geometry        = &kRock;
-    primitives[4].HiddenSubmeshes = 0b10;
+    primitives[4].Submeshes.Hidden = 0b10;
     primitives[5].Geometry        = &kRock;
     primitives[5].GpuSceneRow     = kMaxGpuSceneRow + 1;
 
@@ -107,7 +107,7 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
     primitives[1].Kind            = RayTracingPrimitiveKind::Skinned;   // skinned with no mesh
     primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[2].DeformedMesh    = &kHero;
-    primitives[2].HiddenSubmeshes = 0b100;
+    primitives[2].Submeshes.Hidden = 0b100;
     primitives[2].GpuSceneRow     = 7;
     primitives[3].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[3].DeformedMesh    = &kGuard;
@@ -120,7 +120,7 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
     ASSERT_EQ( requests.size(), 2u );
     EXPECT_EQ( requests[0].Primitive, 2u );
     EXPECT_EQ( requests[0].DeformedMesh, &kHero );
-    EXPECT_EQ( requests[0].HiddenSubmeshes, 0b100u );
+    EXPECT_EQ( requests[0].Submeshes.Hidden, 0b100u );
     EXPECT_EQ( requests[1].Primitive, 4u );
     EXPECT_EQ( requests[1].DeformedMesh, &kGuard );
 

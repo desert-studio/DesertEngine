@@ -1236,9 +1236,10 @@ namespace Desert::Graphic
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             RayTracing::RayTracingExternalPrimitives    external;
             if ( landscape.IsSuccess() )
-                external = { .Primitives = landscapeFrame.Primitives,
-                             .Builds     = landscapeFrame.Builds,
-                             .Resident   = landscapeFrame.Resident };
+                external = { .Primitives     = landscapeFrame.Primitives,
+                             .Builds         = landscapeFrame.Builds,
+                             .Resident       = landscapeFrame.Resident,
+                             .SegmentRecords = landscapeFrame.SegmentRecords };
 
             Common::BoolResultStr tlas = BOOLSUCCESS;
             if ( m_FrameRayTracingCache == nullptr )

@@ -12,31 +12,31 @@
 namespace Desert::Graphic::RayTracing
 {
     // A static or procedural mesh's BLAS input: its own vertex and index buffers, one segment per visible LOD-0
-    // submesh (DescribeStaticMeshGeometry). A skinned mesh has no static BLAS (its triangles move every frame; the
+    // submesh (DescribeStaticMeshGeometry), each opaque unless @p masks says its section is masked. A skinned mesh has no static BLAS (its triangles move every frame; the
     // skin cache builds its BLAS from DescribeDeformedMeshBlas), so its input has no segment. VertexCount stays 0:
     // a static build addresses vertices through the segments' ranges only.
-    [[nodiscard]] inline RayTracingMeshInput DescribeStaticMeshBlas( const Mesh&    mesh,
-                                                                     const uint64_t hiddenSubmeshes )
+    [[nodiscard]] inline RayTracingMeshInput DescribeStaticMeshBlas( const Mesh&                   mesh,
+                                                                     const RayTracingSubmeshMasks& masks )
     {
         RayTracingMeshInput input;
         input.Vertices = mesh.GetVertexBuffer();
         input.Indices  = mesh.GetIndexBuffer();
         if ( !mesh.IsSkinned() )
-            input.Segments = DescribeStaticMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
+            input.Segments = DescribeStaticMeshGeometry( mesh.GetSubmeshes(), masks );
         return input;
     }
 
     // A skinned instance's BLAS input: the mesh's buffers (the skin pass reads the vertices), its vertex count
     // (the cached positions' size) and the segments over the packed positions (DescribeDeformedMeshGeometry) with
-    // the instance's own hidden mask.
-    [[nodiscard]] inline RayTracingMeshInput DescribeDeformedMeshBlas( const SkinnedMesh& mesh,
-                                                                       const uint64_t     hiddenSubmeshes )
+    // the instance's own hidden and non-opaque masks.
+    [[nodiscard]] inline RayTracingMeshInput DescribeDeformedMeshBlas( const SkinnedMesh&            mesh,
+                                                                       const RayTracingSubmeshMasks& masks )
     {
         RayTracingMeshInput input;
         input.Vertices    = mesh.GetVertexBuffer();
         input.Indices     = mesh.GetIndexBuffer();
         input.VertexCount = mesh.GetVertexCount();
-        input.Segments    = DescribeDeformedMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
+        input.Segments    = DescribeDeformedMeshGeometry( mesh.GetSubmeshes(), masks );
         return input;
     }
 } // namespace Desert::Graphic::RayTracing

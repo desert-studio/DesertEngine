@@ -360,6 +360,30 @@ namespace Desert::Graphic::System
         }
     }
 
+    bool MeshRenderer::IsMaskedSurface( const DataDrivenMaterial* material )
+    {
+        return material != nullptr && ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const StaticMeshRenderData& data )
+    {
+        const SurfaceSlot slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ) };
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const InstancedMeshRenderData& data )
+    {
+        MaterialInstance* instance = data.Material.get();
+        auto* surface = instance != nullptr ? dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() )
+                                            : nullptr;
+        return { instance, surface, IsMaskedSurface( surface ) };
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const SkinnedSection& section )
+    {
+        return { section.Instance, section.Material, IsMaskedSurface( section.Material ) };
+    }
+
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
                                                             MeshVertexPath path, uint32_t cascade )
     {
@@ -621,10 +645,7 @@ namespace Desert::Graphic::System
             set.Transforms.clear();
             return set;
         };
-        const auto isMasked = []( const DataDrivenMaterial* material ) {
-            return material != nullptr &&
-                   ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
-        };
+        const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
         for ( const auto& rd : m_StaticQueue )
         {

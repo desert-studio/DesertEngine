@@ -14,11 +14,11 @@ namespace Desert::Graphic::RayTracing
 {
     RayTracingGeometryVariants::BuildFn MakeVariantBuild()
     {
-        return []( Mesh& mesh, const uint64_t hiddenMask )
+        return []( Mesh& mesh, const RayTracingSubmeshMasks& masks )
                     -> Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>
         {
             auto built =
-                 API::Vulkan::VulkanRayTracingGeometry::BuildStatic( DescribeStaticMeshBlas( mesh, hiddenMask ) );
+                 API::Vulkan::VulkanRayTracingGeometry::BuildStatic( DescribeStaticMeshBlas( mesh, masks ) );
             if ( !built )
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );
@@ -69,8 +69,14 @@ namespace Desert::Graphic::RayTracing
         // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
         // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are read
         // by the TLAS like every other dynamic BLAS.
+        const std::size_t firstExternal     = m_Gather.Primitives.size();
+        const auto        externalRecordBase = static_cast<uint32_t>( m_Gather.SegmentRecords.size() );
         m_Gather.Primitives.insert( m_Gather.Primitives.end(), external.Primitives.begin(),
                                     external.Primitives.end() );
+        m_Gather.SegmentRecords.insert( m_Gather.SegmentRecords.end(), external.SegmentRecords.begin(),
+                                        external.SegmentRecords.end() );
+        for ( std::size_t i = firstExternal; i < m_Gather.Primitives.size(); ++i )
+            m_Gather.Primitives[i].FirstSegmentRecord += externalRecordBase;
         m_DynamicBuilds.insert( m_DynamicBuilds.end(), external.Builds.begin(), external.Builds.end() );
         m_DynamicBlas.insert( m_DynamicBlas.end(), external.Resident.begin(), external.Resident.end() );
         // ONE pass builds every dynamic BLAS of the view (skin cache, procedural, landscape tiles).
