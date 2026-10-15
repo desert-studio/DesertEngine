@@ -78,6 +78,19 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The view's reflection captures (Common/ReflectionEnvironment.glslh), declared as the deferred composite and the
+// forward terrain declare them: SET 1, bindings 0 and 1, so the set-0 table keeps its numbers. Bound by name as
+// scene view inputs (BindSceneViewInputs: ReflectionCapturesUB / u_ReflectionCaptureCubes), so a mesh inside a
+// capture's box reflects the capture exactly as the ground beside it and the deferred composite do.
+#define DESERT_REFLECTION_CAPTURES
+#include <Common/ReflectionCaptureGpu.glslh>
+layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
+{
+    uvec4                u_ReflectionCaptureHeader; // x = capture count
+    ReflectionCaptureGpu u_ReflectionCaptures[];
+};
+layout( set = 1, binding = 1 ) uniform samplerCubeArray u_ReflectionCaptureCubes;
+
 // The split-sum ambient, the SAME text the deferred lighting pass compiles; it also provides the two environment
 // lookups a shading model may call, so it precedes the generated dispatch.
 #include <Mesh/AmbientIBL.glslh>

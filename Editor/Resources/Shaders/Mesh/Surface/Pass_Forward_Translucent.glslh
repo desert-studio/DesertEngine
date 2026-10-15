@@ -3,11 +3,11 @@
 // nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
 // it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
-// the sky's reflection, plus the specular hotspot of the sun (under the cloud shadow) and of every point and spot
+// the environment's reflection (the reflection captures over the sky, as a forward mesh reflects it), plus the specular hotspot of the sun (under the cloud shadow) and of every point and spot
 // light of the pixel's froxel (under its shadow, Mesh/ForwardLocalLights.glslh). Written opaque: the refracted
-// scene already carries the background; the highlights also lose their lights' contact shadows. It declares what it
-// reads and nothing else (no cascade maps, no irradiance, no BRDF LUT); the slots keep the numbers the rest of the
-// mesh family uses.
+// scene already carries the background; the highlights also lose their lights' contact shadows. It declares no cascade maps; the
+// environment trio and the captures are the shared reflection text's (Mesh/AmbientIBL.glslh); the slots keep the
+// numbers the rest of the mesh family uses.
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
@@ -30,8 +30,13 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
-// The specular cube is the ONE environment binding glass reads: a mirror term at grazing angles, not an ambient.
+// The environment, at the numbers the opaque forward cells use: the glass's mirror term at grazing angles is the
+// reflection a forward mesh's ambient specular is (Mesh/AmbientIBL.glslh DesertReflectionSpecular) - the reflection
+// captures around the point over the sky, normalised by the local diffuse ambient (the irradiance cube). The LUT is
+// declared because the shared text names it; the glass's Schlick term below does not read it.
 layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( binding = 9 ) uniform samplerCube u_EnvIrradianceTex;
+layout( binding = 10 ) uniform sampler2D u_BRDFLUTTexture;
 layout( binding = 22 ) uniform SkyLookUB
 {
     vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
@@ -76,6 +81,19 @@ layout( binding = 7 ) uniform ShadowUB
 // The point and spot lights, through the same statement the opaque forward cells shade them with.
 #include <Mesh/ForwardLocalLights.glslh>
 
+// The view's reflection captures, declared as Pass_Forward, the forward terrain and the deferred composite declare
+// them (SET 1, bindings 0 and 1; bound by name by BindSceneViewInputs).
+#define DESERT_REFLECTION_CAPTURES
+#include <Common/ReflectionCaptureGpu.glslh>
+layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
+{
+    uvec4                u_ReflectionCaptureHeader; // x = capture count
+    ReflectionCaptureGpu u_ReflectionCaptures[];
+};
+layout( set = 1, binding = 1 ) uniform samplerCubeArray u_ReflectionCaptureCubes;
+#include <Mesh/BRDF.glslh>
+#include <Mesh/AmbientIBL.glslh>
+
 // Glass is smooth: a light's specular is a tight hotspot.
 float GlassHotspot( vec3 N, vec3 V, vec3 L )
 {
@@ -118,10 +136,10 @@ void main()
     const vec2  refractUV = clamp( screenUV + N.xy * bendScale, vec2( 0.001 ), vec2( 0.999 ) );
     const vec3  refracted = texture( u_SceneColor, refractUV ).rgb * s.BaseColor;
 
-    // The sky's reflection at grazing edges; Fresnel mixes refraction (centre) into reflection (edge).
-    const vec3 R       = reflect( -V, N );
-    const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
-                                       skyLook.Gain.rgb );
+    // The environment's reflection at grazing edges (a mirror: roughness 0), the captures around the point over the
+    // sky as a forward mesh reflects them; Fresnel mixes refraction (centre) into reflection (edge).
+    const vec3 envRefl =
+         DesertReflectionSpecular( v_Surface.WorldPosition, reflect( -V, N ), 0.0, DesertAmbientIrradiance( N ) );
 
     oColor = vec4( mix( refracted, envRefl, fresnel ) + spec + s.Emissive, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA

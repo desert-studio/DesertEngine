@@ -130,18 +130,28 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 #include <Common/ReflectionEnvironment.glslh>
 #endif
 
+// THE prefiltered radiance a lit pass reflects along @p R at @p worldPosition: the reflection captures around the
+// point over the sky (DESERT_REFLECTION_CAPTURES), or the sky alone. @p localDiffuse is the local diffuse ambient
+// at the point (the sky's irradiance under the occlusion, plus the bounce) - UE's IndirectIrradiance, the
+// captures' normalisation. Every reader calls this one function: the composite and the forward cells through
+// DesertSampleAmbient, the glass's mirror term directly.
+vec3 DesertReflectionSpecular(vec3 worldPosition, vec3 R, float roughness, vec3 localDiffuse)
+{
+	const vec3 sky = DesertAmbientSpecular(R, roughness);
+#ifdef DESERT_REFLECTION_CAPTURES
+	return DesertReflectionEnvironment(worldPosition, R, roughness, sky,
+	                                   dot(localDiffuse, vec3(0.2126, 0.7152, 0.0722)));
+#else
+	return sky;
+#endif
+}
+
 DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
 {
 	DesertAmbient A;
-	A.Irradiance   = DesertAmbientIrradiance(S.N);
-	A.Prefiltered  = DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness);
-#ifdef DESERT_REFLECTION_CAPTURES
-	// UE's IndirectIrradiance for the normalisation: the local diffuse ambient (the sky's irradiance under the
-	// occlusion, plus the bounce), as luminance.
-	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
-	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.Roughness, A.Prefiltered,
-	                                            indirectIrradiance);
-#endif
+	A.Irradiance  = DesertAmbientIrradiance(S.N);
+	A.Prefiltered = DesertReflectionSpecular(S.WorldPosition, reflect(-S.V, S.N), S.Roughness,
+	                                         A.Irradiance * occlusion + indirect);
 	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
