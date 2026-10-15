@@ -577,4 +577,101 @@ namespace Desert::Assets
         }
         return Common::MakeSuccess( out );
     }
+
+    float MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input, const MeshCardsBuildData& cards,
+                                    const uint32_t samples )
+    {
+        const size_t triangleCount = input.Indices.size() / 3;
+        if ( triangleCount == 0 || samples == 0 || input.TriangleTwoSided.size() != triangleCount )
+            return 1.0f;
+        std::vector<glm::dvec3> positions( input.Positions.begin(), input.Positions.end() );
+        std::vector<glm::uvec3> triangles;
+        triangles.reserve( triangleCount );
+        for ( size_t i = 0; i < input.Indices.size(); i += 3 )
+        {
+            const glm::uvec3 tri( input.Indices[i], input.Indices[i + 1], input.Indices[i + 2] );
+            if ( tri.x >= positions.size() || tri.y >= positions.size() || tri.z >= positions.size() )
+                return 0.0f;
+            triangles.push_back( tri );
+        }
+        const Geometry::TriangleBvh bvh = Geometry::TriangleBvh::Build( positions, triangles );
+
+        // The area CDF the samples are drawn through, and the box the visibility rays leave by.
+        std::vector<double> cumulative( triangleCount );
+        double              area = 0.0;
+        for ( size_t t = 0; t < triangleCount; ++t )
+        {
+            area += 0.5 * glm::length( bvh.Normal[t] );
+            cumulative[t] = area;
+        }
+        if ( area <= 0.0 )
+            return 1.0f;
+        const glm::dvec3 boundsMin( cards.BoundsMin ), boundsMax( cards.BoundsMax );
+        const double     diagonal = glm::length( boundsMax - boundsMin ) + 1.0;
+
+        double seen = 0.0, held = 0.0;
+        for ( uint32_t k = 0; k < samples; ++k )
+        {
+            // Stratified along the CDF; the point within the triangle from the R2 sequence (deterministic).
+            const double u = ( static_cast<double>( k ) + 0.5 ) / static_cast<double>( samples ) * area;
+            const size_t t = std::min<size_t>(
+                 static_cast<size_t>( std::lower_bound( cumulative.begin(), cumulative.end(), u ) -
+                                      cumulative.begin() ),
+                 triangleCount - 1 );
+            double a = std::fmod( 0.5 + 0.7548776662466927 * static_cast<double>( k ), 1.0 );
+            double b = std::fmod( 0.5 + 0.5698402909980532 * static_cast<double>( k ), 1.0 );
+            if ( a + b > 1.0 )
+            {
+                a = 1.0 - a;
+                b = 1.0 - b;
+            }
+            const glm::dvec3 p      = bvh.A[t] + bvh.E1[t] * a + bvh.E2[t] * b;
+            const double     length = glm::length( bvh.Normal[t] );
+            if ( length <= 0.0 )
+                continue;
+            const glm::dvec3 front = bvh.Normal[t] / length;
+            const int        sides = input.TriangleTwoSided[t] != 0 ? 2 : 1;
+            for ( int side = 0; side < sides; ++side )
+            {
+                const glm::dvec3 n       = side == 0 ? front : -front;
+                const double     weight  = 1.0 / sides;
+                bool             visible = false, isHeld = false;
+                for ( int axis = 0; axis < 3 && !isHeld; ++axis )
+                {
+                    // The lookup's axis weight: the squared component at least 0.01.
+                    if ( n[axis] * n[axis] < 0.01 )
+                        continue;
+                    const uint32_t direction = static_cast<uint32_t>( axis ) * 2u + ( n[axis] > 0.0 ? 1u : 0u );
+                    glm::dvec3     out( 0.0 );
+                    out[axis] = n[axis] > 0.0 ? 1.0 : -1.0;
+                    // Seen along this direction: nothing of the mesh between the point and the outside.
+                    constexpr double kRayBias = 0.1; // cm off the surface, as the surfel rays
+                    const glm::dvec3 origin   = p + n * kRayBias;
+                    const double     o[3]     = { origin.x, origin.y, origin.z };
+                    const double     d[3]     = { out.x, out.y, out.z };
+                    if ( bvh.ClosestHit( o, d, 0.0, diagonal, static_cast<int>( t ) ).Triangle >= 0 )
+                        continue;
+                    visible = true;
+                    for ( const CardBuildData& card : cards.Cards )
+                    {
+                        if ( static_cast<uint32_t>( card.Direction ) != direction )
+                            continue;
+                        const glm::dvec3 local = glm::abs( p - glm::dvec3( card.Center ) );
+                        const glm::dvec3 limit = glm::dvec3( card.Extent ) + 0.5;
+                        if ( local.x <= limit.x && local.y <= limit.y && local.z <= limit.z )
+                        {
+                            isHeld = true;
+                            break;
+                        }
+                    }
+                }
+                if ( visible )
+                {
+                    seen += weight;
+                    held += isHeld ? weight : 0.0;
+                }
+            }
+        }
+        return seen > 0.0 ? static_cast<float>( held / seen ) : 1.0f;
+    }
 } // namespace Desert::Assets

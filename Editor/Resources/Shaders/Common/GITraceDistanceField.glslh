@@ -143,4 +143,18 @@ uvec4 GIHitInstanceRows( GIHit hit )
     return rows;
 }
 
+// The surface-cache bias of a software hit (UE LumenSoftwareRayTracing.ush). A mesh SDF hit: 20 cm, UE's literal
+// for the mesh SDF and heightfield hits (TraceMeshSDFs / TraceAndCalculateRayTracedLightingFromSurfaceCache) - the
+// mesh field's bricks are coarser than the mesh, so its surface stands off the captured one by up to a voxel of a
+// large mesh. A global-field hit: DISTANCE_FIELD_OBJECT_GRID_CARD_INTERPOLATION_RANGE_IN_VOXELS (3) x the hit
+// clipmap's ClipmapVoxelExtent (half a voxel), UE GlobalDistanceFieldObjectGrid.ush.
+#define GI_MESH_SDF_SURFACE_CACHE_BIAS 20.0
+#define GI_GDF_CARD_INTERPOLATION_RANGE_IN_VOXELS 3.0
+float GIHitSurfaceCacheBias( GIHit hit )
+{
+    if ( hit.instance != GI_NO_INSTANCE )
+        return GI_MESH_SDF_SURFACE_CACHE_BIAS;
+    return GI_GDF_CARD_INTERPOLATION_RANGE_IN_VOXELS * 0.5 * GITraceVoxelAt( hit.position );
+}
+
 #endif // GI_TRACE_DISTANCE_FIELD_GLSLH

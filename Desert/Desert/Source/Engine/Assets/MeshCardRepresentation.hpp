@@ -117,6 +117,46 @@ namespace Desert::Assets
     LoadMeshCards( const std::filesystem::path& asset, uint64_t renderDataKey,
                    const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input );
 
+    // THE COVERAGE (not in UE): the share of the mesh's surface, by area, that its cards hold the way the runtime
+    // lookup reads them (Common/SurfaceCacheSampling.glslh) - a surface point is HELD when a card facing one of
+    // the axis directions its normal leans to (|component| >= 0.1, the lookup's axis weight) contains it and
+    // nothing of the mesh lies between it and the card plane. Only the surface seen from outside the mesh along
+    // one of those axis directions is counted (a pocket no axis reaches from outside is a hole UE's cards cannot
+    // cover either). Deterministic area-weighted samples, ray-cast against the mesh (Geometry/TriangleBvh.hpp);
+    // two-sided triangles count once per side.
+    inline constexpr uint32_t kMeshCardsCoverageSamples = 4096;
+    [[nodiscard]] float       MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input,
+                                                        const MeshCardsBuildData&          cards,
+                                                        uint32_t samples = kMeshCardsCoverageSamples );
+    // Derived from the cards and the same triangles, in its own DDC bucket keyed on the cards' key and this
+    // measure's version: a mesh pays for it once per card build, as for the cards.
+    inline constexpr Common::DDC::Deriver kMeshCardsCoverageDeriver{
+         "MeshCardsCoverage", ".mccov", { 0x6B1E2F0C93D84A57ULL, 0xA4C7155E2D9B03F1ULL } };
+    // 1: area-weighted samples, held when a facing card contains the point and sees it
+    inline constexpr uint32_t kMeshCardsCoverageVersion = 1;
+
+    // THE COVERAGE REPORT. Every mesh whose cards are loaded or built where a builder is registered (the editor,
+    // the cook) is recorded with its coverage; one below kMeshCardsLowCoverage is logged as a warning naming it,
+    // and MeshCardsCoverageSummary() is the report over the process: the meshes, their mean coverage and the low
+    // ones, lowest first (the surface cache prints it when the scene settles).
+    inline constexpr float kMeshCardsLowCoverage = 0.75f;
+    struct MeshCardsCoverageEntry
+    {
+        std::string Asset;
+        float       Coverage = 0.0f;
+        uint32_t    Cards    = 0;
+    };
+    struct MeshCardsCoverageReport
+    {
+        uint32_t                            Meshes       = 0;
+        float                               MeanCoverage = 0.0f; // by mesh
+        std::vector<MeshCardsCoverageEntry> Low;                 // below kMeshCardsLowCoverage, lowest first
+    };
+    void RecordMeshCardsCoverage( const std::filesystem::path& asset, float coverage, uint32_t cards );
+    [[nodiscard]] MeshCardsCoverageReport MeshCardsCoverageSummary();
+    // The report as one line: "N mesh(es), mean X %, K below Y %: a 41 %, b 52 %, ..." (the first @p listed).
+    [[nodiscard]] std::string FormatMeshCardsCoverage( const MeshCardsCoverageReport& report, size_t listed );
+
     // Where a mesh's cards land when its derived-data job finishes (as MeshDistanceFieldSlot): empty until then,
     // and for good when the build failed (logged naming the mesh). Read from any thread; written once.
     class MeshCardsSlot

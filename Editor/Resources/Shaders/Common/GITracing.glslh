@@ -19,6 +19,9 @@
 //   GIHitInstanceRows  the instance-table rows (contract B3) the hit may belong to, nearest first, GI_NO_INSTANCE
 //                      after the last: the hardware hit's own instance; for a distance-field hit, which has no
 //                      object identity, the object grid cell at the hit (UE GlobalDistanceFieldPageObjectGrid).
+//   GIHitSurfaceCacheBias  how far, in cm, the hit may lie from the surface the cards captured and still be read
+//                      from them (UE SampleLumenMeshCards' SurfaceCacheBias): the traced surface is the field's, not
+//                      the mesh's, so it is the field's precision - per hit kind, the TRACER's own number.
 //   GIHitRadiance      the radiance leaving a hit towards the ray's origin — ONE function for both tracers
 //                      (GIHitLighting.glslh; GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit
 //                      with no cards (GI_NO_MESH_CARDS — this hit only, never the whole tracer), or any hit under
@@ -85,6 +88,7 @@ float         GITraceVisibility( vec3 origin, vec3 direction, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 uvec4         GIHitInstanceRows( GIHit hit );
+float         GIHitSurfaceCacheBias( GIHit hit );
 vec3          GIHitRadiance( GIHit hit, vec3 rayDirection );
 vec3          GIMissRadiance( vec3 rayDirection );
 

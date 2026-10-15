@@ -68,8 +68,7 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
         vec3 cardLighting;
-        if ( SurfaceCacheHitLighting( hit, GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance,
-                                      cardLighting ) )
+        if ( SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting ) )
             return cardLighting;
     }
 #endif
