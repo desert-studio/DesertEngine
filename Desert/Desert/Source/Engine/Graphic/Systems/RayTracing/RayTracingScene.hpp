@@ -31,18 +31,33 @@ namespace Desert::Graphic::RayTracing
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
 
-    // One queued primitive as the TLAS sees it. Filled from MeshRenderer's queues; Geometry is the resident BLAS
-    // (null: the mesh has none — not resident yet, or a mesh kind with no BLAS). For a skinned primitive Geometry
-    // is its per-frame dynamic BLAS (null until one is built for this frame) and DeformedMesh the mesh it skins.
+    // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the overlay
+    // says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero here.
+    enum class RayTracingPrimitiveKind : uint8_t
+    {
+        Static = 0, // an asset mesh on the lit queue
+        Generic,    // a mesh drawn with a data-driven material (shader override, per-slot material, procedural)
+        Instanced,  // ONE instance of an ISM / foliage field: every instance is its own GPU-scene row
+        Landscape,  // one landscape tile at the view's LOD
+        Skinned,    // a deformed mesh, traced through its per-frame BLAS
+        Count
+    };
+
+    // One TLAS instance as the gather produced it: ONE GPU-scene row (an ObjectMotions row), ONE instance. An ISM
+    // instance has a row of its own (the GI card table is keyed per instance, 1:1 with the TLAS instance), so
+    // the custom index alone names the instance a ray hit. Geometry is the BLAS the instance traces: the mesh's
+    // own, or the (mesh, hidden mask) variant when the row hides some submeshes (RayTracingGeometryVariants);
+    // null: the mesh has none (not resident, or a kind with no BLAS). For a skinned primitive Geometry is its
+    // per-frame dynamic BLAS (null until one is built for this frame) and DeformedMesh the mesh it skins.
     struct RayTracingPrimitive
     {
-        const void* Geometry        = nullptr;
-        glm::mat4   World           = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t    GpuSceneRow     = 0;                 // the primitive's ObjectMotions row (MotionRow)
-        bool        CastShadows     = true;
-        uint64_t    HiddenSubmeshes = 0; // bit i = submesh i hidden
-        bool        Skinned         = false;
-        const void* DeformedMesh    = nullptr; // skinned only: the SkinnedMesh the dynamic BLAS is built from
+        const void*             Geometry        = nullptr;
+        glm::mat4               World           = glm::mat4( 1.0f ); // centimetres, like every world transform
+        uint32_t                GpuSceneRow     = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        bool                    CastShadows     = true;
+        uint64_t                HiddenSubmeshes = 0; // bit i = submesh i hidden; Geometry already leaves them out
+        RayTracingPrimitiveKind Kind            = RayTracingPrimitiveKind::Static;
+        const void*             DeformedMesh    = nullptr; // skinned only: the SkinnedMesh it skins
     };
 
     // ONE PER-FRAME BLAS BUILD FOR A DEFORMED PRIMITIVE (UE FRayTracingDynamicGeometryUpdateParams): the skin pass
@@ -69,7 +84,7 @@ namespace Desert::Graphic::RayTracing
     {
         NoGeometry = 0,  // no resident BLAS for the mesh
         Skinned,         // a deformed mesh with no dynamic BLAS built this frame (SelectDynamicGeometry)
-        HiddenSubmeshes, // a static mesh's one shared BLAS holds every submesh; an instance cannot hide part of it
+        NothingVisible,  // every submesh of the row is hidden: there is no triangle to trace
         RowOutOfRange,   // the GPU-scene row does not fit the 24-bit custom index
         Count
     };
@@ -78,10 +93,15 @@ namespace Desert::Graphic::RayTracing
     {
         std::vector<RayTracingInstance>                                         Instances;
         std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{};
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
 
         [[nodiscard]] uint32_t SkippedFor( RayTracingSkip reason ) const
         {
             return Skipped[static_cast<std::size_t>( reason )];
+        }
+        [[nodiscard]] uint32_t InstancesFor( RayTracingPrimitiveKind kind ) const
+        {
+            return InstancesByKind[static_cast<std::size_t>( kind )];
         }
     };
 
@@ -113,7 +133,7 @@ namespace Desert::Graphic::RayTracing
         for ( std::size_t i = 0; i < primitives.size(); ++i )
         {
             const RayTracingPrimitive& primitive = primitives[i];
-            if ( !primitive.Skinned || primitive.DeformedMesh == nullptr ||
+            if ( primitive.Kind != RayTracingPrimitiveKind::Skinned || primitive.DeformedMesh == nullptr ||
                  primitive.GpuSceneRow > kMaxGpuSceneRow )
                 continue;
             RayTracingDynamicGeometryRequest& request = requests.emplace_back();
@@ -132,7 +152,7 @@ namespace Desert::Graphic::RayTracing
         const auto skip = [&list]( RayTracingSkip reason ) { ++list.Skipped[static_cast<std::size_t>( reason )]; };
         for ( const RayTracingPrimitive& primitive : primitives )
         {
-            if ( primitive.Skinned && primitive.Geometry == nullptr )
+            if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::Skinned );
                 continue;
@@ -140,11 +160,6 @@ namespace Desert::Graphic::RayTracing
             if ( primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::NoGeometry );
-                continue;
-            }
-            if ( !primitive.Skinned && primitive.HiddenSubmeshes != 0 )
-            {
-                skip( RayTracingSkip::HiddenSubmeshes );
                 continue;
             }
             if ( primitive.GpuSceneRow > kMaxGpuSceneRow )
@@ -158,6 +173,7 @@ namespace Desert::Graphic::RayTracing
             instance.CustomIndex         = primitive.GpuSceneRow;
             instance.Mask =
                  static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+            ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];
         }
         return list;
     }

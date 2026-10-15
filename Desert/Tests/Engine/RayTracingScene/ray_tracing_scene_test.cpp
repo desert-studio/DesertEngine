@@ -65,7 +65,7 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
     primitives[0].GpuSceneRow     = 4;
     primitives[1].Geometry        = nullptr; // not resident
     primitives[2].Geometry        = nullptr; // skinned, no dynamic BLAS built this frame
-    primitives[2].Skinned         = true;
+    primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[3].Geometry        = &kCrate;
     primitives[3].GpuSceneRow     = 9;
     primitives[3].CastShadows     = false;
@@ -76,7 +76,8 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
 
     const RayTracingInstanceList list = BuildRayTracingInstances( primitives );
 
-    ASSERT_EQ( list.Instances.size(), 2u );
+    // Primitive 4 hides a submesh: its Geometry is already the variant BLAS that leaves it out, so it enters.
+    ASSERT_EQ( list.Instances.size(), 3u );
     EXPECT_EQ( list.Instances[0].Geometry, &kRock );
     EXPECT_EQ( list.Instances[0].CustomIndex, 4u );
     EXPECT_EQ( list.Instances[0].Mask, kMaskOpaque | kMaskShadowCaster );
@@ -86,7 +87,8 @@ TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
 
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::NoGeometry ), 1u );
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::Skinned ), 1u );
-    EXPECT_EQ( list.SkippedFor( RayTracingSkip::HiddenSubmeshes ), 1u );
+    EXPECT_EQ( list.Instances[2].Geometry, &kRock );
+    EXPECT_EQ( list.InstancesFor( RayTracingPrimitiveKind::Static ), 3u );
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::RowOutOfRange ), 1u );
 }
 
@@ -102,15 +104,15 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
 
     std::vector<RayTracingPrimitive> primitives( 5 );
     primitives[0].Geometry        = &kRock; // static: never a dynamic build
-    primitives[1].Skinned         = true;   // skinned with no mesh
-    primitives[2].Skinned         = true;
+    primitives[1].Kind            = RayTracingPrimitiveKind::Skinned;   // skinned with no mesh
+    primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[2].DeformedMesh    = &kHero;
     primitives[2].HiddenSubmeshes = 0b100;
     primitives[2].GpuSceneRow     = 7;
-    primitives[3].Skinned         = true;
+    primitives[3].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[3].DeformedMesh    = &kGuard;
     primitives[3].GpuSceneRow     = kMaxGpuSceneRow + 1;
-    primitives[4].Skinned         = true;
+    primitives[4].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[4].DeformedMesh    = &kGuard;
     primitives[4].GpuSceneRow     = 8;
 
@@ -130,7 +132,7 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
     EXPECT_EQ( list.Instances[1].Geometry, &kHeroBlas );
     EXPECT_EQ( list.Instances[1].CustomIndex, 7u );
     EXPECT_EQ( list.SkippedFor( RayTracingSkip::Skinned ), 3u );
-    EXPECT_EQ( list.SkippedFor( RayTracingSkip::HiddenSubmeshes ), 0u );
+    EXPECT_EQ( list.InstancesFor( RayTracingPrimitiveKind::Skinned ), 1u );
 }
 
 // Red if the 3x4 is written column-major (glm's order): the translation would land in the bottom row, which a
