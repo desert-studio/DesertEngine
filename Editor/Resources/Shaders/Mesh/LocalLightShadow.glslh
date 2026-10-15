@@ -92,7 +92,10 @@ float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
     return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));
 }
 
-// The lights as a shading model receives them, with their shadow.
+// The lights as a shading model receives them, with their shadow and their contact shadow - offered to an includer
+// that included Common/ContactShadow.glslh first (it marches the includer's screen depth). One with no screen
+// depth (the surface cache's card lighting) reads PointLightShadow / SpotLightShadow above instead.
+#ifdef CONTACT_SHADOW_GLSLH
 // `subsurfaceOpacity`: the receiver's (DesertSubsurfaceOpacity; -1 = not a subsurface model), for its contact shadow.
 DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, vec3 N, float subsurfaceOpacity)
 {
@@ -113,5 +116,6 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
                        ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
     return light;
 }
+#endif // CONTACT_SHADOW_GLSLH
 
 #endif // LOCAL_LIGHT_SHADOW_GLSLH

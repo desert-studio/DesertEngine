@@ -77,16 +77,19 @@ Shader "SurfaceCacheDirectLighting"
 
         // The sun's cascades: the composite's maps and the composite's ShadowUB values (same packer on the C++
         // side, SurfaceCacheRenderer::DirectLightingInputs), as a storage block of the same members.
-        Uniform(9) sampler2D u_ShadowMap0;
-        Uniform(10) sampler2D u_ShadowMap1;
-        Uniform(11) sampler2D u_ShadowMap2;
-        Uniform(12) sampler2D u_ShadowMap3;
+        Uniform(9) sampler2DArray u_ShadowCascades; // one layer per cascade (10..12 free)
         ReadBuffer(13) SurfaceCacheShadowUB
         {
             mat4 u_LightViewProj[4];
-            vec4 u_ShadowParams;      // x = 0, y = enabled (>0.5), z = debug mode, w = cascade count
+            vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode, w = cascade count
             vec4 u_DebugParams;       // unused here
             vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel
+            vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans
+            // The view's contact shadow values (SceneResources::PackContactShadow). Unread: a card texel has no
+            // screen depth to march (SceneRenderer::AddFrameSurfaceCache packs 0 steps), and this pass includes no
+            // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
+            vec4 u_ContactShadowView;
+            vec4 u_SunContactShadow;
         };
         #include <Mesh/CascadedShadow.glslh>
 
