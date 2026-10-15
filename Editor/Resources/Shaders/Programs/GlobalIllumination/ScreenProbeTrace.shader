@@ -122,8 +122,23 @@ Shader "ScreenProbeTrace"
         // The near field's objects a probe keeps (the first that reach it, in the view-culled list's order).
         #define SP_MESH_SDF_MAX_OBJECTS 64u
 
-        shared uint s_MeshSDFCount;
-        shared uint s_MeshSDFObjects[SP_MESH_SDF_MAX_OBJECTS];
+        shared uint  s_MeshSDFCount;
+        shared uint  s_MeshSDFObjects[SP_MESH_SDF_MAX_OBJECTS];
+        shared vec4  s_MeshSDFBoxMin[SP_MESH_SDF_MAX_OBJECTS]; // world box, w = its distance from the probe (cm)
+        shared vec3  s_MeshSDFBoxMax[SP_MESH_SDF_MAX_OBJECTS];
+        shared uint  s_MeshSDFOrder[SP_MESH_SDF_MAX_OBJECTS];  // the slots nearest the probe first
+
+        // The segment [tMin, tMax] of the ray against a world box: false when it misses.
+        bool SPRayHitsBox( vec3 origin, vec3 invDir, float tMin, float tMax, vec3 boxMin, vec3 boxMax )
+        {
+            const vec3 a     = ( boxMin - origin ) * invDir;
+            const vec3 b     = ( boxMax - origin ) * invDir;
+            const vec3 lo    = min( a, b );
+            const vec3 hi    = max( a, b );
+            const float near = max( max( lo.x, lo.y ), max( lo.z, tMin ) );
+            const float far  = min( min( hi.x, hi.y ), min( hi.z, tMax ) );
+            return near <= far;
+        }
 
         // World -> (uv, deviceZ) of the G-buffer's (jittered) projection, uv top-left (the engine's flipped
         // viewport). False behind the camera.
@@ -262,7 +277,27 @@ Shader "ScreenProbeTrace"
                         continue;
                     const uint slot = atomicAdd( s_MeshSDFCount, 1u );
                     if ( slot < SP_MESH_SDF_MAX_OBJECTS )
+                    {
                         s_MeshSDFObjects[slot] = object;
+                        s_MeshSDFBoxMin[slot]  = vec4( boxMin, length( gap ) );
+                        s_MeshSDFBoxMax[slot]  = boxMax;
+                    }
+                }
+            }
+            barrier();
+            // Nearest first (a rank per slot): a ray's first hit then clips the objects behind it to nothing.
+            {
+                const uint kept = min( s_MeshSDFCount, SP_MESH_SDF_MAX_OBJECTS );
+                if ( texel < kept )
+                {
+                    const float own  = s_MeshSDFBoxMin[texel].w;
+                    uint        rank = 0u;
+                    for ( uint j = 0u; j < kept; ++j )
+                    {
+                        const float other = s_MeshSDFBoxMin[j].w;
+                        rank += ( other < own || ( other == own && j < texel ) ) ? 1u : 0u;
+                    }
+                    s_MeshSDFOrder[rank] = texel;
                 }
             }
         #endif
@@ -312,8 +347,18 @@ Shader "ScreenProbeTrace"
                     near.hitDistance = nearEnd;
                     near.hitObject   = 0u;
                     const uint objects = min( s_MeshSDFCount, SP_MESH_SDF_MAX_OBJECTS );
-                    for ( uint i = 0u; i < objects; ++i )
-                        GITraceMeshSDFObject( nearOrigin, dir, start, nearEnd, s_MeshSDFObjects[i], near );
+                    const vec3 invDir  = vec3( dir.x != 0.0 ? 1.0 / dir.x : 3.4e38, dir.y != 0.0 ? 1.0 / dir.y : 3.4e38,
+                                               dir.z != 0.0 ? 1.0 / dir.z : 3.4e38 );
+                    for ( uint k = 0u; k < objects; ++k )
+                    {
+                        const uint slot = s_MeshSDFOrder[k];
+                        // Past the nearest hit so far, or off this ray: nothing of the object can come nearer.
+                        if ( s_MeshSDFBoxMin[slot].w > near.hitDistance + 2.0 * SP_MESH_SDF_BIAS ||
+                             !SPRayHitsBox( nearOrigin, invDir, start, near.hitDistance, s_MeshSDFBoxMin[slot].xyz,
+                                            s_MeshSDFBoxMax[slot] ) )
+                            continue;
+                        GITraceMeshSDFObject( nearOrigin, dir, start, nearEnd, s_MeshSDFObjects[slot], near );
+                    }
                     if ( near.hitDistance < nearEnd )
                     {
                         const GIHit hit = GIMeshSDFHit( nearOrigin, dir, 0.0, near );

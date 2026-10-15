@@ -344,6 +344,8 @@ namespace Desert::Graphic::DistanceField
             objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
         }
 
+        if ( objectData != m_FrameObjectData || objectRows != m_FrameObjectRows )
+            ++m_FrameObjectsRevision;
         m_FrameObjectData = objectData;
         m_FrameObjectRows = objectRows;
         m_FrameObjectBounds.clear();
@@ -474,8 +476,7 @@ namespace Desert::Graphic::DistanceField
     }
 
     Common::ResultStr<GlobalDistanceField::MeshSDFScene>
-    GlobalDistanceField::AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import,
-                                          const MeshSDFCull& cull ) const
+    GlobalDistanceField::AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull )
     {
         if ( !m_HasFrame || !m_SceneData.GetBrickAtlas() )
             return Common::MakeError<MeshSDFScene>( "mesh SDFs: the global distance field holds no frame yet" );
@@ -498,22 +499,56 @@ namespace Desert::Graphic::DistanceField
         }
         culled[0] = glm::vec4( std::bit_cast<float>( count ), 0.0f, 0.0f, 0.0f );
 
-        const auto upload = [&graph]<typename T>( const std::vector<T>& data, const std::string_view name )
+        // The records: the field's device copies, imported, written only when their revision moved (a buffer
+        // grown past its size is written whole).
+        const auto records =
+             [&graph]<typename T>( DeviceRecords& device, const std::vector<T>& data, const uint64_t revision,
+                                   const std::string_view name ) -> Common::ResultStr<RDG::BufferRef>
         {
             static const T                   zero{};
             const std::span<const std::byte> bytes = data.empty() ? std::as_bytes( std::span<const T>( &zero, 1 ) )
                                                                   : std::as_bytes( std::span<const T>( data ) );
-            const RDG::BufferRef             buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
-            graph.QueueBufferUpload( buffer, bytes );
-            return buffer;
+            if ( !device.Buffer || device.Buffer->GetSize() < bytes.size() )
+            {
+                const auto size = static_cast<uint32_t>( bytes.size() + bytes.size() / 2u );
+                device.Buffer   = ShaderResources::StorageBuffer::Create( name, size, 0, true );
+                if ( !device.Buffer )
+                    return Common::MakeFormattedError<RDG::BufferRef>( "mesh SDFs: {} ({} bytes) not created",
+                                                                       name, size );
+                device.Revision = ~0ull;
+            }
+            if ( const auto imported = Renderer::ImportBuffer( device.Buffer, device.Import ); !imported )
+                return Common::MakeFormattedError<RDG::BufferRef>( "mesh SDFs: {}: {}", name,
+                                                                   imported.GetError() );
+            const RDG::BufferRef buffer = graph.RegisterExternal( device.Import, name );
+            if ( device.Revision != revision )
+            {
+                graph.QueueBufferUpload( buffer, bytes );
+                device.Revision = revision;
+            }
+            return Common::MakeSuccess( buffer );
         };
         MeshSDFScene scene;
-        scene.BrickAtlas  = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
-        scene.AssetData   = upload( m_SceneData.GetAssetData(), "MeshSDF.AssetData" );
-        scene.Indirection = upload( m_SceneData.GetIndirection(), "MeshSDF.Indirection" );
-        scene.Objects     = upload( m_FrameObjectData, "MeshSDF.Objects" );
-        scene.ObjectRows  = upload( m_FrameObjectRows, "MeshSDF.ObjectRows" );
-        scene.Culled      = upload( culled, "MeshSDF.Culled" );
+        scene.BrickAtlas     = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+        const uint64_t field = m_SceneData.GetRevision();
+        const auto asset = records( m_MeshSDFAssetData, m_SceneData.GetAssetData(), field, "MeshSDF.AssetData" );
+        const auto indirection =
+             records( m_MeshSDFIndirection, m_SceneData.GetIndirection(), field, "MeshSDF.Indirection" );
+        const auto objects =
+             records( m_MeshSDFObjects, m_FrameObjectData, m_FrameObjectsRevision, "MeshSDF.Objects" );
+        const auto rows =
+             records( m_MeshSDFObjectRows, m_FrameObjectRows, m_FrameObjectsRevision, "MeshSDF.ObjectRows" );
+        for ( const auto* result : { &asset, &indirection, &objects, &rows } )
+            if ( !*result )
+                return Common::MakeError<MeshSDFScene>( result->GetError() );
+        scene.AssetData   = asset.GetValue();
+        scene.Indirection = indirection.GetValue();
+        scene.Objects     = objects.GetValue();
+        scene.ObjectRows  = rows.GetValue();
+        // The cull is this frame's own.
+        const auto culledBytes = std::as_bytes( std::span<const glm::vec4>( culled ) );
+        scene.Culled           = graph.CreateBuffer( RDG::BufferDesc{ culledBytes.size() }, "MeshSDF.Culled" );
+        graph.QueueBufferUpload( scene.Culled, culledBytes );
         return Common::MakeSuccess( scene );
     }
 

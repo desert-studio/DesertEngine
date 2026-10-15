@@ -141,9 +141,11 @@ namespace Desert::Graphic::DistanceField
             float         TraceDistance         = 0.0f;
             float         EndDistanceFromCamera = 0.0f;
         };
-        // After AddUpdatePasses of the same frame. An error when the field holds no frame yet.
+        // After AddUpdatePasses of the same frame. An error when the field holds no frame yet. The records live in
+        // device buffers of the field's own, uploaded by the graph only in a frame where they changed
+        // (DistanceFieldSceneData::GetRevision, the objects' list); the cull is this frame's.
         [[nodiscard]] Common::ResultStr<MeshSDFScene>
-        AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull ) const;
+        AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
@@ -173,7 +175,20 @@ namespace Desert::Graphic::DistanceField
         std::vector<glm::vec4>                                              m_FrameObjectData;
         std::vector<uint32_t>                                               m_FrameObjectRows;
         std::vector<Common::Math::AABB>                                     m_FrameObjectBounds;
-        bool                                                                m_HasFrame = false;
+        uint64_t m_FrameObjectsRevision = 0; // bumped when the objects or their rows changed
+        bool     m_HasFrame             = false;
+        // A device copy of one record list for the mesh SDF readers: one persistent buffer, grown as needed,
+        // written by a graph upload when the list's revision moved.
+        struct DeviceRecords
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
+            RDG::ExternalBuffer                             Import;
+            uint64_t                                        Revision = ~0ull;
+        };
+        DeviceRecords                                                       m_MeshSDFAssetData;
+        DeviceRecords                                                       m_MeshSDFIndirection;
+        DeviceRecords                                                       m_MeshSDFObjects;
+        DeviceRecords                                                       m_MeshSDFObjectRows;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
         std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
