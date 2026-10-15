@@ -172,6 +172,9 @@ namespace Desert::Graphic::SurfaceCache
             bool     Ready                  = true; // the owning instance's CaptureReady this frame
             float    Distance               = 0.0f;
             uint32_t WantX = 0, WantY = 0;
+            // The resolution asked at the last allocation: a card the full atlas placed smaller than it asked
+            // keeps its pages until it asks for more than that, instead of being freed and recaptured every frame.
+            uint32_t AskedX = 0, AskedY = 0;
         };
         struct Instance
         {

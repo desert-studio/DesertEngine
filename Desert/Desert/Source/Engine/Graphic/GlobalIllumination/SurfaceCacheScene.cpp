@@ -322,16 +322,21 @@ namespace Desert::Graphic::SurfaceCache
         std::stable_sort( cards.begin(), cards.end(),
                           []( const Card* a, const Card* b ) { return a->Distance < b->Distance; } );
 
-        // ALLOCATION, nearest first. A resident card is reallocated when it wants more texels, or a quarter of
-        // what it holds on both sides (hysteresis: a camera wobbling at a level boundary does not recapture).
+        // ALLOCATION, nearest first. A resident card is reallocated when it wants more texels than it last asked
+        // for (a card the full atlas placed smaller keeps what it got until then - reallocating it every frame
+        // recaptured it every frame and the cache never settled), or a quarter of what it holds on both sides
+        // (hysteresis: a camera wobbling at a level boundary does not recapture).
         for ( std::size_t i = 0; i < cards.size(); ++i )
         {
             Card&      card     = *cards[i];
             const bool resident = card.ResX != 0;
-            if ( resident && card.WantX <= card.ResX && card.WantY <= card.ResY &&
+            if ( resident && card.WantX <= std::max( card.ResX, card.AskedX ) &&
+                 card.WantY <= std::max( card.ResY, card.AskedY ) &&
                  !( card.WantX * 4u <= card.ResX && card.WantY * 4u <= card.ResY ) )
                 continue;
             FreeCard( card );
+            card.AskedX        = card.WantX;
+            card.AskedY        = card.WantY;
             std::size_t victim = cards.size();
             for ( ;; )
             {
