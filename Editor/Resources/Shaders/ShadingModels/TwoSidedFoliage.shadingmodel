@@ -61,9 +61,11 @@ vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
     const float scatter      = TwoSidedFoliageGGX( 0.6 * 0.6, clamp( -dot( S.V, L.L ), 0.0, 1.0 ) );
     const vec3  transmission = L.Radiance * ( wrapNoL * scatter ) * TwoSidedFoliageSubsurfaceColor( P );
 
-    // UE multiplies Transmission by the light's TransmissionShadow; the cascades are this engine's one shadow
-    // term, so a leaf another leaf shades transmits nothing either.
-    return ( surface + transmission ) * L.Shadow;
+    // UE LightAccumulator_AddSplit: the surface light takes the light's Shadow, the transmitted light its
+    // TransmissionShadow (the thickness of what stands between the leaf and the light). With Shadow on both, the
+    // normal offset of the opaque test put a leaf's far side behind the leaf itself: every leaf turned from the
+    // light was fully shadowed and the transmission never reached the screen.
+    return surface * L.Shadow + transmission * L.TransmissionShadow;
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )

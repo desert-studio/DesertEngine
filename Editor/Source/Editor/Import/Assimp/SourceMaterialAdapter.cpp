@@ -157,6 +157,15 @@ namespace Desert::Editor
             // opacity slot's source and the value half names its channel (3 = A), as glTF's alphaMask below.
             if ( read.Alpha.Kind == SourceAlphaKind::Mask && read.Alpha.AlphaCutoff > 0.0f && baseColour )
                 put( "alphaMask", glm::vec4( 3.0f, 0, 0, 0 ), baseColour );
+            // A separate opacity map (TransparentColor) is the cut-out as well: the mask is that image's R. It is
+            // stated under the same key, so "this source is alpha-masked" has ONE statement whichever form the
+            // file uses — FoliageSurface requires it, and a two-sided leaf card cut by its own opacity map was
+            // lit one-sided (StandardSurface) where the albedo-alpha one took TwoSidedFoliage.
+            if ( read.Alpha.Kind == SourceAlphaKind::OpacityMap && read.Alpha.AlphaCutoff > 0.0f )
+            {
+                if ( const std::optional<SourceTexture> opacity = texture( aiTextureType_OPACITY ) )
+                    put( "alphaMask", glm::vec4( 0.0f, 0, 0, 0 ), opacity );
+            }
             // Two-sidedness. FBX's surface material has no property for it, so a file states it the way its
             // authoring pipeline does: assimp's AI_MATKEY_TWOSIDED when a converter sets one, or the
             // ".DoubleSided" material-name suffix of the ORCA scenes (Bistro: Foliage_Leaves.DoubleSided, the

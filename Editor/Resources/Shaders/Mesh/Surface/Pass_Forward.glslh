@@ -130,11 +130,19 @@ void main()
     // The receiver's subsurface opacity for its contact shadows (UE IsSubsurfaceModel; -1 = not subsurface).
     const float subsurfaceOpacity = DesertSubsurfaceOpacity( DESERT_SHADING_MODEL_INDEX, payload );
     int         cascade;
-    float       shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade ) *
-                   ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
-    if ( s.ReceiveSunShadows < 0.5 )
-        shadow = 1.0;
-    shadow *= CloudShadowFactor( i.WorldPosition );
+    const bool  receivesSun = s.ReceiveSunShadows >= 0.5;
+    const float sunContact =
+         receivesSun ? ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity ) : 1.0;
+    float shadow = receivesSun ? ShadowFactor( i.WorldPosition, N, sunDir, cascade ) * sunContact : 1.0;
+    // The transmitted light's own occlusion (DesertLight::TransmissionShadow), as the deferred composite takes it.
+    float transmissionShadow =
+         ( receivesSun && subsurfaceOpacity >= 0.0 )
+              ? TransmissionShadowFactor( i.WorldPosition, ContactShadowSubsurfaceDensity( subsurfaceOpacity ) ) *
+                     sunContact
+              : 1.0;
+    const float cloudShadow = CloudShadowFactor( i.WorldPosition );
+    shadow *= cloudShadow;
+    transmissionShadow *= cloudShadow;
 
     vec3 light = vec3( 0.0 );
     for ( uint d = 0; d < lightsMetadata.DirectionLightCount; d++ )
@@ -142,7 +150,7 @@ void main()
                                              DesertSunLight( directionLights.directionLights.Direction.xyz,
                                                              directionLights.directionLights.ColorIntensity.rgb *
                                                                   directionLights.directionLights.ColorIntensity.a,
-                                                             shadow ),
+                                                             shadow, transmissionShadow ),
                                              surface, payload );
     // Point and spot lights: those of this pixel's froxel, in the order the full loop summed them (points, then
     // spots), each with its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more
@@ -159,16 +167,22 @@ void main()
         if ( index < lightsMetadata.PointLightCount )
         {
             DesertLight point = DesertPointLightAt( pointLights[index], i.WorldPosition );
-            point.Shadow *= ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[index] ),
-                                                 subsurfaceOpacity );
+            const float pointContact =
+                 ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[index] ),
+                                      subsurfaceOpacity );
+            point.Shadow *= pointContact;
+            point.TransmissionShadow *= pointContact; // no local shadow maps in this pass: only the contact
             light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, point, surface, payload );
         }
         else
         {
             const uint spotIndex = index - lightsMetadata.PointLightCount;
             DesertLight spot     = DesertSpotLightAt( spotLights[spotIndex], i.WorldPosition );
-            spot.Shadow *= ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[spotIndex] ),
-                                                subsurfaceOpacity );
+            const float spotContact =
+                 ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[spotIndex] ),
+                                      subsurfaceOpacity );
+            spot.Shadow *= spotContact;
+            spot.TransmissionShadow *= spotContact; // no local shadow maps in this pass: only the contact
             light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, spot, surface, payload );
         }
     }

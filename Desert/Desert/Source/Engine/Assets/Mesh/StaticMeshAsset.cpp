@@ -222,7 +222,8 @@ namespace Desert::Assets
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
-              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards]( bool& built )
+              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards](
+                  bool& built, const MeshDistanceFieldCancel& cancel )
              {
                  // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
                  // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
@@ -234,7 +235,7 @@ namespace Desert::Assets
                                 loaded.GetError() );
                  return LoadMeshDistanceField(
                       path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
-                      { return Common::MakeSuccess( *in ); }, &built );
+                      { return Common::MakeSuccess( *in ); }, &built, cancel );
              } );
     }
 

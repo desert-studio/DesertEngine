@@ -164,6 +164,14 @@ struct DesertLight
     vec3  Radiance; // colour * intensity * distance falloff * cone — the source's own model, already applied
     float Shadow;   // 1 = unoccluded. The sun: cascades (unless ReceiveSunShadows < 0.5) times the cloud layer
                     // (DeferredLighting.shader:300, Pass_Forward.glslh:120-125); point and spot lights: 1.
+    // UE FShadowTerms::TransmissionShadow: the share of the light that reaches a subsurface receiver THROUGH what
+    // stands between it and the light — exp( -thickness * density ), the occluder's thickness read from the same
+    // shadow map with no receiver offset (Mesh/CascadedShadow.glslh TransmissionShadowFactor,
+    // Mesh/LocalLightShadow.glslh), times the contact shadow and the cloud layer as Shadow is. A model's
+    // transmitted light takes this, its surface light takes Shadow (UE TwoSidedBxDF via LightAccumulator_AddSplit):
+    // Shadow's normal offset moves a leaf's far side AWAY from the light, behind the leaf itself, so Shadow is 0
+    // exactly where the light shines through. 1 for a receiver that is not a subsurface model (no model reads it).
+    float TransmissionShadow;
 };
 
 // The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum

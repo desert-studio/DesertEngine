@@ -25,6 +25,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -126,10 +127,38 @@ namespace Desert::Assets
     MeshDistanceFieldInputOf( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
                               const std::vector<Submesh>& submeshes, const std::vector<uint8_t>& submeshTwoSided );
 
+    // THE CANCEL TOKEN OF ONE BUILD (UE FDistanceFieldAsyncQueue: Shutdown cancels the waiting tasks and the
+    // running ones see it and stop). Raised when the process exits (the queue's abort flag) or when the build's
+    // owner is gone (the mesh unloaded or reloaded: its slot expired). The builder polls it between bricks and
+    // per lattice slice, and a cancelled build returns kMeshDistanceFieldCancelled - an error, so the DDC writes
+    // nothing for it. Default-constructed: never cancelled (a build nobody can abandon).
+    class MeshDistanceFieldCancel
+    {
+    public:
+        MeshDistanceFieldCancel() = default;
+        MeshDistanceFieldCancel( const std::atomic<bool>* abort, std::weak_ptr<const void> owner )
+             : m_Abort( abort ), m_Owner( std::move( owner ) ), m_HasOwner( true )
+        {
+        }
+        [[nodiscard]] bool IsCancelled() const
+        {
+            return ( m_Abort != nullptr && m_Abort->load( std::memory_order_relaxed ) ) ||
+                   ( m_HasOwner && m_Owner.expired() );
+        }
+
+    private:
+        const std::atomic<bool>*  m_Abort = nullptr;
+        std::weak_ptr<const void> m_Owner;
+        bool                      m_HasOwner = false;
+    };
+    // The error a cancelled build returns (and a DDC flight that followed a cancelled leader).
+    inline constexpr std::string_view kMeshDistanceFieldCancelled = "distance field: build cancelled";
+
     // The builder (MeshDistanceFieldBuild.cpp). Deterministic for the same input and settings.
     [[nodiscard]] Common::ResultStr<MeshDistanceFieldData>
     BuildMeshDistanceField( const MeshDistanceFieldBuildInput&    input,
-                            const MeshDistanceFieldBuildSettings& settings );
+                            const MeshDistanceFieldBuildSettings& settings,
+                            const MeshDistanceFieldCancel&        cancel = {} );
 
     // THE DDC ENTRY'S CONTAINER: "DESTMSDF", a version, the mip count, the volume count, then per volume its
     // bounds and per mip its parameters, indirection table and bricks. Decode refuses any other magic or version
@@ -157,18 +186,20 @@ namespace Desert::Assets
 
     // Where a builder is registered (the editor: SetMeshDistanceFieldBuilder at startup), a miss builds and Puts;
     // a packaged game registers none, and a miss there is an error naming the asset and the key.
-    using MeshDistanceFieldBuilder =
-         std::function<Common::ResultStr<std::string>( const MeshDistanceFieldBuildInput& input )>;
+    using MeshDistanceFieldBuilder = std::function<Common::ResultStr<std::string>(
+         const MeshDistanceFieldBuildInput& input, const MeshDistanceFieldCancel& cancel )>;
     void SetMeshDistanceFieldBuilder( MeshDistanceFieldBuilder builder );
     // The editor's builder: BuildMeshDistanceField with the project settings, encoded.
     [[nodiscard]] Common::ResultStr<std::string>
-    BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input );
+    BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input, const MeshDistanceFieldCancel& cancel );
 
     // DDC hit, or build (single-flight per key) and Put. @p input is called only on a miss; @p built, when
-    // given, is set to whether it was (a build, not a cache hit).
-    [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>> LoadMeshDistanceField(
-         const std::filesystem::path& asset, uint64_t renderDataKey, const std::vector<uint8_t>& submeshTwoSided,
-         const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input, bool* built = nullptr );
+    // given, is set to whether it was (a build, not a cache hit). @p cancel is handed to the builder.
+    [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
+    LoadMeshDistanceField( const std::filesystem::path& asset, uint64_t renderDataKey,
+                           const std::vector<uint8_t>&                                            submeshTwoSided,
+                           const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input,
+                           bool* built = nullptr, const MeshDistanceFieldCancel& cancel = {} );
 
     // WHERE A MESH'S FIELD LANDS WHEN ITS BUILD FINISHES (UE FDistanceFieldAsyncQueue: the mesh renders without
     // a field until the task completes, then the field is attached). Empty until then - and for good when the
@@ -192,12 +223,17 @@ namespace Desert::Assets
     // THE WORK DOES NOT OUTLIVE ITS OWNERS: the queue holds the slot weakly, so work whose slot nobody holds
     // any more (the mesh unloaded or reloaded, its service gone) is cancelled before it starts; a cache root
     // that moves (Common::DDC::RetireRoot) drops the waiting work and waits for the running work, so no field
-    // is written into a root other than the one it was started under; process exit does the same before the
-    // JobSystem joins its workers.
-    using MeshDistanceFieldWork =
-         std::function<Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>( bool& built )>;
+    // is written into a root other than the one it was started under; process exit drops the waiting work and
+    // CANCELS the running work (its token, which the work hands to the builder) before the JobSystem joins its
+    // workers - a closing editor waits for a brick, not for a mesh; so does running work whose mesh is unloaded.
+    using MeshDistanceFieldWork = std::function<Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>(
+         bool& built, const MeshDistanceFieldCancel& cancel )>;
     void EnqueueMeshDistanceField( std::shared_ptr<MeshDistanceFieldSlot> slot, std::string asset,
                                    MeshDistanceFieldWork work );
+    // PROCESS EXIT (UE FDistanceFieldAsyncQueue::Shutdown): refuses new work, drops the waiting work, cancels the
+    // running work and returns once none runs. Called before the JobSystem joins its workers (EntryPoint); the
+    // queue's own exit hook does the same for a process that never reaches it.
+    void CancelMeshDistanceFields();
     // Queued + running builds (diagnostics).
     [[nodiscard]] size_t PendingMeshDistanceFields();
 } // namespace Desert::Assets
