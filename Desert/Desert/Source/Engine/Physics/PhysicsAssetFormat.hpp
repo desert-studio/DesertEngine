@@ -15,11 +15,12 @@
 //   twist limits (f32 degrees).
 //
 // Every length is in CENTIMETRES (the engine's unit) and every angle in DEGREES (what an author types, as in
-// UE's Details panel); the conversion to what Jolt reads is Physics/RagdollDesc.hpp's and is made there once.
+// UE's Details panel); the conversion to what Jolt reads is BuildRagdollDesc's
+// (Physics/RagdollDescBuilder.hpp), made there once.
 // A reader of another version, a truncated payload, an unknown shape or trailing bytes is refused by name.
 //
 // This header is the DATA and its bytes only. Whether the data fits a skeleton — bone names, parent/child
-// joints, positive extents — is Physics/RagdollDesc.hpp's validation, because it needs the skeleton.
+// joints, positive extents — is Physics/RagdollDescBuilder.hpp's validation, because it needs the skeleton.
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>

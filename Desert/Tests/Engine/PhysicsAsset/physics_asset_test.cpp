@@ -3,7 +3,7 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 
 #include <gtest/gtest.h>
 

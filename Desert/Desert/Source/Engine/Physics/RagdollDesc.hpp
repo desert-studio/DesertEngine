@@ -1,14 +1,15 @@
 #pragma once
 
-// FROM A PHYSICS ASSET AND A SKELETON TO WHAT JOLT'S RAGDOLL IS BUILT FROM — device-free and PhysicsSystem-free,
-// so it is tested as a pure function (UE: UPhysicsAsset + the skeletal mesh's ref pose -> FBodyInstance /
-// FConstraintInstance setup in USkeletalMeshComponent::InitArticulated).
+// WHAT JOLT'S RAGDOLL IS BUILT FROM — device-free, PhysicsSystem-free and skeleton-free. Engine's
+// RagdollDescBuilder.hpp builds it from a physics asset and a skeleton as a pure function (UE: UPhysicsAsset +
+// the skeletal mesh's ref pose -> FBodyInstance / FConstraintInstance setup in
+// USkeletalMeshComponent::InitArticulated).
 //
 // RagdollDesc mirrors JPH::RagdollSettings field for field, in Jolt's units, so the runtime (RAG1b) copies it
 // into JPH::Skeleton (one joint per part, Parent), JPH::RagdollSettings::Part (a BodyCreationSettings with the
 // shape, Position / Rotation, MassKg as mMassPropertiesOverride with EOverrideMassProperties::CalculateInertia)
 // and Part::mToParent (a JPH::SwingTwistConstraintSettings in EConstraintSpace::WorldSpace) with no arithmetic
-// of its own. Every unit conversion of the ragdoll path happens HERE, once:
+// of its own. Every unit conversion of the ragdoll path happens in BuildRagdollDesc, once:
 //
 //   lengths:  centimetres * kJoltUnitsPerCentimetre (see below),
 //   angles:   authored degrees -> radians,
@@ -18,19 +19,12 @@
 
 #include <Engine/Physics/PhysicsAssetFormat.hpp>
 
-#include <Common/Core/ResultStr.hpp>
-
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
 #include <string>
 #include <vector>
-
-namespace Desert::Animation
-{
-    class Skeleton;
-}
 
 namespace Desert::Physics
 {
@@ -91,25 +85,6 @@ namespace Desert::Physics
     {
         std::vector<RagdollPartDesc> Parts;
     };
-
-    /**
-     * @brief Everything wrong with @p asset against @p skeleton, one message per fault, each naming the bone or
-     * the constraint it is about. Empty means the asset builds a ragdoll.
-     *
-     * Checked: a null skeleton GUID; no bodies; a body on a bone the skeleton does not have; two bodies on one
-     * bone; a non-positive radius, length or box extent, mass below zero, or a non-positive density where the
-     * density is what gives the mass; a constraint naming a bone the skeleton does not have or that carries no
-     * body; a constraint whose bodies are not parent and child — the parent body of a body is the body on the
-     * nearest ancestor bone that carries one (UE's physics asset tool links a body to it the same way); two
-     * constraints on one child; a swing or twist limit outside [0, 180] degrees.
-     */
-    [[nodiscard]] std::vector<std::string> ValidatePhysicsAsset( const PhysicsAssetData&    asset,
-                                                                 const Animation::Skeleton& skeleton );
-
-    /// The ragdoll description of @p asset on @p skeleton's bind pose; refused with every ValidatePhysicsAsset
-    /// message when there is any.
-    [[nodiscard]] Common::ResultStr<RagdollDesc> BuildRagdollDesc( const PhysicsAssetData&    asset,
-                                                                   const Animation::Skeleton& skeleton );
 
     /// The body's mass in kilograms: MassKg when positive, else its shape's volume times its density.
     [[nodiscard]] float PhysicsBodyMassKg( const PhysicsAssetBody& body );
