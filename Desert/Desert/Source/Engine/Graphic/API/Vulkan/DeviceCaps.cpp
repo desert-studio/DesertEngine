@@ -224,4 +224,21 @@ namespace Desert::Graphic::API::Vulkan
         }
         return line;
     }
+
+    std::string FormatDescriptorLimits( const DeviceCaps& caps )
+    {
+        const PerStageDescriptorLimits& stage = caps.PerStage;
+        const DescriptorIndexingLimits& uab   = caps.DescriptorIndexing;
+        // descriptorBindingSampledImageUpdateAfterBind is enabled with the descriptorIndexing row, never alone.
+        return std::format(
+             "per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage buffers "
+             "{}, storage images {}, resources {} | update-after-bind (sampledImageUpdateAfterBind="
+             "{}): per stage samplers {}, sampled images {}, resources {}; per set samplers {}, "
+             "sampled images {}",
+             stage.MaxSamplers, stage.MaxSampledImages, stage.MaxUniformBuffers, stage.MaxStorageBuffers,
+             stage.MaxStorageImages, stage.MaxResources, caps.Has( Capability::DescriptorIndexing ) ? "yes" : "no",
+             uab.MaxPerStageUpdateAfterBindSamplers, uab.MaxPerStageUpdateAfterBindSampledImages,
+             uab.MaxPerStageUpdateAfterBindResources, uab.MaxSetUpdateAfterBindSamplers,
+             uab.MaxSetUpdateAfterBindSampledImages );
+    }
 } // namespace Desert::Graphic::API::Vulkan

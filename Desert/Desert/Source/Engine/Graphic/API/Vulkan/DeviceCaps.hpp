@@ -114,6 +114,7 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t MaxSetUpdateAfterBindSampledImages      = 0;
         uint32_t MaxPerStageUpdateAfterBindSamplers      = 0;
         uint32_t MaxSetUpdateAfterBindSamplers           = 0;
+        uint32_t MaxPerStageUpdateAfterBindResources     = 0;
 
         // The largest sampled-image table one set may hold and one stage may see: the table's growth ceiling.
         [[nodiscard]] uint32_t SampledImageCeiling() const
@@ -188,6 +189,10 @@ namespace Desert::Graphic::API::Vulkan
 
     // The start-up log line: device | driver | version | every row as name=core/ext/no.
     [[nodiscard]] std::string FormatCapsTable( const DeviceCaps& caps );
+
+    // The start-up log line beside it: the per-stage descriptor limits and the update-after-bind ones the
+    // bindless table and every stage that sees it are held to (PerStageLimitRefusals).
+    [[nodiscard]] std::string FormatDescriptorLimits( const DeviceCaps& caps );
 
     [[nodiscard]] std::string FormatApiVersion( uint32_t version );
 } // namespace Desert::Graphic::API::Vulkan

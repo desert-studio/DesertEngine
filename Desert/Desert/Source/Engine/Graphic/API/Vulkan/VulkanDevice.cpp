@@ -195,6 +195,7 @@ namespace Desert::Graphic::API::Vulkan
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+        LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
 
         auto physical = VulkanPhysicalDevice::Create( probed.ExtractValue() );
         if ( !physical )
