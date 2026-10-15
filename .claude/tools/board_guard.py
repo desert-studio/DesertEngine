@@ -10,6 +10,10 @@ and a lead decision went only into an agent's REMAINDER. Rules (lead session onl
 2. A working agent stopping (SubagentStop) leaves its code «to accept». Until its card is written after that moment,
    the lead may not launch or resume agents, and the lead's turn may not end (Stop is blocked once per turn).
 3. Writing a lead decision into a REMAINDER.md gets a reminder: the decision goes into the card body.
+4. A card set to «На проверке»/«Сделано» unblocks its dependents. Owner 10-14: «почему не сделан UI панели?» —
+   SCR-DETAILS («Владелец назвал», «после SCR-PORT») lay in the backlog 5 days after SCR-PORT-2 was done. Until a
+   notion-query-data-sources whose SQL names the code AND «Владелец назвал» is run, agent launches are refused and
+   the turn may not end: every owner-named card waiting on that code is either launched or reported to the owner.
 
 State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: t}, pending: {code: t}, agents: {id: code}}.
 """
@@ -31,7 +35,7 @@ def load():
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
-    for k in ("pages", "writes", "pending", "agents"):
+    for k in ("pages", "writes", "pending", "agents", "unblock"):
         s.setdefault(k, {})
     return s
 
@@ -91,6 +95,18 @@ def unaccepted(s):
     return sorted(c for c, t in s["pending"].items() if s["writes"].get(c, 0) < t)
 
 
+UNBLOCK_SQL = ("SELECT \"Код\",\"Статус\",\"Название\" FROM \"collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2\" "
+               "WHERE \"Приоритет\"='Владелец назвал' AND \"Статус\" IN ('Бэклог','Готово к старту','Заблокировано') "
+               "-- после {codes}")
+
+
+def unblock_reason(codes):
+    return ("сдано " + ", ".join(codes) + " — проверь, что ждало этого среди карточек «Владелец назвал»: "
+            "notion-query-data-sources, SQL с кодом и «Владелец назвал», напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
+            " (затем открой карточки, где в теле «после <КОД>»). Ждавшее — запустить сразу или назвать владельцу причину "
+            "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -117,6 +133,8 @@ def main():
         if late and not data.get("stop_hook_active"):
             emit({"decision": "block", "reason": "[board_guard] Агенты сдали, карточки не обновлены: " + ", ".join(late) +
                   ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
+        if s["unblock"] and not data.get("stop_hook_active"):
+            emit({"decision": "block", "reason": "[board_guard] " + unblock_reason(sorted(s["unblock"]))})
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):
@@ -133,6 +151,14 @@ def main():
             code = s["pages"].get(norm(tin.get("page_id")))
             if code:
                 s["writes"][code] = now
+                status = (tin.get("properties") or {}).get("Статус")
+                if status in ("На проверке", "Сделано"):
+                    s["unblock"][code] = now
+        elif tool.endswith("notion-query-data-sources"):
+            sql = json.dumps(tin, ensure_ascii=False)
+            if "Владелец назвал" in sql:
+                for code in [c for c in s["unblock"] if re.search(r"(?<![A-Z0-9-])" + re.escape(c) + r"(?![A-Z0-9])", sql)]:
+                    del s["unblock"][code]
         save(s)
         sys.exit(0)
 
@@ -160,6 +186,8 @@ def main():
         if late:
             deny("сначала приём на доске: агенты сдали, карточки не обновлены — " + ", ".join(late) +
                  ". notion-update-page: Статус, «Кто ведёт», итог/остаток в теле.")
+        if tool == "Agent" and s["unblock"]:
+            deny(unblock_reason(sorted(s["unblock"])))
         if tool == "Agent":
             code = code_from_text(str(tin.get("prompt") or ""))
             if not code:
