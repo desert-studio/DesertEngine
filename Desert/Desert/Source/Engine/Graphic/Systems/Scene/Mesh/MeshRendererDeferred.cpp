@@ -1,6 +1,7 @@
 // MeshRenderer's deferred half: the manual G-buffer pass and its pipeline.
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -31,9 +32,15 @@ namespace Desert::Graphic::System
         return m_GBufferDraws.Record( context );
     }
 
-    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass )
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun )
     {
         m_DepthNormalDraws.Clear();
+        // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
+        // stamped with its own frame.
+        m_GenericPrepassed.clear();
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        m_GenericPrepassFrame        = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
+        m_GenericPrepassRayTracedSun = rayTracedSun;
         const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;

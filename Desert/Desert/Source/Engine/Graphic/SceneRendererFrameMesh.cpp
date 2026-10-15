@@ -378,7 +378,8 @@ namespace Desert::Graphic
              graph, "Deferred: Forward Depth/Normal", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareForwardDepthNormalDraws( pass ); } );
+             [meshRenderer, rayTracedSun = SunShadowIsRayTraced()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
     }
 
     void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,

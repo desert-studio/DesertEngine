@@ -2,6 +2,7 @@
 // reuses the static one), the manual forward passes drawn over the deferred composite, and their pipelines.
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
@@ -237,15 +238,19 @@ namespace Desert::Graphic::System
                     break;
                 }
                 case GenericSlice::DeferredForward:
-                    if ( surfaceOverride )
-                        continue;
-                    break;
                 case GenericSlice::DeferredForwardRayTracedSun:
                     if ( surfaceOverride )
                         continue;
-                    permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
+                    // An opaque draw is shaded only when this frame's prepass admitted it (both of its pipelines
+                    // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
+                    if ( opaque && !OpaqueGenericAdmitted( g ) )
+                        continue;
+                    if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
+                         ReadsSunShadowRayTraced( *shader, opaque ) )
+                        permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
                     break;
             }
+            const std::shared_ptr<Shader> templateShader = shader;
             const bool ownProgram = programName != shaderName || !permutation.IsDefault();
             if ( ownProgram )
             {
@@ -324,17 +329,28 @@ namespace Desert::Graphic::System
 
                 // UE's default material while a PSO compiles (AL1-12): never a stall, never a silent gap. The
                 // stand-in's own pipeline is an engine one the reveal waited for, so it is Ready by the first
-                // shown frame; before that nothing is shown, which is the only case this draw is dropped. The
-                // depth-normal prepass has no stand-in (the default surface is a scene-colour program): until
-                // its pipeline is Ready the draw is shaded forward but absent from the G-buffer depth.
+                // shown frame; before that nothing is shown, which is the only case this draw is dropped. An
+                // opaque draw of the deferred path has no stand-in: the prepass admits it only when its
+                // depth-normal AND its forward pipeline are Ready (OpaqueGenericAdmitted), so it is drawn in both
+                // passes of a frame or in neither, and counted among the compiling pipelines meanwhile.
                 const auto choice = m_MaterialPipelines.Choose( programKey );
+                if ( slice == GenericSlice::DeferredDepthNormal )
+                {
+                    if ( !choice.UseOwnPipeline ||
+                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun ) )
+                        continue;
+                    m_GenericPrepassed.insert( &g );
+                }
                 if ( choice.UseOwnPipeline )
                 {
                     pipeline = built.GetValue().get();
                 }
                 else
                 {
-                    if ( slice == GenericSlice::DeferredDepthNormal )
+                    // The forward pipeline was Ready when the prepass admitted the draw; it is not now only if
+                    // this pass shades another permutation than the one checked (the trace was refused this
+                    // frame).
+                    if ( slice != GenericSlice::Forward && opaque )
                         continue;
                     if ( choice.Announce )
                         LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
@@ -503,6 +519,46 @@ namespace Desert::Graphic::System
                 m_MaterialPipelines.OnFailed( shaderName );
                 break;
         }
+    }
+
+    bool MeshRenderer::ReadsSunShadowRayTraced( const Shader& shader, const bool opaque )
+    {
+        return opaque && SceneViewDetail::Reflects2D( shader, kSceneViewShadowCascadesName );
+    }
+
+    bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
+                                                    const std::string& shaderName, const bool rayTracedSun )
+    {
+        std::shared_ptr<Shader> program    = shader;
+        std::string             programKey = shaderName;
+        if ( rayTracedSun && ReadsSunShadowRayTraced( *shader, /*opaque*/ true ) )
+        {
+            Core::ShaderVariant permutation;
+            permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
+            program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
+            if ( !program || !program->IsCompiled() )
+                return false; // ShaderService named the program and its compile error once
+            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowRayQueryDefine );
+        }
+        // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( program );
+        spec.DebugName                     = std::format( kGenericMeshNameFormat, programKey );
+        spec.DepthCompareOp                = DepthCompare::CloserOrEqual;
+        const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+        if ( !built )
+        {
+            m_MaterialPipelines.OnFailed( programKey ); // "Deferred: Generic" names the refusal
+            return false;
+        }
+        TrackMaterialPipeline( programKey, *built.GetValue() );
+        return built.GetValue()->GetReadiness() == PipelineReadiness::Ready;
+    }
+
+    bool MeshRenderer::OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const
+    {
+        const ViewFrame* const frame = m_SceneRenderer->GetViewFrame();
+        return frame != nullptr && m_GenericPrepassFrame == frame->FrameIndex &&
+               m_GenericPrepassed.contains( &draw );
     }
 
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first

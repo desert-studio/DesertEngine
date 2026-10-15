@@ -3,6 +3,7 @@
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
+#include <unordered_set>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -456,8 +457,11 @@ namespace Desert::Graphic::System
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
         // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
         // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
-        // that are shaded forward over the composite. The exec records that list.
-        void                                DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass );
+        // that are shaded forward over the composite. The exec records that list. @p rayTracedSun: the frame
+        // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
+        // sun-reading opaque programs through their DESERT_SUN_SHADOW_RAY_QUERY permutation - the forward
+        // pipeline whose readiness this prepass checks together with its own.
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
         [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
@@ -782,8 +786,9 @@ namespace Desert::Graphic::System
             // Deferred, "Deferred: Generic": the other draws, their own program over the composite; an opaque one
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
-            // DeferredForward while the sun is ray traced: each program's DESERT_SUN_SHADOW_RAY_QUERY permutation,
-            // which reads the view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades.
+            // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
+            // through its DESERT_SUN_SHADOW_RAY_QUERY permutation (ReadsSunShadowRayTraced), which reads the view's
+            // screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through itself.
             DeferredForwardRayTracedSun,
         };
         // per-object data-driven materials (v3 slots + overrides)
@@ -834,6 +839,22 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
+        // DESERT_SUN_SHADOW_RAY_QUERY permutation while the sun is ray traced. A blended program (TextSDF) or one
+        // that reads no sun shadow is shaded through itself.
+        [[nodiscard]] static bool ReadsSunShadowRayTraced( const Shader& shader, bool opaque );
+        // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
+        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass does.
+        [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
+                                                        const std::string& shaderName, bool rayTracedSun );
+        // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward Depth/Normal"
+        // admits it when BOTH its depth-normal and its forward pipeline are Ready and records it here; "Deferred:
+        // Generic" shades only what this frame admitted, so no draw is shaded forward against a missing prepass
+        // depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the view's frame.
+        bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
+        std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
+        std::optional<uint64_t>                          m_GenericPrepassFrame;
+        bool                                             m_GenericPrepassRayTracedSun = false;
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
