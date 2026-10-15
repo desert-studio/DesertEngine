@@ -381,17 +381,26 @@ Shader "DeferredLighting"
         	// The receiver's subsurface opacity (UE IsSubsurfaceModel + CustomData.a; -1 = not subsurface): its
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
-        	float shadow   = DesertReceivesSunShadows(word)
-        	                     ? ShadowFactor(worldPos, N, L, cascade) *
-        	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
-        	                     : 1.0;
-        	shadow        *= CloudShadowFactor(worldPos);
+        	const bool  receivesSun       = DesertReceivesSunShadows(word);
+        	const float sunContact =
+        	     receivesSun ? ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity) : 1.0;
+        	float shadow   = receivesSun ? ShadowFactor(worldPos, N, L, cascade) * sunContact : 1.0;
+        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
+        	// behind the leaf. 1 for every other model (none reads it).
+        	float transmissionShadow =
+        	     (receivesSun && subsurfaceOpacity >= 0.0)
+        	          ? TransmissionShadowFactor(worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
+        	          : 1.0;
+        	const float cloudShadow = CloudShadowFactor(worldPos);
+        	shadow             *= cloudShadow;
+        	transmissionShadow *= cloudShadow;
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
         	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
 
-        	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
-        	                                         surface, payload);
+        	vec3 result = DesertEvaluateShadingModel(
+        	     shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow, transmissionShadow), surface, payload);
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
