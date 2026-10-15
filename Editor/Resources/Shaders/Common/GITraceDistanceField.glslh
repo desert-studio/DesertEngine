@@ -1,0 +1,106 @@
+#ifndef GI_TRACE_DISTANCE_FIELD_GLSLH
+#define GI_TRACE_DISTANCE_FIELD_GLSLH
+
+// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as a march of the global
+// distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF). Port of UE's global-SDF leg of Lumen software
+// tracing (LumenTraceGlobalSDF / RayTraceGlobalDistanceField in GlobalDistanceFieldUtils.ush): the hit is the
+// expanded surface's entry, its normal the field's gradient. UE first marches the mesh SDFs near the ray origin
+// (r.Lumen.TraceMeshSDFs); here every ray marches the global field, so a probe's first two metres are as coarse as
+// the rest (GI-RADIANCE-CACHE REMAINDER).
+//
+// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, includes
+// Common/GlobalDistanceField.glslh, and defines GI_TRACE_GDF_LEVELS as the expression of this frame's
+// vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
+
+#ifndef DESERT_GI_TRACER_SOFTWARE
+#error "GITraceDistanceField.glslh is the software tracer: define DESERT_GI_TRACER_SOFTWARE"
+#endif
+
+// Sphere-trace steps per ray (UE r.Lumen.TraceGlobalSDF... MaxSteps scale; the GDF debug view's count).
+#define GI_GDF_MAX_STEPS 128
+
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    GITraceResult result;
+    result.hit = false;
+    const vec3 start = ray.origin + ray.direction * ray.tMin;
+    const GlobalDistanceFieldHit march =
+         TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS );
+    if ( !march.Hit )
+        return result;
+
+    result.hit                   = true;
+    result.surface.distance      = ray.tMin + march.T;
+    result.surface.position      = start + ray.direction * march.T;
+    result.surface.meshCards     = GI_NO_MESH_CARDS;
+    result.surface.instance      = GI_NO_INSTANCE;
+    result.surface.primitive     = 0u;
+    result.surface.barycentrics  = vec2( 0.0 );
+    result.surface.frontFace     = true;
+    result.surface.normal        = -ray.direction;
+    const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
+    if ( level >= 0 )
+    {
+        const vec3 gradient = GlobalDistanceFieldGradient( level, result.surface.position, GI_TRACE_GDF_LEVELS[level].w );
+        if ( dot( gradient, gradient ) > 1e-12 )
+            result.surface.normal = normalize( gradient );
+    }
+    result.surface.frontFace = dot( result.surface.normal, ray.direction ) < 0.0;
+    return result;
+}
+
+// Visibility only: 1 when nothing of the field lies between @p origin and @p maxT along @p direction.
+float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
+{
+    GITraceInput ray;
+    ray.origin    = origin;
+    ray.tMin      = 0.0;
+    ray.direction = direction;
+    ray.tMax      = maxT;
+    ray.coneAngle = 0.0;
+    ray.flags     = GI_TRACE_SHADOW_RAY;
+    return GITraceRay( ray ).hit ? 0.0 : 1.0;
+}
+
+// The voxel of the finest clipmap holding @p position (the coarsest one's outside them all), cm.
+float GITraceVoxelAt( vec3 position )
+{
+    const int level = GlobalDistanceFieldLevelAt( position, GI_TRACE_GDF_LEVELS );
+    return level >= 0 ? GI_TRACE_GDF_LEVELS[level].w : GI_TRACE_GDF_LEVELS[GDF_NUM_CLIPMAPS - 1].w;
+}
+
+// The march stops on the EXPANDED field surface, up to half a voxel in front of the mesh: a secondary ray leaves a
+// voxel out so it does not re-enter the surface it starts on, and the view's pixel surface counts as the hit within
+// a voxel of it (UE's global-SDF surface bias, LumenTracingUtils.ush).
+GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
+{
+    const float voxel = GITraceVoxelAt( position );
+    GITraceBias bias;
+    bias.normalOffset    = voxel;
+    bias.screenTolerance = voxel;
+    return bias;
+}
+
+// Out of geometry along the field's gradient: up to @p clearance of free space around @p position, never more than
+// @p maxOffset from it per axis (DDGI's probe relocation; four gradient steps).
+vec3 GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset )
+{
+    vec3 p = position;
+    for ( int i = 0; i < 4; ++i )
+    {
+        const int level = GlobalDistanceFieldLevelAt( p, GI_TRACE_GDF_LEVELS );
+        if ( level < 0 )
+            break;
+        const float d = SampleGlobalDistanceFieldLevel( level, p, GI_TRACE_GDF_LEVELS[level].w );
+        if ( d >= clearance )
+            break;
+        const vec3 gradient = GlobalDistanceFieldGradient( level, p, GI_TRACE_GDF_LEVELS[level].w );
+        if ( dot( gradient, gradient ) < 1e-12 )
+            break;
+        p = position + clamp( p + normalize( gradient ) * ( clearance - d ) - position, vec3( -maxOffset ),
+                              vec3( maxOffset ) );
+    }
+    return p;
+}
+
+#endif // GI_TRACE_DISTANCE_FIELD_GLSLH

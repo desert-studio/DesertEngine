@@ -23,7 +23,7 @@ struct PointLight {
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
 };
 
 // std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
@@ -41,7 +41,7 @@ struct SpotLight {
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
 };
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,

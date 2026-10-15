@@ -1235,7 +1235,11 @@ namespace Desert::Editor
                 VM_ShadingModel,
                 VM_SunShadowReceive,
                 VM_Velocity,
+                VM_LightGridWorld,
                 VM_GlobalDistanceField,
+                VM_SurfaceCacheAtlas,
+                VM_SurfaceCacheScene,
+                VM_SurfaceCacheSceneLit,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1255,7 +1259,11 @@ namespace Desert::Editor
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
+                                         ICON_MDI_GRID "  Light Grid (World)",
                                          ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
+                                         ICON_MDI_TEXTURE "  Surface Cache Atlas",
+                                         ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
+                                         ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1295,8 +1303,16 @@ namespace Desert::Editor
                 vm = VM_SunShadowReceive;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
                 vm = VM_Velocity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LightGridWorld )
+                vm = VM_LightGridWorld;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
                 vm = VM_GlobalDistanceField;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheAtlas )
+                vm = VM_SurfaceCacheAtlas;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheScene )
+                vm = VM_SurfaceCacheScene;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheSceneLit )
+                vm = VM_SurfaceCacheSceneLit;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1342,6 +1358,7 @@ namespace Desert::Editor
                 viewChanged |= ImGui::SliderFloat( "BB Width", &view.BoundingBoxLineWidth, 1.0f, 10.0f, "%.1f" );
                 ImGui::EndDisabled();
                 viewChanged |= ImGui::Checkbox( "Colliders", &view.ShowColliders );
+                viewChanged |= ImGui::Checkbox( "Card Placement", &view.ShowCardPlacement );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
                 viewChanged |= ImGui::Checkbox( "Disable Pass Culling", &view.DisablePassCulling );
                 if ( ImGui::IsItemHovered() )
@@ -1480,8 +1497,20 @@ namespace Desert::Editor
                     case VM_Velocity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
                         break;
+                    case VM_LightGridWorld:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LightGridWorld;
+                        break;
                     case VM_GlobalDistanceField:
                         view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                        break;
+                    case VM_SurfaceCacheAtlas:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;
+                        break;
+                    case VM_SurfaceCacheScene:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheScene;
+                        break;
+                    case VM_SurfaceCacheSceneLit:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheSceneLit;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

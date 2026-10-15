@@ -75,6 +75,12 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 3; Graphic/GlobalIllumination/ScreenProbeGather): per pixel,
+        // the irradiance (/ pi) and the specular radiance the screen probes integrated, in place of the sky's two
+        // cubes — the probes' rays saw the sky only where it is visible. Black in the other GI modes (unread).
+        Uniform(30) sampler2D u_ScreenProbeDiffuse;
+        Uniform(31) sampler2D u_ScreenProbeSpecular;
+
         Out(0) vec4 oColor;
 
         const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
@@ -440,10 +446,17 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	// The specular radiance along the reflection is the traced one where SSR answered, the reflection
-        	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
-        	// captures, then the split-sum Fresnel of both together).
+        	// The specular radiance along the reflection is the traced one where SSR answered, the indirect source's
+        	// for the rest: the screen probe gather in a traced GI mode, else the reflection environment (captures, then
+        	// sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	if (giMode == 3)
+        	{
+        		// The screen probe gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
+        		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
+        		sampled.Irradiance  = texelFetch(u_ScreenProbeDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
+        		sampled.Prefiltered = texelFetch(u_ScreenProbeSpecular, ivec2(gl_FragCoord.xy), 0).rgb;
+        	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);

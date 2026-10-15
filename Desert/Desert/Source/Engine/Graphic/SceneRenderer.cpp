@@ -786,6 +786,8 @@ namespace Desert::Graphic
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // device, each lowered axis logged once.
         m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
+                                                           Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;
@@ -804,6 +806,7 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        m_RadianceCacheInputs = RadianceCache::MakeRadianceCacheInputs( quality );
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -865,6 +868,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetCardPlacementView( m_DebugView.ShowCardPlacement );
 
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
@@ -1198,6 +1203,10 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         AddFrameLightGrid( graph, textures, frame );
+        if ( WorldLightGridRead() )
+            AddFrameLightGridWorld( graph, textures, frame );
+        if ( GlobalDistanceFieldRead() )
+            AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1212,14 +1221,12 @@ namespace Desert::Graphic
             AddFrameTerrainGBuffer( graph, textures );
             AddFrameDepthResolve( graph, textures );
 
-            glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
-            glm::vec4 lightColor( 1.0f, 0.98f, 0.92f, 3.0f );
-            if ( const auto& dl = m_DirectionLights.DirectionLights; !dl.empty() )
-            {
-                lightDir   = dl[0].Direction;
-                lightColor = dl[0].ColorIntensity;
-            }
+            const FrameSun  sun        = GetFrameSun();
+            const glm::vec4 lightDir   = sun.Direction;
+            const glm::vec4 lightColor = sun.ColorIntensity;
             AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameSurfaceCache( graph, textures, frame );
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
             // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
@@ -1306,8 +1313,12 @@ namespace Desert::Graphic
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                    frame );
         AddFrameGlobalDistanceFieldView( graph, textures, frame,
                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameSurfaceCacheView( graph, textures, frame,
+                                  postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS

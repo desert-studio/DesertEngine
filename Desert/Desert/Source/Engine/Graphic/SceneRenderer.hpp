@@ -42,6 +42,7 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -62,6 +63,9 @@
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
@@ -529,6 +533,24 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+        // The frame's sun as every lit pass receives it: the first directional light (direction it travels,
+        // colour/intensity), or the default sun when the scene has none. The deferred composite and the
+        // surface-cache lighting read this one rule.
+        struct FrameSun
+        {
+            glm::vec4 Direction{ 0.0f, -1.0f, 0.0f, 0.0f };
+            glm::vec4 ColorIntensity{ 1.0f, 0.98f, 0.92f, 3.0f };
+        };
+        [[nodiscard]] FrameSun GetFrameSun() const
+        {
+            FrameSun sun;
+            if ( const auto& dl = m_DirectionLights.DirectionLights; !dl.empty() )
+            {
+                sun.Direction      = dl[0].Direction;
+                sun.ColorIntensity = dl[0].ColorIntensity;
+            }
+            return sun;
+        }
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -554,6 +576,24 @@ namespace Desert::Graphic
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
         // The view's global distance field (clipmaps follow this view's camera), made on first use.
         std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
+        // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
+        // made on first use.
+        std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
+        // The view's screen probe gather (a traced GI method; its history follows this view), made on first use.
+        std::unique_ptr<GlobalIllumination::ScreenProbeGather> m_ScreenProbeGather;
+        // The surface cache (GI-SURFACE-CACHE-2): the Lumen scene of the view's mesh cards, its atlases and
+        // capture. Read by the traced GI's hits (GI-CARD-LOOKUP) and by its view modes.
+        std::unique_ptr<SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
+        uint64_t m_SurfaceCacheLoggedCensus = 0; // cards << 32 | captured
+        // This frame's surface cache (AddFrameSurfaceCache): the scene's records, their graph buffers and what a
+        // traced hit reads - for the traced GI and the view modes of the same graph; reset every frame.
+        struct SurfaceCacheFrameRecord
+        {
+            SurfaceCache::SceneFrame                         Scene;
+            SurfaceCache::SurfaceCacheRenderer::FrameBuffers Buffers;
+            GlobalIllumination::SurfaceCacheFrame            Hits;
+        };
+        std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -746,9 +786,16 @@ namespace Desert::Graphic
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
-        // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, Deferred only): brings the
-        // view's global distance field up to this frame's camera and static meshes, then draws "Debug: Global
-        // Distance Field" over @p target.
+        // The surface cache view modes (DeferredDebugMode::SurfaceCacheAtlas / SurfaceCacheScene / SceneLit,
+        // Deferred only): "Debug: Surface Cache Atlas" or "Debug: Lumen Scene" over @p target, from the cache
+        // AddFrameSurfaceCache brought up in this frame.
+        void AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       RDG::TextureRef target );
+        // "Debug: LightGridWorld" — the world light grid's count per surface, over the post input.
+        void AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target,
+                                         const ViewFrame& frame );
+        // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, Deferred only): draws
+        // "Debug: Global Distance Field" over @p target from the field AddFrameGlobalDistanceField brought up.
         void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                               RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
@@ -772,6 +819,42 @@ namespace Desert::Graphic
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
         void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
+        // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
+        void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // Whether a node of this frame reads the world light grid: the radiance cache's trace (a traced GI method
+        // lights its hits with it) and the "Light Grid (World)" view mode (Deferred).
+        [[nodiscard]] bool WorldLightGridRead() const;
+        // Whether this frame updates and reads the world radiance cache: the GI pipeline (m_GIPipeline) runs it —
+        // either tracer — on the Deferred path (its reader is the deferred composite).
+        [[nodiscard]] bool RadianceCacheRuns() const;
+        // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
+        // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
+        [[nodiscard]] bool GlobalDistanceFieldRead() const;
+        // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache), or
+        // one of its view modes is on. Deferred only.
+        [[nodiscard]] bool SurfaceCacheRuns() const;
+        // The tracer of the surface cache's shadow rays: the GI pipeline's when it traces, otherwise the software
+        // walk.
+        [[nodiscard]] GlobalIllumination::Pipeline SurfaceCacheTracer() const;
+        // The active tracer's reads of this frame for @p pipeline (GlobalIllumination::TracerFrame).
+        [[nodiscard]] GlobalIllumination::TracerFrame
+        MakeTracerFrame( RDG::Builder& graph, const FrameTextures& textures,
+                         const GlobalIllumination::Pipeline& pipeline ) const;
+        // The surface cache of this frame - only when SurfaceCacheRuns(), after the G-buffer, the shadow depths,
+        // the light grids and the global distance field, before the traced GI: the Lumen scene update, the card
+        // captures and their copy, the cards' direct lighting, into m_SurfaceCacheFrame.
+        void AddFrameSurfaceCache( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // Brings the view's global distance field up to this frame's camera and meshes, into
+        // FrameTransients::GlobalDistanceField* — only when GlobalDistanceFieldRead().
+        void AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The traced GI of this frame — only when RadianceCacheRuns(), after the G-buffer: the GI frame record and
+        // the tracer's frame (GlobalIllumination::TracerFrame), the world radiance cache's update
+        // (GlobalIllumination::WorldRadianceCache), then the screen probe gather that reads it
+        // (GlobalIllumination::ScreenProbeGather), into FrameTransients::ScreenProbe*.
+        void            AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
+                                          const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                                          const glm::vec4& lightColor, const ViewFrame& frame );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                 RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
@@ -902,6 +985,10 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // What the effective GI method runs of the traced machinery and which tracer walks its rays
+        // (GlobalIllumination::PipelineFor of the effective method, the quality and the device), with
+        // m_RenderMethods.
+        GlobalIllumination::Pipeline m_GIPipeline;
         float                   m_GIIntensity   = 2.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
@@ -930,6 +1017,9 @@ namespace Desert::Graphic
         // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
         // initialiser is the High column.
         LightGridQuality m_LightGridQuality;
+        // The world radiance cache's shape and budgets (RadianceCache::MakeRadianceCacheInputs), taken each
+        // BeginScene: the world light grid is cut by its clipmaps.
+        RadianceCache::RadianceCacheInputs m_RadianceCacheInputs;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

@@ -1,28 +1,46 @@
 #ifndef LIGHT_GRID_GLSLH
 #define LIGHT_GRID_GLSLH
 
-// THE VIEW'S LIGHT GRID (UE LightGridCommon.ush): the view frustum cut into froxels — square screen tiles of
-// zParams.w pixels times logarithmic depth slices — each holding the indices of the point and spot lights whose
-// bounds touch it. Built by Programs/Deferred/LightGridBuild.shader ("LightGrid"), read by the
-// deferred composite and the forward cell (Mesh/Surface/Pass_Forward.glslh), which shade a pixel with the lights of
-// ITS cell only. Binding-free: the includer declares
-// the buffers (the parameters as `lightGrid`, the cells as `lightGridCells[]`).
+// THE LIGHT GRID (UE LightGridCommon.ush): the point and spot lights listed per cell, in one of two layouts
+// (Graphic/LightGrid.hpp, LightGridLayout) built by ONE kernel, Programs/Deferred/LightGridBuild.shader:
+//
+//   FRUSTUM (counts.z == LIGHT_GRID_LAYOUT_FRUSTUM) — the view frustum cut into froxels: square screen tiles of
+//   zParams.w pixels times logarithmic depth slices. Read by the deferred composite and the forward cell
+//   (Mesh/Surface/Pass_Forward.glslh), which shade a pixel with the lights of ITS cell only.
+//   WORLD (counts.z == LIGHT_GRID_LAYOUT_WORLD) — the cells of the world radiance cache's clipmaps
+//   (Graphic/GlobalIllumination/RadianceCache.hpp), for the points a GI ray hits off screen
+//   (LightGridWorldLightsAt below).
+//
+// Binding-free: the includer declares the buffers (the parameters as `lightGrid`, the frustum cells as
+// `lightGridCells[]`; a reader of the world layout defines LIGHT_GRID_WORLD_CELLS as the name of its cell array — see the end).
 //
 // One index space for both kinds: i < Counts.x is point light i, otherwise spot light (i - Counts.x). The builder
 // walks the lights in that order, so a cell's list keeps the order the full loop summed them in.
 //
-// THE CELL BUFFER: [CellCount() counts][CellCount() * MaxPerCell() indices]. A count is the cell's TRUE number of
-// lights; only the first MaxPerCell() are listed. A cell whose count exceeds the list is OVERFLOWED and its pixels
-// shade with every light (LightGridCellOverflowed) — slower, never wrong. UE clamps the list and drops the rest.
+// THE FRUSTUM CELL BUFFER: [CellCount() counts][CellCount() * MaxPerCell() indices]. A count is the cell's TRUE
+// number of lights; only the first MaxPerCell() are listed. A cell whose count exceeds the list is OVERFLOWED and
+// its pixels shade with every light (LightGridCellOverflowed) — slower, never wrong. UE clamps the list and drops
+// the rest.
+//
+// THE WORLD CELL BUFFER: [1 pool allocator][CellCount() counts][CellCount() pool offsets][size.w pool indices].
+// Lists are COMPACT: a cell takes count indices from the pool (sized on the CPU to every pair the kernel can list).
+// An offset of LIGHT_GRID_WORLD_EVERY_LIGHT means the pool ran out for that cell; its points are lit by every light.
 
-// std430 layout — must match Graphic::LightGridParamsPayload (192 bytes).
+#define LIGHT_GRID_LAYOUT_FRUSTUM 0u
+#define LIGHT_GRID_LAYOUT_WORLD 1u
+#define LIGHT_GRID_WORLD_EVERY_LIGHT 0xFFFFFFFFu
+#define LIGHT_GRID_NO_CELL 0xFFFFFFFFu
+#define LIGHT_GRID_MAX_CLIPMAPS 6
+
+// std430 layout — must match Graphic::LightGridParamsPayload (288 bytes).
 struct LightGridParams {
-    mat4  view;          // world -> view (camera looks down -z); a pixel's depth is -(view * p).z
-    mat4  invProjection; // clip -> view, of the JITTERED projection the G-buffer depth was rasterised with
-    uvec4 size;          // x, y = tiles across / down, z = depth slices, w = list capacity per cell
-    vec4  zParams;       // x = near (cm), y = slices / log(far / near), z = far (cm), w = tile edge in pixels
-    uvec4 counts;        // x = point lights, y = spot lights
-    vec4  extent;        // xy = render target in pixels
+    mat4  view;          // world -> box space: frustum = view (camera looks down -z; depth = -(view * p).z), world = I
+    mat4  invProjection; // frustum: clip -> view, of the JITTERED projection the G-buffer depth was rasterised with
+    uvec4 size;          // frustum: tiles x, y, depth slices, list capacity; world: res, res, res * clipmaps, pool size
+    vec4  zParams;       // frustum: x = near (cm), y = slices / log(far / near), z = far (cm), w = tile edge in pixels
+    uvec4 counts;        // x = point lights, y = spot lights, z = layout (LIGHT_GRID_LAYOUT_*), w = world: clipmaps
+    vec4  extent;        // frustum: xy = render target in pixels
+    vec4  clipmaps[LIGHT_GRID_MAX_CLIPMAPS]; // world: xyz = clipmap min corner (world cm), w = cell size (cm)
 };
 
 uint LightGridCellCount( LightGridParams grid )
@@ -78,4 +96,75 @@ bool LightGridCellOverflowed( LightGridParams grid, uint count )
     return count > grid.size.w;
 }
 
+// ---- The world layout -------------------------------------------------------------------------------------------
+// Cell (x, y, clipmap * res + z) of clipmap `clipmap` covers [corner + (x,y,z) * cellSize, + cellSize).
+
+// The cell holding world point @p p: the finest clipmap that contains it, or LIGHT_GRID_NO_CELL past the coarsest.
+uint LightGridWorldCellAt( LightGridParams grid, vec3 p )
+{
+    const uint res = grid.size.x;
+    for ( uint i = 0u; i < grid.counts.w; i++ )
+    {
+        const vec3 local = floor( ( p - grid.clipmaps[i].xyz ) / grid.clipmaps[i].w );
+        if ( all( greaterThanEqual( local, vec3( 0.0 ) ) ) && all( lessThan( local, vec3( float( res ) ) ) ) )
+        {
+            const uvec3 c = uvec3( local );
+            return LightGridCellIndex( grid, uvec3( c.xy, i * res + c.z ) );
+        }
+    }
+    return LIGHT_GRID_NO_CELL;
+}
+
+uint LightGridWorldCountSlot( LightGridParams grid, uint cell )
+{
+    return 1u + cell;
+}
+
+uint LightGridWorldOffsetSlot( LightGridParams grid, uint cell )
+{
+    return 1u + LightGridCellCount( grid ) + cell;
+}
+
+uint LightGridWorldPoolBase( LightGridParams grid )
+{
+    return 1u + 2u * LightGridCellCount( grid );
+}
+
 #endif // LIGHT_GRID_GLSLH
+
+// THE WORLD READ, outside the guard above: a reader includes this file once for the struct, declares its world cell
+// buffer, defines LIGHT_GRID_WORLD_CELLS as that array's name and includes the file again.
+#if defined( LIGHT_GRID_WORLD_CELLS ) && !defined( LIGHT_GRID_WORLD_READ_GLSLH )
+#define LIGHT_GRID_WORLD_READ_GLSLH
+// THE LIGHTS AT A WORLD POINT — what lighting a GI hit iterates: for k < range.count, light LightGridWorldLight(k)
+// (the one index space above). A point past the coarsest clipmap, or in a cell the pool could not hold, gets every
+// light: slower, never wrong.
+struct LightGridWorldRange {
+    uint first; // pool index of the cell's list
+    uint count;
+    bool everyLight;
+};
+
+LightGridWorldRange LightGridWorldLightsAt( LightGridParams grid, vec3 p )
+{
+    LightGridWorldRange range;
+    range.first      = 0u;
+    range.count      = grid.counts.x + grid.counts.y;
+    range.everyLight = true;
+    const uint cell  = LightGridWorldCellAt( grid, p );
+    if ( cell == LIGHT_GRID_NO_CELL )
+        return range;
+    const uint offset = LIGHT_GRID_WORLD_CELLS[LightGridWorldOffsetSlot( grid, cell )];
+    if ( offset == LIGHT_GRID_WORLD_EVERY_LIGHT )
+        return range;
+    range.first      = LightGridWorldPoolBase( grid ) + offset;
+    range.count      = LIGHT_GRID_WORLD_CELLS[LightGridWorldCountSlot( grid, cell )];
+    range.everyLight = false;
+    return range;
+}
+
+uint LightGridWorldLight( LightGridWorldRange range, uint k )
+{
+    return range.everyLight ? k : LIGHT_GRID_WORLD_CELLS[range.first + k];
+}
+#endif // LIGHT_GRID_WORLD_CELLS

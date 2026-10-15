@@ -38,7 +38,7 @@ namespace Common::Scalability
         // replace it (GI-DDGI deletes it, with a scene migration); it has no place in the 2026 set.
         ReflectiveShadowMaps,
         ProbeVolume,    // DDGI probe volumes (GI-DDGI)                                   — not implemented
-        SoftwareTraced, // global SDF + world radiance cache (GLOBAL-SDF, GI/REFL-SW)      — not implemented
+        SoftwareTraced, // global SDF + world radiance cache (GLOBAL-SDF, GI-RADIANCE-CACHE)
         HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not implemented
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
@@ -77,7 +77,7 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace ||
-               method == GIMethod::ReflectiveShadowMaps;
+               method == GIMethod::ReflectiveShadowMaps || method == GIMethod::SoftwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
