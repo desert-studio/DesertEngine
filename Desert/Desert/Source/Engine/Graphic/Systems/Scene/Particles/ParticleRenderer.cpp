@@ -16,6 +16,8 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -696,8 +698,8 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewDraw& draw ) const
     {
-        // An opaque / masked mesh row on the deferred path is GBufferPass's and the cascades' (IsDrawnOpaque).
-        if ( !IsDrawable( draw ) || draw.GBufferCell != nullptr )
+        // An opaque / masked mesh row is the base passes' and the shadow views' (ResolveOpaqueCells), never this one's.
+        if ( !IsDrawable( draw ) || draw.Opaque )
             return false;
         switch ( draw.Renderer->Kind )
         {
@@ -716,41 +718,92 @@ namespace Desert::Graphic::System
         return draw.GBufferCell != nullptr && IsDrawable( draw ) && m_MeshArgsRef.IsValid();
     }
 
+    bool ParticleRenderer::IsDrawnBase( const ViewDraw& draw ) const
+    {
+        return draw.BaseCell != nullptr && IsDrawable( draw ) && m_MeshArgsRef.IsValid();
+    }
+
+    bool ParticleRenderer::CastsShadow( const ViewDraw& draw ) const
+    {
+        return !draw.ShadowShader.empty() && IsDrawable( draw ) && m_MeshArgsRef.IsValid();
+    }
+
+    LocalShadowReach ParticleRenderer::LocalShadowReachOf( const glm::vec3& /*centre*/, const float /*radius*/ ) const
+    {
+        // Asked after PrepareFrame, before the graph imports anything: a row that will cast is an opaque mesh row
+        // with a shadow cell and a resident mesh. The particles are the GPU's - no CPU bounds say where they are -
+        // so a light casts them wherever it is, and they move every frame (UE culls a GPU emitter by its fixed
+        // bounds; REMAINDER).
+        LocalShadowReach reach;
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( draw.ShadowShader.empty() || draw.Cell == nullptr || draw.StaticMesh == nullptr ||
+                 draw.Sections.empty() )
+                continue;
+            reach.Casts  = true;
+            reach.Moving = true;
+            break;
+        }
+        return reach;
+    }
+
     void ParticleRenderer::ResolveOpaqueCells( ViewDraw& draw )
     {
+        draw.Opaque      = false;
         draw.GBufferCell = nullptr;
+        draw.BaseCell    = nullptr;
+        draw.RSMCell     = nullptr;
         draw.ShadowShader.clear();
         if ( draw.Cell == nullptr || draw.Renderer->Kind != VFXRendererKind::Mesh ||
-             Core::Formats::IsTranslucentBlend( draw.Cell->Blend ) || m_SceneRenderer == nullptr ||
-             m_SceneRenderer->GetRenderPath() != Core::RenderPath::Deferred || !m_SceneRenderer->GetGBuffer() )
+             Core::Formats::IsTranslucentBlend( draw.Cell->Blend ) || m_SceneRenderer == nullptr )
             return;
+        // Opaque or masked: a base pass and shadow draw, never the particle pass's (its Forward cell is the lit one,
+        // DShaderParser kSurfaceParticleMeshOpaquePasses). Whatever is refused below leaves the row undrawn, said.
+        draw.Opaque = true;
+        const bool deferred =
+             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
         // The same template as the row's Forward cell, another cell of it (MeshShaderFor's rule).
         const std::string_view forward      = draw.Cell->Shader;
         const std::string_view templateName = forward.substr( 0, forward.rfind( '/' ) );
-        const auto gbuffer = TemplateCellShader( templateName, MeshVertexPath::ParticleMesh, MeshPass::GBuffer,
-                                                 IsRegisteredShader );
-        const auto shadow  = TemplateCellShader( templateName, MeshVertexPath::ParticleMesh, MeshPass::ShadowDepth,
-                                                 IsRegisteredShader );
-        if ( !gbuffer || !shadow )
+        const auto             shadow = TemplateCellShader( templateName, MeshVertexPath::ParticleMesh,
+                                                            MeshPass::ShadowDepth, IsRegisteredShader );
+        const auto             gbuffer =
+             deferred ? TemplateCellShader( templateName, MeshVertexPath::ParticleMesh, MeshPass::GBuffer,
+                                            IsRegisteredShader )
+                                  : std::optional<std::string>{};
+        if ( !shadow || ( deferred && !gbuffer ) )
         {
-            const MeshPass missing = gbuffer ? MeshPass::ShadowDepth : MeshPass::GBuffer;
+            const MeshPass missing = shadow ? MeshPass::GBuffer : MeshPass::ShadowDepth;
             if ( m_RefusedOpaque.emplace( std::string( templateName ), true ).second )
             {
-                LOG_ERROR( "[Particles] the opaque particle-mesh template '{}' has no {} cell: its mesh rows are drawn "
-                           "unlit by the particle pass, without depth, velocity or shadow",
+                LOG_ERROR( "[Particles] the opaque particle-mesh template '{}' has no {} cell: its mesh rows are not "
+                           "drawn",
                            templateName, MeshCellFor( MeshVertexPath::ParticleMesh, missing ) );
             }
             return;
         }
-        // Null (a refused pipeline, said by CellDrawFor) keeps the row a ParticlePass draw.
-        draw.GBufferCell  = CellDrawFor( *gbuffer, MeshVertexPath::ParticleMesh, CellNode::GBuffer );
         draw.ShadowShader = *shadow;
+        // Null (a refused pipeline, said by CellDrawFor) leaves the row undrawn.
+        if ( deferred )
+        {
+            draw.GBufferCell = CellDrawFor( *gbuffer, MeshVertexPath::ParticleMesh, CellNode::GBuffer );
+            return;
+        }
+        // The forward path lights the row with the mesh renderer's frame state (BasePass): without one it cannot.
+        if ( m_MeshRenderer.expired() )
+        {
+            if ( m_RefusedOpaque.emplace( std::format( "{}#forward", templateName ), true ).second )
+                LOG_ERROR( "[Particles] the opaque particle-mesh rows of template '{}' are not drawn on the forward "
+                           "path: the view has no mesh renderer to light them with",
+                           templateName );
+            return;
+        }
+        draw.BaseCell = CellDrawFor( draw.Cell->Shader, MeshVertexPath::ParticleMesh, CellNode::Base );
     }
 
-    RenderPassDeclaration::BlockDeclaration ParticleRenderer::DeclareDrawBlock( RenderPassDeclaration& declared,
-                                                                                const ViewDraw&        draw,
-                                                                                const CellDraw&        cell,
-                                                                                const RDG::BufferRef   list ) const
+    template <typename Declaration>
+    auto ParticleRenderer::DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell,
+                                             const RDG::BufferRef list ) const
     {
         const ViewEmitter& ve     = m_ViewEmitters[draw.Emitter];
         const auto&        layout = cell.Layout.Get( cell.Pipeline->GetSpecification().Shader );
@@ -793,7 +846,12 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_Cells[key];
 
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        // The RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation (no shading-word output: the RSM's colour
+        // slot 2 is unused), held by the pipeline; its material is the plain cell's, as MeshRenderer's RSM material.
+        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+        auto        shader  = node == CellNode::RSM
+                                   ? shaders->AcquireVariant( cellShader, ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } )
+                                   : shaders->GetByName( cellShader );
         if ( !shader || m_SceneRenderer == nullptr )
         {
             LOG_ERROR( "[Particles] particle cell '{}' will not draw: {}", cellShader,
@@ -852,6 +910,31 @@ namespace Desert::Graphic::System
                 }
                 spec.Framebuffer       = m_CascadeFramebuffer;
                 spec.CullMode          = CullMode::None;
+                spec.DepthWriteEnabled = true;
+                spec.DepthCompareOp    = CompareOp::LessOrEqual;
+                spec.BlendEnable       = false;
+                break;
+            case CellNode::Base:
+                // The forward meshes' opaque state (MeshRenderer's static forward pipeline) on the scene target: back
+                // faces culled unless the template is two-sided, the depth tested and WRITTEN, velocity at slot 1.
+                spec.TargetLayout = SceneTargetLayout();
+                spec.CullMode     = CullMode::Back;
+                ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+                spec.DepthTestEnabled  = true;
+                spec.DepthWriteEnabled = true;
+                spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+                spec.BlendEnable       = false;
+                break;
+            case CellNode::RSM:
+                // MeshRenderer's RSM pipeline: the G-buffer state against the RSM's own colour slots (slot 2 unused)
+                // and depth, STANDARD-Z (drawn through the sun's cascade matrix, cleared to 1).
+                spec.TargetLayout = RenderTargetLayout{
+                     .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>(
+                          ViewTargetFormats::kRSMColourSlots.begin(), ViewTargetFormats::kRSMColourSlots.end() ),
+                     .DepthFormat = ViewTargetFormats::kRSMDepth };
+                spec.CullMode = CullMode::Back;
+                ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+                spec.DepthTestEnabled  = true;
                 spec.DepthWriteEnabled = true;
                 spec.DepthCompareOp    = CompareOp::LessOrEqual;
                 spec.BlendEnable       = false;
@@ -1088,6 +1171,152 @@ namespace Desert::Graphic::System
         return pass;
     }
 
+    SystemRasterPass ParticleRenderer::BasePass()
+    {
+        auto targetFb = m_TargetFramebuffer.lock();
+        if ( !targetFb )
+            return {};
+
+        SystemRasterPass pass{
+             .Name        = "Particles: Base",
+             .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+             {
+                 if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr ||
+                      m_MeshRenderer.expired() )
+                     return BOOLSUCCESS; // the Declare declared nothing either
+                 uint32_t block = 0;
+                 for ( const ViewDraw& draw : m_ViewDraws )
+                 {
+                     if ( !IsDrawnBase( draw ) )
+                         continue;
+                     // The block is the draw's whether or not it draws: the n-th drawn row declared block n.
+                     const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+                     const CellDraw&         cell = *draw.BaseCell;
+                     if ( cell.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                         continue; // PSO1, as in ParticlePass
+                     cell.Material->SetMaterialIndex( draw.BaseRow );
+                     cell.Material->Bind( cell.Instance.get() );
+                     if ( auto drawn = RecordMeshDraws( bindings, draw, cell ); !drawn.IsSuccess() )
+                         return drawn;
+                 }
+                 return BOOLSUCCESS;
+             },
+             .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        {
+            const ViewFrame* view = m_SceneRenderer->GetViewFrame();
+            const auto       mesh = m_MeshRenderer.lock();
+            if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr || !mesh )
+                return;
+            // Per lit cell, BEFORE its blocks: this frame's rows of the rows drawn through it, and the frame state a
+            // forward mesh cell is lit with - camera, lights, cascades, environment, cloud shadow, motion rows -
+            // from the one snapshot the mesh renderer's own forward draws take (SceneFrameBinding).
+            std::vector<CellDraw*> cells;
+            for ( ViewDraw& draw : m_ViewDraws )
+            {
+                if ( !IsDrawnBase( draw ) )
+                    continue;
+                CellDraw* cell = draw.BaseCell;
+                if ( std::ranges::find( cells, cell ) == cells.end() )
+                {
+                    cell->Rows.clear();
+                    cells.push_back( cell );
+                }
+                MaterialInstance* instance = draw.Instance != nullptr ? draw.Instance : cell->Instance.get();
+                draw.BaseRow               = MeshRendererDetail::AppendRow(
+                     cell->Rows, MeshRendererDetail::EffectiveRow( cell->Material.get(), instance ) );
+            }
+            if ( cells.empty() )
+                return;
+            const SceneFrameBinding frame = mesh->CaptureFrameState( view );
+            for ( CellDraw* cell : cells )
+            {
+                UploadRows( *cell->Material, cell->Rows );
+                frame.ApplyTo( cell->Material.get() );
+            }
+            // The view's scene inputs (the cascades, the sky cubes, the BRDF LUT, the cloud shadow) where the cell
+            // samples them: pass parameters, as for the forward meshes (MeshDrawList::DeclareBlocks).
+            const SceneViewInputs inputs = SceneViewInputsOf( refs );
+            for ( const ViewDraw& draw : m_ViewDraws )
+            {
+                if ( !IsDrawnBase( draw ) )
+                    continue;
+                const CellDraw& cell   = *draw.BaseCell;
+                const auto&     layout = cell.Layout.Get( cell.Pipeline->GetSpecification().Shader );
+                auto            block  = DeclareDrawBlock( declared, draw, cell, m_Pool.AliveRef );
+                if ( SamplesSceneViewInputs( *layout ) )
+                    BindSceneViewInputs( block, inputs, *layout );
+                declared.Read( m_MeshArgsRef, RDG::Access::IndirectArgs );
+            }
+        };
+        return pass;
+    }
+
+    void ParticleRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
+    {
+        for ( ViewDraw& draw : m_ViewDraws )
+            draw.RSMCell = nullptr;
+        const auto       mesh = m_MeshRenderer.lock();
+        const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( !mesh || view == nullptr || !m_Pool.Declared )
+            return;
+        // Per RSM cell, BEFORE its blocks: the rows of the rows drawn through it (their albedo IS the bounce's flux
+        // colour) and the sun's camera - the matrix the mesh renderer's RSM draws project with, as a still view.
+        std::vector<CellDraw*> cells;
+        for ( ViewDraw& draw : m_ViewDraws )
+        {
+            if ( !IsDrawnOpaque( draw ) )
+                continue;
+            CellDraw* cell = CellDrawFor( draw.GBufferCell->Shader, MeshVertexPath::ParticleMesh, CellNode::RSM );
+            if ( cell == nullptr )
+                continue; // refused, said once by CellDrawFor; RecordRSM skips it alike
+            draw.RSMCell = cell;
+            if ( std::ranges::find( cells, cell ) == cells.end() )
+            {
+                cell->Rows.clear();
+                cells.push_back( cell );
+            }
+            MaterialInstance* instance = draw.Instance != nullptr ? draw.Instance : cell->Instance.get();
+            draw.RSMRow                = MeshRendererDetail::AppendRow(
+                 cell->Rows, MeshRendererDetail::EffectiveRow( cell->Material.get(), instance ) );
+        }
+        if ( cells.empty() )
+            return;
+        const ViewFrame sun =
+             MakeStillViewFrame( glm::mat4( 1.0f ), mesh->GetRSMViewProj(), mesh->GetRSMEye(), view->TimeSeconds );
+        for ( CellDraw* cell : cells )
+        {
+            UploadRows( *cell->Material, cell->Rows );
+            SceneCameraBind( cell->Material.get(), sun );
+        }
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( draw.RSMCell == nullptr )
+                continue;
+            (void)DeclareDrawBlock( pass, draw, *draw.RSMCell, m_Pool.AliveRef );
+            pass.Read( m_MeshArgsRef, RDG::Access::IndirectArgs );
+        }
+    }
+
+    Common::BoolResultStr ParticleRenderer::RecordRSM( const RDG::PassContext& context, const uint32_t firstBlock )
+    {
+        uint32_t block = firstBlock;
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( draw.RSMCell == nullptr )
+                continue;
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            const CellDraw&         cell = *draw.RSMCell;
+            if ( cell.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                continue;
+            cell.Material->SetMaterialIndex( draw.RSMRow );
+            cell.Material->Bind( cell.Instance.get() );
+            if ( auto drawn = RecordMeshDraws( bindings, draw, cell ); !drawn.IsSuccess() )
+                return drawn;
+        }
+        return BOOLSUCCESS;
+    }
+
     uint32_t ParticleRenderer::DeclareShadowCascade( RenderPassDeclaration& declared, const uint32_t cascade )
     {
         if ( !m_CascadeFramebuffer || !m_Pool.Declared )
@@ -1098,7 +1327,7 @@ namespace Desert::Graphic::System
         std::vector<CellDraw*> cells;
         for ( ViewDraw& draw : m_ViewDraws )
         {
-            if ( !IsDrawnOpaque( draw ) )
+            if ( !CastsShadow( draw ) )
                 continue;
             CellDraw* cell = CellDrawFor( draw.ShadowShader, MeshVertexPath::ParticleMesh, CellNode::Shadow, cascade );
             if ( cell == nullptr )
@@ -1120,7 +1349,7 @@ namespace Desert::Graphic::System
         uint32_t blocks = 0;
         for ( const ViewDraw& draw : m_ViewDraws )
         {
-            if ( !IsDrawnOpaque( draw ) )
+            if ( !CastsShadow( draw ) )
                 continue;
             const CellDraw* cell =
                  CellDrawFor( draw.ShadowShader, MeshVertexPath::ParticleMesh, CellNode::Shadow, cascade );
@@ -1148,7 +1377,7 @@ namespace Desert::Graphic::System
         uint32_t                     block = firstBlock;
         for ( const ViewDraw& draw : m_ViewDraws )
         {
-            if ( !IsDrawnOpaque( draw ) )
+            if ( !CastsShadow( draw ) )
                 continue;
             const CellDraw* cell =
                  CellDrawFor( draw.ShadowShader, MeshVertexPath::ParticleMesh, CellNode::Shadow, cascade );

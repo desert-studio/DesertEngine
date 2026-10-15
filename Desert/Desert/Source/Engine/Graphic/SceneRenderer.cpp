@@ -515,10 +515,13 @@ namespace Desert::Graphic
                     LOG_WARN( "[SceneRenderer] Particle system unavailable." );
                     return "Particle";
                 }
-                // The opaque mesh particles cast into the sun's cascades from inside the mesh renderer's cascade
-                // passes, as the terrain does (IShadowCaster). A renderer built without cascades has no target and
-                // nothing to cast into.
+                // The opaque mesh particles cast into the sun's cascades and the point / spot lights' views from
+                // inside the mesh renderer's shadow passes, as the terrain does into the cascades (IShadowCaster); on
+                // the forward path they are lit, and into the RSM drawn, with the mesh renderer's frame state. A
+                // renderer built without cascades has no target and nothing to cast into.
                 const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                if ( meshSystem )
+                    particleSystem->SetMeshRenderer( meshSystem );
                 if ( meshSystem && meshSystem->GetCascadeFramebuffer() )
                 {
                     particleSystem->SetCascadeTarget( meshSystem->GetCascadeFramebuffer() );

@@ -112,9 +112,15 @@ namespace Desert::Core::Preprocess
     // into the G-buffer - depth, velocity, lit by the deferred lighting - and by the shadow depth pass; only a
     // translucent one is drawn by the translucency). A `Usage ParticleMeshes` template whose blend is not translucent
     // gets, right after its ParticleMesh.Forward cell, one cell per pass here, built as the mesh cells of that pass
-    // are (the pass's own header, Mesh/Surface/Pass_<Pass>.glslh) over the ParticleMesh vertex header. The Forward
-    // cell stays: the forward render path has no G-buffer and draws it in the particle pass.
+    // are (the pass's own header, Mesh/Surface/Pass_<Pass>.glslh) over the ParticleMesh vertex header. Its
+    // ParticleMesh.Forward cell is then a LIT forward cell too (Pass_Forward.glslh, as Static.Forward), not the
+    // particle composite: the forward render path draws it in its base pass with depth, velocity and the scene's
+    // lights and shadows (ParticleRenderer::BasePass), never in the particle pass.
     inline constexpr std::array<std::string_view, 2> kSurfaceParticleMeshOpaquePasses = { "GBuffer", "ShadowDepth" };
+    // Defined in both stages of a particle cell built on the particle composite header
+    // (kSurfaceParticleSpritePassInclude): the cells the particle pass draws over the scene, which alone read the
+    // scene depth behind them (Depth Fade, Mesh/Surface/SurfaceTypes.glslh).
+    inline constexpr std::string_view kSurfaceParticleCompositeDefine = "DESERT_SURFACE_PARTICLE_COMPOSITE";
     inline constexpr std::string_view kSurfaceParticleDefine = "DESERT_SURFACE_PARTICLE";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";

@@ -624,10 +624,12 @@ TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
 {
     // The RSM framebuffer's colour slot 2 is unused (ViewTargetFormats::kRSMColourSlots), so every pipeline that
     // draws into it must be built from the DESERT_GBUFFER_RSM permutation
-    // (TheRSMPipelineIsBuiltFromTheRSMPermutation). That holds because exactly one drawer exists: the "Deferred:
-    // RSM" pass records MeshRenderer's RSM draw list and nothing else, every draw on that list is m_RSMPipeline,
-    // and no other renderer (terrain, foliage, particles) reaches the RSM framebuffer. A second drawer must come
-    // with its own RSM permutation — this census goes red first.
+    // (TheRSMPipelineIsBuiltFromTheRSMPermutation). That holds because exactly two drawers exist: the "Deferred:
+    // RSM" pass records MeshRenderer's RSM draw list, every draw on that list is m_RSMPipeline, and then the opaque
+    // mesh particles (ParticleRenderer::DeclareRSMDraws / RecordRSM, VFX-RENDER), whose RSM cell states are built
+    // from their G-buffer cells' DESERT_GBUFFER_RSM permutation against kRSMColourSlots; no other renderer
+    // (terrain, foliage) reaches the RSM framebuffer. A third drawer must come with its own RSM permutation — this
+    // census goes red first.
     const auto read = []( const std::filesystem::path& path )
     {
         std::ifstream in( path, std::ios::binary );
@@ -639,10 +641,19 @@ TEST( ShaderVariantDefines, OnlyTheMeshRendererDrawsTheRSM )
 
     const std::string frame = read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
     ASSERT_FALSE( frame.empty() );
-    EXPECT_NE( frame.find( "{returnmeshRenderer->RenderRSMManual(context);},[meshRenderer](RDG::PassBuilder&pass)"
-                           "{meshRenderer->DeclareRSMDraws(pass);});" ),
+    EXPECT_NE( frame.find( "{if(autodrawn=meshRenderer->RenderRSMManual(context);!drawn.IsSuccess())returndrawn;"
+                           "if(particles==nullptr)returnBOOLSUCCESS;returnparticles->RecordRSM(context,meshRenderer->"
+                           "GetRSMBlockCount());},[meshRenderer,particles](RDG::PassBuilder&pass){meshRenderer->"
+                           "DeclareRSMDraws(pass);if(particles!=nullptr)particles->DeclareRSMDraws(pass);});" ),
                std::string::npos )
-         << "the \"Deferred: RSM\" pass records something besides MeshRenderer's RSM draw list.";
+         << "the \"Deferred: RSM\" pass records something besides MeshRenderer's RSM draw list and the particles'.";
+    const std::string particles =
+         read( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    ASSERT_FALSE( particles.empty() );
+    EXPECT_NE( particles.find( "node==CellNode::RSM?shaders->AcquireVariant(cellShader,ShaderVariant{.Defines={"
+                               "\"DESERT_GBUFFER_RSM\"}}):shaders->GetByName(cellShader);" ),
+               std::string::npos )
+         << "the particles' RSM cell state is not built from the G-buffer cell's RSM permutation.";
 
     const std::string shadow =
          read( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );

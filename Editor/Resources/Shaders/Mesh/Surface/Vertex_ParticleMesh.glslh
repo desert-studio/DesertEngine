@@ -1,9 +1,11 @@
 // Surface cell vertex path: MESH particles (UE: the Niagara mesh vertex factory, a material's "Used with Mesh
 // Particles" usage). A cell of this path exists only in a template that declares `Usage ParticleMeshes`
-// (DShaderParser kSurfaceParticleUsages): ParticleMesh.Forward, drawn by the particle pass, and - for an opaque or
-// masked template (kSurfaceParticleMeshOpaquePasses) - ParticleMesh.GBuffer, drawn by the deferred base pass with
-// depth and velocity, and ParticleMesh.ShadowDepth, drawn into the sun's cascades (UE: an opaque mesh particle is
-// drawn by the base pass and the shadow depth pass, never by the translucency).
+// (DShaderParser kSurfaceParticleUsages): ParticleMesh.Forward - for a translucent template the particle pass's
+// composite, for an opaque or masked one the LIT forward cell the forward render path's base pass draws with depth,
+// velocity, lights and shadows - and for an opaque or masked template (kSurfaceParticleMeshOpaquePasses)
+// ParticleMesh.GBuffer, drawn by the deferred base pass (and the RSM) with depth and velocity, and
+// ParticleMesh.ShadowDepth, drawn into the sun's cascades and the point / spot lights' views (UE: an opaque mesh
+// particle is drawn by the base pass and the shadow depth passes, never by the translucency).
 //
 // One instance of the row's static mesh per alive particle: the draw is INDEXED-INDIRECT per mesh section
 // (ParticleMeshDrawArgs.shader: instanceCount = alive, firstInstance = the start of the slot's alive half), and
@@ -22,23 +24,25 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #include <Common/VFXRandom.glslh>
 #include <Common/ParticleDrawLayout.glslh>
 
-layout( std430, binding = 9 ) readonly buffer AttributeFloats
+// The particle reads sit in the reserved particle-read range (28..33, Core::kParticleReadBindingFirst in
+// ShaderGraphBindings.hpp), clear of the pass headers' slots (the lit forward cell's included) and the template's.
+layout( std430, binding = 28 ) readonly buffer AttributeFloats
 {
     float u_DrawFloats[];
 };
 
-layout( std430, binding = 10 ) readonly buffer AliveList
+layout( std430, binding = 29 ) readonly buffer AliveList
 {
     uint u_Alive[];
 };
 
-layout( std430, binding = 11 ) readonly buffer DrawLayout
+layout( std430, binding = 30 ) readonly buffer DrawLayout
 {
     ParticleDrawLayout u_DrawLayout;
 };
 
 // The draw's renderer row settings (Common/ParticleDrawLayout.glslh ParticleRendererParams).
-layout( std430, binding = 14 ) readonly buffer RendererParams
+layout( std430, binding = 31 ) readonly buffer RendererParams
 {
     ParticleRendererParams u_Renderer;
 };

@@ -86,6 +86,12 @@ namespace Desert::Graphic::System
                                                                  uint32_t                 firstBlock,
                                                                  const glm::mat4&         cascadeViewProj,
                                                                  const CascadeCasterBias& bias ) override;
+        // The terrain casts into the sun's cascades only; it is not drawn into the point / spot
+        // lights' views (REMAINDER: its tiles in a light's reach and their edit generation would be its key).
+        [[nodiscard]] LocalShadowReach LocalShadowReachOf( const glm::vec3& /*centre*/, float /*radius*/ ) const override
+        {
+            return {};
+        }
 
         void Submit( const TerrainDrawData& data )
         {

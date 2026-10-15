@@ -42,6 +42,8 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
+    class MeshRenderer;
+
     // One VIEW's side of the scene's GPU particle system (VFX-07b). The pool, the per-emitter step tables,
     // counters and dispatch arguments are the scene's (ParticleWorldGpu, owned by its VFXWorld); this system holds
     // what is per view: one draw state per material CELL (its pipeline, its cell material with the camera block
@@ -60,12 +62,15 @@ namespace Desert::Graphic::System
     // AddMeshDrawArgsPasses wrote.
     //
     // THE OPAQUE MESH PARTICLE IS NOT A TRANSLUCENT ONE (UE: an opaque / masked Niagara mesh renderer is drawn by the
-    // base pass and the shadow depth pass; only translucent particles are drawn by the translucency). On the deferred
-    // render path a Mesh row whose material is opaque or masked is drawn through its template's ParticleMesh.GBuffer
-    // cell by GBufferPass - the G-buffer's depth, normal, material and velocity, lit by the deferred lighting like
-    // any mesh - and through its ParticleMesh.ShadowDepth cell into the sun's cascades from inside the mesh
-    // renderer's cascade passes (IShadowCaster); ParticlePass draws it no more. The forward render path has no
-    // G-buffer: there the row stays a ParticlePass draw.
+    // base pass and the shadow depth passes; only translucent particles are drawn by the translucency). A Mesh row
+    // whose material is opaque or masked is never a ParticlePass draw. On the deferred render path it is drawn
+    // through its template's ParticleMesh.GBuffer cell by GBufferPass - the G-buffer's depth, normal, material and
+    // velocity, lit by the deferred lighting like any mesh - and by the same cell's DESERT_GBUFFER_RSM permutation
+    // into the reflective shadow map (DeclareRSMDraws: a bounce source of the RSM GI, as the static meshes are). On
+    // the forward render path it is drawn through its LIT ParticleMesh.Forward cell by BasePass - depth, velocity,
+    // the scene's lights, cascades, sky and cloud shadow, as a forward static mesh. On both it casts through its
+    // ParticleMesh.ShadowDepth cell into the sun's cascades and the point / spot lights' views, from inside the mesh
+    // renderer's shadow passes (IShadowCaster).
     class ParticleRenderer final : public RenderSystem, public IShadowCaster
     {
     public:
@@ -84,6 +89,26 @@ namespace Desert::Graphic::System
         // Added by SceneRenderer::AddFrameParticleGBuffer on the deferred path. Empty without a G-buffer.
         [[nodiscard]] SystemRasterPass GBufferPass();
 
+        // The opaque / masked mesh rows into the scene target on the FORWARD render path (LOAD: after the meshes' and
+        // the terrain's base pass nodes), depth-WRITING, through each row's lit ParticleMesh.Forward cell with the
+        // view's scene inputs (SceneViewInputs) and the mesh renderer's frame state (lights, cascades, environment:
+        // MeshRenderer::CaptureFrameState). Added by SceneRenderer::AddFrameBasePass. Empty without a target.
+        [[nodiscard]] SystemRasterPass BasePass();
+
+        // The opaque / masked mesh rows into the reflective shadow map ("Deferred: RSM", after the mesh renderer's
+        // draws): each row's G-buffer cell under DESERT_GBUFFER_RSM against the RSM's colour slots, standard-Z, from
+        // the sun (MeshRenderer::GetRSMViewProj / GetRSMEye). The blocks follow the mesh renderer's; RecordRSM opens
+        // them from @p firstBlock (MeshRenderer::GetRSMBlockCount).
+        void                                DeclareRSMDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RecordRSM( const RDG::PassContext& context, uint32_t firstBlock );
+
+        // The view's mesh renderer: the frame state (lights, cascades, environment) BasePass lights the forward rows
+        // with and the sun view DeclareRSMDraws draws from. Set once by the SceneRenderer with SetCascadeTarget.
+        void SetMeshRenderer( std::weak_ptr<MeshRenderer> meshRenderer )
+        {
+            m_MeshRenderer = std::move( meshRenderer );
+        }
+
         // The target the cascade casters' pipelines are built against (MeshRenderer::GetCascadeFramebuffer: every
         // cascade has its formats). Set once by the SceneRenderer before it registers this system as a caster.
         void SetCascadeTarget( std::shared_ptr<Framebuffer> cascadeFramebuffer )
@@ -91,13 +116,16 @@ namespace Desert::Graphic::System
             m_CascadeFramebuffer = std::move( cascadeFramebuffer );
         }
 
-        // IShadowCaster: the opaque / masked mesh rows GBufferPass draws, into cascade @p cascade through each row's
-        // ParticleMesh.ShadowDepth cell (one cell material per cascade: its camera block is the cascade's light).
+        // IShadowCaster: the opaque / masked mesh rows (CastsShadow), into shadow view @p cascade - a sun cascade or a
+        // point / spot light's view of the local atlas - through each row's ParticleMesh.ShadowDepth cell (one cell
+        // material per view: its camera block is the view's light).
         [[nodiscard]] uint32_t              DeclareShadowCascade( RenderPassDeclaration& declared,
                                                                   uint32_t               cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
                                                                  uint32_t firstBlock, const glm::mat4& cascadeViewProj,
                                                                  const CascadeCasterBias& bias ) override;
+        // Every point / spot light in the view casts the opaque mesh rows, and they move every frame (no CPU bounds).
+        [[nodiscard]] LocalShadowReach LocalShadowReachOf( const glm::vec3& centre, float radius ) const override;
 
         // Drops this view's emitter instances and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is
         // keyed by the raw entt entity value, which a fresh registry hands out from zero again. The GPU particle
@@ -182,7 +210,9 @@ namespace Desert::Graphic::System
         {
             Particles, // ParticlePass: the scene target, depth read-only
             GBuffer,   // GBufferPass: the G-buffer, depth written
-            Shadow,    // a sun cascade (standard-Z), depth written
+            Shadow,    // a shadow view - a sun cascade or a local light's (standard-Z), depth written
+            Base,      // BasePass: the scene target on the forward path, lit, depth written
+            RSM,       // the reflective shadow map: the G-buffer cell's DESERT_GBUFFER_RSM permutation, standard-Z
         };
 
         // One renderer row's material in this view: the asset its instance was built from, the runtime instance of
@@ -262,12 +292,18 @@ namespace Desert::Graphic::System
             const ::Desert::Mesh*    StaticMesh = nullptr;
             std::vector<MeshSection> Sections;
             uint32_t                 ArgsBase = 0;
-            // Kind == Mesh with an opaque / masked material on the deferred path: its G-buffer cell (non-null = drawn
-            // by GBufferPass and the cascades, not by ParticlePass), its shadow cell shader, and its rows there.
+            // Kind == Mesh with an opaque / masked material (Opaque: never a ParticlePass draw): on the deferred path
+            // its G-buffer cell (GBufferPass) and that cell's RSM state, on the forward path its lit forward cell
+            // (BasePass), on both its shadow cell shader (the shadow views), and its rows there.
+            bool                  Opaque      = false;
             CellDraw*             GBufferCell = nullptr;
+            CellDraw*             BaseCell    = nullptr;
+            CellDraw*             RSMCell     = nullptr;
             std::string           ShadowShader;
             uint32_t              GBufferRow = 0;
-            std::vector<uint32_t> ShadowRows; // per cascade
+            uint32_t              BaseRow    = 0;
+            uint32_t              RSMRow     = 0;
+            std::vector<uint32_t> ShadowRows; // per shadow view
             // Kind != Sprite: the row's settings (ParticleRendererParamsGpu) at binding 14.
             RDG::ExternalBuffer RendererParamsImport;
             RDG::BufferRef      RendererParamsRef;
@@ -281,18 +317,26 @@ namespace Desert::Graphic::System
         // Whether ParticlePass draws @p draw this frame - the one condition its Declare and its exec both walk the
         // draws by, so the exec's n-th drawn row opens the n-th declared block. A ribbon also needs its order.
         bool IsDrawn( const ViewDraw& draw ) const;
-        // Whether GBufferPass and the cascades draw @p draw this frame (the deferred opaque / masked mesh rows).
+        // Whether GBufferPass draws @p draw this frame (the deferred opaque / masked mesh rows).
         bool IsDrawnOpaque( const ViewDraw& draw ) const;
-        // The G-buffer and shadow cells of a mesh row drawing through a ParticleMesh.Forward cell on the deferred
-        // path: its template's ParticleMesh.GBuffer / ShadowDepth, none for a translucent cell or on the forward path.
-        // An opaque template without them is said once by name and its rows stay ParticlePass draws.
+        // Whether BasePass draws @p draw this frame (the forward opaque / masked mesh rows).
+        bool IsDrawnBase( const ViewDraw& draw ) const;
+        // Whether the shadow views draw @p draw this frame: an opaque / masked mesh row with a shadow cell, on either
+        // render path.
+        bool CastsShadow( const ViewDraw& draw ) const;
+        // The opaque cells of a mesh row drawing through a ParticleMesh.Forward cell whose template is opaque or
+        // masked: its template's ParticleMesh.ShadowDepth, and ParticleMesh.GBuffer on the deferred path or the lit
+        // Forward cell itself on the forward one; none for a translucent cell. An opaque template without them is
+        // said once by name and its rows are not drawn (its Forward cell is lit: the particle pass cannot draw it).
         void ResolveOpaqueCells( ViewDraw& draw );
         // The particle storage block every particle cell's vertex header reads (AttributeFloats, DrawLayout, the alive
         // list @p list, the row's settings for a mesh / ribbon row), declared on @p declared against @p cell's layout
         // and route fill; the caller adds what only its node binds.
-        RenderPassDeclaration::BlockDeclaration DeclareDrawBlock( RenderPassDeclaration& declared,
-                                                                  const ViewDraw& draw, const CellDraw& cell,
-                                                                  RDG::BufferRef list ) const;
+        // On a RenderPassDeclaration (a system pass) or an RDG::PassBuilder (the RSM's raster); defined and used in
+        // the .cpp only.
+        template <typename Declaration>
+        auto DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell,
+                               RDG::BufferRef list ) const;
         // A mesh row's indexed-indirect draws through @p cell, one per section, bound by @p bindings.
         Common::BoolResultStr RecordMeshDraws( const RDG::PassBindings& bindings, const ViewDraw& draw,
                                                const CellDraw& cell ) const;
@@ -336,6 +380,7 @@ namespace Desert::Graphic::System
         // The mesh rows' meshes that will never be drawn (failed or unknown to MeshService), said once each.
         std::unordered_map<uint64_t, bool> m_MissingMeshes;
         std::shared_ptr<Framebuffer>          m_CascadeFramebuffer;
+        std::weak_ptr<MeshRenderer>           m_MeshRenderer;
         // Per emitter entity (raw entt entity value), per (emitter index << 32 | renderer row), per view: every
         // emitter of a system and every row of an emitter keeps its own instance.
         std::unordered_map<uint32_t, std::unordered_map<uint64_t, DrawMaterial>> m_Materials;

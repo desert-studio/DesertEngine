@@ -29,7 +29,7 @@ namespace Desert::Core
      * added tomorrow reddens it whatever spelled the number.
      *
      * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
-     * it was none; the window now opens at 28, above the scene-read range below. The lit shader-graph surface
+     * it was none; the window now opens at 34, above the scene-read and particle-read ranges below. The lit shader-graph surface
      * layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader), so the next binding
      * that layout grows lands here. That is what the census is for: the collision becomes a red test rather than a
      * wrong picture.
@@ -70,8 +70,40 @@ namespace Desert::Core
         return binding >= kSceneReadBindingFirst && binding < kSceneReadBindingFirst + kSceneReadBindingCount;
     }
 
+    /**
+     * THE RESERVED PARTICLE-READ RANGE: the set-0 slots a PARTICLE vertex path reads the scene's particles at (UE:
+     * the Niagara vertex factories' own parameters, which no material or pass parameter can collide with) - the
+     * emitter's attribute columns, the alive list (or the view's sorted / ribbon order), the draw layout, the
+     * renderer row's settings, and the ribbon's int columns and counters - declared by
+     * Mesh/Surface/Vertex_Particle{Sprite,Mesh,Ribbon}.glslh and bound by NAME by ParticleRenderer.
+     *
+     * They had sat at 9-14, i.e. on the forward pass's lighting slots (u_EnvIrradianceTex 9, u_BRDFLUTTexture 10,
+     * u_ShadowMap2 14) and on a template's own textures (StandardSurface's u_AlbedoTexture 11). That was harmless
+     * while every particle cell had the particle pass's header, which declares no lighting; an opaque mesh
+     * particle's lit forward cell (Pass_Forward over the ParticleMesh path, VFX-RENDER) declares both at once. So
+     * the paths take a range of their own above the scene-read range, and the graph's window moves above it.
+     * DShaderParser refuses a Properties row or texture run that reaches into it, as it does for the scene reads.
+     */
+    inline constexpr uint32_t kParticleReadBindingFirst  = kSceneReadBindingFirst + kSceneReadBindingCount;
+    inline constexpr uint32_t kParticleFloatsBinding     = kParticleReadBindingFirst;      // AttributeFloats
+    inline constexpr uint32_t kParticleListBinding       = kParticleReadBindingFirst + 1u; // AliveList
+    inline constexpr uint32_t kParticleDrawLayoutBinding = kParticleReadBindingFirst + 2u; // DrawLayout
+    inline constexpr uint32_t kParticleRendererBinding   = kParticleReadBindingFirst + 3u; // RendererParams
+    inline constexpr uint32_t kParticleIntsBinding       = kParticleReadBindingFirst + 4u; // AttributeInts (ribbon)
+    inline constexpr uint32_t kParticleCountersBinding   = kParticleReadBindingFirst + 5u; // Counters (ribbon)
+    inline constexpr uint32_t kParticleReadBindingCount  = 6u;
+    static_assert( kParticleReadBindingFirst == 28u,
+                   "Mesh/Surface/Vertex_Particle*.glslh spell 28..33: move them with this range" );
+
+    [[nodiscard]] constexpr bool IsParticleReadBinding( uint32_t binding )
+    {
+        return binding >= kParticleReadBindingFirst &&
+               binding < kParticleReadBindingFirst + kParticleReadBindingCount;
+    }
+
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), to sit above the scene-read
-    // range; see the paragraph on moving it above.
-    inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 28u, "the graph's window opens right above the scene-read range" );
+    // range, then from 28 (VFX-RENDER: the particle-read range) to sit above that; see the paragraph on moving it
+    // above.
+    inline constexpr uint32_t kGraphOwnedBindingFirst = kParticleReadBindingFirst + kParticleReadBindingCount;
+    static_assert( kGraphOwnedBindingFirst == 34u, "the graph's window opens right above the particle-read range" );
 } // namespace Desert::Core

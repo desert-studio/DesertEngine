@@ -85,7 +85,8 @@ Shader "DeferredLighting"
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
         // SET 1, bindings 0 and 1. Set 0 has no room for two: 0-23 are taken in this layout (22 and 23 are the
         // local shadow atlas and its views), 24 is the only spare, 25-27 are the reserved scene-read range
-        // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
+        // (Core::IsSceneReadBinding), 28-33 the reserved particle-read range (Core::IsParticleReadBinding) and 34 up
+        // is the window a shader graph's own resources are numbered into
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
         // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.

@@ -11,21 +11,21 @@
 #include <Common/VFXRandom.glslh>
 #include <Common/ParticleDrawLayout.glslh>
 
-// Above the material row (Binding(2)) and below the forward family's slots this cell does not declare: the
-// sprite cell reads the emitter's attribute columns (the ONE store of its particles, UE NiagaraParticleDataFloat),
+// In the reserved particle-read range (28..33, Core::kParticleReadBindingFirst in ShaderGraphBindings.hpp), clear
+// of every pass header's and template's slots: the sprite cell reads the emitter's attribute columns (the ONE store of its particles, UE NiagaraParticleDataFloat),
 // where its stack put each drawn attribute (Common/ParticleDrawLayout.glslh, UE FNiagaraSpriteUniformParameters),
 // and the emitter's alive list - nothing else of the particle system.
-layout( std430, binding = 9 ) readonly buffer AttributeFloats
+layout( std430, binding = 28 ) readonly buffer AttributeFloats
 {
     float u_DrawFloats[];
 };
 
-layout( std430, binding = 10 ) readonly buffer AliveList
+layout( std430, binding = 29 ) readonly buffer AliveList
 {
     uint u_Alive[];
 };
 
-layout( std430, binding = 11 ) readonly buffer DrawLayout
+layout( std430, binding = 30 ) readonly buffer DrawLayout
 {
     ParticleDrawLayout u_DrawLayout;
 };

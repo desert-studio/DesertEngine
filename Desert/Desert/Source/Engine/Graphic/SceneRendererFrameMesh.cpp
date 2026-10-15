@@ -148,6 +148,12 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
+        // The opaque / masked mesh particles of the forward path, lit like a forward mesh and depth-writing, after the
+        // geometry they are tested against (ParticleRenderer::BasePass; on the deferred path it declares nothing:
+        // they are in the G-buffer).
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+            passes.push_back( particles->BasePass() );
         AddSystemRasters( graph, textures, passes, true );
     }
 
@@ -342,13 +348,28 @@ namespace Desert::Graphic
                 return;
             // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
+            // The static meshes' draws, then the opaque mesh particles' (ParticleRenderer::DeclareRSMDraws: the
+            // G-buffer cells' RSM permutation), their blocks after the meshes'.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
             AddRaster(
                  graph, "Deferred: RSM", *targets,
                  textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
                  RDG::LoadOp::ClearDepth( 1.0f ), {},
-                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return meshRenderer->RenderRSMManual( context ); },
-                 [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareRSMDraws( pass ); } );
+                 [meshRenderer, particles]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     if ( auto drawn = meshRenderer->RenderRSMManual( context ); !drawn.IsSuccess() )
+                         return drawn;
+                     if ( particles == nullptr )
+                         return BOOLSUCCESS;
+                     return particles->RecordRSM( context, meshRenderer->GetRSMBlockCount() );
+                 },
+                 [meshRenderer, particles]( RDG::PassBuilder& pass )
+                 {
+                     meshRenderer->DeclareRSMDraws( pass );
+                     if ( particles != nullptr )
+                         particles->DeclareRSMDraws( pass );
+                 } );
             m_RSMLastSunDir = sunDir;
         }
     }

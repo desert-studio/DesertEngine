@@ -1429,23 +1429,25 @@ namespace Desert::Core::Preprocess
             const bool particle = std::ranges::any_of( kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u )
                                                        { return u.Path == path; } );
             const bool sprite   = path == kSurfaceParticleSpritePath;
-            const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}#define {} {}\n", pass,
+            // A particle cell of the particle pass has its own pass header whatever the blend: the mesh Forward /
+            // glass headers light a mesh, the particle header composites a particle. An opaque mesh particle's
+            // cells are the mesh passes' (kSurfaceParticleMeshOpaquePasses), its Forward cell the LIT forward one.
+            const bool opaqueMesh     = path == kSurfaceParticleMeshPath && !Formats::IsTranslucentBlend( blend );
+            const bool composite      = particle && pass == kSurfaceParticleSpritePass && !opaqueMesh;
+            const std::string defines = std::format(
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
-                                                       : std::string(),
+                                                      : std::string(),
                  particle ? std::format( "#define {} 1\n{}", kSurfaceParticleDefine,
                                          sprite ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine )
                                                 : std::string() )
                           : std::string(),
+                 composite ? std::format( "#define {} 1\n", kSurfaceParticleCompositeDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
-            // A particle cell of the particle pass has its own pass header whatever the blend: the mesh Forward / glass
-            // headers light a mesh, the particle header composites a particle. An opaque mesh particle's G-buffer and
-            // shadow cells are the mesh passes' (kSurfaceParticleMeshOpaquePasses).
-            const std::string passInclude = particle && pass == kSurfaceParticleSpritePass
-                                                 ? std::string( kSurfaceParticleSpritePassInclude )
-                                                 : SurfacePassInclude( pass, blend );
+            const std::string passInclude =
+                 composite ? std::string( kSurfaceParticleSpritePassInclude ) : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -2046,7 +2048,17 @@ namespace Desert::Core::Preprocess
                                          Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
             return fail();
         }
+        if ( result.Layout.RowBinding && Core::IsParticleReadBinding( *result.Layout.RowBinding ) )
+        {
+            err = { c.Line,
+                    std::format( "Properties Binding({}) is inside the reserved particle-read range [{}, {}) "
+                                 "(the particle vertex paths' buffers); number the material row elsewhere",
+                                 *result.Layout.RowBinding, Core::kParticleReadBindingFirst,
+                                 Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
+            return fail();
+        }
         for ( const auto& texture : result.Layout.Textures )
+        {
             if ( Core::IsSceneReadBinding( texture.Binding ) )
             {
                 err = { c.Line,
@@ -2057,6 +2069,18 @@ namespace Desert::Core::Preprocess
                                      Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
                 return fail();
             }
+            if ( Core::IsParticleReadBinding( texture.Binding ) )
+            {
+                err = {
+                     c.Line,
+                     std::format( "texture property '{}' lands on binding {}, inside the reserved particle-read "
+                                  "range [{}, {}) (the particle vertex paths' buffers); move TextureBinding() so "
+                                  "the run of texture properties stays clear of it",
+                                  texture.Name, texture.Binding, Core::kParticleReadBindingFirst,
+                                  Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
+                return fail();
+            }
+        }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )

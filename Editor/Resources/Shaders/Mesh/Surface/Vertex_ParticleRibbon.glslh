@@ -3,7 +3,7 @@
 // (DShaderParser kSurfaceParticleUsages), only for the Forward pass: drawn by the particle pass alone.
 //
 // Vertexless, six vertices per alive particle like the sprite (the same indirect draw over the last compact's slot),
-// but the list read at binding 10 is the view's RIBBON ORDER (ParticleSort kind Ribbon: by RibbonID, then newest
+// but the list read at binding 29 is the view's RIBBON ORDER (ParticleSort kind Ribbon: by RibbonID, then newest
 // first), and entry k draws the quad from particle k to particle k + 1. The quad is degenerate (all six vertices at
 // one point, no fragments) when k is the slot's last entry or k + 1 belongs to another ribbon: each ribbon is the
 // strip of its consecutive entries. U runs along the ribbon by normalised age times the row's UVTiling; V across.
@@ -12,35 +12,37 @@
 #include <Common/VFXRandom.glslh>
 #include <Common/ParticleDrawLayout.glslh>
 
-layout( std430, binding = 9 ) readonly buffer AttributeFloats
+// The particle reads sit in the reserved particle-read range (28..33, Core::kParticleReadBindingFirst in
+// ShaderGraphBindings.hpp), clear of the pass headers' slots (the lit forward cell's included) and the template's.
+layout( std430, binding = 28 ) readonly buffer AttributeFloats
 {
     float u_DrawFloats[];
 };
 
-layout( std430, binding = 10 ) readonly buffer AliveList
+layout( std430, binding = 29 ) readonly buffer AliveList
 {
     uint u_Alive[];
 };
 
-layout( std430, binding = 11 ) readonly buffer DrawLayout
+layout( std430, binding = 30 ) readonly buffer DrawLayout
 {
     ParticleDrawLayout u_DrawLayout;
 };
 
 // The draw's renderer row settings (Common/ParticleDrawLayout.glslh ParticleRendererParams).
-layout( std430, binding = 14 ) readonly buffer RendererParams
+layout( std430, binding = 31 ) readonly buffer RendererParams
 {
     ParticleRendererParams u_Renderer;
 };
 
 // The emitter's int columns (RibbonID) and its draw slots (the alive count of the drawn half, DrawLayout.Range.w).
-layout( std430, binding = 12 ) readonly buffer AttributeInts
+layout( std430, binding = 32 ) readonly buffer AttributeInts
 {
     int u_DrawInts[];
 };
 
 #include <Common/ParticlePool.glslh>
-layout( std430, binding = 13 ) readonly buffer Counters
+layout( std430, binding = 33 ) readonly buffer Counters
 {
     ParticleDrawSlot u_Slots[];
 };

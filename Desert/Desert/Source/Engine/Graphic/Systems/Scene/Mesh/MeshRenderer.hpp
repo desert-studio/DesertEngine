@@ -411,6 +411,18 @@ namespace Desert::Graphic::System
         {
             return m_RSMViewProj;
         }
+        // The sun-side eye the RSM's camera block carries (beside GetRSMViewProj): another RSM drawer (the opaque
+        // mesh particles, ParticleRenderer::DeclareRSMDraws) draws from the same still view.
+        glm::vec3 GetRSMEye() const
+        {
+            return m_RSMEye;
+        }
+        // The binding blocks DeclareRSMDraws declared this frame: the RSM pass's other drawer declares its own
+        // after them and opens them from this index.
+        [[nodiscard]] uint32_t GetRSMBlockCount() const
+        {
+            return m_RSMDraws.BlockCount();
+        }
 
         const std::shared_ptr<Framebuffer>& GetSilhouetteMaskFramebuffer() const
         {
@@ -670,8 +682,12 @@ namespace Desert::Graphic::System
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
         // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // them moves by itself every frame (a skinned mesh, swaying foliage, a non-mesh caster that says it is
+        // Moving there - the opaque mesh particles): the cache key of a local view. The non-mesh casters
+        // (m_ShadowCasters) that cast there are appended to @p casters (null: not wanted).
+        [[nodiscard]] std::optional<uint64_t>
+        LocalCasterSignature( const glm::vec3& centre, float radius,
+                              std::vector<std::weak_ptr<IShadowCaster>>* casters = nullptr ) const;
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -899,9 +915,14 @@ namespace Desert::Graphic::System
         {
             uint32_t  View = 0; // shadow view index (kMaxCascades + row)
             AtlasTile Tile;
+            // The non-mesh casters that cast into the view's light this frame (LocalCasterSignature).
+            std::vector<std::weak_ptr<IShadowCaster>> Casters;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // The view's non-mesh casters its Declare declared, each with the index of its first binding block (after
+        // m_LocalDraws[slot]'s): the exec records exactly these, as the cascades' m_CascadeCasters.
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_LocalCasters[kMaxLocalShadowViews];
         uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;
