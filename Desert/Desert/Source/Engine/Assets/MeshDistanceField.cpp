@@ -568,6 +568,11 @@ namespace Desert::Assets
         DfPump();
     }
 
+    void CancelMeshDistanceFields()
+    {
+        DfQuiesce( true );
+    }
+
     size_t PendingMeshDistanceFields()
     {
         DfQueue&                          q = DfQueueState();

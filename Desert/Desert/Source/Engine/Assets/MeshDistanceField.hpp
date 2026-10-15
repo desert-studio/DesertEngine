@@ -230,6 +230,10 @@ namespace Desert::Assets
          bool& built, const MeshDistanceFieldCancel& cancel )>;
     void EnqueueMeshDistanceField( std::shared_ptr<MeshDistanceFieldSlot> slot, std::string asset,
                                    MeshDistanceFieldWork work );
+    // PROCESS EXIT (UE FDistanceFieldAsyncQueue::Shutdown): refuses new work, drops the waiting work, cancels the
+    // running work and returns once none runs. Called before the JobSystem joins its workers (EntryPoint); the
+    // queue's own exit hook does the same for a process that never reaches it.
+    void CancelMeshDistanceFields();
     // Queued + running builds (diagnostics).
     [[nodiscard]] size_t PendingMeshDistanceFields();
 } // namespace Desert::Assets
