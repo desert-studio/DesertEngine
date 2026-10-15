@@ -113,6 +113,11 @@ namespace Desert::Editor::Utils
         // The vertical rule between the label and value columns, for the row currently being submitted.
         // Call it while the columns are still open, just before closing them.
         static void PropertyColumnRule();
+        // A ranged integer as a Details slider: the grab is the thin one a float slider draws (UE5 draws every
+        // numeric slider alike), not ImGui's integer grab, which widens to one step of the range (a 0..20 field
+        // got a block a twentieth of the row wide). `format` spells the value with "%d" (units may follow).
+        // True when the integer changed.
+        static bool PropertySliderInt( const char* id, int* value, int min, int max, const char* format = "%d" );
         // Width of the label column — shared so every row in the panel breaks at the same x.
         static float PropertyLabelWidth();
         // Opens a two-column row and writes the label; the caller then submits ONE value widget.

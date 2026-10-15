@@ -6,8 +6,10 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <format>
+#include <string>
 
 namespace Desert::Editor::Utils
 {
@@ -86,6 +88,24 @@ namespace Desert::Editor::Utils
         // The label column follows the panel instead of a fixed width: docked narrow, a fixed column eats
         // the editor and every value box collapses; docked wide, the labels strand far from their values.
         return std::clamp( ImGui::GetWindowWidth() * 0.42f, 110.0f, 230.0f );
+    }
+
+    bool ImGuiUtilities::PropertySliderInt( const char* id, int* value, int min, int max, const char* format )
+    {
+        // Drawn as a float slider for its grab; the integer is the rounded position, spelled by the same format
+        // with its "%d" read as a whole-number float.
+        std::string spelled( format );
+        if ( const std::size_t at = spelled.find( "%d" ); at != std::string::npos )
+            spelled.replace( at, 2, "%.0f" );
+        auto position = static_cast<float>( *value );
+        if ( !ImGui::SliderFloat( id, &position, static_cast<float>( min ), static_cast<float>( max ),
+                                  spelled.c_str() ) )
+            return false;
+        const int rounded = std::clamp( static_cast<int>( std::lround( position ) ), min, max );
+        if ( rounded == *value )
+            return false;
+        *value = rounded;
+        return true;
     }
 
     bool ImGuiUtilities::PropertyRowBackground( float height, bool modified )

@@ -455,6 +455,8 @@ namespace Desert::Graphic::API::Vulkan
             type = range.LayerCount == 6 ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
         else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::CubeArray && range.LayerCount % 6 == 0 )
             type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::Tex2DArray )
+            type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
         VkImageViewCreateInfo info{};
         info.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

@@ -1,0 +1,124 @@
+// SAMPLING A MESH'S SIGNED DISTANCE FIELD from the GPU scene's brick atlas - the one GPU reading of
+// Assets::MeshDistanceFieldVolume. Ported from UE 5.8 Engine/Shaders/Private/DistanceFieldLightingShared.ush:74-95,
+// 381-475 (FDFAssetData, SampleSparseMeshSignedDistanceField, DistanceToMeshSurfaceStandalone) and
+// MeshDistanceFieldCommon.ush:9-38 (DistanceToNearestSurfaceForObject), adapted: GLSL, the asset and object
+// records unpacked from vec4 buffers laid out by Graphic/DistanceField/DistanceFieldSceneData, the brick index
+// decomposed with this engine's atlas width constants, large world coordinates as plain float.
+//
+// The including shader declares, before including this file:
+//   vec4  u_DFAssetData[]   - DF_ASSET_STRIDE vec4s per asset
+//   uint  u_DFIndirection[] - every resident mip's indirection table, entries already atlas brick slots
+//   vec4  u_DFObjects[]     - DF_OBJECT_STRIDE vec4s per object
+//   sampler3D u_DFBrickAtlas
+#ifndef MESH_DISTANCE_FIELD_GLSLH
+#define MESH_DISTANCE_FIELD_GLSLH
+
+#include <Common/DistanceFieldShared.glslh>
+
+const uint DF_INVALID_BRICK = 0xFFFFFFFFu;
+
+struct DFAssetMip
+{
+    uvec3 IndirectionDimensions;
+    uint  IndirectionOffset;
+    vec2  DistanceFieldToVolumeScaleBias;
+    vec3  VolumeToIndirectionScale;
+    vec3  VolumeToIndirectionAdd;
+};
+
+uint DFAssetNumMips(uint assetIndex)
+{
+    return floatBitsToUint(u_DFAssetData[assetIndex * uint(DF_ASSET_STRIDE)].x);
+}
+
+// @p reversedMipIndex 0 = the COARSEST resident mip, DFAssetNumMips - 1 the finest resident one (UE's reversed
+// mip index): the record lists the resident mips coarsest first, so streaming a finer mip in or out changes only
+// the count and one row (Graphic/DistanceField/DistanceFieldSceneData).
+DFAssetMip LoadDFAssetMip(uint assetIndex, uint reversedMipIndex)
+{
+    const uint base = assetIndex * uint(DF_ASSET_STRIDE) + 1u + reversedMipIndex * uint(DF_ASSET_MIP_STRIDE);
+    const vec4 a = u_DFAssetData[base + 0u];
+    const vec4 b = u_DFAssetData[base + 1u];
+    const vec4 c = u_DFAssetData[base + 2u];
+    DFAssetMip mip;
+    mip.IndirectionDimensions          = floatBitsToUint(a.xyz);
+    mip.IndirectionOffset              = floatBitsToUint(a.w);
+    mip.DistanceFieldToVolumeScaleBias = b.xy;
+    mip.VolumeToIndirectionScale       = vec3(b.zw, c.x);
+    mip.VolumeToIndirectionAdd         = c.yzw;
+    return mip;
+}
+
+// Volume-space signed distance, clamped to the band of @p mip.
+float SampleSparseMeshSignedDistanceField(vec3 volumePosition, DFAssetMip mip)
+{
+    const vec3  indirectionPos   = volumePosition * mip.VolumeToIndirectionScale + mip.VolumeToIndirectionAdd;
+    const uvec3 indirectionCoord = uvec3(clamp(ivec3(indirectionPos), ivec3(0), ivec3(mip.IndirectionDimensions) - 1));
+    const uint  indirectionIndex =
+        (indirectionCoord.z * mip.IndirectionDimensions.y + indirectionCoord.y) * mip.IndirectionDimensions.x + indirectionCoord.x;
+    const uint  brick = u_DFIndirection[mip.IndirectionOffset + indirectionIndex];
+    const float maxEncoded = mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
+    if (brick == DF_INVALID_BRICK)
+        return maxEncoded;
+    const vec3  brickLocal  = clamp(indirectionPos - vec3(indirectionCoord), vec3(0.0), vec3(1.0));
+    const uvec3 brickOffset = uvec3(brick % uint(DF_ATLAS_BRICKS_X), (brick / uint(DF_ATLAS_BRICKS_X)) % uint(DF_ATLAS_BRICKS_Y),
+                                    brick / uint(DF_ATLAS_BRICKS_X * DF_ATLAS_BRICKS_Y));
+    const vec3  atlasSize   = vec3(textureSize(u_DFBrickAtlas, 0));
+    const vec3  texel       = vec3(brickOffset) * float(DF_BRICK_SIZE) + brickLocal * float(DF_UNIQUE_BRICK_SIZE) + 0.5;
+    const float encoded     = textureLod(u_DFBrickAtlas, texel / atlasSize, 0.0).x;
+    return encoded * mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
+}
+
+// Volume-space distance from the coarsest resident mip down, refining while near the surface (UE
+// DistanceToMeshSurfaceStandalone). @p volumePosition within [-extent, extent].
+float DistanceToMeshSurfaceStandalone(vec3 volumePosition, uint assetIndex)
+{
+    const uint numMips = DFAssetNumMips(assetIndex);
+    float distance = 0.0;
+    for (uint reversed = 0u; reversed < numMips; ++reversed)
+    {
+        const DFAssetMip mip = LoadDFAssetMip(assetIndex, reversed);
+        distance = SampleSparseMeshSignedDistanceField(volumePosition, mip);
+        const float maxEncoded = mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
+        if (abs(distance) > 0.25 * maxEncoded)
+            break;
+    }
+    return distance;
+}
+
+// World-space distance from @p worldPosition to object @p objectIndex's surface, or @p maxDistance when the
+// object's box is at least that far (UE DistanceToNearestSurfaceForObject).
+float DistanceToNearestSurfaceForObject(uint objectIndex, vec3 worldPosition, float maxDistance)
+{
+    const uint base = objectIndex * uint(DF_OBJECT_STRIDE);
+    const vec4 r0 = u_DFObjects[base + 0u];
+    const vec4 r1 = u_DFObjects[base + 1u];
+    const vec4 r2 = u_DFObjects[base + 2u];
+    const vec4 extentScale = u_DFObjects[base + 3u];
+    const vec4 assetAxes   = u_DFObjects[base + 4u];
+    const uint assetIndex  = floatBitsToUint(assetAxes.x);
+    const vec4 world4 = vec4(worldPosition, 1.0);
+    const vec3 volumePosition = vec3(dot(r0, world4), dot(r1, world4), dot(r2, world4));
+    const vec3 extent = extentScale.xyz;
+    const float volumeToWorld = extentScale.w;
+
+    // THE BOX DISTANCE IS EXACT, EACH AXIS AT ITS OWN SCALE. UE scales it by the smallest axis' scale like the
+    // mesh distance, which under a wall made of a cube scaled (0.2, 6, 6) reads a point 1 m past the wall's end
+    // as 20 cm away: the field extrudes every non-uniformly scaled object along its long axes, and the global
+    // field shows walls running on toward the camera. Under a rotation and a per-axis scale (no shear) the box
+    // is an oriented box in world space, so the per-axis world offset of the clamp is the true distance.
+    // Inside the box the mesh distance keeps the conservative smallest scale, as in UE.
+    const vec3  clampedVolume = clamp(volumePosition, -extent, extent);
+    const vec3  toBox = (abs(volumePosition) - extent) * assetAxes.yzw;
+    const float distanceToBox = length(max(vec3(0.0), toBox)) + min(0.0, max(toBox.x, max(toBox.y, toBox.z)));
+    float distance = maxDistance;
+    if (distanceToBox < maxDistance)
+    {
+        distance = DistanceToMeshSurfaceStandalone(clampedVolume, assetIndex) * volumeToWorld + max(0.0, distanceToBox);
+        // A negative distance must not stick out of the box.
+        distance = max(distance, distanceToBox);
+    }
+    return distance;
+}
+
+#endif

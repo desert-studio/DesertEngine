@@ -28,9 +28,9 @@ namespace Desert::Graphic::SceneResources
     // writes exactly the groups the layout names. A data-driven template that samples the shadow map gets
     // the cascades because it declares them — not because someone wrote a C++ class for it.
 
-    // How many shadow cascades the ShadowUB block carries, and therefore how many cascade maps a lit draw
-    // binds. ONE number for the whole chain: SceneFrameBinding::CascadeMaps and the renderer's cascade count
-    // are defined from it.
+    // How many shadow cascades the ShadowUB block carries, and therefore how many layers the cascade array a
+    // lit draw binds may hold. ONE number for the whole chain: SceneFrameBinding::CascadeViewProj and the
+    // renderer's cascade count are defined from it.
     inline constexpr uint32_t kMaxCascades = 4;
 
     // The C++ half of the `ShadowUB` block every lit surface declares. PUBLIC because the other half is
@@ -39,14 +39,46 @@ namespace Desert::Graphic::SceneResources
     struct ShadowUBData
     {
         glm::mat4 LightViewProj[kMaxCascades];
-        glm::vec4 Params;            // x = bias, y = enabled, z = debug mode, w = cascade count
+        glm::vec4 Params; // x = tan(sun source angle / 2), y = enabled, z = debug mode, w = cascade count
         glm::vec4 DebugParams;       // x = show normals, y = lighting debug
         glm::vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel
+        glm::vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (the PCSS penumbra)
+        // The contact shadows' march (Common/ContactShadow.glslh): x = ray steps (0 = none), y = tan(fovY / 2),
+        // z = dither frame 0..7, w unused. Packed by PackContactShadow.
+        glm::vec4 ContactShadowView;
+        // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
+        // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
+        glm::vec4 SunContactShadow;
     };
 
+    // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the
+    // screen-space ray every light with a length marches through the opaque scene depth. It rides the SAME
+    // ShadowUB block as the cascades, so the deferred composite, the forward meshes and the glass read one
+    // packing of one value. The point and spot lights carry their own lengths in their payloads.
+    struct ContactShadowSettings
+    {
+        // Scalability Shadows.ContactShadowSteps. 0 = no march for any light — also what a view without an
+        // opaque scene depth to march (the forward render path draws its opaque surfaces with no prepass) is
+        // handed, since there is nothing for the ray to hit.
+        int      Steps                  = 0;
+        float    TanHalfFovY            = 1.0f;  // turns a screen-fraction length into centimetres at a depth
+        uint32_t DitherFrame            = 0;     // 0..7, UE's StateFrameIndexMod8
+        float    SunLength              = 0.0f;  // DirectionalLightData::ContactShadowLength (0 = none)
+        bool     SunInWorldSpace        = false; // DirectionalLightData::ContactShadowLengthInWorldSpace
+        float    SunCastingIntensity    = 1.0f;  // DirectionalLightData::ContactShadowCastingIntensity
+        float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
+    };
+
+    inline void PackContactShadow( ShadowUBData& data, const ContactShadowSettings& contact )
+    {
+        data.ContactShadowView = glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
+                                            static_cast<float>( contact.DitherFrame ), 0.0f );
+        data.SunContactShadow  = glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f,
+                                            contact.SunCastingIntensity, contact.SunNonCastingIntensity );
+    }
+
     inline constexpr const char* kShadowBlockName              = "ShadowUB";
-    inline constexpr const char* kShadowMapNames[kMaxCascades] = { "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2",
-                                                                   "u_ShadowMap3" };
+    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // sampler2DArray, layer c
     inline constexpr const char* kEnvIrradianceName            = "u_EnvIrradianceTex";
     inline constexpr const char* kEnvSpecularName              = "u_EnvSpecularTex";
     inline constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";
@@ -87,8 +119,7 @@ namespace Desert::Graphic::SceneResources
                  { kObjectMotionsName, SceneRead::ObjectMotion },
                  { kObjectBonesName, SceneRead::ObjectBones },
             };
-            for ( const char* map : kShadowMapNames )
-                t.push_back( { map, SceneRead::Shadow } );
+            t.push_back( { kShadowMapName, SceneRead::Shadow } );
             return t;
         }();
         return table;

@@ -28,6 +28,10 @@ namespace Desert::Graphic
         uint32_t         Count                = 0;
         bool             Enabled              = true;
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
+        glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
+        float            SourceTanHalf        = 0.0f;
+        // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
+        SceneResources::ContactShadowSettings Contact{};
     };
 
     // CloudShadowInput — the cloud layer's shadow, a SECOND independent occluder of the same sun — used
@@ -78,7 +82,7 @@ namespace Desert::Graphic
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                          uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
                          bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
-                         const DeferredEnvironmentInput& environment )
+                         const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
             // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
@@ -98,6 +102,10 @@ namespace Desert::Graphic
             // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
             SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( giMode ) ) );
+
+            // The contact shadows march the G-buffer depth in the space it was rasterised in
+            // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
+            SetJitteredViewProjection( jitteredViewProjection );
 
             UploadShadow( shadow );
             UploadCloudShadow( cloudShadow );
@@ -120,25 +128,24 @@ namespace Desert::Graphic
             FlushFieldFilledUniformBuffers();
         }
 
-        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowMap0..3 are graph textures, bound by
+        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowCascades are a graph texture, bound by
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {
-            struct ShadowUBData
-            {
-                glm::mat4 LightViewProj[4];
-                glm::vec4 Params; // x reserved (0: the casters carry the bias), y = enabled, z = debug mode, w =
-                                  // cascade count
-                glm::vec4 DebugParams;
-                glm::vec4 CascadeTexelWorld;
-            } data;
+            // THE ONE MIRROR of the block (SceneResources::ShadowUBData, asserted against the GLSL by
+            // Desert/Tests/Engine/SceneFrameBinding); a private copy here had to be kept in step by hand.
+            constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
+            SceneResources::ShadowUBData data{};
 
-            const uint32_t n = shadow.Count < 4u ? shadow.Count : 4u;
-            for ( uint32_t i = 0; i < 4u; ++i )
+            const uint32_t n = shadow.Count < kCascades ? shadow.Count : kCascades;
+            for ( uint32_t i = 0; i < kCascades; ++i )
                 data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
-            data.Params = glm::vec4( 0.0f, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
+            data.Params =
+                 glm::vec4( shadow.SourceTanHalf, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
             data.DebugParams       = glm::vec4( 0.0f );
             data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
+            data.CascadeDepthRange = shadow.CascadeDepthRange;
+            SceneResources::PackContactShadow( data, shadow.Contact );
 
             if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
@@ -159,6 +166,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, Params,     "u_Params",     ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::mat4, JitteredViewProjection, "u_JitteredViewProjection", ( glm::mat4( 1.0f ) ) )
 
     private:
     };

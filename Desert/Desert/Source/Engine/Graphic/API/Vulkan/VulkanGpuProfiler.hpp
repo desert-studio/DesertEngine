@@ -70,6 +70,11 @@ namespace Desert::Graphic::API::Vulkan
         void BeginFrame( VkCommandBuffer commandBuffer );
         // Right before vkEndCommandBuffer: closes the whole-frame bracket.
         void EndFrame( VkCommandBuffer commandBuffer );
+        // The frame is recorded into more than one command buffer: ExecuteGraph ends the frame's buffer before
+        // a render graph, each graph segment records into its own, and a fresh one is armed after the graph.
+        // Every scope is written into the buffer recording NOW, so the renderer hands each switch over here.
+        // VK_NULL_HANDLE (between buffers) makes scopes record nothing until the next buffer arrives.
+        void SetCommandBuffer( VkCommandBuffer commandBuffer );
 
         // --- IGpuProfilerSink ---------------------------------------------------------------------------
 

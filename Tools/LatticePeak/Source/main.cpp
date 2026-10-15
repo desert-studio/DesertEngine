@@ -293,8 +293,7 @@ namespace
             const glm::vec2 origin   = Desert::Assets::CloudProceduralRegionOriginKm( params, cameraKm, cameraKm );
             const glm::vec2 eye      = origin + glm::vec2( 0.5f * regionKm );
 
-            const auto lumps = Desert::Assets::GenerateCloudProceduralLumps(
-                 params, 0u, origin, Desert::Assets::CloudProceduralLumpSet::KeptCells );
+            const auto lumps = Desert::Assets::GenerateCloudProceduralLumps( params, 0u, origin );
 
             std::map<std::pair<float, float>, float> clouds; // site -> horizontal half-extent
             for ( const auto& lump : lumps )

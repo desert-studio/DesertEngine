@@ -11,8 +11,8 @@
 -- Press B while playing to toggle the beacon. Edit this file while PLAYING - it hot-reloads.
 
 Properties = {
-    Period = 0.5,     -- seconds per on/off phase
-    Intensity = 6.0,  -- light intensity while on
+    Period = Property.Float( 0.5 ),     -- seconds per on/off phase
+    Intensity = Property.Float( 6.0 ),  -- light intensity while on
 }
 
 local lit     = false

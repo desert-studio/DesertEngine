@@ -137,6 +137,16 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // The Global Distance Field view under a name, for the same reason: a frame of the field the GPU holds is
+        // its only check that the geometry is recognisable, and that frame has to be taken over the channel.
+        commands.push_back( { "View", "View mode: Global Distance Field", []
+                              {
+                                  auto& view = EditorPreferences::Get().DebugView;
+                                  view.ClearViewMode();
+                                  view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

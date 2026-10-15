@@ -5,6 +5,8 @@
 #include "RenderPass.hpp"
 #include "RenderPassDeclaration.hpp"
 
+#include <Engine/Graphic/RDG/RDGResources.hpp>
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,6 +24,11 @@ namespace Desert::Graphic
         std::string                  Name;
         NodeRecordFunc               ExecuteFunc;
         std::shared_ptr<Framebuffer> TargetFramebuffer;
+        // Or ONE LAYER of a graph depth array, with no framebuffer (the sun's cascades: layer c of the cascade
+        // array, UE's whole-scene shadow depth target). Exactly one of the two is set; the pass's pipelines were
+        // built against a framebuffer of the same depth format, which is all the render pass compatibility asks.
+        RDG::TextureRef TargetDepthArray;
+        uint32_t        TargetLayer = 0;
 
         // What the pass reads from the graph (its draw list and binding blocks are built here, before any command
         // is recorded): the graph textures it samples, by this frame's FrameGraphRefs.

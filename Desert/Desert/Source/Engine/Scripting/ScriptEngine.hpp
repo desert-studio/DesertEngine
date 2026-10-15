@@ -85,9 +85,24 @@ namespace Desert::Scripting
         void CallHit( uint32_t entity, uint32_t slot, entt::registry& registry, entt::entity other,
                       const glm::vec3& point, const glm::vec3& normal, float impulse );
 
-        // Writes the slot's editor-set property values into its env's `Properties` table, so the running
-        // script reads the overridden values. Call after LoadEntityScript, before OnStart.
+        // Calls a slot's function @p function() and returns its error — the editor's CallInEditor buttons
+        // (ScriptSchema.hpp). Refused when the slot runs no script or the script defines no such function.
+        Common::BoolResultStr CallFunction( uint32_t entity, uint32_t slot, const std::string& function );
+
+        // The slot's last OnUpdate error, or nullptr while it runs clean (reset when it reloads).
+        [[nodiscard]] const std::string* SlotError( uint32_t entity, uint32_t slot ) const;
+
+        // Writes the slot's editor-set property values (the OVERRIDES: ECS::ScriptSlot::Properties) into its
+        // env's `Properties` table, so the running script reads them; every other property keeps the default its
+        // declaration gave it when the script loaded. A value the script no longer declares, or declares as
+        // another kind, is not applied (reported once). Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
+
+        // The running slot's per-frame sync with the editor's overrides (Details edits a played world live):
+        // ApplyProperties, and a property that held an override on the previous sync but holds none now (its
+        // reset arrow, or an edit back to the default, removes it — ECS::ScriptSlot::Properties keeps only what
+        // differs) gets its declared default back, so the running script sees the value Details shows.
+        void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides );
 
         // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
         // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
@@ -139,7 +154,5 @@ namespace Desert::Scripting
         std::unique_ptr<Impl> m_Impl;
     };
 
-    // Reads a script's `Properties` table (the editor-exposed schema + defaults) WITHOUT running the game —
-    // loads the file in a throwaway Lua state. Used by the Details panel (Edit mode). Empty on error / none.
-    std::vector<ScriptProperty> ReadScriptProperties( const std::string& path );
+    // ReadScriptSchema (the editor's view of a script: status, declarations, buttons) is in ScriptSchema.hpp.
 } // namespace Desert::Scripting

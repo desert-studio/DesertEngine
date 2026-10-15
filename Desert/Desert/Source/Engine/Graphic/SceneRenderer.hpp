@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -40,6 +41,7 @@
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Graphic/LightGrid.hpp>
 
 #include "Systems/Scene/Mesh/MeshRenderer.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
@@ -59,7 +61,9 @@
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
+#include "Systems/Scene/Deferred/HZBRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
@@ -118,6 +122,7 @@ namespace Desert::Graphic
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
@@ -289,8 +294,8 @@ namespace Desert::Graphic
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows, const InstanceCullDistance& cullDistance,
-                                  const InstanceWind& wind );
+                                  bool castShadows, bool castContactShadow,
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
@@ -439,8 +444,9 @@ namespace Desert::Graphic
             return m_DirectionLights;
         }
 
-        // CSM debug: the per-cascade shadow depth maps (for the editor's cascade viewer).
-        std::shared_ptr<Image2D> GetShadowCascadeImage( uint32_t cascade );
+        // CSM debug: a cascade's static-caster cache (MeshRenderer::GetCascadeCacheImage), for the editor's
+        // cascade viewer; the sampled maps are layers of one graph array, which ImGui does not show.
+        std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade );
         uint32_t                 GetShadowCascadeCount();
 
         const std::shared_ptr<Image2D>      GetFinalImage();
@@ -524,6 +530,14 @@ namespace Desert::Graphic
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
 
+        /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
+        /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
+        /// @p hasOpaqueDepth says whether the pass has the opaque scene depth to march: the deferred path's
+        /// G-buffer depth does; the forward path draws its opaque surfaces with no prepass, so its passes get
+        /// Steps = 0 (no march) - there is nothing in front of them for the ray to hit.
+        [[nodiscard]] SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
+                                                                                      bool hasOpaqueDepth ) const;
+
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
         // the view's name in every log line. Made the target of per-frame writes by an ActiveViewScope at the
@@ -538,6 +552,8 @@ namespace Desert::Graphic
         // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
         // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
+        // The view's global distance field (clipmaps follow this view's camera), made on first use.
+        std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -730,6 +746,11 @@ namespace Desert::Graphic
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
+        // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, Deferred only): brings the
+        // view's global distance field up to this frame's camera and static meshes, then draws "Debug: Global
+        // Distance Field" over @p target.
+        void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                              RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
@@ -742,30 +763,44 @@ namespace Desert::Graphic
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
-        // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
+        // The denoised GI the composite samples (u_GI), invalid when GI did not run this frame.
         RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer,
                                            const std::vector<RDG::TextureRef>& rsm,
                                            System::MeshRenderer* meshRenderer, const ViewFrame& frame,
                                            const glm::vec4& lightColor );
-        void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame );
-        // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
-        // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
-        // (no copy system, no scene colour, its desc refused - logged).
+        // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
+        // FrameTransients::Lights — before the first lit node, on both paths.
+        void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
+                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                const glm::vec4& lightColor, const ViewFrame& frame );
+        // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
+        // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
+        // colour, its desc refused - logged). @p into: the imported image to copy into (SSR's scene colour
+        // history, which next frame's trace reads), or invalid for a per-frame transient; @p recorded runs in the
+        // copy's exec once the copy was recorded (the history's stamp), may be empty.
         static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                   const std::vector<RDG::TextureRef>& sceneColor,
-                                                  System::CopyRenderer*               copy );
-        // @p sceneCopy: the snapshot SSR traces reflections from (valid; the caller skips SSR without one).
-        void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                          const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
-                          const ViewFrame& frame );
+                                                  System::CopyRenderer* copy, RDG::TextureRef into,
+                                                  std::function<void()> recorded );
+        // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
+        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
+        // SSR's HZB + trace + denoiser, before the lighting. Resolved: the reflection the lighting composes
+        // (u_SSR); SceneHistory: SSR's scene colour history as imported here (last frame's lit scene, which this
+        // frame's scene copy refills). Both invalid when SSR did not run.
+        struct FrameSSR
+        {
+            RDG::TextureRef Resolved;
+            RDG::TextureRef SceneHistory;
+        };
+        FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
-        void ImportSceneViewTextures( FrameTextures& textures );
+        void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
@@ -877,8 +912,24 @@ namespace Desert::Graphic
         // values, so one pipeline serves every level. The initialisers are the High column, only read before
         // the first BeginScene.
         int m_SSRMaxSteps = 32;
+        // Reflections.RaysPerPixel (Scalability), refreshed per frame like m_SSRMaxSteps.
+        int m_SSRRaysPerPixel = 1;
         int m_GISamples   = 32;
+        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
+        // global distance field's atlas holds and its finer mips stream within.
+        uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
+        // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
+        // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
+        // and handed to the deferred composite (Common/ContactShadow.glslh).
+        int   m_ContactShadowSteps                  = 12;
+        float m_SunContactShadowLength              = 0.0f;
+        bool  m_SunContactShadowLengthInWorldSpace  = false;
+        float m_SunContactShadowCastingIntensity    = 1.0f;
+        float m_SunContactShadowNonCastingIntensity = 0.0f;
+        // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
+        // initialiser is the High column.
+        LightGridQuality m_LightGridQuality;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 

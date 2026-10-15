@@ -1394,12 +1394,26 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
     // category, UE's names and defaults verbatim. Consumers: SkyboxECSSystem picks the sun, and
     // LightShaftRenderer reads the shafts via the SunLightFx slice of the ProceduralSkyCommand.
     const TypeInfo& light = Type( "DirectionalLightData" );
-    EXPECT_EQ( FieldNames( light ),
-               ( std::vector<std::string>{ "Color", "Intensity", "AtmosphereSunLight", "AtmosphereSunLightIndex",
-                                           "AffectedByAtmosphereTransmittance", "LightShaftBloom", "BloomScale",
-                                           "BloomThreshold", "BloomMaxBrightness", "BloomTint", "CastShadows",
-                                           "ShadowBias", "ShadowSlopeBias", "ShadowCascadeBiasDistribution",
-                                           "CascadeSplitLambda" } ) );
+    EXPECT_EQ( FieldNames( light ), ( std::vector<std::string>{ "Color",
+                                                                "Intensity",
+                                                                "AtmosphereSunLight",
+                                                                "AtmosphereSunLightIndex",
+                                                                "AffectedByAtmosphereTransmittance",
+                                                                "LightShaftBloom",
+                                                                "BloomScale",
+                                                                "BloomThreshold",
+                                                                "BloomMaxBrightness",
+                                                                "BloomTint",
+                                                                "CastShadows",
+                                                                "SourceAngle",
+                                                                "ShadowBias",
+                                                                "ShadowSlopeBias",
+                                                                "ShadowCascadeBiasDistribution",
+                                                                "CascadeSplitLambda",
+                                                                "ContactShadowLength",
+                                                                "ContactShadowLengthInWorldSpace",
+                                                                "ContactShadowCastingIntensity",
+                                                                "ContactShadowNonCastingIntensity" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so

@@ -234,20 +234,21 @@ TEST( SaveGame, ScriptDeclaresSaveGamePropertiesByName )
 {
     TestSupport::ScratchDir scratch( "savegame-script-declaration" );
     const auto              good = scratch.Path() / "Good.lua";
-    std::ofstream( good ) << "Properties = { Score = 0, Coins = 0, WalkSpeed = 300 }\n"
+    std::ofstream( good ) << "Properties = { Score = Property.Int( 0 ), Coins = Property.Int( 0 ), "
+                             "WalkSpeed = Property.Float( 300 ) }\n"
                              "SaveGameProperties = { \"Score\", \"Coins\" }\n";
     const auto names = Scripting::ReadScriptSaveGameProperties( good.string() );
     ASSERT_TRUE( names.IsSuccess() ) << names.GetError();
     EXPECT_EQ( names.GetValue(), ( std::vector<std::string>{ "Score", "Coins" } ) );
 
     const auto none = scratch.Path() / "None.lua";
-    std::ofstream( none ) << "Properties = { WalkSpeed = 300 }\n";
+    std::ofstream( none ) << "Properties = { WalkSpeed = Property.Float( 300 ) }\n";
     const auto noNames = Scripting::ReadScriptSaveGameProperties( none.string() );
     ASSERT_TRUE( noNames.IsSuccess() );
     EXPECT_TRUE( noNames.GetValue().empty() );
 
     const auto typo = scratch.Path() / "Typo.lua";
-    std::ofstream( typo ) << "Properties = { Score = 0 }\nSaveGameProperties = { \"Scroe\" }\n";
+    std::ofstream( typo ) << "Properties = { Score = Property.Int( 0 ) }\nSaveGameProperties = { \"Scroe\" }\n";
     const auto refused = Scripting::ReadScriptSaveGameProperties( typo.string() );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Scroe" ), std::string::npos );

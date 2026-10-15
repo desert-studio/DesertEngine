@@ -141,6 +141,9 @@ Shader "FoliageSurface"
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
+            // UE CustomData.a = the material's Opacity, the leaf's subsurface density for the contact shadows (the
+            // mask above discards; what survives is opaque, UE's Opacity default 1).
+            s.CustomData3       = s.Opacity;
             s.SampledTextureCount = float( int( textureSize( u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
                                            int( textureSize( u_OpacityTexture, 0 ).x > 1 ) +
                                            int( textureSize( u_ORMTexture, 0 ).x > 1 ) +

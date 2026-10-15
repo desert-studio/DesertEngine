@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/JobSystem.hpp>
+#include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <cstdio>
@@ -152,6 +153,10 @@ int main( int argc, char** argv )
         // Read before the application is destroyed at the closing brace.
         exitCode = app->ExitCode();
 
+        // The distance-field builds first (UE FDistanceFieldAsyncQueue::Shutdown at engine exit): the pool join
+        // below waits for every running job, and a mesh build in a Debug editor runs for minutes - cancelled, it
+        // stops at its next brick and the join is immediate.
+        Desert::Assets::CancelMeshDistanceFields();
         Common::JobSystem::Get().Shutdown();
         if ( const auto device = Desert::EngineContext::GetInstance().GetDevice() )
             device->WaitIdle();

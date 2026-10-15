@@ -4,7 +4,7 @@
 -- the probes can state their own pace.
 
 Properties = {
-    Speed = 300.0, -- cm/s along world +X
+    Speed = Property.Float( 300.0 ), -- cm/s along world +X
 }
 
 function OnUpdate(dt)

@@ -97,34 +97,44 @@ namespace Common::Scalability
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
         CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
-        // The three shadow rows: a level's viewport re-allocates its cascade maps when they change.
-        ShadowCascades, // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
-        ShadowMapSize,  // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
-        ShadowDistance, // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        // The three shadow-map rows: a level's viewport re-allocates its cascade maps when they change.
+        ShadowCascades,     // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
+        ShadowMapSize,      // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
+        ShadowDistance,     // ShadowQuality::MaxDistance, centimetres. 10 m .. 1 km
+        ShadowContactSteps, // contact-shadow ray steps (DeferredLighting.shader, Common/ContactShadow.glslh). 0
+                            // off..32
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
+        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
+        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
-        DepthOfFieldQuality,   // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
-        ReflectionCaptureSize, // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
-                               // 2^n
+        DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
+                                // 2^n
+        ReflectionRaysPerPixel, // SSR GGX-VNDF rays per traced texel (UE r.SSR.Quality's ray count). 1..12
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
-        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
-        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
-        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
-        // not a request, and the resolution never lands on an unimplemented method.
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
+        // also applies the device (no device narrowing here: the device's limit and this one are reported
+        // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
+        // is a limit, not a request, and the resolution never lands on an unimplemented method.
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
+        // costs against what building the grid costs. The image is the same at every value (a cell whose list is
+        // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
+        LightGridPixelSize,        // tile edge in render pixels. 16..256
+        LightGridSlices,           // logarithmic depth slices. 8..128
+        LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
-        UpscalerSharpness,            // ResolutionScale: percent
+                                 // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness,       // ResolutionScale: percent
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

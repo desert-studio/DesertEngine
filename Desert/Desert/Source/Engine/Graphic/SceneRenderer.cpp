@@ -790,8 +790,19 @@ namespace Desert::Graphic
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
+        m_SSRRaysPerPixel                     = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
+        m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+        m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
+        m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
+        m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
+        m_SunContactShadowNonCastingIntensity = shadows.ContactShadowNonCastingIntensity;
+        m_LightGridQuality =
+             LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
+                               .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
+                               .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1107,7 +1118,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
-        ImportSceneViewTextures( textures );
+        ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
@@ -1176,6 +1187,9 @@ namespace Desert::Graphic
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
         AddFrameShadowDepths( graph, textures );
+        // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
+        // deferred composite, the glass).
+        AddFrameLightGrid( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1199,6 +1213,18 @@ namespace Desert::Graphic
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
 
+            // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
+            // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
+            // history, which this frame's scene copy below refills.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            System::SSRRenderer* const ssr =
+                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
+                           EnsureSSRResources()
+                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                      : nullptr;
+            const FrameSSR ssrFrame =
+                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+
             RDG::TextureRef giAccum;
 
             if ( m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::ReflectiveShadowMaps &&
@@ -1214,18 +1240,20 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, meshRenderer, lightDir, lightColor, frame );
+            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
+                               lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy );
-
-            // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
-            if ( m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
-                 sceneCopy.IsValid() && EnsureSSRResources() )
-                AddFrameSSR( graph, textures, gbuffer, sceneCopy, frame );
+            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
+            // serves this frame's refraction and next frame's reflections.
+            std::function<void()> stampHistory;
+            if ( ssrFrame.SceneHistory.IsValid() )
+                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
+                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
@@ -1270,6 +1298,8 @@ namespace Desert::Graphic
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameGlobalDistanceFieldView( graph, textures, frame,
+                                         postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1442,8 +1472,8 @@ namespace Desert::Graphic
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
-        // Same gate as GI: the trace target and its ping-pong history are sampled/blended float targets
-        // (ViewTargetFormats::kSSRTrace / kSSRAccum).
+        // Same gate as GI: the trace target and the denoiser's history are sampled float targets
+        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal).
         if ( !HasFloatRenderTargetSupport() )
         {
             LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "
@@ -1456,9 +1486,19 @@ namespace Desert::Graphic
 
         RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer );
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        if ( !ssrSys->Initialize() )
+        if ( const Common::BoolResultStr initialized = ssrSys->Initialize(); !initialized )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable." );
+            LOG_WARN( "[SceneRenderer] SSR system unavailable: {}", initialized.GetError() );
+            m_SSRResourcesFailed = true;
+            return false;
+        }
+        // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
+        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
@@ -1605,6 +1645,7 @@ namespace Desert::Graphic
                              .LODBias                  = extra.LODBias,
                              .CastShadows              = extra.CastShadows,
                              .ReceiveShadows           = extra.ReceiveShadows,
+                             .CastContactShadow        = extra.CastContactShadow,
                              .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
@@ -1669,8 +1710,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool castShadows, const InstanceCullDistance& cullDistance,
-                                             const InstanceWind& wind )
+                                             bool castShadows, bool castContactShadow,
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1681,12 +1722,13 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh         = mesh,
-                                      .Material     = material,
-                                      .Transforms   = transforms,
-                                      .CastShadows  = castShadows,
-                                      .CullDistance = cullDistance,
-                                      .Wind         = wind } );
+             ->SubmitInstancedMesh( { .Mesh              = mesh,
+                                      .Material          = material,
+                                      .Transforms        = transforms,
+                                      .CastShadows       = castShadows,
+                                      .CastContactShadow = castContactShadow,
+                                      .CullDistance      = cullDistance,
+                                      .Wind              = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
@@ -1761,10 +1803,10 @@ namespace Desert::Graphic
         return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeImage( uint32_t cascade )
+    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->GetCascadeShadowImage( cascade );
+             ->GetCascadeCacheImage( cascade );
     }
 
     uint32_t SceneRenderer::GetShadowCascadeCount()
@@ -2019,6 +2061,20 @@ namespace Desert::Graphic
              ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection,
                                  m_CloudQuality,
                                  heroClouds ); // a profile without clouds never allocates their targets
+    }
+
+    SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
+                                                                                   bool hasOpaqueDepth ) const
+    {
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        return SceneResources::ContactShadowSettings{
+             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
+             .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
+             .SunLength              = m_SunContactShadowLength,
+             .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace,
+             .SunCastingIntensity    = m_SunContactShadowCastingIntensity,
+             .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const

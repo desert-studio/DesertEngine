@@ -15,8 +15,8 @@
 
 // RDG-FAULT1 - fault isolation of the render graph (UE: a broken pass is a check() at AddPass / Compile in a
 // development build; a shipping engine keeps the frame alive). Seen live 2026-10-05: one pass failing a binding
-// check (glass bound u_ShadowMap0..3, which its shader does not declare) failed the WHOLE graph - nothing drew and
-// the same error went to the log every frame, flooding the editor's Logs panel.
+// check (glass bound u_ShadowMap0..3, as the cascades were then, which its shader does not declare) failed the
+// WHOLE graph - nothing drew and the same error went to the log every frame, flooding the editor's Logs panel.
 //
 // The decided shape (one owner per responsibility):
 //   * a PASS never decides what happens to the frame. Its setup records declaration errors against itself, its

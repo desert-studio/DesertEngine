@@ -40,7 +40,8 @@ namespace Desert::Graphic
         if ( Reads( groups, SceneRead::Shadow ) )
         {
             SceneShadowBind( material, CascadeViewProj, CascadeCount, ShadowsEnabled, ShadowDebugMode, ShowNormals,
-                             CascadeTexelWorld, LightingDebug );
+                             CascadeTexelWorld, CascadeDepthRange, SunSourceTanHalf, LightingDebug,
+                             ContactShadow );
         }
 
         if ( Reads( groups, SceneRead::Environment ) )

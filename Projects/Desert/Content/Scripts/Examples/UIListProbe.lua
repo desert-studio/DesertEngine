@@ -7,8 +7,8 @@
 --   ui.list_insert / ui.list_remove / ui.list_clear / ui.list_count
 
 Properties = {
-    InventorySize = 10000,
-    ChatEvery     = 0.25, -- seconds between chat lines while playing
+    InventorySize = Property.Int( 10000 ),
+    ChatEvery     = Property.Float( 0.25 ), -- seconds between chat lines while playing
 }
 
 local names  = { "Iron Ore", "Healing Draught", "Arrow", "Copper Coin", "Rope", "Lantern Oil", "Bread", "Map Scrap" }
