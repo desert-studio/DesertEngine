@@ -34,6 +34,10 @@ namespace Desert::Graphic
         // TSR.DetectThinGeometry's tile (Programs/TemporalSuperResolution/TSRDetectThinGeometry.shader: 16x16 minus
         // UE's overscan of 3 on each side): the pixels one group writes per side.
         constexpr uint32_t kThinGeometryTileOutput = 10;
+        // TSR.RejectShading's output tile per side (TSRRejectShading.shader kTile): 8 lanes write 8x8, or 6x6 with
+        // thin geometry, whose lerp-clamped history box costs one more apron from the same 16x16 load.
+        constexpr uint32_t kRejectShadingTile             = kGroupSize;
+        constexpr uint32_t kRejectShadingThinGeometryTile = 6;
 
         constexpr const char* kColorHistory         = "TSR.History.Color";
         constexpr const char* kColorHistoryPrevious = "TSR.History.Color.Previous";
@@ -151,19 +155,27 @@ namespace Desert::Graphic
         return thinGeometry ? withCoverage : plain;
     }
 
-    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRejectShadingLayout()
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRejectShadingLayout( const bool thinGeometry )
     {
-        static const auto layout = MakeLayout( kRejectShading, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                                 { "u_SceneColor", Kind::SampledTexture },
-                                                                 { "u_Exposure", Kind::SampledTexture },
-                                                                 { "u_ReprojectedGuide", Kind::SampledTexture },
-                                                                 { "u_ReprojectedMoire", Kind::SampledTexture },
-                                                                 { "u_ResurrectedGuide", Kind::SampledTexture },
-                                                                 { "u_HistoryRejection", Kind::StorageTexture },
-                                                                 { "u_GuideOut", Kind::StorageTexture },
-                                                                 { "u_MoireOut", Kind::StorageTexture },
-                                                                 { "u_AntiAliasInput", Kind::StorageTexture } } );
-        return layout;
+        const auto slots = []( const bool withThinGeometry )
+        {
+            std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
+                                             { "u_SceneColor", Kind::SampledTexture },
+                                             { "u_Exposure", Kind::SampledTexture },
+                                             { "u_ReprojectedGuide", Kind::SampledTexture },
+                                             { "u_ReprojectedMoire", Kind::SampledTexture },
+                                             { "u_ResurrectedGuide", Kind::SampledTexture },
+                                             { "u_HistoryRejection", Kind::StorageTexture },
+                                             { "u_GuideOut", Kind::StorageTexture },
+                                             { "u_MoireOut", Kind::StorageTexture },
+                                             { "u_AntiAliasInput", Kind::StorageTexture } };
+            if ( withThinGeometry )
+                list.push_back( { "u_ThinGeometry", Kind::SampledTexture } );
+            return list;
+        };
+        static const auto withThinGeometry = MakeLayout( kRejectShading, slots( true ) );
+        static const auto plain            = MakeLayout( kRejectShading, slots( false ) );
+        return thinGeometry ? withThinGeometry : plain;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrSpatialAntiAliasingLayout()
@@ -517,6 +529,8 @@ namespace Desert::Graphic
         // by name before a pass is added, instead of failing one pass at record time.
         const std::string decimateDefines =
              std::format( "TSR_THIN_GEOMETRY={}", quality.ThinGeometryDetection ? 1 : 0 );
+        // UE DIM_THIN_GEOMETRY_DETECTION: RejectShading reads TSR.ThinGeometry and relaxes its clamp box by it.
+        const std::string rejectDefines = decimateDefines;
         // UE DIM_VARYING_RANGE_DETECTION: ShadingRange VaryingRange (the UE default) needs the flickering heuristic
         // (MinKeepLineContrast's intensity lines are not ported); without it UE falls back to foliage only.
         const std::string thinGeometryDefines =
@@ -530,7 +544,7 @@ namespace Desert::Graphic
                  { kClearPrevTextures, "" },
                  { kDilateVelocity, "" },
                  { kDecimateHistory, decimateDefines },
-                 { kRejectShading, "" },
+                 { kRejectShading, rejectDefines },
                  { kSpatialAntiAliasing, spatialDefines },
                  { kUpdateHistory, updateDefines } };
             if ( quality.ThinGeometryDetection )
@@ -639,8 +653,9 @@ namespace Desert::Graphic
              "TSR.RejectShading", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrRejectShadingLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                 RDG::BindingBlockBuilder bindings =
+                      pass.Bindings( TsrRejectShadingLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
+                 bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
                       .Sampled( "u_SceneColor", inputs.SceneColor, sampled, all, point )
                       .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
                       .Sampled( "u_ReprojectedGuide", reprojectedGuide, sampled, all, point )
@@ -650,8 +665,11 @@ namespace Desert::Graphic
                       .Storage( "u_GuideOut", guide.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_MoireOut", moire.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_AntiAliasInput", antiAliasInput, RDG::Access::StorageWrite, 0 );
+                 if ( quality.ThinGeometryDetection )
+                     bindings.Sampled( "u_ThinGeometry", thinGeometry, sampled, all, point );
              },
-             dispatch( kRejectShading, "", render ) );
+             dispatch( kRejectShading, rejectDefines, render,
+                       quality.ThinGeometryDetection ? kRejectShadingThinGeometryTile : kRejectShadingTile ) );
 
         // r.TSR.RejectionAntiAliasingQuality 0: no spatial AA; UpdateHistory reads a zero offset (the same shader
         // writes it at 0 iterations, so UpdateHistory's binding set never changes with the quality).

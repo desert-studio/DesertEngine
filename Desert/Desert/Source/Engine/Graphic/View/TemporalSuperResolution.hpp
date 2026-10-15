@@ -34,19 +34,24 @@ namespace Desert::Graphic
     //                                    pixel's closest depth to where it was last frame (UE
     //                                    TSRDilateVelocity.usf, TSRClosestOccluder.ush ScatterClosestOccluder);
     //                                    with r.TSR.ReprojectionField the reprojection jacobian and the
-    //                                    depth-anti-aliased reprojection boundary (UE TSRDepthVelocityAnalysis.ush)
+    //                                    depth-anti-aliased reprojection boundary (UE
+    //                                    TSRDepthVelocityAnalysis.ush)
     //   TSR.DecimateHistory     Render   reprojects the guide and moire histories, parallax disocclusion against
-    //                                    the scatter (UE TSRDecimateHistory.usf, ProcessPrevAtomicTexturesSamples);
-    //                                    with r.TSR.Resurrection the persistent frame's guide too
-    //   TSR.DetectThinGeometry  Render   with the project's r.TSR.ThinGeometryDetection (Project::RendererSettings):
+    //                                    the scatter (UE TSRDecimateHistory.usf,
+    //                                    ProcessPrevAtomicTexturesSamples); with r.TSR.Resurrection the persistent
+    //                                    frame's guide too
+    //   TSR.DetectThinGeometry  Render   with the project's r.TSR.ThinGeometryDetection
+    //   (Project::RendererSettings):
     //                                    sub-pixel geometry from the base passes' coverage, the depth's thin edges
-    //                                    and the coverage history (UE TSRDetectThinGeometry.usf) -> the thin-geometry
-    //                                    relaxation weight and this frame's coverage history
+    //                                    and the coverage history (UE TSRDetectThinGeometry.usf) -> the
+    //                                    thin-geometry relaxation weight and this frame's coverage history
     //   TSR.RejectShading       Render   shading rejection of the reprojected guide against the input in UE's
     //                                    guide colour space (UE TSRRejectShading.usf, TSRShadingAnalysis.ush
     //                                    MeasureRejection), flicker-tolerant when the quality row says so; history
-    //                                    resurrection where the persistent frame matches better; writes the new
-    //                                    guide and moire histories and the spatial anti-aliaser's luma and mask
+    //                                    resurrection where the persistent frame matches better; with thin
+    //                                    geometry its clamp box relaxed by TSR.ThinGeometry (UE
+    //                                    DIM_THIN_GEOMETRY_DETECTION); writes the new guide and moire histories
+    //                                    and the spatial anti-aliaser's luma and mask
     //   TSR.SpatialAntiAliasing Render   UE's edge search on the LDR luma -> the sub-pixel offset and the noise
     //                                    filtering of masked pixels (UE TSRSpatialAntiAliasing.usf / .ush)
     //   TSR.UpdateHistory       History  reprojects the high-frequency history (through the reprojection field,
@@ -54,15 +59,17 @@ namespace Desert::Graphic
     //                                    box, accumulates with UE's validity / sample-count weights (UE
     //                                    TSRUpdateHistory.usf); writes the output too when History == Output
     //   TSR.ResolveHistory      Output   history -> output filter when History > Output (UE TSRResolveHistory.usf)
-    //   TSR.RecordPersistentFrame        on every kTsrPersistentFrameInterval-th frame since the history reset (r.TSR.
-    //                                    Resurrection): this frame's colour and guide -> the oldest persistent frame
+    //   TSR.RecordPersistentFrame        on every kTsrPersistentFrameInterval-th frame since the history reset
+    //   (r.TSR.
+    //                                    Resurrection): this frame's colour and guide -> the oldest persistent
+    //                                    frame
     //
     // THREE HISTORIES (HistoryDescs): the colour history at the HISTORY extent (Output x
     // TsrHistoryScreenPercentage), and the guide and moire histories at the RENDER extent; with r.TSR.Resurrection
     // also kTsrPersistentFrameCount persistent colour frames and as many persistent (linear) guide frames
-    // (HistoryLifetime::Persistent); with the project's r.TSR.ThinGeometryDetection last the coverage history at the
-    // RENDER extent (UE History.CoverageArray). All RGBA16F / R32F / R32_UINT: the only storage formats Vulkan guarantees
-    // without shaderStorageImageExtendedFormats are used.
+    // (HistoryLifetime::Persistent); with the project's r.TSR.ThinGeometryDetection last the coverage history at
+    // the RENDER extent (UE History.CoverageArray). All RGBA16F / R32F / R32_UINT: the only storage formats Vulkan
+    // guarantees without shaderStorageImageExtendedFormats are used.
     //
     // QUALITY (UE sg.AntiAliasingQuality r.TSR.* rows): TsrHistoryScreenPercentage and TsrResurrection change the
     // history descs (recreated and reset); TsrHistoryUpdateQuality and TsrRejectionAntiAliasing select shader
@@ -225,7 +232,8 @@ namespace Desert::Graphic
     // @p thinGeometry: the TSR_THIN_GEOMETRY=1 variant also reprojects the coverage history.
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout( bool thinGeometry );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout();
-    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRejectShadingLayout();
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
+    TsrRejectShadingLayout( bool thinGeometry );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrSpatialAntiAliasingLayout();
     // @p writesOutput: the TSR_WRITE_OUTPUT=1 variant (History == Output) also binds u_Output.
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&

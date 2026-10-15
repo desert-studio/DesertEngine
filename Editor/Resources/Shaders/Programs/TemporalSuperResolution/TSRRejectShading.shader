@@ -8,8 +8,20 @@ Shader "TSRRejectShading"
         // 3x3-blurred reprojected guide into the min/max box of the 3x3-blurred input, widened by the quantization
         // and moire errors; rejection = 1 - clamped energy / delta, median-filtered) and the flickering history
         // :263-395, adapted: the convolutions run on a 16x16 shared-memory tile per 8x8 group instead of UE's
-        // tensor registers / wave ops; no thin-geometry relaxation; the Blur3x3(TotalVariation) term of ClampError
-        // is left out (REMAINDER-TSR.md); the new guide is the input itself.
+        // tensor registers / wave ops; the Blur3x3(TotalVariation) term of ClampError is left out (REMAINDER-TSR.md);
+        // the new guide is the input itself.
+        //
+        // THIN GEOMETRY (TSR_THIN_GEOMETRY, the project's r.TSR.ThinGeometryDetection; UE DIM_THIN_GEOMETRY_DETECTION,
+        // TSRRejectShading.usf FetchThinGeometryEdge :123-140 and :497-505 / :644-666, TSRShadingAnalysis.ush
+        // MeasureRejection :530-560 and ComputeMoireError :416-424): u_ThinGeometry is TSR.DetectThinGeometry's
+        // weight (UE R8Output[ThinGeometryTextureIndex]: weight * 127 << 1 | cluster-hole bit). Where it is above
+        // 1/127 the clamp box of the filtered input is relaxed toward the 3x3 box of the filtered history by that
+        // weight, then replaced by the 3x3 box of the history clamped into the relaxed box, so a sub-pixel wire or
+        // leaf that the input catches only on some frames keeps its history instead of being rejected. That last
+        // Min/Max3x3 is one more apron: the group writes a 6x6 tile (apron 5) instead of 8x8 (apron 4), from the
+        // same 16x16 load. The flickering history counts a thin pixel's small gradients as flicker (UE
+        // r.TSR.ThinGeometryDetection.AntiFlickering 1, its default). The resurrected frame is measured without the
+        // relaxation, as in UE (:776).
         //
         // HISTORY RESURRECTION (r.TSR.Resurrection; UE IsResurrectedFrameCloserThanPreviousFrame :263,
         // IsWorthMeasuringRejectionOfResurrectedFrame :286, ShouldResurrectHistory :308, the pass :716-790): where
@@ -53,12 +65,27 @@ Shader "TSRRejectShading"
         layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_MoireOut;
         layout(binding = 9, rgba16f) restrict writeonly uniform image2D u_AntiAliasInput;
 
-        const int kTile   = 8;
-        const int kApron  = 4; // Blur3x3 -> MinMax3x3 -> Median3x3 -> Min/Max3x3
-        const int kLoad   = kTile + 2 * kApron; // 16
-        const int kBlur   = kLoad - 2;          // 14
-        const int kRaw    = kLoad - 4;          // 12
-        const int kMedian = kLoad - 6;          // 10
+        #ifndef TSR_THIN_GEOMETRY
+        #define TSR_THIN_GEOMETRY 0
+        #endif
+
+        #if TSR_THIN_GEOMETRY
+        Uniform(10) usampler2D u_ThinGeometry; // TSR.DetectThinGeometry: weight * 127 << 1 | cluster-hole bit
+        const int kTile  = 6;
+        const int kApron = 5; // Blur3x3 -> MinMax3x3 -> lerp-clamped history's MinMax3x3 -> Median3x3 -> Min/Max3x3
+        #else
+        const int kTile  = 8;
+        const int kApron = 4; // Blur3x3 -> MinMax3x3 -> Median3x3 -> Min/Max3x3
+        #endif
+        const int kLanes      = 8; // LocalSize per side; a lane past kTile only loads and filters
+        const int kLaneCount  = kLanes * kLanes;
+        const int kLoad       = kTile + 2 * kApron;     // 16
+        const int kBlur       = kLoad - 2;              // 14, at 1 in the load tile
+        const int kRawOffset  = kApron - 2;             // the raw factors' offset in the load tile: 2, or 3 thin
+        const int kRaw        = kLoad - 2 * kRawOffset; // 12, or 10 thin
+        const int kMedian     = kRaw - 2;               // 10, or 8 thin
+        const int kMatch      = kTile + 2;              // the match sums' region, at kApron - 1 in the load tile
+        const int kLerpClamp  = kBlur - 2;              // the lerp-clamped history's region (thin), at 2
 
         shared vec3  s_Input[kLoad * kLoad];
         shared vec3  s_History[kLoad * kLoad];
@@ -68,7 +95,10 @@ Shader "TSRRejectShading"
         shared vec4  s_Raw[kRaw * kRaw];   // rgb RawClampedEnergy, a RawRejection
         shared vec3  s_Delta[kRaw * kRaw];
         shared vec4  s_Median[kMedian * kMedian];
-        shared float s_MatchSum[kMedian * kMedian]; // UE TotalMatchDiff (Sum3x3 of MatchDiff) on the 10x10 region
+        shared float s_MatchSum[kMatch * kMatch]; // UE TotalMatchDiff (Sum3x3 of MatchDiff) around the output tile
+        #if TSR_THIN_GEOMETRY
+        shared vec3 s_LerpClamped[kLerpClamp * kLerpClamp]; // the filtered history clamped into the relaxed box
+        #endif
         shared uint  s_WantResurrection;
 
         void Sort(inout vec4 a, inout vec4 b)
@@ -91,6 +121,15 @@ Shader "TSRRejectShading"
             return p[4];
         }
 
+        #if TSR_THIN_GEOMETRY
+        // UE FetchThinGeometryEdge's HistoryRelaxationWeight, with MeasureRejection's cut at one code (:533).
+        float ThinGeometryRelaxationAt(ivec2 p)
+        {
+            const float weight = float(texelFetch(u_ThinGeometry, TsrClampRender(p), 0).r >> 1u) * (1.0 / 127.0);
+            return weight > 1.0 / 127.0 ? weight : 0.0;
+        }
+        #endif
+
         float MoireErrorAt(ivec2 p)
         {
             const vec4 moire = texelFetch(u_ReprojectedMoire, TsrClampRender(p), 0);
@@ -100,11 +139,12 @@ Shader "TSRRejectShading"
         // UE MeasureRejection over the group's tile against s_History (or s_Resurrected): Blur3x3 -> clamp box ->
         // Median3x3 -> MaxRGBMinA3x3. Every lane calls it (it has barriers); the result is this lane's pixel.
         // @p withMoire: the flicker error widens the box (UE passes MoireError 0 for the resurrected frame).
-        void MeasureRejectionTile(ivec2 local, int lane, ivec2 origin, bool resurrected, bool withMoire,
+        // @p tileLocal: this lane's output pixel in the tile (a lane past kTile reads the last one, writes none).
+        void MeasureRejectionTile(ivec2 tileLocal, int lane, ivec2 origin, bool resurrected, bool withMoire,
                                   out float blendFinal, out float clampBlend)
         {
             // 1. Blur3x3 of both (UE: 1, 0.5 cross, 0.25 diagonal, normalised by FilteringWeight).
-            for (int i = lane; i < kBlur * kBlur; i += kTile * kTile)
+            for (int i = lane; i < kBlur * kBlur; i += kLaneCount)
             {
                 const ivec2 c   = ivec2(i % kBlur, i / kBlur) + 1;
                 vec3        sIn = vec3(0.0);
@@ -124,11 +164,41 @@ Shader "TSRRejectShading"
             }
             barrier();
 
-            // 2. MeasureRejection's raw factors on the 12x12 inner region.
-            for (int i = lane; i < kRaw * kRaw; i += kTile * kTile)
+        #if TSR_THIN_GEOMETRY
+            // 1b. UE MeasureRejection :530-547 (thin geometry; never for the resurrected frame): the filtered input's
+            // 3x3 box lerped toward the filtered history's 3x3 box by the relaxation weight, and the filtered
+            // history clamped into it, on the 12x12 region the raw factors' Min/Max3x3 below reads.
+            for (int i = lane; i < kLerpClamp * kLerpClamp; i += kLaneCount)
             {
-                const ivec2 c = ivec2(i % kRaw, i / kRaw) + 2; // in the 16x16 tile
-                const ivec2 b = c - 1;                          // in the 14x14 blurred tile
+                const ivec2 c          = ivec2(i % kLerpClamp, i / kLerpClamp) + 2; // in the 16x16 tile
+                const ivec2 b          = c - 1;                                     // in the 14x14 blurred tile
+                const float relaxation = resurrected ? 0.0 : ThinGeometryRelaxationAt(origin + c);
+                vec3        boxMin     = s_BlurInput[b.y * kBlur + b.x];
+                vec3        boxMax     = boxMin;
+                vec3        historyMin = s_BlurHistory[b.y * kBlur + b.x];
+                vec3        historyMax = historyMin;
+                for (int y = -1; y <= 1; ++y)
+                {
+                    for (int x = -1; x <= 1; ++x)
+                    {
+                        const int j = (b.y + y) * kBlur + b.x + x;
+                        boxMin      = min(boxMin, s_BlurInput[j]);
+                        boxMax      = max(boxMax, s_BlurInput[j]);
+                        historyMin  = min(historyMin, s_BlurHistory[j]);
+                        historyMax  = max(historyMax, s_BlurHistory[j]);
+                    }
+                }
+                s_LerpClamped[i] = clamp(s_BlurHistory[b.y * kBlur + b.x], mix(boxMin, historyMin, relaxation),
+                                         mix(boxMax, historyMax, relaxation));
+            }
+            barrier();
+        #endif
+
+            // 2. MeasureRejection's raw factors on the inner region (12x12, or 10x10 thin).
+            for (int i = lane; i < kRaw * kRaw; i += kLaneCount)
+            {
+                const ivec2 c = ivec2(i % kRaw, i / kRaw) + kRawOffset; // in the 16x16 tile
+                const ivec2 b = c - 1;                                   // in the 14x14 blurred tile
 
                 vec3 inputMin = s_Input[c.y * kLoad + c.x];
                 vec3 inputMax = inputMin;
@@ -146,6 +216,24 @@ Shader "TSRRejectShading"
                         boxMax             = max(boxMax, blurred);
                     }
                 }
+        #if TSR_THIN_GEOMETRY
+                // UE :549-556: a relaxed pixel's box is the 3x3 box of the lerp-clamped history.
+                if (!resurrected && ThinGeometryRelaxationAt(origin + c) > 0.0)
+                {
+                    const ivec2 l = c - 2; // in the 12x12 lerp-clamped tile
+                    boxMin        = s_LerpClamped[l.y * kLerpClamp + l.x];
+                    boxMax        = boxMin;
+                    for (int y = -1; y <= 1; ++y)
+                    {
+                        for (int x = -1; x <= 1; ++x)
+                        {
+                            const vec3 clampedHistory = s_LerpClamped[(l.y + y) * kLerpClamp + l.x + x];
+                            boxMin                    = min(boxMin, clampedHistory);
+                            boxMax                    = max(boxMax, clampedHistory);
+                        }
+                    }
+                }
+        #endif
                 const vec3 inputBoxSize    = inputMax - inputMin;
                 const vec3 quantization    = vec3(kQuantizationError);
                 const vec3 clampError      = max(quantization, inputBoxSize * (kFilteringWeight * 0.25)) + quantization;
@@ -175,10 +263,10 @@ Shader "TSRRejectShading"
             }
             barrier();
 
-            // 3. Median3x3 of (energy, rejection) on the 10x10 region.
-            for (int i = lane; i < kMedian * kMedian; i += kTile * kTile)
+            // 3. Median3x3 of (energy, rejection) on the median region (10x10, or 8x8 thin).
+            for (int i = lane; i < kMedian * kMedian; i += kLaneCount)
             {
-                const ivec2 c = ivec2(i % kMedian, i / kMedian) + 1; // in the 12x12 raw tile
+                const ivec2 c = ivec2(i % kMedian, i / kMedian) + 1; // in the raw tile
                 vec4        taps[9];
                 for (int t = 0; t < 9; ++t)
                     taps[t] = s_Raw[(c.y + t / 3 - 1) * kRaw + c.x + t % 3 - 1];
@@ -187,7 +275,7 @@ Shader "TSRRejectShading"
             barrier();
 
             // 4. UE MaxRGBMinA3x3: the largest clamped energy and the smallest rejection of the 3x3.
-            const ivec2 m              = local + 1; // in the 10x10 median tile
+            const ivec2 m              = tileLocal + 1; // in the median tile
             vec3        filteredEnergy = vec3(0.0);
             clampBlend                 = 1.0;
             for (int y = -1; y <= 1; ++y)
@@ -199,7 +287,7 @@ Shader "TSRRejectShading"
                     clampBlend        = min(clampBlend, median.a);
                 }
             }
-            const ivec2 r              = local + 2; // in the 12x12 raw tile
+            const ivec2 r              = tileLocal + 2; // in the raw tile
             const vec3  filteredFactor = clamp(1.0 - filteredEnergy / s_Delta[r.y * kRaw + r.x], 0.0, 1.0);
             blendFinal                 = min(filteredFactor.r, min(filteredFactor.g, filteredFactor.b));
             // The tiles are reused by the next measure.
@@ -218,15 +306,18 @@ Shader "TSRRejectShading"
         void main()
         {
             const ivec2 local               = ivec2(gl_LocalInvocationID.xy);
-            const int   lane                = local.y * kTile + local.x;
+            const int   lane                = local.y * kLanes + local.x;
             const ivec2 origin              = ivec2(gl_WorkGroupID.xy) * kTile - kApron;
             const float exposure            = TsrExposure(u_Exposure);
-            const ivec2 pixel               = ivec2(gl_GlobalInvocationID.xy);
-            const bool  inside              = all(lessThan(pixel, ivec2(u_RenderSize)));
+            // A lane past the output tile (thin geometry: 6x6 of 8x8) loads and filters, and writes nothing.
+            const bool  ownsPixel           = all(lessThan(local, ivec2(kTile)));
+            const ivec2 tileLocal           = min(local, ivec2(kTile - 1));
+            const ivec2 pixel               = ivec2(gl_WorkGroupID.xy) * kTile + tileLocal;
+            const bool  inside              = ownsPixel && all(lessThan(pixel, ivec2(u_RenderSize)));
             const bool  resurrectionEnabled = u_ResurrectionEnabled > 0.5;
 
             // 1. The input, the reprojected guide and the resurrected one of the 16x16 tile, in the guide space.
-            for (int i = lane; i < kLoad * kLoad; i += kTile * kTile)
+            for (int i = lane; i < kLoad * kLoad; i += kLaneCount)
             {
                 const ivec2 p    = TsrClampRender(origin + ivec2(i % kLoad, i / kLoad));
                 s_Input[i]       = LinearToGCS(max(texelFetch(u_SceneColor, p, 0).rgb, vec3(0.0)) * exposure);
@@ -237,12 +328,12 @@ Shader "TSRRejectShading"
                 s_WantResurrection = 0u;
             barrier();
 
-            // 2. UE TotalMatchDiff = Sum3x3(MatchDiff), on the 10x10 region the closer-test's Sum3x3 reads.
+            // 2. UE TotalMatchDiff = Sum3x3(MatchDiff), on the region around the tile the closer-test's Sum3x3 reads.
             if (resurrectionEnabled)
             {
-                for (int i = lane; i < kMedian * kMedian; i += kTile * kTile)
+                for (int i = lane; i < kMatch * kMatch; i += kLaneCount)
                 {
-                    const ivec2 c   = ivec2(i % kMedian, i / kMedian) + 3; // in the 16x16 tile
+                    const ivec2 c   = ivec2(i % kMatch, i / kMatch) + kApron - 1; // in the 16x16 tile
                     float       sum = 0.0;
                     for (int y = -1; y <= 1; ++y)
                         for (int x = -1; x <= 1; ++x)
@@ -255,7 +346,7 @@ Shader "TSRRejectShading"
             // 3. The rejection of the reprojected guide.
             float blendFinal;
             float clampBlend;
-            MeasureRejectionTile(local, lane, origin, false, true, blendFinal, clampBlend);
+            MeasureRejectionTile(tileLocal, lane, origin, false, true, blendFinal, clampBlend);
 
             const ivec2 clampedPixel = TsrClampRender(pixel);
             const bool  valid        = texelFetch(u_ReprojectedGuide, clampedPixel, 0).a > 0.5;
@@ -264,11 +355,11 @@ Shader "TSRRejectShading"
             bool resurrect = false;
             if (resurrectionEnabled)
             {
-                const ivec2 m      = local + 1; // in the 10x10 match-sum tile
+                const ivec2 m      = tileLocal + 1; // in the match-sum tile
                 float       closer = 0.0;
                 for (int y = -1; y <= 1; ++y)
                     for (int x = -1; x <= 1; ++x)
-                        closer += s_MatchSum[(m.y + y) * kMedian + m.x + x] > 0.05 * 3.0 * 9.0 ? 1.0 : 0.0;
+                        closer += s_MatchSum[(m.y + y) * kMatch + m.x + x] > 0.05 * 3.0 * 9.0 ? 1.0 : 0.0;
                 const bool onScreen             = texelFetch(u_ResurrectedGuide, clampedPixel, 0).a > 0.5;
                 const bool resurrectionIsCloser = closer > 4.0 && onScreen && inside;
                 if (resurrectionIsCloser && blendFinal < 0.5)
@@ -280,7 +371,7 @@ Shader "TSRRejectShading"
                 {
                     float resurrectionBlendFinal;
                     float resurrectionClampBlend;
-                    MeasureRejectionTile(local, lane, origin, true, false, resurrectionBlendFinal,
+                    MeasureRejectionTile(tileLocal, lane, origin, true, false, resurrectionBlendFinal,
                                          resurrectionClampBlend);
                     resurrect = resurrectionIsCloser && (resurrectionBlendFinal - blendFinal) > 0.1;
                     if (resurrect)
@@ -300,7 +391,7 @@ Shader "TSRRejectShading"
                        usable ? vec4(blendFinal, clampBlend, 1.0 - blendFinal, float(bits) / 255.0)
                               : vec4(0.0, 0.0, 1.0, float(bits) / 255.0));
 
-            const vec3 current = s_Input[(local.y + kApron) * kLoad + local.x + kApron];
+            const vec3 current = s_Input[(tileLocal.y + kApron) * kLoad + tileLocal.x + kApron];
             imageStore(u_GuideOut, pixel, vec4(current, 1.0));
 
             // The spatial anti-aliaser's input: UE ComputeSpatialAntiAliaserLumaLDR (luma of the pre-exposed colour,
@@ -316,7 +407,8 @@ Shader "TSRRejectShading"
                 {
                     for (int x = -1; x <= 1; ++x)
                     {
-                        const vec3 c = GCSToSMCS(s_Input[(local.y + kApron + y) * kLoad + local.x + kApron + x]);
+                        const vec3 c =
+                             GCSToSMCS(s_Input[(tileLocal.y + kApron + y) * kLoad + tileLocal.x + kApron + x]);
                         boxMin       = min(boxMin, c);
                         boxMax       = max(boxMax, c);
                     }
@@ -334,9 +426,16 @@ Shader "TSRRejectShading"
             if (u_EnableFlickeringHeuristic > 0.5 && valid && prev.w > 0.5)
             {
                 const float blend     = 1.0 / max(u_FlickeringFramePeriod, 1.0);
-                const float gradient  = luma - prev.x;
-                const bool  flickers  = gradient * prev.y < 0.0 && abs(gradient) > kQuantizationError &&
-                                        abs(prev.y) > kQuantizationError;
+                const float gradient    = luma - prev.x;
+                bool        withinError = abs(gradient) <= kQuantizationError || abs(prev.y) <= kQuantizationError;
+            #if TSR_THIN_GEOMETRY
+                // UE ComputeMoireError :416-424: on a thin-geometry pixel a gradient above 0.00007 is not within
+                // the encoding error, so the residual flicker of a wire still widens its box.
+                const bool thinGeometryRegion = ThinGeometryRelaxationAt(pixel) > 0.0 &&
+                                                (abs(gradient) > 0.00007 || abs(prev.y) > 0.00007) && withinError;
+                withinError = withinError && !thinGeometryRegion;
+            #endif
+                const bool flickers = gradient * prev.y < 0.0 && !withinError;
                 const float variation = flickers ? min(abs(gradient), abs(prev.y)) : 0.0;
                 moire = vec4(mix(prev.x, luma, blend), gradient, max(variation, prev.z * (1.0 - blend * 0.25)), 1.0);
             }
