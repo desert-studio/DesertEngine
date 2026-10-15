@@ -859,46 +859,64 @@ namespace Desert::Graphic::System
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
-            std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> casters;
+            // Per section, as the static entries: a masked section through its template's caster, masked to its
+            // own submeshes; the opaque sections of an entry are ONE depth draw (no material to tell apart),
+            // drawing their union over one copy of the pose.
+            struct OpaqueCaster
+            {
+                const SkinnedMeshRenderData* Data       = nullptr;
+                uint32_t                     BoneOffset = 0;
+                uint64_t                     Hidden     = 0;
+            };
+            std::vector<OpaqueCaster> casters;
             for ( const auto& sd : m_SkinnedQueue )
             {
                 if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
                     continue;
-                if ( isMasked( sd.Material ) )
+                uint64_t opaqueVisible = 0;
+                for ( const SkinnedSection& section : sd.Sections )
                 {
+                    if ( !isMasked( section.Material ) )
+                    {
+                        opaqueVisible |= ~section.HiddenSubmeshes;
+                        continue;
+                    }
                     // Hair cards, cloth fringes: the (Skinned x ShadowDepth) cell of ITS template.
-                    auto* caster = MaskedCasterMaterial( sd.Material, MeshVertexPath::Skinned, c );
+                    auto* caster = MaskedCasterMaterial( section.Material, MeshVertexPath::Skinned, c );
                     if ( caster == nullptr )
                     {
                         continue; // refused by name, once
                     }
                     auto&            set = maskedSetFor( caster );
                     MaskedCasterDraw draw;
-                    draw.Set       = &set;
-                    draw.Path      = MeshVertexPath::Skinned;
-                    draw.Mesh      = sd.Mesh;
-                    draw.Transform = sd.Transform;
-                    draw.Instance  = sd.Instance;
-                    draw.Row       = AppendRow( set.Rows, EffectiveRow( sd.Material, sd.Instance ) );
-                    draw.First     = static_cast<uint32_t>( set.Transforms.size() );
+                    draw.Set               = &set;
+                    draw.Path              = MeshVertexPath::Skinned;
+                    draw.Mesh              = sd.Mesh;
+                    draw.Transform         = sd.Transform;
+                    draw.Instance          = section.Instance;
+                    draw.Row               = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
+                    draw.First             = static_cast<uint32_t>( set.Transforms.size() );
+                    draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );
-                    continue;
                 }
-                casters.emplace_back( &sd, static_cast<uint32_t>( skinBones.size() ) );
+                if ( opaqueVisible == 0 )
+                    continue;
+                casters.push_back( { &sd, static_cast<uint32_t>( skinBones.size() ), ~opaqueVisible } );
                 skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
             }
             if ( !casters.empty() )
             {
                 skinMat->UploadBones( skinBones );
-                for ( const auto& [sd, boneOffset] : casters )
+                for ( const OpaqueCaster& caster : casters )
                 {
-                    list.Add(
-                         { .Pipeline  = m_ShadowSkinnedPipeline.get(),
-                           .Mesh      = sd->Mesh,
-                           .Transform = sd->Transform,
-                           .Material  = skinMat->GetMaterialExecutor(),
-                           .BindState = [skinMat, offset = boneOffset] { skinMat->SetBoneOffset( offset ); } } );
+                    list.Add( { .Pipeline          = m_ShadowSkinnedPipeline.get(),
+                                .Mesh              = caster.Data->Mesh,
+                                .Transform         = caster.Data->Transform,
+                                .Material          = skinMat->GetMaterialExecutor(),
+                                .HiddenSubmeshMask = caster.Hidden,
+                                .BindState         = [skinMat, offset = caster.BoneOffset]
+                                { skinMat->SetBoneOffset( offset ); } } );
                 }
             }
         }
