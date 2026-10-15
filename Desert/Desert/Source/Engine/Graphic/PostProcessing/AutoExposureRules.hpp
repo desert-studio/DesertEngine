@@ -11,7 +11,7 @@ namespace Desert::Graphic
     // without a renderer — and, more to the point, next to the ONE fact that has to hold about them.
     //
     // THE RELATION. A histogram meter is only honest over the range it can represent. The procedural sky
-    // writes the sun disc at up to kSkyLuminanceClamp (ProceduralSky.shader) and the meter's top bin has
+    // writes the sun disc at up to kSkyLuminanceCeilingMax (SkyLuminanceCeiling) and the meter's top bin has
     // to reach that, or every luminance above the ceiling collapses into one bin and the meter cannot
     // tell the sun from a merely bright sky. Before the physical sun existed nothing in a frame exceeded 4 and
     // a ceiling of 4 was fine; the sky pass then started writing 1000 and the two quietly disagreed by
@@ -43,10 +43,64 @@ namespace Desert::Graphic
         }
     };
 
-    // The luminance ceiling the procedural sky clamps its output to — mirrored from
-    // Editor/Resources/Shaders/Programs/ProceduralSky/ProceduralSky.shader's kSkyLuminanceClamp. The
-    // mirror is the point: the test that pins it fails the moment either side moves alone.
-    inline constexpr float kSkyLuminanceClamp = 1000.0f;
+    // EV100 <-> luminance (cd/m^2), the reflected-light meter law with K = 12.5: L = 2^(EV100 - 3). One law for
+    // the exposure range (PostProcessSettings::AutoExposureMin/MaxEV100) and for a light's EV100 units
+    // (ECS::LightPhotometry), so an EV means the same brightness wherever it is written.
+    inline float EV100ToLuminance( float ev100 )
+    {
+        return std::exp2( ev100 - 3.0f );
+    }
+    inline float LuminanceToEV100( float luminance )
+    {
+        return std::log2( std::max( luminance, 1e-30f ) ) + 3.0f;
+    }
+
+    // UE's middle grey: the average a target exposure puts at 0.18.
+    inline constexpr float kEyeAdaptationMiddleGrey = 0.18f;
+
+    // THE EXPOSURE LAW, one for auto and manual (UE ExposureScale = 2^Bias x 0.18 / AverageLuminance):
+    // compensation = Core::AutoExposureCompensation(AutoExposureBias) = 2^Bias, averageLuminance the metered
+    // (auto, clamped to the Min / Max EV100 range) or stated (manual) average. Common/ViewExposure.glslh is its
+    // GPU twin over the adapted 1x1 image.
+    inline float ExposureScale( float averageLuminance, float compensation )
+    {
+        return compensation * kEyeAdaptationMiddleGrey / std::max( averageLuminance, 1e-30f );
+    }
+
+    // MANUAL EXPOSURE IN EV100 (UE's Manual metering mode). A manual exposure states the EV100 the meter
+    // would otherwise have read; the scale is then the auto path's own law with that reading, so a manual EV100
+    // and an auto-exposure adapted to the same EV100 give the same picture, and the compensation (UE's Exposure
+    // Compensation, AutoExposureBias) offsets both, as UE applies it in Manual too.
+    inline float ManualExposureScale( float ev100, float compensation )
+    {
+        return ExposureScale( EV100ToLuminance( ev100 ), compensation );
+    }
+
+    // The smallest exposure scale the auto-exposure can settle on: the meter clamped at its Max EV100.
+    inline float LowestAutoExposureScale( float maxEV100, float compensation )
+    {
+        return ExposureScale( EV100ToLuminance( maxEV100 ), compensation );
+    }
+
+    // THE SKY'S ON-SCREEN LUMINANCE CEILING, derived rather than chosen in cd/m^2.
+    //
+    // The physical sky writes the sun disc at its true luminance (illuminance over its solid angle — ~10^9
+    // cd/m^2 for a 100 000 lux sun), which no fp16 target holds and which, held, would saturate every bloom
+    // box it touches. UE does not clamp: it stores the scene PRE-EXPOSED, so the disc lands at a fixed number
+    // of times display white whatever the light's units. This renderer stores raw luminance, so the ceiling
+    // is stated in the same terms instead: kSkyExposedLuminanceCeiling times white after the LOWEST exposure
+    // the frame can use (the manual scale, or the meter clamped at Max EV100), and never above
+    // kSkyLuminanceCeilingMax, the most the fp16 scene target can take with headroom for one additive pass
+    // over it. The former fixed 1000 cd/m^2 is exactly this at exposure 1, and it cut the whole sky of a
+    // physical sun (a 100 000 lux sky is ~10^4 cd/m^2).
+    inline constexpr float kSkyExposedLuminanceCeiling = 1000.0f;
+    inline constexpr float kSkyLuminanceCeilingMax     = 65504.0f * 0.5f; // half the largest finite fp16
+
+    inline float SkyLuminanceCeiling( float lowestExposureScale )
+    {
+        return std::min( kSkyExposedLuminanceCeiling / std::max( lowestExposureScale, 1e-30f ),
+                         kSkyLuminanceCeilingMax );
+    }
 
     // Which bin a luminance lands in — the histogram shader's mapping, so the tests can ask what the
     // meter actually sees rather than what it was meant to.
@@ -64,10 +118,12 @@ namespace Desert::Graphic
 
     // What AEAverage adapts with, derived from a view's auto-exposure settings the way UE derives its eye
     // adaptation parameters. Ported from UE 5.8 Engine/Source/Runtime/Renderer/Private/PostProcess/
-    // PostProcessEyeAdaptation.cpp:376-389 (LuminanceMaxFromLensAttenuation), :596-715
-    // (GetEyeAdaptationParameters), adapted: the extended (EV100) luminance range only - UE's project default;
-    // plain floats in and out so the tests need no renderer; no physical camera, meter mask, compensation curve or
-    // debug view.
+    // PostProcessEyeAdaptation.cpp:596-715 (GetEyeAdaptationParameters), adapted: the extended (EV100) luminance
+    // range only - UE's project default; the EV100 range is read through this engine's ONE meter law
+    // (EV100ToLuminance above, the average luminance an EV100 stands for, shared with the lights' EV100 units)
+    // instead of UE's white point x 0.18 (LuminanceMaxFromLensAttenuation) - the two differ by log2(0.18 / 0.125)
+    // = 0.53 EV; plain floats in and out so the tests need no renderer; no physical camera, meter mask,
+    // compensation curve or debug view.
     struct EyeAdaptationParameters
     {
         float MinAverageLuminance; // the metered average is clamped to [Min, Max] before it becomes a target
@@ -81,31 +137,18 @@ namespace Desert::Graphic
         float StartDistance; // EV: further than this from the target the adaptation is linear, nearer exponential
     };
 
-    // r.EyeAdaptation.LensAttenuation's default 0.78 against ISO 12232's saturation constant 0.78: the white point
-    // luminance of EV100 0 is exactly 1.
-    inline constexpr float kEyeAdaptationLuminanceMax = 0.78f / 0.78f;
     // r.EyeAdaptation.ExponentialTransitionDistance's default.
     inline constexpr float kEyeAdaptationStartDistance = 1.5f;
-    // UE's middle grey: the average a target exposure puts at 0.18.
-    inline constexpr float kEyeAdaptationMiddleGrey = 0.18f;
-
-    // UE EV100ToLuminance: the white point luminance of an EV100.
-    inline float EV100ToLuminance( float ev100 )
-    {
-        return kEyeAdaptationLuminanceMax * std::exp2( ev100 );
-    }
-
-    inline EyeAdaptationParameters ComputeEyeAdaptationParameters( float minBrightnessEV100,
-                                                                   float maxBrightnessEV100, float lowPercent,
-                                                                   float highPercent, float speedUp,
-                                                                   float speedDown )
+    inline EyeAdaptationParameters ComputeEyeAdaptationParameters( float minEV100, float maxEV100,
+                                                                   float lowPercent, float highPercent,
+                                                                   float speedUp, float speedDown )
     {
         constexpr float kPercentToScale = 0.01f;
         const float     high            = std::clamp( highPercent, 1.0f, 99.0f ) * kPercentToScale;
         const float     low = std::min( std::clamp( lowPercent, 1.0f, 99.0f ) * kPercentToScale, high );
 
-        const float maxWhitePoint = EV100ToLuminance( maxBrightnessEV100 );
-        const float minWhitePoint = std::min( EV100ToLuminance( minBrightnessEV100 ), maxWhitePoint );
+        const float maxAverage = EV100ToLuminance( maxEV100 );
+        const float minAverage = std::min( EV100ToLuminance( minEV100 ), maxAverage );
 
         // At t = StartTime the exponential curve's slope equals the linear curve's, so the two join without a
         // kink; UE evaluates the limit at a 60 Hz frame for simplicity, and so does this.
@@ -115,8 +158,8 @@ namespace Desert::Graphic
         const float     upM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedUp ) ) * startTimeUp );
         const float downM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedDown ) ) * startTimeDown );
 
-        return { minWhitePoint * kEyeAdaptationMiddleGrey,
-                 maxWhitePoint * kEyeAdaptationMiddleGrey,
+        return { minAverage,
+                 maxAverage,
                  low,
                  high,
                  speedUp,

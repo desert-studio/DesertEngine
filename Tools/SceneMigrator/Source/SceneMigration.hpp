@@ -274,11 +274,13 @@ namespace Desert::Migration
 
     //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
-    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
-    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
-    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
-    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
-    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — since GI-PROBE-SW ProbeVolume 3, which
+    //       took the removed method's number, so a v53 file that states 3 needs no step of its own) and EnableSSR
+    //       (bool) is ReflectionsMethod (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod,
+    //       ContactShadows and DistanceFieldShadows are new keys with their defaults
+    //       (MigrateRenderMethodsV52ToV53). Both the record's volume and a prefab override's delta are renamed:
+    //       the key is gone from the type either way. A value outside the old type is refused, naming the entity.
+    //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
     //  54 - A SCRIPT SLOT HOLDS ONLY WHAT DIFFERS FROM THE SCRIPT (SCR-DETAILS, UE's delta against the CDO). Every
@@ -290,26 +292,61 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionScriptDefaults = 54;
 
-    //  62 - THE GRADE IS UE'S (POST-LOOK). Auto-exposure is on by default, as UE's FPostProcessSettings has it,
-    //  and
-    //       is UE's model: AutoExposureBias (EV, 2^Bias times middle grey), AutoExposureSpeedUp / SpeedDown (EV
-    //       per second), AutoExposureMin / MaxBrightness (EV100) and AutoExposureLow / HighPercent replace
-    //       AutoExposureKey / Speed / Min / Max. In a PostProcessVolume's Settings (the record and every prefab
-    //       override's delta, MigrateUEGradeToV62): a stated AutoExposureKey is re-stated EXACTLY as
+    //  56 - LIGHTS STATE THEIR UNITS; THE EXPOSURE RANGE IS EV100 (LIGHT-UNITS, UE ELightUnits). PointLight /
+    //       SpotLight gained IntensityUnits (Unitless 0, Candelas 1, Lumens 2, EV100 3) and their defaults became
+    //       UE's (8 cd, InverseSquare): every block states IntensityUnits Unitless - the meaning every older value
+    //       had - and a record that stated no Falloff / Intensity states the old defaults (Quadratic, 1). The
+    //       volume's AutoExposureMin / Max (luminance clamps, default 0.02 / 8) are AutoExposureMinEV100 /
+    //       MaxEV100 = log2(L) + 3, the same clamp (defaults now UE's -10 / 20). A DirectionLight's Intensity was
+    //       always the illuminance the BRDF integrates: it is lux now by name, the number is kept. An override
+    //       (a delta) only gains the units and has its stated exposure keys renamed (MigrateLightUnitsV55ToV56).
+    //       v55 is SourceAngle (Windows); scenes and prefabs alike.
+    inline constexpr int kSceneVersionLightUnits = 56;
+
+    //  57 - THE PHYSICAL SKY'S SUN IS THE LIGHT; MANUAL EXPOSURE IS EV100 (LIGHT-UNITS-2, UE). The Physical
+    //       Atmosphere sky stopped reading SkyAtmosphere SunColor x SunIntensity: it scatters the atmosphere sun
+    //       light's Color x Intensity (lux), as UE. A scene whose physical sky had its own sun keeps its picture
+    //       by UE's factors: r = SunColor*SunIntensity / (light Color*Intensity), per channel, multiplies the
+    //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
+    //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
+    //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
+    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
+    //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSkySunFromLight = 57;
+
+    //  58 - THE CLOCK HAS A CALENDAR (TOD1, UE SunPosition). TimeOfDay gained Longitude, TimeZone,
+    //       DaylightSavingTime, Year, Month, Day, and the sun is NOAA's / UE's solar position for that date and
+    //       place instead of the equinox path in solar time. Every TimeOfDay block in a record states the
+    //       calendar closest to that path - 2026-03-20 at longitude 0 in UTC, no daylight saving - so an old
+    //       clock keeps its sun to within the equation of time (minutes) and the equinox declination (under a
+    //       degree); a block that already states a calendar key is left alone, and an override (a delta) is
+    //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSunCalendar = 58;
+
+    //  62 - THE GRADE IS UE'S (POST-LOOK; numbered 62 until the lead renumbers it after v58). Auto-exposure is on
+    //       by default, as UE's FPostProcessSettings has it, and is UE's eye adaptation over v56-v58's EV100
+    //       model: AutoExposureBias (UE Exposure Compensation, EV: 2^Bias times middle grey, in Manual too),
+    //       AutoExposureSpeedUp / SpeedDown (EV per second) and AutoExposureLow / HighPercent replace
+    //       AutoExposureKey / Speed; ManualExposureEV100 and AutoExposureMin / MaxEV100 stay, read through the
+    //       same meter law (Graphic::EV100ToLuminance). In a PostProcessVolume's Settings (the record and every
+    //       prefab override's delta, MigrateUEGradeToV62): a stated AutoExposureKey is re-stated EXACTLY as
     //       AutoExposureBias = log2(Key / 0.18) - UE's ExposureScale 2^Bias x 0.18 / L is the old Key / L - except
-    //       the old default 0.18, which was no choice and is dropped for the new default; AutoExposureSpeed / Min
-    //       / Max at their old defaults (1.5 / 0.02 / 8) are dropped, any other value is refused (no exact UE
-    //       equivalent: UE adapts in EV, ours adapted luminance linearly). In the record only: a stated
-    //       AutoExposure false is the old default, not a choice, and becomes true - UNLESS the volume states a
-    //       manual Exposure other than the old default 1, which IS a choice of manual exposure and keeps false.
-    //       The film curve, white balance, blue correction, gamut expansion and UE's colour grading
-    //       (ColorSaturation / Contrast / Gamma / Gain / Offset, global and per Shadows / Midtones / Highlights,
-    //       and ColorCorrectionShadowsMax / HighlightsMin / HighlightsMax) are new keys with UE's defaults, every
-    //       one the identity of the grade, so no stated key changes meaning. BloomThreshold keeps its stated
-    //       values and is now UE's: compared with the EXPOSED luminance (auto-exposure included), the bloom
-    //       ramping in over 2 units. LensFlareThreshold likewise keeps its stated values and is compared with the
-    //       EXPOSED brightness under the same exposure (a manual exposure gives the threshold the old renderer
-    //       divided by it; under auto-exposure it no longer means raw radiance). Scenes and prefabs alike.
+    //       the old default 0.18, which was no choice and is dropped for the new default (1); AutoExposureSpeed at
+    //       its old default 1.5 is dropped, any other value is refused (UE adapts in EV, the old speed adapted
+    //       luminance linearly); AutoExposureMin / MaxEV100 at v56's re-statement of the old luminance defaults
+    //       (log2(0.02) + 3, 6) are dropped for UE's -10 / 20, any other value is kept. In the record only: a
+    //       stated (or defaulted) AutoExposure false is the old default, not a choice, and becomes true - UNLESS
+    //       the volume's manual exposure Key / EV100ToLuminance(ManualExposureEV100) is not the former multiplier
+    //       1, which IS a choice of manual exposure: it keeps false and states its Bias (0 for the old default
+    //       key) so the compensation leaves its picture where it was. The film curve, white balance, blue
+    //       correction, gamut expansion and UE's colour grading (ColorSaturation / Contrast / Gamma / Gain /
+    //       Offset, global and per Shadows / Midtones / Highlights, and ColorCorrectionShadowsMax / HighlightsMin
+    //       / HighlightsMax) are new keys with UE's defaults, every one the identity of the grade, so no stated
+    //       key changes meaning. BloomThreshold keeps its stated values and is now UE's: compared with the EXPOSED
+    //       luminance (auto-exposure included), the bloom ramping in over 2 units. LensFlareThreshold likewise
+    //       keeps its stated values and is compared with the EXPOSED brightness under the same exposure (a manual
+    //       exposure gives the threshold the old renderer divided by it). Scenes and prefabs alike.
     inline constexpr int kSceneVersionUEGrade = 62;
 
     static_assert( kSceneVersionUEGrade == kSceneVersion,
@@ -573,20 +610,6 @@ namespace Desert::Migration
     // override. PURE.
     RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
 
-    // What MigrateUEGradeToV62 did to one file.
-    struct UEGradeReport
-    {
-        std::size_t              AutoExposureOn = 0; // records whose stated AutoExposure false became true
-        std::size_t              KeptManual   = 0; // records keeping AutoExposure false for a stated Exposure != 1
-        std::size_t              BiasesStated = 0; // a non-default AutoExposureKey re-stated as AutoExposureBias
-        std::size_t              KeysDropped  = 0; // old auto-exposure keys at their old defaults, gone
-        std::vector<std::string> Refused;          // a non-default Speed / Min / Max, or a value of the wrong type
-    };
-
-    // Re-states PostProcessVolume.Settings under the rule kSceneVersionUEGrade states, in the record and in every
-    // prefab override. PURE.
-    UEGradeReport MigrateUEGradeToV62( std::vector<Assets::EntityData>& entities );
-
     // What MigrateScriptDefaultsV53ToV54 did to one file.
     struct ScriptDefaultsReport
     {
@@ -601,6 +624,55 @@ namespace Desert::Migration
     // @p assetsRoot (the `assets:` mount).
     ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
                                                         const std::filesystem::path&     assetsRoot );
+
+    // What MigrateLightUnitsV55ToV56 did to one file.
+    struct LightUnitsReport
+    {
+        std::size_t              Lights  = 0; // PointLight / SpotLight blocks that now state IntensityUnits
+        std::size_t              Volumes = 0; // PostProcessVolume Settings re-stated in EV100
+        std::vector<std::string> Refused;     // a Settings / exposure value that is not the old shape
+    };
+
+    // Raises PointLight / SpotLight and PostProcessVolume blocks to the rule kSceneVersionLightUnits states, in
+    // the record and in every prefab override. PURE.
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSkySunFromLightV56ToV57 did to one file.
+    struct SkySunFromLightReport
+    {
+        std::size_t              Skies   = 0; // physical skies whose sun ratio was folded into UE's factors
+        std::size_t              Volumes = 0; // PostProcessVolume Settings whose Exposure is now EV100
+        std::vector<std::string> Refused;
+    };
+
+    // Raises SkyAtmosphere / DirectionLight / PostProcessVolume blocks to the rule kSceneVersionSkySunFromLight
+    // states, in the record and in every prefab override (an override only has its stated Exposure re-stated).
+    // PURE.
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSunCalendarV57ToV58 did to one file.
+    struct SunCalendarReport
+    {
+        std::size_t Clocks = 0; // TimeOfDay blocks that now state the equinox calendar
+    };
+
+    // States the calendar kSceneVersionSunCalendar names on every record's TimeOfDay block that states none.
+    // PURE.
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateUEGradeToV62 did to one file.
+    struct UEGradeReport
+    {
+        std::size_t              AutoExposureOn = 0; // records whose stated AutoExposure false became true
+        std::size_t              KeptManual     = 0; // records keeping AutoExposure false for a manual choice
+        std::size_t              BiasesStated   = 0; // AutoExposureKey (or a kept manual's) as AutoExposureBias
+        std::size_t              KeysDropped    = 0; // old auto-exposure keys at their old defaults, gone
+        std::vector<std::string> Refused;            // a non-default Speed, or a value of the wrong type
+    };
+
+    // Re-states PostProcessVolume.Settings under the rule kSceneVersionUEGrade states, in the record and in every
+    // prefab override. PURE.
+    UEGradeReport MigrateUEGradeToV62( std::vector<Assets::EntityData>& entities );
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -872,6 +944,15 @@ namespace Desert::Migration
         bool                 ScriptDefaultsRaised = false; // below kSceneVersionScriptDefaults
         ScriptDefaultsReport ScriptDefaults;
 
+        bool             LightUnitsRaised = false; // below kSceneVersionLightUnits
+        LightUnitsReport LightUnits;
+
+        bool                  SkySunFromLightRaised = false; // below kSceneVersionSkySunFromLight
+        SkySunFromLightReport SkySunFromLight;
+
+        bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
+        SunCalendarReport SunCalendar;
+
         bool          UEGradeRaised = false; // below kSceneVersionUEGrade
         UEGradeReport UEGrade;
 
@@ -888,7 +969,8 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised || UEGradeRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised ||
+                   SunCalendarRaised || UEGradeRaised;
         }
     };
 

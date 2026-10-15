@@ -1,0 +1,121 @@
+#ifndef GI_HIT_LIGHTING_GLSLH
+#define GI_HIT_LIGHTING_GLSLH
+
+// GIHitRadiance AND GIMissRadiance (Common/GITracing.glslh) — what a GI ray brings back.
+//
+//   cards    FIRST, the surface cache (GI-CARD-LOOKUP; UE LumenSurfaceCacheSampling.ush, the hit read from the
+//            cards: LightingFromSurfaceCache): the FinalLighting of the card texels at the hit
+//            (Common/SurfaceCacheSampling.glslh — the instance table and object grid of contract B3): direct light,
+//            the indirect of the radiosity slot (SurfaceCacheIndirectLighting.shader) and emissive — one fetch;
+//   in place where no card holds the hit (GI_NO_MESH_CARDS: no cards built, none resident — small and far meshes
+//            — or a coverage hole), or under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only): a port of UE Lumen's
+//            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
+//     direct   the sun and the point/spot lights of the world light grid's cell at the hit
+//              (Mesh/LightGrid.glslh LightGridWorldLightsAt), each with a visibility ray (GITraceVisibility, the
+//              permutation's tracer) leaving the hit by the tracer's GIRayBias;
+//     bounce   the radiance cache's irradiance at the hit from the previous update (RadianceCacheIrradianceAt):
+//              every frame adds a bounce, as UE's radiance cache feedback does;
+//     material the hit's albedo and emissive from the G-buffer when the hit is the surface the view sees at its
+//              pixel (the screen holds the material), otherwise GI_HIT_ALBEDO_OFF_SCREEN and no emissive — a
+//              distance-field hit carries no material;
+//   miss     the sky in the ray's direction: the scene environment's radiance cube (mip 0) through the sky look.
+//
+// The includer declares, before including this file: the GI frame record `giFrame` (Common/GIFrame.glslh), the point and
+// spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
+// section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
+// u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, includes the tracer (Common/GITracer.glslh),
+// and defines GI_SURFACE_CACHE_BINDING (the surface cache's eight bindings). Nothing here knows which tracer that is.
+
+#include <Common/SkyLook.glslh>
+#include <Common/ReconstructPosition.glslh>
+#include <Common/GIFrame.glslh>
+#if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+#include <Common/SurfaceCacheSampling.glslh>
+#endif
+
+// The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
+// photographic middle grey, 0.18 linear.
+#define GI_HIT_ALBEDO_OFF_SCREEN 0.18
+
+void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive )
+{
+    albedo   = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
+    emissive = vec3( 0.0 );
+    const vec4 clip = giFrame.viewProjection * vec4( hit.position, 1.0 );
+    if ( clip.w <= 0.0 )
+        return;
+    const vec2 ndc = clip.xy / clip.w;
+    if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
+        return;
+    const vec2  uv    = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+    const float depth = textureLod( u_GBufferDepth, uv, 0.0 ).r;
+    const vec3  seen  = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
+    // The pixel's surface counts as the hit within the tracer's tolerance.
+    if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance )
+        return;
+    albedo   = textureLod( u_GBufferA, uv, 0.0 ).rgb;
+    emissive = textureLod( u_GBufferEmissive, uv, 0.0 ).rgb;
+}
+
+vec3 GIMissRadiance( vec3 rayDirection )
+{
+    return ApplySkyGain( textureLod( u_EnvSpecularTex, SkyLookDirection( rayDirection, giFrame.skyYawCosSin.xy ), 0.0 ).rgb,
+                         giFrame.skyGain.rgb );
+}
+
+vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
+{
+#if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+    {
+        vec3 cardLighting;
+        if ( SurfaceCacheHitLighting( hit, GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance,
+                                      cardLighting ) )
+            return cardLighting;
+    }
+#endif
+    vec3 albedo;
+    vec3 emissive;
+    GIHitMaterial( hit, rayDirection, albedo, emissive );
+
+    const vec3 N = hit.normal;
+    // Visibility rays leave the hit by the tracer's offset, so they do not re-enter the surface they start on.
+    const vec3 origin = hit.position + N * GIRayBias( hit.position, N, rayDirection ).normalOffset;
+
+    // Irradiance (cosine-weighted, not yet divided by pi) of the analytic lights.
+    vec3 direct = vec3( 0.0 );
+    if ( giFrame.sunTravel.w > 0.5 )
+    {
+        const vec3  L   = -giFrame.sunTravel.xyz;
+        const float NoL = dot( N, L );
+        if ( NoL > 0.0 )
+            direct += giFrame.sunRadiance.rgb * NoL * GITraceVisibility( origin, L, 1.0e6 );
+    }
+    const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, hit.position );
+    for ( uint k = 0u; k < range.count; ++k )
+    {
+        const uint  index = LightGridWorldLight( range, k );
+        DesertLight light;
+        vec3        lightPosition;
+        if ( index < lightGrid.counts.x )
+        {
+            light         = DesertPointLightAt( pointLights[index], hit.position );
+            lightPosition = pointLights[index].position;
+        }
+        else
+        {
+            light         = DesertSpotLightAt( spotLights[index - lightGrid.counts.x], hit.position );
+            lightPosition = spotLights[index - lightGrid.counts.x].position;
+        }
+        const float NoL = dot( N, light.L );
+        if ( NoL <= 0.0 || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
+            continue;
+        const float toLight = distance( lightPosition, origin );
+        direct += light.Radiance * NoL * GITraceVisibility( origin, normalize( lightPosition - origin ), toLight );
+    }
+
+    // The next bounce: last update's irradiance at the hit (already / pi).
+    const vec4 bounce = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
+    return albedo * ( direct * ( 1.0 / 3.14159265 ) + max( bounce.rgb, vec3( 0.0 ) ) ) + emissive;
+}
+
+#endif // GI_HIT_LIGHTING_GLSLH

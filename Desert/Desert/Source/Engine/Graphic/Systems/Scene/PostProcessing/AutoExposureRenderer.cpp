@@ -13,7 +13,7 @@ namespace Desert::Graphic::System
         constexpr uint32_t kGroupSize = 16; // matches AEHistogram local_size
 
         // What the meter can SEE, in log2 luminance. The ceiling is not a taste value: the procedural
-        // sky writes the sun disc at up to its own kSkyLuminanceClamp of 1000 (ProceduralSky.shader), and
+        // sky writes the sun disc at up to kSkyLuminanceCeilingMax (AutoExposureRules.hpp, ~2^15), and
         // a meter whose top bin means 4 cannot tell that disc from a merely bright sky — it was eight
         // stops blind at the top, and every pixel above 4 metered as though it were 4. AutoExposureRules
         // asserts this covers the sky's clamp, so the two cannot drift apart again.
@@ -21,8 +21,13 @@ namespace Desert::Graphic::System
         // Widening the window costs bin resolution: 20 stops over 256 bins is 0.078 EV per bin against
         // the old 0.047. The metered average is reconstructed from each bin's own log-luminance, not from
         // the window, so ordinary scenes move by at most that quantisation — measured at under 0.02 EV.
-        constexpr float kMinLogLum = -10.0f;
-        constexpr float kMaxLogLum = 10.0f;
+        //
+        // PHYSICAL UNITS (LIGHT-UNITS). With lights in lux / candelas a sunlit scene meters ~2^12.5 cd/m^2 and a
+        // street at night ~2^-2: the window is UE's histogram range (Histogram Log Min/Max -10 .. 20 EV100), i.e.
+        // log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops = 0.118 EV per bin; an ordinary scene's
+        // average moves by at most half a bin against the former 20-stop window.
+        constexpr float kMinLogLum = -13.0f;
+        constexpr float kMaxLogLum = 17.0f;
 
         // The outlier tails are the view's (AutoExposureLowPercent / HighPercent, UE's 10 / 90 by default) and are
         // set per frame through ComputeEyeAdaptationParameters; the window here only fixes what the meter can see.
@@ -183,7 +188,7 @@ namespace Desert::Graphic::System
         // 3) Resolve: percentile-clipped log average, clamped into the EV100 range, adapted in EV toward it at the
         //    up / down speed (UE's ComputeEyeAdaptation) -> newLum (1x1).
         const EyeAdaptationParameters eye = ComputeEyeAdaptationParameters(
-             m_Settings.AutoExposureMinBrightness, m_Settings.AutoExposureMaxBrightness,
+             m_Settings.AutoExposureMinEV100, m_Settings.AutoExposureMaxEV100,
              m_Settings.AutoExposureLowPercent, m_Settings.AutoExposureHighPercent, m_Settings.AutoExposureSpeedUp,
              m_Settings.AutoExposureSpeedDown );
 

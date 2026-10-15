@@ -73,7 +73,7 @@ namespace Desert::Editor
         // Exposure 0.26 and one (Clouds_Sunset) authors 1.0. The dome takes the modal value so that the
         // material is tuned at the exposure it will be shipped at; the row on the Preview Scene tab is
         // there for the level that disagrees.
-        constexpr float kDomeExposure = 0.26f;
+        constexpr float kDomeExposureEV100 = 2.4694853f; // the multiplier 0.26 at the default key 0.18
         // The ground, as a Plane primitive scaled until its edge is past anything the eye reads as a
         // distance. 20 km at 1.7 m of eye height is well beyond where the atmosphere takes over.
         constexpr float kDomeGroundSize = Common::Units::Metres( 20000.0f );
@@ -447,7 +447,14 @@ namespace Desert::Editor
         // THE GRADE, EVERY FRAME AND FROM THE SETUP, so the pane follows the row instead of holding
         // whatever SceneSettings was constructed with. See SceneSetup::Exposure for the census behind the
         // dome's value: a cloud material used to be authored four stops off every level that ships it.
-        m_PostVolume.GetComponent<ECS::PostProcessVolumeComponent>().Data.Settings.Exposure = m_Setup.Exposure;
+        // The pane grades in UE's Manual metering at compensation 0, stated here because the volume's struct
+        // defaults are UE's auto-exposure with a 1 EV compensation (POST-LOOK): ExposureEV100 is the whole grade.
+        {
+            auto& grade               = m_PostVolume.GetComponent<ECS::PostProcessVolumeComponent>().Data.Settings;
+            grade.AutoExposure        = false;
+            grade.AutoExposureBias    = 0.0f;
+            grade.ManualExposureEV100 = m_Setup.ExposureEV100;
+        }
         // THE GRID IS NOT A SCENE SETTING ANY MORE. К2 moved every debug overlay onto the RENDERER
         // (Graphic::DebugViewState), because a view preference in a level file is one person's opinion
         // travelling through git — and six of those flags reached the Runtime, one of them forcing the
@@ -834,7 +841,7 @@ namespace Desert::Editor
             // among them. The pane's own default of 1.0 is ::Desert::Core::PostProcessSettings' struct default and
             // was never a decision; leaving it there made the preview 78 of 255 brighter on average than any level
             // that would ship the material. See SceneSetup::Exposure.
-            m_Setup.Exposure = kDomeExposure;
+            m_Setup.ExposureEV100 = kDomeExposureEV100;
         }
 
         m_Fill       = Fill::SkyDome;

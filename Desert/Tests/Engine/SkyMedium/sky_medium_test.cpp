@@ -42,7 +42,7 @@ namespace
     {
         const Desert::Graphic::SkySettings   sky{};
         const Desert::Graphic::SkyGpuPayload payload =
-             Desert::Graphic::PackSky( glm::vec3( 0.0f, 1.0f, 0.0f ), sky );
+             Desert::Graphic::PackSky( glm::vec3( 0.0f, 1.0f, 0.0f ), sky, Desert::Graphic::SkySunInputs{} );
         return Ref::SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
                                       payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );
     }
@@ -991,7 +991,7 @@ TEST( SkyPerSampleSunTransmittance, TheAtmosphereEnvPublishesTheShellTheLutWasWr
             sky.AtmosphereHeightKm = atmosphereHeightKm;
 
             const Desert::Graphic::SkyGpuPayload payload =
-                 Desert::Graphic::PackSky( glm::vec3( 0.0f, 1.0f, 0.0f ), sky );
+                 Desert::Graphic::PackSky( glm::vec3( 0.0f, 1.0f, 0.0f ), sky, Desert::Graphic::SkySunInputs{} );
             const Ref::SkyAtmParams shader =
                  Ref::SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
                                         payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );

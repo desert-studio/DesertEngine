@@ -508,11 +508,25 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.LightUnitsRaised && ( report.LightUnits.Lights > 0 || report.LightUnits.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionScriptDefaults << "->v"
+                << Desert::Migration::kSceneVersionLightUnits << " (" << report.LightUnits.Lights
+                << " light(s) state Unitless, " << report.LightUnits.Volumes << " exposure range(s) in EV100)";
+        if ( report.SkySunFromLightRaised &&
+             ( report.SkySunFromLight.Skies > 0 || report.SkySunFromLight.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionLightUnits << "->v"
+                << Desert::Migration::kSceneVersionSkySunFromLight << " (" << report.SkySunFromLight.Skies
+                << " physical sky sun(s) folded into UE factors, " << report.SkySunFromLight.Volumes
+                << " manual exposure(s) in EV100)";
+        if ( report.SunCalendarRaised && report.SunCalendar.Clocks > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionSkySunFromLight << "->v"
+                << Desert::Migration::kSceneVersionSunCalendar << " (" << report.SunCalendar.Clocks
+                << " clock(s) state the equinox calendar)";
         if ( report.UEGradeRaised )
             out << std::format(
-                 " scene v{}->v{} ({} volume(s) auto-exposed, {} kept on a stated manual Exposure, {} "
+                 " scene v{}->v{} ({} volume(s) auto-exposed, {} kept on a stated manual EV100, {} "
                  "AutoExposureKey re-stated as AutoExposureBias, {} old auto-exposure key(s) dropped)",
-                 Desert::Migration::kSceneVersionScriptDefaults, Desert::Migration::kSceneVersionUEGrade,
+                 Desert::Migration::kSceneVersionSunCalendar, Desert::Migration::kSceneVersionUEGrade,
                  report.UEGrade.AutoExposureOn, report.UEGrade.KeptManual, report.UEGrade.BiasesStated,
                  report.UEGrade.KeysDropped );
     }

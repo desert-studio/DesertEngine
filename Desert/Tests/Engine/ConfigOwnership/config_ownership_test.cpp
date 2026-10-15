@@ -381,6 +381,7 @@ namespace
          { "ShowBoundingBoxes", Owner::Machine },
          { "BoundingBoxColor", Owner::Machine },
          { "BoundingBoxLineWidth", Owner::Machine },
+         { "ShowCardPlacement", Owner::Machine },
          { "WireframeMode", Owner::Machine },
          { "ShowNormals", Owner::Machine },
          { "LightingDebug", Owner::Machine },

@@ -71,7 +71,7 @@ struct SkyConfig
 //                             UnpackSunAngularRadius(s), UnpackSkyConfig(s) );
 //
 // Adding a palette field is then one edit here plus one to the C++ mirror; no consumer changes a line.
-#define SKY_PACKED_VEC4_COUNT 15
+#define SKY_PACKED_VEC4_COUNT 17
 
 struct SkyPacked
 {
@@ -172,6 +172,29 @@ vec3 UnpackSkyLuminanceFactor( SkyPacked s )
 vec3 UnpackSkyAndAerialPerspectiveLuminanceFactor( SkyPacked s )
 {
     return s.v[14].rgb;
+}
+
+// The PHYSICAL sky's sun: the atmosphere sun LIGHT's outer-space illuminance (its Color x Intensity, lux),
+// as UE's sky atmosphere reads AtmosphereLightIlluminanceOuterSpace. The sky has no sun intensity of its
+// own in this model — the atmosphere contributes transmittance and scattering, the light the energy. The
+// artistic gradient keeps UnpackSunIntensity / sunColor (its own, non-physical palette).
+vec3 UnpackAtmosphereLightIlluminance( SkyPacked s )
+{
+    return s.v[15].rgb;
+}
+
+// The highest luminance the physical sky pass writes on screen (Graphic::SkyLuminanceCeiling): follows
+// the frame's exposure, so a 100 000 lux sun is not cut where a 22 lux one was, and never exceeds what the
+// fp16 scene target can hold.
+float UnpackSkyLuminanceCeiling( SkyPacked s )
+{
+    return s.v[15].w;
+}
+
+// UE's Atmosphere Sun Disk Color Scale (on the directional light): the disc only, never the sky.
+vec3 UnpackSunDiskColorScale( SkyPacked s )
+{
+    return s.v[16].rgb;
 }
 
 float atm_hash13( vec3 p )

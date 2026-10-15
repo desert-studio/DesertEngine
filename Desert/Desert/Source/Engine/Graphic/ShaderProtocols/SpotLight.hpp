@@ -31,7 +31,11 @@ namespace Desert::Graphic::ShaderProtocols
         // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
         float ContactShadowCastingIntensity    = 1.0f; // 68
         float ContactShadowNonCastingIntensity = 0.0f; // 72
-        float _pad2                            = 0.0f; // 76 -> 80
+        // 1 when the light casts shadows in this view (its CastShadows, and the view draws local shadows): a
+        // receiver with no ShadowView then is one the shadow maps do not cover (the view budget refused the
+        // light), and the surface cache traces its shadow through the global distance field instead. Written by
+        // MeshRenderer::UpdateLocalShadows with ShadowView.
+        int32_t ShadowCaster = 0; // 76 -> 80
     };
 
     struct SpotLight

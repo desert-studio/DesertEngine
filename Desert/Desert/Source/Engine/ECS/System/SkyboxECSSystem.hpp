@@ -266,6 +266,7 @@ namespace Desert::ECS
             m_SunFx.BloomTint          = light.Data.BloomTint;
             m_SunFx.AffectedByAtmosphereTransmittance = light.Data.AffectedByAtmosphereTransmittance;
             m_SunFx.OuterSpaceIlluminance             = light.Data.Color * light.Data.Intensity;
+            m_SunFx.SunDiskColorScale                 = light.Data.AtmosphereSunDiskColorScale;
 
             const auto& transform = registry.get<ECS::TransformComponent>( *sun );
             return Rules::AtmosphereSunDirection( transform.Translation );

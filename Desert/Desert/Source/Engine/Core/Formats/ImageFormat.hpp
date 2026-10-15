@@ -114,6 +114,10 @@ namespace Desert::Core::Formats
         /// carries UE's four CustomData floats (ViewTargetFormats.hpp kGBufferShadingWord). Integer, like
         /// R32_UINT: `out uvec2`, `usampler2D` + texelFetch, never filtered or blended. APPENDED.
         RG32_UINT,
+        /// `VK_FORMAT_B10G11R11_UFLOAT_PACK32`. Three unsigned floats in 32 bits (11/11/10, no sign, no alpha):
+        /// radiance that is never negative - the surface cache's emissive and lighting layers (UE
+        /// PF_FloatR11G11B10, Graphic/GlobalIllumination/SurfaceCache.hpp). Half the bytes of RGBA16F. APPENDED.
+        R11G11B10F,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -257,6 +261,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 2 };      // two channels, 8 bits each
             case ImageFormat::RG32_UINT: // two channels, 32-bit unsigned integer each
                 return { 1, 1, 8 };
+            case ImageFormat::R11G11B10F: // three packed unsigned floats
+                return { 1, 1, 4 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -314,6 +320,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R8_UNORM:
             case ImageFormat::RG16F:
             case ImageFormat::RG8_UNORM:
+            case ImageFormat::R11G11B10F:
                 return false;
             case ImageFormat::Count:
                 break; // the sentinel is not a format
@@ -362,6 +369,8 @@ namespace Desert::Core::Formats
             case ImageFormat::RG16F:     // velocity: NDC x and y
             case ImageFormat::RG32_UINT: // the shading word's two halves
                 return 2;
+            case ImageFormat::R11G11B10F:
+                return 3; // radiance; the format has no alpha
             case ImageFormat::BC4_UNORM:
                 return 1;
             case ImageFormat::Count:
@@ -440,6 +449,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RG16F:
             case ImageFormat::R32_UINT:
             case ImageFormat::RG32_UINT:
+            case ImageFormat::R11G11B10F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:

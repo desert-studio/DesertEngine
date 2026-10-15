@@ -38,6 +38,7 @@
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/LightUnits.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
@@ -874,15 +875,22 @@ namespace Desert::ECS
         REFLECT()
 
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature,
-                  Tooltip( "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky "
-                           "is the Sky Atmosphere component's Sun Color / Sun Intensity." ) )
+                  Tooltip( "Tint of the sun light (UE). With a Physical Atmosphere sky this is also the sun "
+                           "the sky scatters and the disc you see." ) )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Brightness of the illumination arriving at scene surfaces. NOT a photometric "
-                           "unit (lux/candela): the renderer multiplies radiance by this number directly. "
-                           "The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun "
-                           "Intensity." ) )
+        // UE UDirectionalLightComponent::Intensity: ILLUMINANCE in lux on a surface facing the light (a clear
+        // midday sun is ~100 000 lux, an overcast day ~1 000, a full moon ~0.25). The renderer multiplies the BRDF
+        // by Color x Intensity directly - lux IS its unit, the same unit a point light's candelas reach a surface
+        // in (ECS::LightPhotometry) - and the exposure range (PostProcessSettings, EV100) is what makes a physical
+        // value look right. Scenes authored before units existed stated the same number; it was always lux.
+        // As in UE it is the OUTER-SPACE illuminance of the atmosphere sun: the Physical Atmosphere sky
+        // scatters exactly this (Graphic::SkySunInputs), and the ground receives it times the transmittance.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 150000.0f ), Summary,
+                  Units( "lux" ),
+                  Tooltip( "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 "
+                           "overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the "
+                           "sky's brightness and the sun disc." ) )
         float Intensity = 1.0f;
 
         // Defaults to true so that every scene authored before this field existed keeps working: a field
@@ -915,6 +923,14 @@ namespace Desert::ECS
                            "sun at ground level, so it reddens and dims at sunset. Physical Atmosphere "
                            "only." ) )
         bool AffectedByAtmosphereTransmittance = true;
+
+        // UE UDirectionalLightComponent::AtmosphereSunDiskColorScale, same name, same default (white): scales
+        // ONLY the disc the physical sky draws for this sun — not the sky's scattering, not the surfaces.
+        // Scenes from before v57, whose sky had its own sun numbers, state here what their disc was.
+        PROPERTY( DisplayName( "Atmosphere Sun Disk Color Scale" ), Category( "Atmosphere" ), Color,
+                  EditCondition( "AtmosphereSunLight" ),
+                  Tooltip( "Scales the sun disc the Physical Atmosphere sky draws for this light (UE)." ) )
+        glm::vec3 AtmosphereSunDiskColorScale = glm::vec3( 1.0f );
 
         // ---- Light Shafts (UE's category, UE's names, UE's defaults) ----------------------------------
         // The screen-space sun streaks: a bright-pass of the HDR scene around the sun's position on
@@ -1030,14 +1046,8 @@ namespace Desert::ECS
         DirectionalLightData Data;
     };
 
-    // Distance falloff model for a point light. Reflected enum — drives a combo in the editor and
-    // round-trips through reflected serialization. (Consumed by the lighting upload path later.)
-    enum class LightFalloff
-    {
-        Linear,
-        Quadratic,
-        InverseSquare
-    };
+    // LightFalloff and LightUnits (UE ELightUnits) live in Engine/ECS/LightUnits.hpp, next to the one conversion
+    // the renderer applies (LightPhotometry::ShaderIntensity).
 
     struct PointLightData
     {
@@ -1046,10 +1056,20 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): "
-                           "the renderer multiplies radiance by this number directly." ) )
-        float Intensity = 1.0f;
+        // UE ULocalLightComponent::Intensity / IntensityUnits: the value in the units beside it (default 8 cd, as
+        // UE). Switching the units in Details re-states the value so the brightness holds (EditorPostEdit); the
+        // renderer reads it only through LightPhotometry::ShaderIntensity. Physical units need InverseSquare.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 100000.0f ), Summary,
+                  Tooltip( "Brightness in Intensity Units. Candelas: 1 cd lights a surface 1 m away with 1 lux; "
+                           "Lumens: total flux (a 60 W bulb ~800 lm, a street lamp ~2500 lm); EV100: 2^(EV-3) cd; "
+                           "Unitless: the renderer's multiplier at Min Radius. Physical units apply to "
+                           "Inverse Square falloff only." ) )
+        float Intensity = 8.0f;
+
+        PROPERTY( DisplayName( "Intensity Units" ), Category( "Light" ),
+                  Tooltip( "What Intensity is measured in (UE Intensity Units). Changing it converts the value "
+                           "so the light keeps its brightness." ) )
+        LightUnits IntensityUnits = LightUnits::Candelas;
 
         PROPERTY( DisplayName( "Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Summary )
         float Radius = 1000.0f;
@@ -1060,7 +1080,7 @@ namespace Desert::ECS
         float MinRadius = 0.0f;
 
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
-        LightFalloff Falloff = LightFalloff::Quadratic;
+        LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 
         PROPERTY( DisplayName( "Show Radius" ), Category( "Light" ) )
         bool ShowRadius = false;
@@ -1137,10 +1157,20 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): "
-                           "the renderer multiplies radiance by this number directly." ) )
-        float Intensity = 1.0f;
+        // UE ULocalLightComponent::Intensity / IntensityUnits: the value in the units beside it (default 8 cd, as
+        // UE). Switching the units in Details re-states the value so the brightness holds (EditorPostEdit); the
+        // renderer reads it only through LightPhotometry::ShaderIntensity. Physical units need InverseSquare.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 100000.0f ), Summary,
+                  Tooltip( "Brightness in Intensity Units. Candelas: 1 cd lights a surface 1 m away with 1 lux; "
+                           "Lumens: total flux (a 60 W bulb ~800 lm, a street lamp ~2500 lm); EV100: 2^(EV-3) cd; "
+                           "Unitless: the renderer's multiplier at Min Radius. Physical units apply to "
+                           "Inverse Square falloff only." ) )
+        float Intensity = 8.0f;
+
+        PROPERTY( DisplayName( "Intensity Units" ), Category( "Light" ),
+                  Tooltip( "What Intensity is measured in (UE Intensity Units). Changing it converts the value "
+                           "so the light keeps its brightness." ) )
+        LightUnits IntensityUnits = LightUnits::Candelas;
 
         PROPERTY( DisplayName( "Range" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Summary )
         float Range = 1500.0f;
@@ -1152,7 +1182,7 @@ namespace Desert::ECS
         float OuterConeAngle = 30.0f; // degrees — zero intensity outside this half-angle
 
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
-        LightFalloff Falloff = LightFalloff::Quadratic;
+        LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 
         PROPERTY( DisplayName( "Show Cone" ), Category( "Light" ) )
         bool ShowCone = false;

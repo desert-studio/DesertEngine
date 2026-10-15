@@ -326,7 +326,8 @@ TEST( TimeOfDayReflection, TimeOfDayRowsAreGatedByTheirOwnSwitch )
 {
     const TypeInfo& clock = Type( "TimeOfDayData" );
     ASSERT_NE( Find( clock, "DriveSunFromTimeOfDay" ), nullptr );
-    for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "NorthOffset" } )
+    for ( const char* name : { "TimeOfDay", "DayLengthSeconds", "Latitude", "Longitude", "TimeZone",
+                               "DaylightSavingTime", "Year", "Month", "Day", "NorthOffset" } )
     {
         const FieldInfo* f = Find( clock, name );
         ASSERT_NE( f, nullptr ) << name;

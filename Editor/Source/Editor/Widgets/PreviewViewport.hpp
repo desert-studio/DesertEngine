@@ -136,7 +136,10 @@ namespace Desert::Editor
             // already on two fields below: a studio ball under a neutral dome is lit and graded as a studio
             // subject, and a sky is not. ShowCloudMaterial writes the outdoor grade for the same reason it
             // writes the outdoor sun, and a person who is matching a particular level edits this row.
-            float Exposure = 1.0f;
+            //
+            // IN EV100 since v57 (PostProcessSettings::ManualExposureEV100, UE Manual metering): the former
+            // multiplier 1.0 at the default key 0.18 is EV100 0.526, the clouds' 0.26 is EV100 2.47.
+            float ExposureEV100 = 0.5260688f;
 
             // ── The key light, which is ALSO the sun in the sky ────────────────────────────────────────
             //

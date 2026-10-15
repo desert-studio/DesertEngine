@@ -69,7 +69,7 @@ namespace Desert::Graphic
         target.GIIntensity       = Lerp( target.GIIntensity, volume.GIIntensity, weight );
         target.SSRIntensity      = Lerp( target.SSRIntensity, volume.SSRIntensity, weight );
         target.SSRMaxDistance    = Lerp( target.SSRMaxDistance, volume.SSRMaxDistance, weight );
-        target.Exposure          = Lerp( target.Exposure, volume.Exposure, weight );
+        target.ManualExposureEV100 = Lerp( target.ManualExposureEV100, volume.ManualExposureEV100, weight );
         target.Gamma             = Lerp( target.Gamma, volume.Gamma, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
         target.WhiteTemp         = Lerp( target.WhiteTemp, volume.WhiteTemp, weight );
@@ -115,10 +115,9 @@ namespace Desert::Graphic
         target.AutoExposureBias      = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
         target.AutoExposureSpeedUp   = Lerp( target.AutoExposureSpeedUp, volume.AutoExposureSpeedUp, weight );
         target.AutoExposureSpeedDown = Lerp( target.AutoExposureSpeedDown, volume.AutoExposureSpeedDown, weight );
-        target.AutoExposureMinBrightness =
-             Lerp( target.AutoExposureMinBrightness, volume.AutoExposureMinBrightness, weight );
-        target.AutoExposureMaxBrightness =
-             Lerp( target.AutoExposureMaxBrightness, volume.AutoExposureMaxBrightness, weight );
+        // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.
+        target.AutoExposureMinEV100 = Lerp( target.AutoExposureMinEV100, volume.AutoExposureMinEV100, weight );
+        target.AutoExposureMaxEV100 = Lerp( target.AutoExposureMaxEV100, volume.AutoExposureMaxEV100, weight );
         target.AutoExposureLowPercent =
              Lerp( target.AutoExposureLowPercent, volume.AutoExposureLowPercent, weight );
         target.AutoExposureHighPercent =

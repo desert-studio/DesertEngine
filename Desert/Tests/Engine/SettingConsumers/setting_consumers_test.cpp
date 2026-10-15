@@ -177,11 +177,20 @@ namespace
     constexpr const char* kFogRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp";
 
-    // The scene's clock (TOD-SPLIT): the time-of-day driver turns these five into the sun's transform.
+    // The scene's clock (TOD-SPLIT) and its calendar (TOD1): the time-of-day driver turns these into the sun's
+    // transform.
     constexpr Row kTimeOfDayRows[] = {
-         { "DriveSunFromTimeOfDay", kTimeOfDay }, { "TimeOfDay", kTimeOfDay },
-         { "DayLengthSeconds", kTimeOfDay },      { "Latitude", kTimeOfDay },
+         { "DriveSunFromTimeOfDay", kTimeOfDay },
+         { "TimeOfDay", kTimeOfDay },
+         { "DayLengthSeconds", kTimeOfDay },
+         { "Latitude", kTimeOfDay },
          { "NorthOffset", kTimeOfDay },
+         { "Longitude", kTimeOfDay },
+         { "TimeZone", kTimeOfDay },
+         { "DaylightSavingTime", kTimeOfDay },
+         { "Year", kTimeOfDay },
+         { "Month", kTimeOfDay },
+         { "Day", kTimeOfDay },
     };
 
     constexpr Row kFogRows[] = {
@@ -557,7 +566,7 @@ namespace
          // The tonemap's grade is handed over whole (TonemapRenderer::SetGrade) and read where the uniform block
          // is filled; the eye adaptation's where its dispatch's parameters are derived (SCNE 62, POST-LOOK).
          { "Tonemapper", kFilmGrade },
-         { "Exposure", kViewExposure },
+         { "ManualExposureEV100", kViewExposure },
          { "Gamma", kFilmGrade },
          { "WhitePoint", kFilmGrade },
          { "AutoExposure", kViewExposure },
@@ -597,8 +606,8 @@ namespace
          { "ColorCorrectionHighlightsMax", kFilmGrade },
          { "AutoExposureLowPercent", kAutoExposureRenderer },
          { "AutoExposureHighPercent", kAutoExposureRenderer },
-         { "AutoExposureMinBrightness", kAutoExposureRenderer },
-         { "AutoExposureMaxBrightness", kAutoExposureRenderer },
+         { "AutoExposureMinEV100", kAutoExposureRenderer },
+         { "AutoExposureMaxEV100", kAutoExposureRenderer },
          { "AutoExposureSpeedUp", kAutoExposureRenderer },
          { "AutoExposureSpeedDown", kAutoExposureRenderer },
          { "EnableBloom", kSceneRenderer },

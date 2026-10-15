@@ -49,14 +49,15 @@ namespace Desert::Core
         //
         //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
         //                         on screen bounces, no denoiser.
-        //  ReflectiveShadowMaps — bounces the sun off everything it sees (off screen too) through a reflective
-        //                         shadow map, resolved into its own buffer and temporally accumulated.
+        //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
+        //                         the sky, off screen too) read per pixel: the cheap traced path.
+        //  SoftwareTraced       — the same cache behind screen probes traced per frame: contact detail and
+        //                         rough reflections.
         PROPERTY( DisplayName( "Method" ), Category( "Global Illumination" ),
                   Refuse( "Common::Scalability::RefuseGIMethod" ),
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
         Common::Scalability::GIMethod GlobalIlluminationMethod = Common::Scalability::GIMethod::ScreenSpace;
-        // ONE knob for both GI methods, but they are not on the same scale: the screen-space gather is bright
-        // at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor) and wants ~6.
+        // The screen-space gather's strength (ScreenSpace only: the traced methods carry the lights' own energy).
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 
@@ -182,12 +183,22 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Highlights Max" ), Category( "Color Grading" ), Range( 1.0f, 10.0f ) )
         float ColorCorrectionHighlightsMax = 1.0f;
 
-        PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
+        // UE's Manual metering mode, in EV100: the meter reading the exposure is fixed at when auto-exposure is
+        // off. The scale is Graphic::ManualExposureScale - 2^AutoExposureBias x 0.18 / EV100ToLuminance(EV100),
+        // the auto path's own law with the reading fixed, so a manual EV100 matches an auto-exposure adapted to the
+        // same EV100, and the Exposure Compensation offsets both (UE applies it in Manual too). Higher EV100 =
+        // darker picture: ~15 a 100 000 lux sunlit scene, ~0 a lit interior. Scenes before v57 stated a
+        // multiplier; v57 re-stated it as the EV100 giving the same scale at that scene's key, and v62 states the
+        // key as the compensation of a volume that stays manual. The default is the former multiplier 1 at
+        // compensation 0.
+        PROPERTY( DisplayName( "Manual EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Exposure when Auto Exposure is off (UE Manual): the scene EV100 shown as middle "
+                           "grey. ~15 clear sun (100 000 lux), ~10 overcast, ~0 interior, ~-3 night street." ) )
+        float ManualExposureEV100 = 0.5260688f;
 
         // UE's histogram eye adaptation, with UE's defaults (FPostProcessSettings, extended luminance range): on;
         // the metered log-average puts 0.18 at 2^Bias x middle grey; outside [Low, High] percent of the histogram
-        // is not metered; the average is clamped to the white points of Min / Max Brightness (EV100) times 0.18;
+        // is not metered; the average is clamped to the Min / Max EV100 range (the meter law, EV100ToLuminance);
         // the eye adapts in EV per second, faster toward bright than toward dark.
         PROPERTY( DisplayName( "Auto Exposure" ), Category( "Exposure" ) )
         bool AutoExposure = true;
@@ -197,10 +208,19 @@ namespace Desert::Core
         float AutoExposureLowPercent = 10.0f;
         PROPERTY( DisplayName( "High Percent" ), Category( "Exposure" ), Range( 0.0f, 100.0f ) )
         float AutoExposureHighPercent = 90.0f;
-        PROPERTY( DisplayName( "Min EV100" ), Category( "Exposure" ), Range( -10.0f, 20.0f ) )
-        float AutoExposureMinBrightness = -10.0f;
-        PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -10.0f, 20.0f ) )
-        float AutoExposureMaxBrightness = 20.0f;
+        // UE AutoExposureMinBrightness / MaxBrightness with "Extend default luminance range" (the only mode UE5
+        // ships): the range the metered average may adapt over, in EV100 - the average luminance = 2^(EV100 - 3)
+        // cd/m^2 (Graphic::EV100ToLuminance). The UE defaults span night to a 100 000 lux sun, so physical light
+        // values (ECS::LightUnits, lux) expose correctly without retuning. Scenes before v56 stated luminance
+        // clamps (0.02 / 8 by default): the migration re-states them in EV100, the same clamp; v62 drops those
+        // re-stated old defaults for UE's range.
+        PROPERTY(
+             DisplayName( "Min EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+             Tooltip( "Darkest scene the eye adapts to (UE Min EV100): -10 starlight .. 20 beyond sunlit snow." ) )
+        float AutoExposureMinEV100 = -10.0f;
+        PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Brightest scene the eye adapts to (UE Max EV100); a 100 000 lux sun meters ~15." ) )
+        float AutoExposureMaxEV100 = 20.0f;
         PROPERTY( DisplayName( "Speed Up" ), Category( "Exposure" ), Range( 0.02f, 20.0f ) )
         float AutoExposureSpeedUp = 3.0f;
         PROPERTY( DisplayName( "Speed Down" ), Category( "Exposure" ), Range( 0.02f, 20.0f ) )

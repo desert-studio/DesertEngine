@@ -2380,8 +2380,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // SSR2: the view's HZB the trace marches, built before it.
          "temporal[hzb]",
          "Deferred: SSR",
-         "Deferred: RSM",
-         "Deferred: GIResolve",
          "Deferred: Composite",
          "Deferred: Generic",
          "Deferred: Skinned",
@@ -2544,7 +2542,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     }
     // The exposure dispatch covers the texture it reads, not the scene target's image.
     declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
-    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "gi->Denoise(graph,gather," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
@@ -3183,9 +3180,9 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     for ( const char c : frame )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
-    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
-                               "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
+    for ( const char* node :
+          { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: Generic\"", "\"Deferred: Skinned\"",
+            "\"Deferred: Glass\"", "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
         std::erase_if( call, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
@@ -3207,7 +3204,6 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
            "RenderGBufferManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
            "RenderGBufferManual" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", "RenderRSMManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
            "RenderGenericManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
@@ -4045,12 +4041,9 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
                std::string::npos )
          << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
     // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
-    // BuildShadowCascadeDraws) and the RSM's (DeclareRSMDraws), whose Record returns the first refused draw
-    // (MeshDrawList::Record).
+    // BuildShadowCascadeDraws), whose Record returns the first refused draw (MeshDrawList::Record).
     EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 1u )
          << "a shadow draw's refusal is no longer returned by its body";
-    EXPECT_NE( shadow.find( "returnm_RSMDraws.Record(context);" ), std::string::npos )
-         << "the RSM body drops its draw list's result";
     EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
                std::string::npos )
          << "the cascade body drops its draw list's result";

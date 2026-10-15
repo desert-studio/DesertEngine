@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "bd1e6912bd313bee41785bc64c3ac6fc",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 58,
             "UNIT": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc"]
@@ -504,6 +504,7 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
@@ -531,6 +532,7 @@
             "PointLight": {
                 "Color": [0.8143687844276428, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -555,6 +557,7 @@
             "PointLight": {
                 "Color": [0.8634589910507202, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -579,6 +582,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.5625216960906982],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -603,6 +607,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.5234525799751282],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -627,6 +632,7 @@
             "PointLight": {
                 "Color": [0.9859846234321594, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -651,6 +657,7 @@
             "PointLight": {
                 "Color": [1.0, 0.9348329305648804, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -675,6 +682,7 @@
             "PointLight": {
                 "Color": [0.8873082995414734, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -699,6 +707,7 @@
             "PointLight": {
                 "Color": [0.971343994140625, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -723,6 +732,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.339473158121109, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -747,6 +757,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.7956278324127197, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -771,6 +782,7 @@
             "PointLight": {
                 "Color": [1.0, 0.35982033610343933, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -795,6 +807,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.37136638164520264, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -819,6 +832,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.5787758231163025],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -843,6 +857,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.8386797308921814],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -867,6 +882,7 @@
             "PointLight": {
                 "Color": [0.8136221766471863, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -891,6 +907,7 @@
             "PointLight": {
                 "Color": [0.4695400595664978, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -915,6 +932,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.6369639039039612, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -939,6 +957,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.6598527431488037],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -963,6 +982,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.6779283881187439],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -987,6 +1007,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.8242761492729187],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1011,6 +1032,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.7019535303115845],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1035,6 +1057,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.6455714702606201],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1059,6 +1082,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.8663351535797119, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1083,6 +1107,7 @@
             "PointLight": {
                 "Color": [1.0, 0.37856045365333557, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1107,6 +1132,7 @@
             "PointLight": {
                 "Color": [0.9309468865394592, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1131,6 +1157,7 @@
             "PointLight": {
                 "Color": [0.8565158843994141, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1155,6 +1182,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.8886703252792358],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1179,6 +1207,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.7628023624420166, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1203,6 +1232,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.922935426235199, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1227,6 +1257,7 @@
             "PointLight": {
                 "Color": [0.7939444184303284, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1251,6 +1282,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.7467562556266785, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1275,6 +1307,7 @@
             "PointLight": {
                 "Color": [0.5369483232498169, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1299,6 +1332,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9676012396812439, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1323,6 +1357,7 @@
             "PointLight": {
                 "Color": [0.6919711828231812, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1347,6 +1382,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7616432309150696],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1371,6 +1407,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9766768217086792, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1395,6 +1432,7 @@
             "PointLight": {
                 "Color": [0.40947020053863525, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1419,6 +1457,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.8602011799812317, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1443,6 +1482,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.5456952452659607],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1467,6 +1507,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.8185510039329529],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1491,6 +1532,7 @@
             "PointLight": {
                 "Color": [0.6097123622894287, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1515,6 +1557,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.5382784605026245],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1539,6 +1582,7 @@
             "PointLight": {
                 "Color": [1.0, 0.8759646415710449, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1563,6 +1607,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7568959593772888],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1587,6 +1632,7 @@
             "PointLight": {
                 "Color": [0.6893172264099121, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1611,6 +1657,7 @@
             "PointLight": {
                 "Color": [0.3117830157279968, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1635,6 +1682,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.7324889898300171],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1659,6 +1707,7 @@
             "PointLight": {
                 "Color": [0.5077034831047058, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1683,6 +1732,7 @@
             "PointLight": {
                 "Color": [1.0, 0.9005118012428284, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1707,6 +1757,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.43631190061569214],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1731,6 +1782,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.499482661485672],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1755,6 +1807,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.9464952349662781],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1779,6 +1832,7 @@
             "PointLight": {
                 "Color": [0.9962676167488098, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1803,6 +1857,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7123916149139404],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1827,6 +1882,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.3242878019809723],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1851,6 +1907,7 @@
             "PointLight": {
                 "Color": [0.3621926009654999, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1875,6 +1932,7 @@
             "PointLight": {
                 "Color": [1.0, 0.38182830810546875, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1899,6 +1957,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7499240040779114],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1923,6 +1982,7 @@
             "PointLight": {
                 "Color": [0.30770885944366455, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1947,6 +2007,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9484984278678894, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1971,6 +2032,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.3626503646373749],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -1995,6 +2057,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.418876975774765],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2019,6 +2082,7 @@
             "PointLight": {
                 "Color": [0.5846300721168518, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2043,6 +2107,7 @@
             "PointLight": {
                 "Color": [0.7717891931533813, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2067,6 +2132,7 @@
             "PointLight": {
                 "Color": [1.0, 0.8441333770751953, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2091,6 +2157,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.6720619797706604],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2115,6 +2182,7 @@
             "PointLight": {
                 "Color": [0.6138421297073364, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2139,6 +2207,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.6394796371459961],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2163,6 +2232,7 @@
             "PointLight": {
                 "Color": [0.4417532682418823, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2187,6 +2257,7 @@
             "PointLight": {
                 "Color": [1.0, 0.54161137342453, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2211,6 +2282,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.686331570148468],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2235,6 +2307,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.5589312314987183],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2259,6 +2332,7 @@
             "PointLight": {
                 "Color": [0.8668400645256042, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2283,6 +2357,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9038397073745728],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2307,6 +2382,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.876345157623291],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2331,6 +2407,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.3244374692440033],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2355,6 +2432,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.6079890131950378],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2379,6 +2457,7 @@
             "PointLight": {
                 "Color": [1.0, 0.8427441716194153, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2403,6 +2482,7 @@
             "PointLight": {
                 "Color": [0.6985681056976318, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2427,6 +2507,7 @@
             "PointLight": {
                 "Color": [1.0, 0.9780861735343933, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2451,6 +2532,7 @@
             "PointLight": {
                 "Color": [0.8525733351707458, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2475,6 +2557,7 @@
             "PointLight": {
                 "Color": [0.4189773201942444, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2499,6 +2582,7 @@
             "PointLight": {
                 "Color": [0.48216450214385986, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2523,6 +2607,7 @@
             "PointLight": {
                 "Color": [0.9528204798698425, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2547,6 +2632,7 @@
             "PointLight": {
                 "Color": [1.0, 0.37628504633903503, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2571,6 +2657,7 @@
             "PointLight": {
                 "Color": [1.0, 0.3644537031650543, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2595,6 +2682,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.7855936884880066, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2619,6 +2707,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.8939946889877319],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2643,6 +2732,7 @@
             "PointLight": {
                 "Color": [1.0, 0.7463816404342651, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2667,6 +2757,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7151458859443665],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2691,6 +2782,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9946214556694031],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2715,6 +2807,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9719190001487732, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2739,6 +2832,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.3737497329711914],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2763,6 +2857,7 @@
             "PointLight": {
                 "Color": [0.9956035017967224, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2787,6 +2882,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.42889681458473206, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2811,6 +2907,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.3597191572189331],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2835,6 +2932,7 @@
             "PointLight": {
                 "Color": [1.0, 0.8452380299568176, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2859,6 +2957,7 @@
             "PointLight": {
                 "Color": [0.6117346286773682, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2883,6 +2982,7 @@
             "PointLight": {
                 "Color": [1.0, 0.9856353998184204, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2907,6 +3007,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9666702747344971],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2931,6 +3032,7 @@
             "PointLight": {
                 "Color": [0.31628185510635376, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2955,6 +3057,7 @@
             "PointLight": {
                 "Color": [0.6827057003974915, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -2979,6 +3082,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.8297023773193359],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3003,6 +3107,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.7724633812904358],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3027,6 +3132,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.46049657464027405],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3051,6 +3157,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.8022918105125427, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3075,6 +3182,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.4441995620727539],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3099,6 +3207,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.39765244722366333],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3123,6 +3232,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.502831757068634],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3147,6 +3257,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9883911609649658, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3171,6 +3282,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9801102876663208, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3195,6 +3307,7 @@
             "PointLight": {
                 "Color": [0.590491533279419, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3219,6 +3332,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.5779469013214111],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3243,6 +3357,7 @@
             "PointLight": {
                 "Color": [1.0, 0.39447543025016785, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3267,6 +3382,7 @@
             "PointLight": {
                 "Color": [0.7221997976303101, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3291,6 +3407,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.8774039149284363, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3315,6 +3432,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.33831655979156494, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3339,6 +3457,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.8078190684318542],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3363,6 +3482,7 @@
             "PointLight": {
                 "Color": [0.33023402094841003, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3387,6 +3507,7 @@
             "PointLight": {
                 "Color": [1.0, 0.9277452230453491, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3411,6 +3532,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.39847829937934875, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3435,6 +3557,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9917839169502258],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3459,6 +3582,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.4652050733566284, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3483,6 +3607,7 @@
             "PointLight": {
                 "Color": [0.9113194346427917, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3507,6 +3632,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.9002193808555603, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3531,6 +3657,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9932621121406555],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3555,6 +3682,7 @@
             "PointLight": {
                 "Color": [0.9709182977676392, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3579,6 +3707,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.7501150965690613],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3603,6 +3732,7 @@
             "PointLight": {
                 "Color": [0.41196978092193604, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3627,6 +3757,7 @@
             "PointLight": {
                 "Color": [1.0, 0.43087419867515564, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3651,6 +3782,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.41497141122817993],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3675,6 +3807,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.9895509481430054],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3699,6 +3832,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.4633781313896179, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3723,6 +3857,7 @@
             "PointLight": {
                 "Color": [0.3587895333766937, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3747,6 +3882,7 @@
             "PointLight": {
                 "Color": [1.0, 0.31392017006874084, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3771,6 +3907,7 @@
             "PointLight": {
                 "Color": [0.6427145600318909, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3795,6 +3932,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 0.8521607518196106, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3819,6 +3957,7 @@
             "PointLight": {
                 "Color": [1.0, 0.5774114727973938, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3843,6 +3982,7 @@
             "PointLight": {
                 "Color": [0.6407871842384338, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3867,6 +4007,7 @@
             "PointLight": {
                 "Color": [0.5846554636955261, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3891,6 +4032,7 @@
             "PointLight": {
                 "Color": [0.8380863666534424, 1.0, 0.30000001192092896],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3915,6 +4057,7 @@
             "PointLight": {
                 "Color": [1.0, 0.30000001192092896, 0.4019125998020172],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3939,6 +4082,7 @@
             "PointLight": {
                 "Color": [0.30000001192092896, 1.0, 0.5067539811134338],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3963,6 +4107,7 @@
             "PointLight": {
                 "Color": [0.3715255558490753, 0.30000001192092896, 1.0],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 420.0,
                 "MinRadius": 0.0,
                 "Falloff": 1,
@@ -3987,6 +4132,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 0.7192623615264893, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4012,6 +4158,7 @@
             "SpotLight": {
                 "Color": [0.7905433177947998, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4037,6 +4184,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.6299260854721069, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4062,6 +4210,7 @@
             "SpotLight": {
                 "Color": [0.6612443923950195, 0.6000000238418579, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4087,6 +4236,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 1.0, 0.9151908755302429],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4112,6 +4262,7 @@
             "SpotLight": {
                 "Color": [0.9217999577522278, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4137,6 +4288,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 1.0, 0.9015299677848816],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4162,6 +4314,7 @@
             "SpotLight": {
                 "Color": [0.7552226185798645, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4187,6 +4340,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 0.8044663071632385, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4212,6 +4366,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.918252170085907, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4237,6 +4392,7 @@
             "SpotLight": {
                 "Color": [0.6880089044570923, 0.6000000238418579, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4262,6 +4418,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.6596025824546814, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4287,6 +4444,7 @@
             "SpotLight": {
                 "Color": [0.6753175258636475, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4312,6 +4470,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.6000000238418579, 0.9834455251693726],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4337,6 +4496,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.8880992531776428, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4362,6 +4522,7 @@
             "SpotLight": {
                 "Color": [0.704400897026062, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4387,6 +4548,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 0.7859760522842407, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4412,6 +4574,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.7158434391021729, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4437,6 +4600,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.6000000238418579, 0.7545842528343201],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4462,6 +4626,7 @@
             "SpotLight": {
                 "Color": [0.9443622827529907, 1.0, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4487,6 +4652,7 @@
             "SpotLight": {
                 "Color": [0.9487094283103943, 0.6000000238418579, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4512,6 +4678,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 0.8818524479866028, 1.0],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4537,6 +4704,7 @@
             "SpotLight": {
                 "Color": [0.6000000238418579, 1.0, 0.8820649981498718],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4562,6 +4730,7 @@
             "SpotLight": {
                 "Color": [1.0, 0.7175445556640625, 0.6000000238418579],
                 "Intensity": 12.0,
+                "IntensityUnits": 0,
                 "Range": 700.0,
                 "InnerConeAngle": 20.0,
                 "OuterConeAngle": 32.0,
@@ -4601,14 +4770,14 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 1.0,
+                    "ManualExposureEV100": 0.5260688662528992,
                     "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

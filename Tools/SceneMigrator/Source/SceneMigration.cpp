@@ -5,6 +5,8 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
+#include <cmath>
+#include <optional>
 #include <array>
 #include <format>
 #include <fstream>
@@ -1007,9 +1009,11 @@ namespace Desert::Migration
         using Common::Scalability::ReflectionMethod;
         RenderMethodsReport report;
 
-        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name.
+        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name. The
+        // reflective shadow maps are gone (GI-PROBE-SW): ProbeVolume, which took their number (3) on the ladder,
+        // is what a view that asked for them gets — the off-screen bounce, now of every light and the sky.
         constexpr std::array<GIMethod, 3> kFromGIMode{ GIMethod::Off, GIMethod::ScreenSpace,
-                                                       GIMethod::ReflectiveShadowMaps };
+                                                       GIMethod::ProbeVolume };
 
         const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
         {
@@ -1084,16 +1088,373 @@ namespace Desert::Migration
         return report;
     }
 
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities )
+    {
+        LightUnitsReport report;
+
+        // What the pre-v56 type defaulted to: a block that stated nothing kept these, so they are what it meant.
+        constexpr int   kOldFalloffQuadratic = static_cast<int>( ECS::LightFalloff::Quadratic );
+        constexpr float kOldIntensity        = 1.0f;
+        constexpr float kOldMinLuminance     = 0.02f;
+        constexpr float kOldMaxLuminance     = 8.0f;
+        static_assert( static_cast<int>( ECS::LightUnits::Unitless ) == 0,
+                       "LightUnits moved: the migration states Unitless as 0" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+
+        // A record states every key a pre-v56 build would have defaulted; an override is a delta against its
+        // prefab record (which its own migration raises), so it only gains the units every older light had.
+        const auto lights = [&]( rfl::ExtraFields<rfl::Generic>& components, bool record )
+        {
+            for ( const char* light : { "PointLight", "SpotLight" } )
+                EditBlock( components, light,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( block.get( "IntensityUnits" ).has_value() )
+                                   return false;
+                               block["IntensityUnits"] = rfl::Generic( 0 );
+                               if ( record && !block.get( "Falloff" ).has_value() )
+                                   block["Falloff"] = rfl::Generic( kOldFalloffQuadratic );
+                               if ( record && !block.get( "Intensity" ).has_value() )
+                                   block["Intensity"] = rfl::Generic( static_cast<double>( kOldIntensity ) );
+                               ++report.Lights;
+                               return true;
+                           } );
+        };
+
+        // AutoExposureMin / Max (luminance) -> AutoExposureMin / MaxEV100, the same clamp.
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 Describe( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           const auto           restate  = [&]( const char* oldKey, const char* newKey,
+                                                     float oldDefault ) -> bool
+                           {
+                               if ( settings.get( newKey ).has_value() )
+                                   return true;
+                               double luminance = oldDefault;
+                               if ( const auto value = settings.get( oldKey ); value.has_value() )
+                               {
+                                   const auto n = number( value.value() );
+                                   if ( !n.has_value() || !( n.value() > 0.0 ) )
+                                   {
+                                       report.Refused.push_back( std::format(
+                                            "{}: PostProcessVolume.Settings.{} {} is not a positive luminance",
+                                            who, oldKey, Describe( value.value() ) ) );
+                                       return false;
+                                   }
+                                   luminance = n.value();
+                                   DropKey( settings, oldKey );
+                               }
+                               else if ( !record )
+                                   return true; // a delta that does not state it inherits its prefab's
+                               settings[newKey] = rfl::Generic( std::log2( luminance ) + 3.0 );
+                               changed          = true;
+                               return true;
+                           };
+                           if ( !restate( "AutoExposureMin", "AutoExposureMinEV100", kOldMinLuminance ) ||
+                                !restate( "AutoExposureMax", "AutoExposureMaxEV100", kOldMaxLuminance ) )
+                               return false;
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            lights( entity.Components, true );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                {
+                    lights( override_.Components, false );
+                    exposure( override_.Components, false, who );
+                }
+        }
+        return report;
+    }
+
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr std::array<const char*, 6> kCalendarKeys = { "Longitude", "TimeZone", "DaylightSavingTime",
+                                                               "Year",      "Month",    "Day" };
+        SunCalendarReport                    report;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "TimeOfDay",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           for ( const char* key : kCalendarKeys )
+                               if ( block.get( key ).has_value() )
+                                   return false;
+                           block["Longitude"]          = rfl::Generic( 0.0 );
+                           block["TimeZone"]           = rfl::Generic( 0.0 );
+                           block["DaylightSavingTime"] = rfl::Generic( false );
+                           block["Year"]               = rfl::Generic( 2026 );
+                           block["Month"]              = rfl::Generic( 3 );
+                           block["Day"]                = rfl::Generic( 20 );
+                           ++report.Clocks;
+                           return true;
+                       } );
+        return report;
+    }
+
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
+    {
+        SkySunFromLightReport report;
+
+        // What the v56 types defaulted to: a record states every key, so these only answer for a key it lacks.
+        const ECS::SkyAtmosphereData    kOldSky;
+        const ECS::DirectionalLightData kOldLight;
+        constexpr double                kOldExposure = 1.0;
+        constexpr double                kOldKey      = 0.18;
+        static_assert( static_cast<int>( ECS::SkyModel::PhysicalAtmosphere ) == 1,
+                       "SkyModel moved: the migration reads PhysicalAtmosphere as 1" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+        // A stated vec3 (a three-number array), or @p fallback when the key is not stated; nullopt when it is
+        // stated in another shape.
+        const auto vec3 = [&]( const rfl::Generic::Object& block, const char* key,
+                               const glm::vec3& fallback ) -> std::optional<glm::dvec3>
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return glm::dvec3( fallback );
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() || array.value().size() != 3 )
+                return std::nullopt;
+            glm::dvec3 v;
+            for ( int i = 0; i < 3; ++i )
+            {
+                const auto n = number( array.value()[static_cast<std::size_t>( i )] );
+                if ( !n.has_value() )
+                    return std::nullopt;
+                v[i] = n.value();
+            }
+            return v;
+        };
+        const auto scalar = [&]( const rfl::Generic::Object& block, const char* key,
+                                 double fallback ) -> std::optional<double>
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? number( stated.value() ) : std::optional<double>( fallback );
+        };
+        const auto flag = []( const rfl::Generic::Object& block, const char* key, bool fallback )
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? stated.value().to_bool().value_or( fallback ) : fallback;
+        };
+        const auto put3 = []( rfl::Generic::Object& block, const char* key, const glm::dvec3& v )
+        {
+            DropKey( block, key );
+            block[key] = rfl::Generic(
+                 rfl::Generic::Array{ rfl::Generic( v.x ), rfl::Generic( v.y ), rfl::Generic( v.z ) } );
+        };
+        const auto object = []( rfl::ExtraFields<rfl::Generic>& components,
+                                const char*                     component ) -> std::optional<rfl::Generic::Object>
+        {
+            const auto payload = components.get( component );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return std::nullopt;
+            return std::move( fields.value() );
+        };
+
+        // ---- Manual exposure: multiplier -> EV100 at the volume's key. ----
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock(
+                 components, "PostProcessVolume",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "Settings" );
+                     if ( !stated.has_value() )
+                         return false;
+                     auto fields = stated.value().to_object();
+                     if ( !fields.has_value() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                           Describe( stated.value() ) ) );
+                         return false;
+                     }
+                     rfl::Generic::Object settings = std::move( fields.value() );
+                     if ( settings.get( "ManualExposureEV100" ).has_value() )
+                         return false;
+                     const bool statesExposure = settings.get( "Exposure" ).has_value();
+                     if ( !record && !statesExposure )
+                         return false; // a delta that does not state it inherits its prefab's
+                     const auto m   = scalar( settings, "Exposure", kOldExposure );
+                     const auto key = scalar( settings, "AutoExposureKey", kOldKey );
+                     if ( !m.has_value() || !( m.value() > 0.0 ) || !key.has_value() || !( key.value() > 0.0 ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings Exposure / AutoExposureKey is not a positive "
+                              "number",
+                              who ) );
+                         return false;
+                     }
+                     DropKey( settings, "Exposure" );
+                     settings["ManualExposureEV100"] = rfl::Generic( std::log2( key.value() / m.value() ) + 3.0 );
+                     DropKey( block, "Settings" );
+                     block["Settings"] = rfl::Generic( std::move( settings ) );
+                     ++report.Volumes;
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    exposure( override_.Components, false, who );
+        }
+
+        // ---- The physical sky's sun: fold the sky's own sun into UE's factors against the atmosphere light. ----
+        Assets::EntityData* skyEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto sky = object( entity.Components, "SkyAtmosphere" );
+            if ( !sky.has_value() )
+                continue;
+            const auto model =
+                 scalar( sky.value(), "Model", static_cast<double>( static_cast<int>( kOldSky.Model ) ) );
+            if ( model.has_value() && static_cast<int>( model.value() ) == 1 &&
+                 flag( sky.value(), "Enabled", kOldSky.Enabled ) )
+            {
+                if ( skyEntity != nullptr )
+                {
+                    report.Refused.push_back( "two enabled Physical Atmosphere skies: the engine draws one" );
+                    return report;
+                }
+                skyEntity = &entity;
+            }
+        }
+        if ( skyEntity == nullptr )
+            return report;
+
+        Assets::EntityData* lightEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto light = object( entity.Components, "DirectionLight" );
+            if ( light.has_value() && flag( light.value(), "AtmosphereSunLight", kOldLight.AtmosphereSunLight ) )
+            {
+                lightEntity = &entity; // the engine renders exactly one directional light
+                break;
+            }
+        }
+
+        rfl::Generic::Object sky          = object( skyEntity->Components, "SkyAtmosphere" ).value();
+        const auto           sunColor     = vec3( sky, "SunColor", kOldSky.SunColor );
+        const auto           sunIntensity = scalar( sky, "SunIntensity", kOldSky.SunIntensity );
+        const auto           apFactor =
+             vec3( sky, "SkyAndAerialPerspectiveLuminanceFactor", kOldSky.SkyAndAerialPerspectiveLuminanceFactor );
+        if ( !sunColor.has_value() || !sunIntensity.has_value() || !apFactor.has_value() )
+        {
+            report.Refused.push_back(
+                 "SkyAtmosphere SunColor / SunIntensity / SkyAndAerialPerspectiveLuminanceFactor "
+                 "is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 skySun = sunColor.value() * sunIntensity.value();
+        if ( lightEntity == nullptr )
+        {
+            if ( glm::all( glm::equal( skySun, glm::dvec3( 0.0 ) ) ) )
+                return report;
+            report.Refused.push_back( "a Physical Atmosphere sky with no atmosphere sun light: from v57 the sky "
+                                      "scatters the light's illuminance, and there is none to keep this picture" );
+            return report;
+        }
+        rfl::Generic::Object light      = object( lightEntity->Components, "DirectionLight" ).value();
+        const auto           lightColor = vec3( light, "Color", kOldLight.Color );
+        const auto           lightLux   = scalar( light, "Intensity", kOldLight.Intensity );
+        const auto           diskScale  = vec3( light, "AtmosphereSunDiskColorScale", glm::vec3( 1.0f ) );
+        if ( !lightColor.has_value() || !lightLux.has_value() || !diskScale.has_value() )
+        {
+            report.Refused.push_back( "DirectionLight Color / Intensity is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 lightSun = lightColor.value() * lightLux.value();
+        glm::dvec3       ratio( 1.0 );
+        for ( int i = 0; i < 3; ++i )
+        {
+            if ( lightSun[i] > 0.0 )
+                ratio[i] = skySun[i] / lightSun[i];
+            else if ( skySun[i] > 0.0 )
+            {
+                report.Refused.push_back( std::format(
+                     "the atmosphere sun light's illuminance is 0 in channel {} under a sky sun of {}: no factor "
+                     "keeps that picture",
+                     i, skySun[i] ) );
+                return report;
+            }
+        }
+        if ( glm::all( glm::lessThan( glm::abs( ratio - glm::dvec3( 1.0 ) ), glm::dvec3( 1e-6 ) ) ) )
+            return report; // the sky's sun already was the light's
+        put3( sky, "SkyAndAerialPerspectiveLuminanceFactor", apFactor.value() * ratio );
+        skyEntity->Components["SkyAtmosphere"] = rfl::Generic( std::move( sky ) );
+        put3( light, "AtmosphereSunDiskColorScale", diskScale.value() * ratio );
+        lightEntity->Components["DirectionLight"] = rfl::Generic( std::move( light ) );
+        ++report.Skies;
+        return report;
+    }
+
     UEGradeReport MigrateUEGradeToV62( std::vector<Assets::EntityData>& entities )
     {
-        // The v54 auto-exposure defaults, as the writer stated them (floats widened to double).
-        constexpr double kOldKey     = 0.18;
-        constexpr double kOldSpeed   = 1.5;
-        constexpr double kOldMin     = 0.02;
-        constexpr double kOldMax     = 8.0;
-        constexpr double kOldManual  = 1.0;
-        constexpr double kFloatMatch = 1e-6;
-        const auto       isOld = []( double value, double old ) { return std::abs( value - old ) <= kFloatMatch; };
+        // The v58 auto-exposure keys this step retires or re-reads, at the defaults the writer stated them with
+        // (floats widened to double). The EV100 range defaults are v56's re-statement of the old luminance clamps
+        // 0.02 / 8 (log2(L) + 3): no choice either, so they give way to UE's range like every old default.
+        constexpr double kOldKey         = 0.18;
+        constexpr double kOldSpeed       = 1.5;
+        constexpr bool   kOldAutoExposed = false;
+        const double     kOldMinEV100    = std::log2( static_cast<double>( 0.02f ) ) + 3.0;
+        const double     kOldMaxEV100    = std::log2( static_cast<double>( 8.0f ) ) + 3.0;
+        // Graphic::EV100ToLuminance: the luminance a manual EV100 stands for (the meter law, K = 12.5).
+        const auto ev100ToLuminance = []( double ev100 ) { return std::exp2( ev100 - 3.0 ); };
+        // v57's default ManualExposureEV100: the former multiplier 1 at the default key, log2(0.18 / 1) + 3.
+        const double     kOldManualEV100 = std::log2( kOldKey ) + 3.0;
+        constexpr double kFloatMatch     = 1e-5;
+        const auto isOld = []( double value, double old ) { return std::abs( value - old ) <= kFloatMatch; };
 
         UEGradeReport report;
 
@@ -1111,9 +1472,9 @@ namespace Desert::Migration
                      auto fields = stated.value().to_object();
                      if ( !fields.has_value() )
                      {
-                         report.Refused.push_back(
-                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
-                                           rfl::json::write( stated.value() ) ) );
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings {} is not an object", who,
+                              Describe( stated.value() ) ) );
                          return false;
                      }
                      rfl::Generic::Object settings = std::move( fields.value() );
@@ -1125,92 +1486,122 @@ namespace Desert::Migration
                          const auto value = settings.get( key );
                          if ( !value.has_value() )
                              return std::nullopt;
-                         const auto d = value.value().to_double();
-                         if ( !d.has_value() )
-                         {
-                             report.Refused.push_back(
-                                  std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who, key,
-                                               rfl::json::write( value.value() ) ) );
-                             refused = true;
-                             return std::nullopt;
-                         }
-                         return d.value();
+                         if ( const auto d = value.value().to_double(); d.has_value() )
+                             return d.value();
+                         if ( const auto i = value.value().to_int64(); i.has_value() )
+                             return static_cast<double>( i.value() );
+                         report.Refused.push_back( std::format( "{}: PostProcessVolume.Settings.{} {} is not a "
+                                                                "number",
+                                                                who, key, Describe( value.value() ) ) );
+                         refused = true;
+                         return std::nullopt;
                      };
 
-                     if ( const auto key = number( "AutoExposureKey" ); key.has_value() )
-                     {
-                         if ( isOld( key.value(), kOldKey ) )
-                             ++report.KeysDropped;
-                         else
-                         {
-                             if ( !( key.value() > 0.0 ) )
-                             {
-                                 report.Refused.push_back( std::format(
-                                      "{}: PostProcessVolume.Settings.AutoExposureKey {} is not a positive "
-                                      "middle grey, so it has no AutoExposureBias",
-                                      who, key.value() ) );
-                                 return false;
-                             }
-                             settings["AutoExposureBias"] = rfl::Generic( std::log2( key.value() / kOldKey ) );
-                             ++report.BiasesStated;
-                         }
-                         DropKey( settings, "AutoExposureKey" );
-                         changed = true;
-                     }
-                     constexpr std::array<std::pair<const char*, double>, 3> kOldRange{
-                          { { "AutoExposureSpeed", kOldSpeed },
-                            { "AutoExposureMin", kOldMin },
-                            { "AutoExposureMax", kOldMax } } };
-                     for ( const auto& [oldKey, oldDefault] : kOldRange )
-                     {
-                         const auto value = number( oldKey );
-                         if ( !value.has_value() )
-                             continue;
-                         if ( !isOld( value.value(), oldDefault ) )
-                         {
-                             report.Refused.push_back( std::format(
-                                  "{}: PostProcessVolume.Settings.{} {} is not the old default {}; UE's eye "
-                                  "adaptation (AutoExposureSpeedUp / SpeedDown in EV per second, Min / "
-                                  "MaxBrightness in EV100) has no exact equivalent - set the new keys by hand",
-                                  who, oldKey, value.value(), oldDefault ) );
-                             refused = true;
-                             continue;
-                         }
-                         DropKey( settings, oldKey );
-                         ++report.KeysDropped;
-                         changed = true;
-                     }
+                     const std::optional<double> key         = number( "AutoExposureKey" );
+                     const std::optional<double> speed       = number( "AutoExposureSpeed" );
+                     const std::optional<double> manualEV100 = number( "ManualExposureEV100" );
+                     const std::optional<double> bias        = number( "AutoExposureBias" ); // a re-run's
                      if ( refused )
                          return false;
+                     if ( key.has_value() && !( key.value() > 0.0 ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings.AutoExposureKey {} is not a positive middle grey, "
+                              "so it has no AutoExposureBias",
+                              who, key.value() ) );
+                         return false;
+                     }
+                     if ( speed.has_value() && !isOld( speed.value(), kOldSpeed ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings.AutoExposureSpeed {} is not the old default {}; "
+                              "UE's eye adaptation (AutoExposureSpeedUp / SpeedDown, EV per second) has no exact "
+                              "equivalent of a linear luminance speed - set the new keys by hand",
+                              who, speed.value(), kOldSpeed ) );
+                         return false;
+                     }
 
+                     // In the record only: a stated (or defaulted) AutoExposure false is the old default, not a
+                     // choice - unless the volume's manual exposure is one: its scale
+                     // Key / EV100ToLuminance(EV100) is not the former multiplier 1.
+                     bool keptManual = false;
                      if ( record )
                      {
-                         if ( const auto autoExposure = settings.get( "AutoExposure" ); autoExposure.has_value() )
+                         bool autoExposed = kOldAutoExposed;
+                         if ( const auto flag = settings.get( "AutoExposure" ); flag.has_value() )
                          {
-                             const auto flag = autoExposure.value().to_bool();
-                             if ( !flag.has_value() )
+                             const auto b = flag.value().to_bool();
+                             if ( !b.has_value() )
                              {
                                  report.Refused.push_back(
                                       std::format( "{}: PostProcessVolume.Settings.AutoExposure {} is not a bool",
-                                                   who, rfl::json::write( autoExposure.value() ) ) );
+                                                   who, Describe( flag.value() ) ) );
                                  return false;
                              }
-                             const auto manual = number( "Exposure" );
-                             if ( refused )
-                                 return false;
-                             if ( !flag.value() )
+                             autoExposed = b.value();
+                         }
+                         if ( !autoExposed )
+                         {
+                             const double statedKey = key.has_value()  ? key.value()
+                                                      : bias.has_value() ? kOldKey * std::exp2( bias.value() )
+                                                                         : kOldKey;
+                             const double scale =
+                                  statedKey / ev100ToLuminance( manualEV100.value_or( kOldManualEV100 ) );
+                             if ( !isOld( scale, 1.0 ) )
                              {
-                                 if ( manual.has_value() && !isOld( manual.value(), kOldManual ) )
-                                     ++report.KeptManual;
-                                 else
-                                 {
-                                     DropKey( settings, "AutoExposure" );
-                                     settings["AutoExposure"] = rfl::Generic( true );
-                                     ++report.AutoExposureOn;
-                                     changed = true;
-                                 }
+                                 keptManual = true;
+                                 ++report.KeptManual;
+                             }
+                             else
+                             {
+                                 DropKey( settings, "AutoExposure" );
+                                 settings["AutoExposure"] = rfl::Generic( true );
+                                 ++report.AutoExposureOn;
+                                 changed = true;
                              }
                          }
+                     }
+
+                     // The key becomes the compensation: UE's ExposureScale 2^Bias x 0.18 / L is the old Key / L,
+                     // so Bias = log2(Key / 0.18) EXACTLY. The old default 0.18 was no choice and gives way to the
+                     // new default - except in a volume that stays manual, where the compensation now scales the
+                     // manual exposure too (Graphic::ManualExposureScale) and is stated, so its picture stays.
+                     if ( key.has_value() || ( keptManual && !bias.has_value() ) )
+                     {
+                         const double k = key.value_or( kOldKey );
+                         if ( isOld( k, kOldKey ) && !keptManual )
+                             ++report.KeysDropped;
+                         else
+                         {
+                             DropKey( settings, "AutoExposureBias" );
+                             settings["AutoExposureBias"] = rfl::Generic( std::log2( k / kOldKey ) );
+                             ++report.BiasesStated;
+                         }
+                         if ( key.has_value() )
+                             DropKey( settings, "AutoExposureKey" );
+                         changed = true;
+                     }
+                     if ( speed.has_value() )
+                     {
+                         DropKey( settings, "AutoExposureSpeed" );
+                         ++report.KeysDropped;
+                         changed = true;
+                     }
+
+                     // The EV100 range keeps any stated choice (the same law, the same clamp); v56's re-statement
+                     // of the old luminance defaults gives way to UE's -10 .. 20.
+                     constexpr std::array<const char*, 2> kRange{ "AutoExposureMinEV100", "AutoExposureMaxEV100" };
+                     const std::array<double, 2>          kOldRange{ kOldMinEV100, kOldMaxEV100 };
+                     for ( std::size_t i = 0; i < kRange.size(); ++i )
+                     {
+                         const auto value = number( kRange[i] );
+                         if ( refused )
+                             return false;
+                         if ( !value.has_value() || !isOld( value.value(), kOldRange[i] ) )
+                             continue;
+                         DropKey( settings, kRange[i] );
+                         ++report.KeysDropped;
+                         changed = true;
                      }
 
                      if ( !changed )
@@ -3564,7 +3955,38 @@ namespace Desert::Migration
                 }
             }
 
-            // The grade is UE's (POST-LOOK): auto-exposure on, UE's exposure keys, the Filmic curve.
+            // Lights state their units, the exposure range is EV100 (LIGHT-UNITS).
+            if ( statedSceneVersion < kSceneVersionLightUnits )
+            {
+                report.LightUnitsRaised = true;
+                report.LightUnits       = MigrateLightUnitsV55ToV56( entities );
+                if ( !report.LightUnits.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.LightUnits.Refused );
+                    return;
+                }
+            }
+
+            // The physical sky's sun is the light; manual exposure is EV100 (LIGHT-UNITS-2).
+            if ( statedSceneVersion < kSceneVersionSkySunFromLight )
+            {
+                report.SkySunFromLightRaised = true;
+                report.SkySunFromLight       = MigrateSkySunFromLightV56ToV57( entities );
+                if ( !report.SkySunFromLight.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SkySunFromLight.Refused );
+                    return;
+                }
+            }
+
+            // The clock has a calendar (TOD1).
+            if ( statedSceneVersion < kSceneVersionSunCalendar )
+            {
+                report.SunCalendarRaised = true;
+                report.SunCalendar       = MigrateSunCalendarV57ToV58( entities );
+            }
+
+            // The grade is UE's (POST-LOOK): auto-exposure on, UE's exposure keys over v58's EV100 ones.
             if ( statedSceneVersion < kSceneVersionUEGrade )
             {
                 report.UEGradeRaised = true;
@@ -3997,7 +4419,30 @@ namespace Desert::Migration
                     return report;
                 }
             }
-            // And its pre-v62 auto-exposure keys: re-graded the same way (idempotent - a re-stated key is gone).
+            // And its luminance exposure clamps as EV100 (idempotent - a volume stating the EV100 keys is
+            // skipped).
+            if ( report.LightUnitsRaised )
+            {
+                const LightUnitsReport lifted = MigrateLightUnitsV55ToV56( scene.Entities );
+                report.LightUnits.Volumes += lifted.Volumes;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its manual exposure as EV100 (idempotent - a volume stating ManualExposureEV100 is skipped).
+            if ( report.SkySunFromLightRaised )
+            {
+                const SkySunFromLightReport lifted = MigrateSkySunFromLightV56ToV57( scene.Entities );
+                report.SkySunFromLight.Volumes += lifted.Volumes;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its v58 auto-exposure keys: re-graded the same way, after the two lifts above.
             if ( report.UEGradeRaised )
             {
                 const UEGradeReport lifted = MigrateUEGradeToV62( scene.Entities );

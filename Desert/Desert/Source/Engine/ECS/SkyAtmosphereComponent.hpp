@@ -51,14 +51,16 @@ namespace Desert::ECS
     // sky pass, the IBL bake and the time-of-day driver read lives here; SkyboxComponent keeps only the HDR
     // path (its asset handle and intensity).
     //
-    // ON THE TWO PAIRS OF SUN NUMBERS. `SunColor` x `SunIntensity` here and `Color` x `Intensity` on
-    // DirectionalLightData are NOT the same quantity stored twice:
-    //   * these two are the RADIANCE of the sky and of the solar disk - how bright the sun looks IN THE
-    //     PICTURE. They are written into the sky's parameter block and into the IBL bake.
-    //   * the light's two are the ILLUMINANCE arriving at scene surfaces - how bright the sun is ON THE
-    //     GROUND. They are written into DirectionLightsUB and integrated by every lit surface.
-    // No code path reads one where it means the other, and neither is derived from the other. The one
-    // quantity they genuinely share is DIRECTION, and that has a single owner: the atmosphere sun light's
+    // ON THE SUN'S NUMBERS (v57, as UE). In SkyModel::PhysicalAtmosphere the sky has NO sun of its own: the
+    // Sky-View LUT, the aerial perspective, the distant sky light, the IBL bake and the disc all integrate
+    // the atmosphere sun LIGHT's outer-space illuminance — DirectionalLightData Color x Intensity, in lux —
+    // and the atmosphere contributes its transmittance (Graphic::SkySunInputs). The art controls are UE's:
+    // SkyLuminanceFactor / SkyAndAerialPerspectiveLuminanceFactor here, Atmosphere Sun Disk Color Scale on
+    // the light. `SunColor` x `SunIntensity` below are the ARTISTIC GRADIENT's palette values, unitless,
+    // and are not read by the physical model at all. Scenes before v57 had the physical sky read them; the
+    // migration folds their ratio to the light into those UE factors, so the picture is unchanged.
+    //
+    // The one quantity both models share with the light is DIRECTION, owned by the atmosphere sun light's
     // TransformComponent (see DirectionalLightData::AtmosphereSunLight).
     struct SkyAtmosphereData
     {
@@ -86,13 +88,13 @@ namespace Desert::ECS
         glm::vec3 NightColor = { 0.010f, 0.020f, 0.050f };
 
         PROPERTY( DisplayName( "Sun Intensity" ), Category( "Sun" ), Range( 1.0f, 50.0f ), Units( "x" ), Summary,
-                  Tooltip( "Brightness of the sky and the solar disk as seen by the camera. Scene surfaces "
-                           "are lit by the directional light's own Colour and Intensity, not by this." ) )
+                  Tooltip( "Artistic Gradient only: brightness of the gradient's sun disk and glow. The "
+                           "Physical Atmosphere sky takes its sun from the directional light (lux), as UE." ) )
         float SunIntensity = 22.0f;
 
         PROPERTY( DisplayName( "Sun Color" ), Category( "Sun" ), Color,
-                  Tooltip( "Tint of the sky and the solar disk as seen by the camera. Scene surfaces are lit "
-                           "by the directional light's own Colour and Intensity, not by this." ) )
+                  Tooltip( "Artistic Gradient only: tint of the gradient's sun disk and glow. The Physical "
+                           "Atmosphere sky takes its sun colour from the directional light, as UE." ) )
         glm::vec3 SunColor = { 1.00f, 0.96f, 0.88f };
 
         // DEGREES and a DIAMETER, unlike the radians-and-radius number this replaces: degrees is what an

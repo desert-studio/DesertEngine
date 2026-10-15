@@ -4,6 +4,7 @@
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/PostProcessing/FilmGrade.hpp>
 
 // STB_IMAGE_IMPLEMENTATION is compiled once, in ThirdParty/stb/stb_image.cpp; this only declares.
@@ -98,9 +99,11 @@ namespace Desert::Editor::HdrSphereThumbnail
     {
         // A view no volume touches, graded through the frame's own grade (FilmCombine: white balance, colour
         // correction, the Filmic curve, the display transform), per pixel here instead of through the baked table.
-        // The exposure is the manual default - a tile has no scene to meter.
+        // The exposure is the manual default at compensation 0 (the former multiplier 1) - a tile has no scene to
+        // meter.
         const Core::PostProcessSettings grade{};
-        const glm::vec3 display = FilmCombine( linear * grade.Exposure, Graphic::FilmGradeOf( grade ) );
+        const float     exposure = Graphic::ManualExposureScale( grade.ManualExposureEV100, 1.0f );
+        const glm::vec3 display  = FilmCombine( linear * exposure, Graphic::FilmGradeOf( grade ) );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
             out[static_cast<size_t>( c )] = static_cast<unsigned char>( std::lround( 255.0f * display[c] ) );

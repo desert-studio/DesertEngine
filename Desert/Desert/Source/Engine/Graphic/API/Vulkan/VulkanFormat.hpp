@@ -54,6 +54,11 @@ namespace Desert::Graphic::API::Vulkan
                 // mandatory sampled + colour-attachment format in the core tables; never blended.
                 case Core::Formats::ImageFormat::RG32_UINT:
                     return VK_FORMAT_R32G32_UINT;
+                // The surface cache's radiance layers: sampled, colour attachment and blend are mandatory for
+                // B10G11R11_UFLOAT in the core tables; as a storage image it needs
+                // shaderStorageImageExtendedFormats (r11f_g11f_b10f), as RG16F does.
+                case Core::Formats::ImageFormat::R11G11B10F:
+                    return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
                 // The four block formats. `textureCompressionBC` is read off the physical device and
