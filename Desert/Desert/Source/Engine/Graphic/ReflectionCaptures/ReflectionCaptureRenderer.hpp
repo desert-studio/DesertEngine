@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -152,6 +153,10 @@ namespace Desert::Graphic
         bool                      m_FacesRenderedThisFrame = false;
 
         std::array<std::unique_ptr<FaceView>, 6> m_Faces;
+        // Face views released once every capture settled, kept alive until no frame in flight can still execute
+        // their passes: a view's pipelines are destroyed with it, at once (VulkanPipeline::Release), and the frame
+        // that rendered the last face is still on the GPU when the next one releases them.
+        Assets::FrameRetireQueue<std::unique_ptr<FaceView>> m_RetiringFaces;
 
         SharedArray m_Cubes; // the scene's captures
         SharedArray m_Black; // one black cube, for the views that read none
