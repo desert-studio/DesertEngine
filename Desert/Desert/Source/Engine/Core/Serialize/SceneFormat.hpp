@@ -88,11 +88,11 @@ namespace Desert::Core
     // v52 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
     // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
     // MigrateSceneDependenciesV51ToV52).
-    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is GlobalIlluminationMethod
-    // and EnableSSR is ReflectionsMethod, on the method ladders of Common/Settings/RenderMethods.hpp
-    // (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53).
-    // v60 (VFX-PARAMS; v54-v59 are other branches' steps, renumbered at merge): a VFX block states UserParams,
-    // the placement's overrides of its system's User.* parameters — [] when it has none (Tools/SceneMigrator,
+    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is
+    // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
+    // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v60 (VFX-PARAMS;
+    // v54-v59 are other branches' steps, renumbered at merge): a VFX block states UserParams, the placement's
+    // overrides of its system's User.* parameters — [] when it has none (Tools/SceneMigrator,
     // MigrateVFXUserParamsV59ToV60).
     inline constexpr int kSceneVersion = 60;
 

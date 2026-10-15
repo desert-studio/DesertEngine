@@ -696,7 +696,8 @@ namespace Desert::Editor
             }
             if ( edited )
             {
-                if ( const auto set = ::Desert::VFX::SetUserParamOverride( data.UserParams, system, row.Name, value );
+                if ( const auto set =
+                          ::Desert::VFX::SetUserParamOverride( data.UserParams, system, row.Name, value );
                      !set )
                     LOG_WARN( "[VFX] User.{}: {}", row.Name, set.GetError() );
             }

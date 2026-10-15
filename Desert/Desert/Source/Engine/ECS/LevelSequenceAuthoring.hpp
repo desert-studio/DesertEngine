@@ -257,7 +257,7 @@ namespace Desert::ECS
                                                                   const Animation::Timeline::BindingGuid& binding,
                                                                   std::string_view                        name,
                                                                   Animation::Timeline::TrackKind          kind,
-                                                                  const glm::vec4&                        current );
+                                                                  const glm::vec4& current );
 
     [[nodiscard]] Common::BoolResultStr AddMaterialParameterTrack( Animation::Timeline::Sequence& sequence,
                                                                    const Animation::Timeline::BindingGuid& binding,

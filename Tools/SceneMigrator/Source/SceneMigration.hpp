@@ -847,8 +847,8 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised ||
-                   VFXUserParamsRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
+                   RenderMethodsRaised || VFXUserParamsRaised;
         }
     };
 

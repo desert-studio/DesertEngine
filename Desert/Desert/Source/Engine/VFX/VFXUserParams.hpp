@@ -30,7 +30,7 @@ namespace Desert::ECS
 {
     struct VFXUserParamOverride;
     struct VFXComponentData;
-}
+} // namespace Desert::ECS
 
 namespace Desert::VFX
 {

@@ -776,7 +776,8 @@ namespace Desert::ECS
         if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
             return Common::MakeError( "VFX Parameter track: the binding is not an actor (Entity) binding" );
         if ( kind != T::TrackKind::Float && kind != T::TrackKind::Vector && kind != T::TrackKind::Bool )
-            return Common::MakeError( "VFX Parameter track: a User parameter is keyed as a Float, a Vector or a Bool" );
+            return Common::MakeError(
+                 "VFX Parameter track: a User parameter is keyed as a Float, a Vector or a Bool" );
         if ( name.empty() )
             return Common::MakeError( "VFX Parameter track: the parameter name is empty" );
         const std::string property = LevelSequenceVFXUserProperty( name );

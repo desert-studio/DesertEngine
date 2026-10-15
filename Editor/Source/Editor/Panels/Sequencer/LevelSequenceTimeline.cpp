@@ -377,8 +377,9 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
     }
 
-    void SequencerPanel::AddLevelVFXUserParameterTrack( const LevelTL::BindingGuid& binding, const std::string& name,
-                                                        const LevelTL::TrackKind kind, const glm::vec4& current )
+    void SequencerPanel::AddLevelVFXUserParameterTrack( const LevelTL::BindingGuid& binding,
+                                                        const std::string& name, const LevelTL::TrackKind kind,
+                                                        const glm::vec4& current )
     {
         const auto asset = ResolveLevelAsset();
         if ( !asset )
@@ -734,12 +735,12 @@ namespace Desert::Editor
                 if ( entity && entity->HasComponent<ECS::VFXComponent>() &&
                      ImGui::BeginMenu( ICON_MDI_CREATION " VFX Parameter" ) )
                 {
-                    namespace S         = Assets::Serialization;
-                    const auto& data    = entity->GetComponent<ECS::VFXComponent>().Data;
-                    const auto  system  = static_cast<uint64_t>( data.System ) != 0
+                    namespace S        = Assets::Serialization;
+                    const auto& data   = entity->GetComponent<ECS::VFXComponent>().Data;
+                    const auto  system = static_cast<uint64_t>( data.System ) != 0
                                               ? Runtime::ResourceRegistry::GetVFXSystemService()->Get( data.System )
                                               : Common::MakeError<Runtime::VFXSystemService::System>(
-                                                     "the VFX component plays no system" );
+                                                    "the VFX component plays no system" );
                     if ( !system.IsSuccess() || !system.GetValue() || system.GetValue()->UserParams.empty() )
                         ImGui::TextDisabled( "This actor's VFX system has no User parameters." );
                     else
@@ -747,7 +748,7 @@ namespace Desert::Editor
                         const auto values = VFX::ResolveUserParams( *system.GetValue(), data.UserParams );
                         for ( std::size_t i = 0; i < system.GetValue()->UserParams.size(); ++i )
                         {
-                            const S::VFXUserParam& row  = system.GetValue()->UserParams[i];
+                            const S::VFXUserParam&   row = system.GetValue()->UserParams[i];
                             const LevelTL::TrackKind kind =
                                  row.Type == S::VFXValueType::Bool ? LevelTL::TrackKind::Bool
                                  : row.Type == S::VFXValueType::Float || row.Type == S::VFXValueType::Int
@@ -755,8 +756,7 @@ namespace Desert::Editor
                                       : LevelTL::TrackKind::Vector;
                             const std::string property = ECS::LevelSequenceVFXUserProperty( row.Name );
                             const bool        tracked  = std::any_of(
-                                 sequence.Tracks.begin(), sequence.Tracks.end(),
-                                 [&]( const LevelTL::Track& track )
+                                 sequence.Tracks.begin(), sequence.Tracks.end(), [&]( const LevelTL::Track& track )
                                  { return track.Binding == binding.Guid && track.Property == property; } );
                             if ( ImGui::MenuItem( row.Name.c_str(), nullptr, false, !tracked ) )
                                 AddLevelVFXUserParameterTrack( binding.Guid, row.Name, kind, values.Values[i] );

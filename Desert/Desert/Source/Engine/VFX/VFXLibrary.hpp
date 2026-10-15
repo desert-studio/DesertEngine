@@ -34,7 +34,8 @@ namespace Desert::VFX
 
         /// UE UNiagaraComponent::SetVariable*: this placement's value of its system's User.<name> row, written
         /// through VFX::SetComponentUserParam (the one validating writer Details and the Sequencer use).
-        ///   VFX.setParam(entity, "Density", {120})          -- Float: x; Vec2/3/4: x..w; Int: whole x; Bool: x ~= 0
+        ///   VFX.setParam(entity, "Density", {120})          -- Float: x; Vec2/3/4: x..w; Int: whole x; Bool: x ~=
+        ///   0
         FUNCTION( ScriptCallable, ScriptName( "setParam" ),
                   Tooltip( "value = {x, y, z, w} (only the row's components are kept); false (logged) when the "
                            "entity has no VFX component, its system has no such User row, or the value is not "

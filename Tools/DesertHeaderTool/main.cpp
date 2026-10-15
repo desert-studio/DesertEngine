@@ -111,8 +111,8 @@ namespace
 
         bool        isContainer   = false; // std::vector<...>
         std::string elemFieldType;         // FieldType of the element (when isContainer)
-        std::string elemTypeName;          // elemFieldType == "Struct": the element's C++ spelling, which must name
-                                           // a REFLECT()ed struct (checked once every header is parsed)
+        std::string elemTypeName; // elemFieldType == "Struct": the element's C++ spelling, which must name
+                                  // a REFLECT()ed struct (checked once every header is parsed)
     };
 
     // A scanned enum definition (collected across all headers before reflected types are parsed, so a
@@ -1505,12 +1505,9 @@ namespace
                 const std::size_t colon = f.elemTypeName.rfind( "::" );
                 const std::string shortName =
                      colon == std::string::npos ? f.elemTypeName : f.elemTypeName.substr( colon + 2 );
-                const bool known = std::any_of( types.begin(), types.end(),
-                                                [&]( const ReflectedType& other )
-                                                {
-                                                    return other.registryName == shortName ||
-                                                           other.fqn == f.elemTypeName;
-                                                } );
+                const bool known =
+                     std::any_of( types.begin(), types.end(), [&]( const ReflectedType& other )
+                                  { return other.registryName == shortName || other.fqn == f.elemTypeName; } );
                 if ( !known )
                     errors.push_back( std::format(
                          "{}: {}.{} is a std::vector of '{}', which is not a REFLECT()ed struct (a container "

@@ -36,7 +36,8 @@ namespace Desert::VFX
             {
                 case S::VFXInputSource::Value:
                     if ( !in.Value )
-                        return Common::MakeFormattedError<SpawnScalar>( "{}: Source Value without a Value", where );
+                        return Common::MakeFormattedError<SpawnScalar>( "{}: Source Value without a Value",
+                                                                        where );
                     return Common::MakeSuccess( SpawnScalar{ in.Value->x, std::nullopt } );
                 case S::VFXInputSource::Binding:
                     if ( in.Binding && in.Binding->starts_with( S::kVFXUserPrefix ) )
@@ -47,12 +48,13 @@ namespace Desert::VFX
                             if ( const S::VFXUserParam& u = system.UserParams[r]; u.Name == name )
                             {
                                 if ( u.Type != in.Type )
-                                    return Common::MakeFormattedError<SpawnScalar>( "{}: bound to {} of another type",
-                                                                              where, *in.Binding );
-                                return Common::MakeSuccess( SpawnScalar{ u.Default.x, static_cast<std::uint32_t>( r ) } );
+                                    return Common::MakeFormattedError<SpawnScalar>(
+                                         "{}: bound to {} of another type", where, *in.Binding );
+                                return Common::MakeSuccess(
+                                     SpawnScalar{ u.Default.x, static_cast<std::uint32_t>( r ) } );
                             }
                         return Common::MakeFormattedError<SpawnScalar>( "{}: {} names no UserParams row", where,
-                                                                  *in.Binding );
+                                                                        *in.Binding );
                     }
                     return Common::MakeFormattedError<SpawnScalar>(
                          "{}: a Particles.* binding has no particle to read — EmitterUpdate runs once per "
@@ -72,9 +74,9 @@ namespace Desert::VFX
 
         // The module's inputs, in @p declared order, each exactly once with its declared type.
         Common::ResultStr<std::vector<SpawnScalar>> ReadInputs( const S::VFXSystemData&      system,
-                                                          const S::VFXModuleUse&       use,
-                                                          const std::vector<CpuInput>& declared,
-                                                          const std::string&           where )
+                                                                const S::VFXModuleUse&       use,
+                                                                const std::vector<CpuInput>& declared,
+                                                                const std::string&           where )
         {
             using Result = std::vector<SpawnScalar>;
             for ( const S::VFXModuleInput& in : use.Inputs )
@@ -352,8 +354,8 @@ namespace Desert::VFX
                 if ( time < 0.0 || time >= loop )
                     continue; // a User-bound time outside the loop never fires (a constant one is refused above)
                 const std::uint32_t count =
-                     burst.CountUser ? static_cast<std::uint32_t>(
-                                            std::max( 0.0f, std::round( UserScalar( plan, user, *burst.CountUser ) ) ) )
+                     burst.CountUser ? static_cast<std::uint32_t>( std::max(
+                                            0.0f, std::round( UserScalar( plan, user, *burst.CountUser ) ) ) )
                                      : burst.Count;
                 const double at = k * loop + time;
                 if ( at >= lo && at < hi )

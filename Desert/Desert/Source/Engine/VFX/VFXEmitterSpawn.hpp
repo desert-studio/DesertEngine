@@ -70,7 +70,7 @@ namespace Desert::VFX
 
         /// The total rate per second for these resolved User values (UserDefaults when empty); a User-bound
         /// rate below zero counts as zero (UE SpawnRate clamps).
-        [[nodiscard]] double RateFor( std::span<const glm::vec4> user ) const;
+        [[nodiscard]] double                       RateFor( std::span<const glm::vec4> user ) const;
         std::vector<VFXSpawnBurst>                 Bursts;
         /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
         std::optional<VFXChannelSpawnModule> Channel;

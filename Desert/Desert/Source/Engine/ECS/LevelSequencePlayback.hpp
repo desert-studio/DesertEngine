@@ -280,13 +280,13 @@ namespace Desert::ECS
      * in the packaged runtime: the play settings, the transport advanced by @p seconds of game time (× the
      * component's PlayRate, wrapped or clamped by its Loop), then that step evaluated and applied.
      */
-    [[nodiscard]] LevelSequenceStep
-    AdvanceLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
-                          LevelSequencePlayback& playback, double seconds,
-                          const LevelSequenceClipSource&        clips        = {},
-                          const LevelSequenceMaterialSlots&     materials    = {},
-                          const LevelSequenceSubsequenceSource& subsequences = {},
-                          const LevelSequenceVFXUserParams&     vfx          = {} );
+    [[nodiscard]] LevelSequenceStep AdvanceLevelSequence( entt::registry&               registry,
+                                                          const LevelSequenceComponent& component,
+                                                          LevelSequencePlayback& playback, double seconds,
+                                                          const LevelSequenceClipSource&        clips        = {},
+                                                          const LevelSequenceMaterialSlots&     materials    = {},
+                                                          const LevelSequenceSubsequenceSource& subsequences = {},
+                                                          const LevelSequenceVFXUserParams&     vfx = {} );
 
     /**
      * @brief What an actor remembers between steps for the Scene half: which errors it already reported
