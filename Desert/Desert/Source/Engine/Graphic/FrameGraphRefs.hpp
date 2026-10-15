@@ -71,6 +71,9 @@ namespace Desert::Graphic
         // The view's responsive-AA mask (ViewRasterTargets.hpp CreateViewResponsiveAA): a colour slot of the scene
         // target only, written by ResponsiveAA translucency (glass, particles)   -> TAA
         RDG::TextureRef ResponsiveAA;
+        // The view's thin-geometry coverage (ViewRasterTargets.hpp CreateViewThinGeometryCoverage): a colour slot of
+        // the scene target and of the G-buffer, written by the passes that write the view's depth   -> TSR
+        RDG::TextureRef ThinGeometryCoverage;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: the sun's cascade array (MeshRenderer::AcquireCascadeMaps, layer c = cascade c; a cleared

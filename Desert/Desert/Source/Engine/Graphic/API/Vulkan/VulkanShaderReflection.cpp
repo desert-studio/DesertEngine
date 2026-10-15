@@ -399,6 +399,81 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         return locations;
     }
 
+    namespace
+    {
+        // spirv_cross keeps the parsed module (its every variable) protected: the one way to walk ALL global
+        // variables, the Workgroup ones included, whatever SPIR-V version listed them in the entry point.
+        class WorkgroupMemoryReflector final : public spirv_cross::Compiler
+        {
+        public:
+            explicit WorkgroupMemoryReflector( const std::vector<uint32_t>& spirv ) : spirv_cross::Compiler( spirv )
+            {
+            }
+
+            [[nodiscard]] uint64_t Bytes() const
+            {
+                uint64_t total = 0;
+                ir.for_each_typed_id<spirv_cross::SPIRVariable>(
+                     [&]( uint32_t, const spirv_cross::SPIRVariable& variable )
+                     {
+                         if ( variable.storage != spv::StorageClassWorkgroup )
+                             return;
+                         uint64_t alignment = 1;
+                         total += RoundUp( Std430Size( get<spirv_cross::SPIRType>( variable.basetype ), alignment ),
+                                           alignment );
+                     } );
+                return total;
+            }
+
+        private:
+            [[nodiscard]] static uint64_t RoundUp( uint64_t value, uint64_t alignment )
+            {
+                return ( value + alignment - 1 ) / alignment * alignment;
+            }
+
+            // std430 size and base alignment of @p type (one array level peeled per recursion: the parent type is
+            // the element, array.back() this level's length).
+            [[nodiscard]] uint64_t Std430Size( const spirv_cross::SPIRType& type, uint64_t& alignment ) const
+            {
+                if ( !type.array.empty() )
+                {
+                    uint64_t       elementAlignment = 1;
+                    const uint64_t element =
+                         Std430Size( get<spirv_cross::SPIRType>( type.parent_type ), elementAlignment );
+                    const uint32_t length = type.array_size_literal.back()
+                                                 ? type.array.back()
+                                                 : evaluate_constant_u32( type.array.back() );
+                    alignment = elementAlignment;
+                    return RoundUp( element, elementAlignment ) * std::max( length, 1u );
+                }
+                if ( type.basetype == spirv_cross::SPIRType::Struct )
+                {
+                    uint64_t offset = 0;
+                    alignment       = 1;
+                    for ( const spirv_cross::TypeID member : type.member_types )
+                    {
+                        uint64_t       memberAlignment = 1;
+                        const uint64_t size = Std430Size( get<spirv_cross::SPIRType>( member ), memberAlignment );
+                        offset              = RoundUp( offset, memberAlignment ) + size;
+                        alignment           = std::max( alignment, memberAlignment );
+                    }
+                    return RoundUp( offset, alignment );
+                }
+                // A bool has no storage width of its own: it occupies a 32-bit word.
+                const uint64_t component =
+                     type.basetype == spirv_cross::SPIRType::Boolean ? 4 : std::max( type.width / 8u, 1u );
+                const uint64_t vector = component * ( type.vecsize == 3 ? 4 : type.vecsize );
+                alignment             = vector;
+                return type.columns > 1 ? vector * type.columns : component * type.vecsize;
+            }
+        };
+    } // namespace
+
+    uint64_t ReflectWorkgroupMemoryBytes( const std::vector<uint32_t>& spirv )
+    {
+        return WorkgroupMemoryReflector( spirv ).Bytes();
+    }
+
     std::vector<uint32_t> ReflectFragmentOutputLocations( const std::vector<uint32_t>& spirv )
     {
         const spirv_cross::Compiler        compiler( spirv );

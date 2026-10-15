@@ -1154,6 +1154,12 @@ namespace Desert::Graphic
                  graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
             textures.Transients.ResponsiveAA = responsive.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor( responsive, target.Samples ) );
+            // After them on both targets (kSceneTargetThinGeometryCoverageSlot / kGBufferThinGeometryCoverageSlot).
+            const ViewVelocity coverage = CreateViewThinGeometryCoverage(
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
+            textures.Transients.ThinGeometryCoverage = coverage.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, ThinGeometryCoverageColor( coverage, target.Samples ) );
+            textures.AddGraphColor( m_GBuffer, ThinGeometryCoverageColor( coverage, 1 ) );
         }
         const auto values = std::make_shared<FrameValues>();
 
@@ -1873,10 +1879,12 @@ namespace Desert::Graphic
              .Velocity     = textures.Transients.Velocity,
              .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
-             .Exposure    = exposure.IsValid() ? exposure : textures.System.White,
-             .History     = histories,
-             .PrevHistory = temporal ? m_ViewState.UpscalerHistory() : nullptr,
-             .Quality     = &m_Quality };
+             .Exposure             = exposure.IsValid() ? exposure : textures.System.White,
+             .ThinGeometryCoverage = textures.Transients.ThinGeometryCoverage,
+             .Black                = textures.System.Black,
+             .History              = histories,
+             .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,
+             .Quality              = &m_Quality };
         RDG::TextureRef resolvedColor;
         if ( spatial )
         {
@@ -1958,6 +1966,8 @@ namespace Desert::Graphic
         overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
         desc.Format          = ViewTargetFormats::kResponsiveAA;
         overlay.ResponsiveAA = graph.CreateTexture( desc, "Overlay.ResponsiveAA" );
+        desc.Format                  = ViewTargetFormats::kThinGeometryCoverage;
+        overlay.ThinGeometryCoverage = graph.CreateTexture( desc, "Overlay.ThinGeometryCoverage" );
         desc.Format      = ViewTargetFormats::kSceneDepth;
         overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
         const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();

@@ -17,9 +17,16 @@ Shader "TSRDecimateHistory"
         // disoccluded: UE bIsOffScreen / bIsDisoccluded), the reprojected moire history, and the resurrected guide
         // (rgb, GCS) with a = 1 where the resurrection frame sees the pixel on screen (UE !bIsResurrectionOffScreen;
         // 0 everywhere while u_ResurrectionEnabled is 0).
+        // TSR_THIN_GEOMETRY (the project's r.TSR.ThinGeometryDetection, UE DIM_THIN_GEOMETRY_COVERAGE_REPROJECTION,
+        // ReprojectPrevHistoryCoverage :65-68): also last frame's coverage history, point-sampled where the pixel
+        // was (clamped to the screen, as UE's GlobalPointClampedSampler), 0 without a history.
         LocalSize(8, 8, 1);
 
         #include <Common/TSRCommon.glslh>
+
+        #ifndef TSR_THIN_GEOMETRY
+        #define TSR_THIN_GEOMETRY 0
+        #endif
 
         Uniform(1) sampler2D u_DilatedVelocity;
         Uniform(2) sampler2D u_ClosestDepth;
@@ -34,6 +41,10 @@ Shader "TSRDecimateHistory"
         Uniform(8) sampler2D u_ResurrectionGuide; // the persistent TSR.History.Guide.Persistent* frame, LINEAR
         Uniform(9) sampler2D u_Exposure;          // 1x1 previous adapted luminance
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ResurrectedGuide;
+#if TSR_THIN_GEOMETRY
+        Uniform(11) sampler2D u_PrevCoverage; // previous TSR.History.Coverage, RenderExtent
+        layout(binding = 12, r32f) restrict writeonly uniform image2D u_ReprojectedCoverage;
+#endif
 
         void main()
         {
@@ -87,6 +98,11 @@ Shader "TSRDecimateHistory"
             const vec4  moire       = offScreen ? vec4(0.0) : textureLod(u_PrevMoire, prevUv, 0.0);
             imageStore(u_ReprojectedGuide, pixel, vec4(guide.rgb, validity));
             imageStore(u_ReprojectedMoire, pixel, vec4(moire.xyz, validity));
+#if TSR_THIN_GEOMETRY
+            const ivec2 prevCoveragePixel = clamp(ivec2(floor(prevUv * u_RenderSize)), ivec2(0), ivec2(u_RenderSize) - 1);
+            const float coverage = u_HistoryValid > 0.5 ? texelFetch(u_PrevCoverage, prevCoveragePixel, 0).r : 0.0;
+            imageStore(u_ReprojectedCoverage, pixel, vec4(coverage));
+#endif
 
             vec4 resurrected = vec4(0.0);
             if (u_ResurrectionEnabled > 0.5)

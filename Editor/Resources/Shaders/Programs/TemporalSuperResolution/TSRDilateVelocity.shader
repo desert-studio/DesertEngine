@@ -16,7 +16,9 @@ Shader "TSRDilateVelocity"
         //
         // u_ReprojectionField (r.TSR.ReprojectionField, a uniform as in UE): 1 writes the field TSR.UpdateHistory
         // reads — u_ReprojectionJacobian (UE EncodeReprojectionJacobian) and u_ReprojectionBoundary (the dilating
-        // offset to the closest depth and the boundary, UE EncodeReprojectionBoundary); 0 writes both as 0.
+        // offset to the closest depth and the boundary, UE EncodeReprojectionBoundary); 0 writes both as 0, except
+        // with u_ThinGeometryDetection, where the boundary holds the dilating offset alone (UE
+        // CONFIG_THIN_GEOMETRY_EDGE_REPROJECTION, TSRDilateVelocity.usf :325, :393) for TSR.DetectThinGeometry.
         LocalSize(8, 8, 1);
 
         #include <Common/TSRCommon.glslh>
@@ -222,6 +224,12 @@ Shader "TSRDilateVelocity"
                 const vec2 centreVelocity = NdcVelocityAt(pixel, s_Depth[1][1]);
                 encodedBoundary =
                      EncodeReprojectionBoundary(closestOffset, ComputeBoundary(pixel, centreVelocity, velocity));
+            }
+            else if (u_ThinGeometryDetection > 0.5)
+            {
+                // UE CONFIG_THIN_GEOMETRY_EDGE_REPROJECTION without the field: the dilating offset alone, which
+                // TSR.DetectThinGeometry reads from the low 4 bits (as from a full boundary encoding).
+                encodedBoundary = EncodeReprojectionOffset(closestOffset);
             }
             imageStore(u_ReprojectionJacobian, pixel, uvec4(encodedJacobian));
             imageStore(u_ReprojectionBoundary, pixel, uvec4(encodedBoundary));

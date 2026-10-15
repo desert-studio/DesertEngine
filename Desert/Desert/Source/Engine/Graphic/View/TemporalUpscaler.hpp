@@ -65,6 +65,14 @@ namespace Desert::Graphic
         // Last frame's exposure (AutoExposure's 1x1 output, read in the shader): the resolve weights samples in a
         // tonemapped space (UE: HdrWeight), and the exposure must be the one the history was resolved under.
         RDG::TextureRef Exposure; // AutoExposureRenderer previous adapted luminance, 1x1 (AutoExposure.Previous)
+        // What the base passes say about each pixel's material (ViewTargetFormats::kThinGeometryCoverage,
+        // RenderExtent, ViewRasterTargets.hpp CreateViewThinGeometryCoverage): 0 nothing / unlit, 0.5 a regular
+        // surface, 1 two-sided foliage (UE TSRMeasureCoverage.usf EncodeThinGeometryMaterial). TSR's thin-geometry
+        // detection reads it.
+        RDG::TextureRef ThinGeometryCoverage;
+        // The graph's System.Black (RDGSystemTextures.hpp): what an implementation binds where an input of its own
+        // does not exist this frame (UE GSystemTextures BlackDummy), never another input standing in for it.
+        RDG::TextureRef              Black;
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
         // The NewHistory this view's last frame returned; null on the view's first frame, after
         // SceneViewState::Reset and while the method is None. May be another implementation's (a method change):

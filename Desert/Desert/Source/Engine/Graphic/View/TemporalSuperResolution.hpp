@@ -38,6 +38,10 @@ namespace Desert::Graphic
     //   TSR.DecimateHistory     Render   reprojects the guide and moire histories, parallax disocclusion against
     //                                    the scatter (UE TSRDecimateHistory.usf, ProcessPrevAtomicTexturesSamples);
     //                                    with r.TSR.Resurrection the persistent frame's guide too
+    //   TSR.DetectThinGeometry  Render   with the project's r.TSR.ThinGeometryDetection (Project::RendererSettings):
+    //                                    sub-pixel geometry from the base passes' coverage, the depth's thin edges
+    //                                    and the coverage history (UE TSRDetectThinGeometry.usf) -> the thin-geometry
+    //                                    relaxation weight and this frame's coverage history
     //   TSR.RejectShading       Render   shading rejection of the reprojected guide against the input in UE's
     //                                    guide colour space (UE TSRRejectShading.usf, TSRShadingAnalysis.ush
     //                                    MeasureRejection), flicker-tolerant when the quality row says so; history
@@ -56,7 +60,8 @@ namespace Desert::Graphic
     // THREE HISTORIES (HistoryDescs): the colour history at the HISTORY extent (Output x
     // TsrHistoryScreenPercentage), and the guide and moire histories at the RENDER extent; with r.TSR.Resurrection
     // also kTsrPersistentFrameCount persistent colour frames and as many persistent (linear) guide frames
-    // (HistoryLifetime::Persistent). All RGBA16F / R32F / R32_UINT: the only storage formats Vulkan guarantees
+    // (HistoryLifetime::Persistent); with the project's r.TSR.ThinGeometryDetection last the coverage history at the
+    // RENDER extent (UE History.CoverageArray). All RGBA16F / R32F / R32_UINT: the only storage formats Vulkan guarantees
     // without shaderStorageImageExtendedFormats are used.
     //
     // QUALITY (UE sg.AntiAliasingQuality r.TSR.* rows): TsrHistoryScreenPercentage and TsrResurrection change the
@@ -110,6 +115,9 @@ namespace Desert::Graphic
         int  RejectionAntiAliasing      = 1; // 0 off, 1..2
         bool ReprojectionField          = true;
         bool Resurrection               = true;
+        // Not a quality row: the PROJECT's r.TSR.ThinGeometryDetection (Project::RendererSettings, UE
+        // DefaultEngine.ini), read with the rows so every TSR decision comes from one struct.
+        bool ThinGeometryDetection = false;
     };
     [[nodiscard]] TsrQuality ReadTsrQuality( const Common::Scalability::ResolvedQuality& quality );
 
@@ -190,8 +198,8 @@ namespace Desert::Graphic
         // UE :2531: square(max(r.TSR.ReprojectionField.AntiAliasPixelSpeed (0.125) / (Render / Output), 1 / 64)).
         float ReprojectionFieldAntiAliasVelocityThreshold = 0.0f;
         float ResurrectionEnabled                         = 0.0f; // a persistent frame is resurrectable
-        float Pad0                                        = 0.0f;
-        float Pad1                                        = 0.0f;
+        float ThinGeometryDetection                       = 0.0f; // TsrQuality::ThinGeometryDetection
+        float ThinGeometryFrameIndex                      = 0.0f; // TsrHistory::AccumulatedFrames mod 64
     };
     static_assert( offsetof( TsrParams, PrevInvProjection ) == 128 );
     static_assert( offsetof( TsrParams, RenderSize ) == 192 );
@@ -214,7 +222,9 @@ namespace Desert::Graphic
     // declarations; the backend re-validates them against the compiled reflection at record time.
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrClearPrevTexturesLayout();
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDilateVelocityLayout();
-    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout();
+    // @p thinGeometry: the TSR_THIN_GEOMETRY=1 variant also reprojects the coverage history.
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout( bool thinGeometry );
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout();
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRejectShadingLayout();
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrSpatialAntiAliasingLayout();
     // @p writesOutput: the TSR_WRITE_OUTPUT=1 variant (History == Output) also binds u_Output.

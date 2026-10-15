@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Project/RendererSettings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
@@ -29,6 +30,10 @@ namespace Desert::Graphic
         constexpr const char* kUpdateHistory       = "TSRUpdateHistory";
         constexpr const char* kResolveHistory      = "TSRResolveHistory";
         constexpr const char* kRecordPersistent    = "TSRRecordPersistentFrame";
+        constexpr const char* kDetectThinGeometry  = "TSRDetectThinGeometry";
+        // TSR.DetectThinGeometry's tile (Programs/TemporalSuperResolution/TSRDetectThinGeometry.shader: 16x16 minus
+        // UE's overscan of 3 on each side): the pixels one group writes per side.
+        constexpr uint32_t kThinGeometryTileOutput = 10;
 
         constexpr const char* kColorHistory         = "TSR.History.Color";
         constexpr const char* kColorHistoryPrevious = "TSR.History.Color.Previous";
@@ -44,6 +49,14 @@ namespace Desert::Graphic
         constexpr std::size_t kPersistentColorIndex = kHistoryCount;
         constexpr std::size_t kPersistentGuideIndex = kHistoryCount + kTsrPersistentFrameCount;
         constexpr std::size_t kHistoryCountWithResurrection = kHistoryCount + 2 * kTsrPersistentFrameCount;
+        // The project's r.TSR.ThinGeometryDetection: the coverage history, after every other.
+        constexpr const char* kCoverageHistory         = "TSR.History.Coverage";
+        constexpr const char* kCoverageHistoryPrevious = "TSR.History.Coverage.Previous";
+        [[nodiscard]] std::size_t DeclaredHistoryCount( const TsrQuality& quality )
+        {
+            return ( quality.Resurrection ? kHistoryCountWithResurrection : kHistoryCount ) +
+                   ( quality.ThinGeometryDetection ? 1 : 0 );
+        }
         constexpr std::array<const char*, kTsrPersistentFrameCount> kPersistentColorNames{
              "TSR.History.Color.Persistent0", "TSR.History.Color.Persistent1" };
         constexpr std::array<const char*, kTsrPersistentFrameCount> kPersistentGuideNames{
@@ -65,11 +78,6 @@ namespace Desert::Graphic
         constexpr float kVelocityWeightClampingSampleCount = 4.0f;
         constexpr float kVelocityWeightClampingPixelSpeed  = 1.0f;
         constexpr float kFlickeringFramePeriod             = 2.0f;
-
-        uint32_t Groups( uint32_t size )
-        {
-            return ( size + kGroupSize - 1 ) / kGroupSize;
-        }
 
         using Kind = RDG::ShaderResourceKind;
 
@@ -103,10 +111,24 @@ namespace Desert::Graphic
         return layout;
     }
 
-    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout()
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout()
     {
         static const auto layout =
-             MakeLayout( kDecimateHistory, { { "TSRParamsBuffer", Kind::StorageBuffer },
+             MakeLayout( kDetectThinGeometry, { { "TSRParamsBuffer", Kind::StorageBuffer },
+                                                { "u_SceneDepth", Kind::SampledTexture },
+                                                { "u_ThinGeometryCoverage", Kind::SampledTexture },
+                                                { "u_ReprojectedCoverage", Kind::SampledTexture },
+                                                { "u_ReprojectionBoundary", Kind::SampledTexture },
+                                                { "u_ThinGeometry", Kind::StorageTexture },
+                                                { "u_CoverageOut", Kind::StorageTexture } } );
+        return layout;
+    }
+
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout( const bool thinGeometry )
+    {
+        const auto slots = []( const bool withCoverage )
+        {
+            std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
                                              { "u_DilatedVelocity", Kind::SampledTexture },
                                              { "u_ClosestDepth", Kind::SampledTexture },
                                              { "TSRPrevAtomicBuffer", Kind::StorageBuffer },
@@ -116,8 +138,17 @@ namespace Desert::Graphic
                                              { "u_ReprojectedMoire", Kind::StorageTexture },
                                              { "u_ResurrectionGuide", Kind::SampledTexture },
                                              { "u_Exposure", Kind::SampledTexture },
-                                             { "u_ResurrectedGuide", Kind::StorageTexture } } );
-        return layout;
+                                             { "u_ResurrectedGuide", Kind::StorageTexture } };
+            if ( withCoverage )
+            {
+                list.push_back( { "u_PrevCoverage", Kind::SampledTexture } );
+                list.push_back( { "u_ReprojectedCoverage", Kind::StorageTexture } );
+            }
+            return list;
+        };
+        static const auto withCoverage = MakeLayout( kDecimateHistory, slots( true ) );
+        static const auto plain        = MakeLayout( kDecimateHistory, slots( false ) );
+        return thinGeometry ? withCoverage : plain;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRejectShadingLayout()
@@ -219,7 +250,8 @@ namespace Desert::Graphic
                            .ShadingRejectionFlickering = quality.As<int>( P::TsrShadingRejectionFlickering ) != 0,
                            .RejectionAntiAliasing      = quality.As<int>( P::TsrRejectionAntiAliasing ),
                            .ReprojectionField          = quality.As<int>( P::TsrReprojectionField ) != 0,
-                           .Resurrection               = quality.As<int>( P::TsrResurrection ) != 0 };
+                           .Resurrection               = quality.As<int>( P::TsrResurrection ) != 0,
+                           .ThinGeometryDetection = Project::CurrentRendererSettings().TsrThinGeometryDetection };
     }
 
     RDG::Extent3D TsrHistoryExtent( const ResolutionSplit& split, const TsrQuality& quality )
@@ -294,6 +326,7 @@ namespace Desert::Graphic
         const bool  ortho            = frame.PrevProjection[3][3] == 1.0f;
         params.DepthPixelRadiusScale = ortho ? 0.0f : 1.0f / ( pixelsHigh * p11 );
         params.DepthPixelRadiusBias  = ortho ? 1.0f / ( pixelsHigh * p11 ) : 0.0f;
+        params.ThinGeometryDetection = quality.ThinGeometryDetection ? 1.0f : 0.0f;
         return params;
     }
 
@@ -326,12 +359,10 @@ namespace Desert::Graphic
         HistoryTextureDesc moire = guide;
         moire.Name               = kMoireHistory;
         moire.PreviousName       = kMoireHistoryPrevious;
-        if ( !tsr.Resurrection )
-            return { color, guide, moire };
 
-        // r.TSR.Resurrection: the persistent frames (UE: the persistent slices of the history arrays).
         std::vector<HistoryTextureDesc> descs{ color, guide, moire };
-        for ( std::size_t i = 0; i < kTsrPersistentFrameCount; ++i )
+        // r.TSR.Resurrection: the persistent frames (UE: the persistent slices of the history arrays).
+        for ( std::size_t i = 0; tsr.Resurrection && i < kTsrPersistentFrameCount; ++i )
         {
             HistoryTextureDesc persistent = color;
             persistent.Lifetime           = HistoryLifetime::Persistent;
@@ -339,13 +370,23 @@ namespace Desert::Graphic
             persistent.PreviousName       = "";
             descs.push_back( persistent );
         }
-        for ( std::size_t i = 0; i < kTsrPersistentFrameCount; ++i )
+        for ( std::size_t i = 0; tsr.Resurrection && i < kTsrPersistentFrameCount; ++i )
         {
             HistoryTextureDesc persistent = guide;
             persistent.Lifetime           = HistoryLifetime::Persistent;
             persistent.Name               = kPersistentGuideNames[i];
             persistent.PreviousName       = "";
             descs.push_back( persistent );
+        }
+        // The project's r.TSR.ThinGeometryDetection: the coverage history (UE History.CoverageArray, R8 there; R32F
+        // here, a storage format Vulkan guarantees).
+        if ( tsr.ThinGeometryDetection )
+        {
+            HistoryTextureDesc coverage = guide;
+            coverage.Desc.Format        = kDepthFormat;
+            coverage.Name               = kCoverageHistory;
+            coverage.PreviousName       = kCoverageHistoryPrevious;
+            descs.push_back( coverage );
         }
         return descs;
     }
@@ -369,18 +410,22 @@ namespace Desert::Graphic
             return missing( "Exposure" );
         if ( !inputs.ResponsiveAA.IsValid() )
             return missing( "ResponsiveAA" );
+        if ( !inputs.Black.IsValid() )
+            return missing( "Black" );
         if ( inputs.Quality == nullptr )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}", "TSR: TemporalUpscalerInputs::Quality is null (its r.TSR.* rows are read from it)" );
         const TsrQuality  quality         = ReadTsrQuality( *inputs.Quality );
-        const std::size_t declaredHistory = quality.Resurrection ? kHistoryCountWithResurrection : kHistoryCount;
+        const std::size_t declaredHistory = DeclaredHistoryCount( quality );
+        if ( quality.ThinGeometryDetection && !inputs.ThinGeometryCoverage.IsValid() )
+            return missing( "ThinGeometryCoverage" );
         if ( inputs.History.size() != declaredHistory )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}", std::format( "TSR: {} histories given, HistoryDescs declares {}", inputs.History.size(),
                                     declaredHistory ) );
         for ( const HistoryRefs& history : inputs.History )
             if ( !history.Previous.IsValid() || !history.Current.IsValid() )
-                return missing( "history (one of TSR.History.Color / Guide / Moire / *.Persistent*)" );
+                return missing( "history (one of TSR.History.Color / Guide / Moire / *.Persistent* / Coverage)" );
         const ResolutionSplit& split = frame.Split;
         if ( !Supports( split ) || split.Render.Width == 0 || split.Render.Height == 0 ||
              split.Output.Width == 0 || split.Output.Height == 0 )
@@ -416,7 +461,8 @@ namespace Desert::Graphic
              quality.Resurrection && records->AccumulatedFrames % kTsrPersistentFrameInterval == 0;
         const uint32_t recordSlot = records->NextSlot;
 
-        const TsrParams      params = MakeTsrParams( frame, history, quality, resurrection );
+        TsrParams params              = MakeTsrParams( frame, history, quality, resurrection );
+        params.ThinGeometryFrameIndex = static_cast<float>( records->AccumulatedFrames % 64u );
         const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( TsrParams ) }, "TSR.Params" );
         graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &params, 1 ) ) );
         const RDG::BufferRef prevAtomic = graph.CreateBuffer(
@@ -440,38 +486,86 @@ namespace Desert::Graphic
         const RDG::TextureRef reprojJacobian   = texture( render, kUintFormat, "TSR.ReprojectionJacobian" );
         const RDG::TextureRef reprojBoundary   = texture( render, kUintFormat, "TSR.ReprojectionBoundary" );
         const RDG::TextureRef resurrectedGuide = texture( render, kColorFormat, "TSR.ResurrectedGuide" );
+        // The project's r.TSR.ThinGeometryDetection: the coverage history pair, the reprojected coverage and the
+        // thin-geometry weight (UE R8Output[ThinGeometryTextureIndex]); invalid refs without it (no pass names them).
+        const HistoryRefs coverage =
+             quality.ThinGeometryDetection ? inputs.History[declaredHistory - 1] : HistoryRefs{};
+        const RDG::TextureRef reprojectedCoverage = quality.ThinGeometryDetection
+                                                         ? texture( render, kDepthFormat, "TSR.ReprojectedCoverage" )
+                                                         : RDG::TextureRef{};
+        const RDG::TextureRef thinGeometry =
+             quality.ThinGeometryDetection ? texture( render, kUintFormat, "TSR.ThinGeometry" ) : RDG::TextureRef{};
         // The resurrection frame's textures; with none this frame the shaders read nothing from them
-        // (u_ResurrectionEnabled 0), and the bound texture is one the pass reads anyway (UE: BlackArrayDummy).
+        // (u_ResurrectionEnabled 0) and the slot holds System.Black (UE: BlackArrayDummy).
         const RDG::TextureRef resurrectionGuide =
              resurrection != nullptr
                   ? inputs.History[kPersistentGuideIndex + static_cast<std::size_t>( resurrectionSlot )].Previous
-                  : inputs.Exposure;
+                  : inputs.Black;
         const RDG::TextureRef resurrectionColor =
              resurrection != nullptr
                   ? inputs.History[kPersistentColorIndex + static_cast<std::size_t>( resurrectionSlot )].Previous
-                  : inputs.Exposure;
+                  : inputs.Black;
         const RDG::TextureRef sceneColorOutput = texture( output, kColorFormat, "TSR.Output" );
         const bool            historyIsOutput  = history.Width == output.Width && history.Height == output.Height;
         const auto            point            = RDG::SamplerDesc::PointClamp();
         const auto            linear           = RDG::SamplerDesc::LinearClamp();
         const auto            all              = RDG::SubresourceRange::All();
         constexpr auto        sampled          = RDG::Access::SampledCompute;
-        // The stand-in is sampled with a point sampler: linear filtering of its format is not guaranteed.
-        const auto resurrectionSampler = resurrection != nullptr ? linear : point;
+
+        // Every pipeline this frame's chain dispatches, made now: one that does not compile, or that the device
+        // refuses (VulkanShader::Reflect: shared memory above maxComputeSharedMemorySize), refuses TSR for the frame
+        // by name before a pass is added, instead of failing one pass at record time.
+        const std::string decimateDefines =
+             std::format( "TSR_THIN_GEOMETRY={}", quality.ThinGeometryDetection ? 1 : 0 );
+        // UE DIM_VARYING_RANGE_DETECTION: ShadingRange VaryingRange (the UE default) needs the flickering heuristic
+        // (MinKeepLineContrast's intensity lines are not ported); without it UE falls back to foliage only.
+        const std::string thinGeometryDefines =
+             std::format( "TSR_THIN_VARYING_RANGE={}", quality.ShadingRejectionFlickering ? 1 : 0 );
+        const std::string spatialDefines =
+             std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) );
+        const std::string updateDefines = std::format( "TSR_UPDATE_QUALITY={};TSR_WRITE_OUTPUT={}",
+                                                       quality.HistoryUpdateQuality, historyIsOutput ? 1 : 0 );
+        {
+            std::vector<std::pair<const char*, std::string>> used{
+                 { kClearPrevTextures, "" },
+                 { kDilateVelocity, "" },
+                 { kDecimateHistory, decimateDefines },
+                 { kRejectShading, "" },
+                 { kSpatialAntiAliasing, spatialDefines },
+                 { kUpdateHistory, updateDefines } };
+            if ( quality.ThinGeometryDetection )
+                used.emplace_back( kDetectThinGeometry, thinGeometryDefines );
+            if ( !historyIsOutput )
+                used.emplace_back( kResolveHistory, "" );
+            if ( recordThisFrame )
+            {
+                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=0" );
+                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=1" );
+            }
+            for ( const auto& [shader, defines] : used )
+            {
+                std::string error;
+                if ( !PipelineFor( shader, defines, error ) )
+                    return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}",
+                                                                                std::format( "TSR refused: {}", error ) );
+            }
+        }
 
         // The record-time half of every pass: the pipeline of (shader, defines), dispatched over @p extent.
-        const auto dispatch = [this]( const char* shader, std::string defines, RDG::Extent3D extent )
+        const auto dispatch = [this]( const char* shader, std::string defines, RDG::Extent3D extent,
+                                      uint32_t tile = kGroupSize )
         {
-            return [this, shader, defines = std::move( defines ),
-                    extent]( RDG::PassContext& context ) -> Common::BoolResultStr
+            return [this, shader, defines = std::move( defines ), extent,
+                    tile]( RDG::PassContext& context ) -> Common::BoolResultStr
             {
                 std::string                            error;
                 const std::shared_ptr<ComputePipeline> pipeline = PipelineFor( shader, defines, error );
                 if ( !pipeline )
                     return Common::MakeError( error );
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, Groups( extent.Width ),
-                                                                Groups( extent.Height ), 1 );
+                return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
+                                                                ( extent.Width + tile - 1 ) / tile,
+                                                                ( extent.Height + tile - 1 ) / tile, 1 );
             };
         };
 
@@ -505,8 +599,9 @@ namespace Desert::Graphic
              "TSR.DecimateHistory", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( TsrDecimateHistoryLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                 RDG::BindingBlockBuilder bindings =
+                      pass.Bindings( TsrDecimateHistoryLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
+                 bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
                       .Sampled( "u_DilatedVelocity", dilatedVelocity, sampled, all, point )
                       .Sampled( "u_ClosestDepth", closestDepth, sampled, all, point )
                       .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageRead )
@@ -514,11 +609,31 @@ namespace Desert::Graphic
                       .Sampled( "u_PrevMoire", moire.Previous, sampled, all, linear )
                       .Storage( "u_ReprojectedGuide", reprojectedGuide, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_ReprojectedMoire", reprojectedMoire, RDG::Access::StorageWrite, 0 )
-                      .Sampled( "u_ResurrectionGuide", resurrectionGuide, sampled, all, resurrectionSampler )
+                      .Sampled( "u_ResurrectionGuide", resurrectionGuide, sampled, all, linear )
                       .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
                       .Storage( "u_ResurrectedGuide", resurrectedGuide, RDG::Access::StorageWrite, 0 );
+                 if ( quality.ThinGeometryDetection )
+                     bindings.Sampled( "u_PrevCoverage", coverage.Previous, sampled, all, point )
+                          .Storage( "u_ReprojectedCoverage", reprojectedCoverage, RDG::Access::StorageWrite, 0 );
              },
-             dispatch( kDecimateHistory, "", render ) );
+             dispatch( kDecimateHistory, decimateDefines, render ) );
+
+        // The project's r.TSR.ThinGeometryDetection (UE: after DecimateHistory, before RejectShading).
+        if ( quality.ThinGeometryDetection )
+            graph.AddPass(
+                 "TSR.DetectThinGeometry", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( TsrDetectThinGeometryLayout(), RDG::OtherRouteFill{} )
+                          .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                          .Sampled( "u_SceneDepth", inputs.SceneDepth, sampled, all, point )
+                          .Sampled( "u_ThinGeometryCoverage", inputs.ThinGeometryCoverage, sampled, all, point )
+                          .Sampled( "u_ReprojectedCoverage", reprojectedCoverage, sampled, all, point )
+                          .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
+                          .Storage( "u_ThinGeometry", thinGeometry, RDG::Access::StorageWrite, 0 )
+                          .Storage( "u_CoverageOut", coverage.Current, RDG::Access::StorageWrite, 0 );
+                 },
+                 dispatch( kDetectThinGeometry, thinGeometryDefines, render, kThinGeometryTileOutput ) );
 
         graph.AddPass(
              "TSR.RejectShading", RDG::PassFlags::Compute,
@@ -549,9 +664,7 @@ namespace Desert::Graphic
                       .Sampled( "u_AntiAliasInput", antiAliasInput, sampled, all, linear )
                       .Storage( "u_AntiAliasing", antiAliasing, RDG::Access::StorageWrite, 0 );
              },
-             dispatch( kSpatialAntiAliasing,
-                       std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) ),
-                       render ) );
+             dispatch( kSpatialAntiAliasing, spatialDefines, render ) );
 
         graph.AddPass(
              "TSR.UpdateHistory", RDG::PassFlags::Compute,
@@ -570,15 +683,12 @@ namespace Desert::Graphic
                       .Sampled( "u_ClosestDepth", closestDepth, sampled, all, point )
                       .Sampled( "u_ReprojectionJacobian", reprojJacobian, sampled, all, point )
                       .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
-                      .Sampled( "u_ResurrectionHistory", resurrectionColor, sampled, all, resurrectionSampler )
+                      .Sampled( "u_ResurrectionHistory", resurrectionColor, sampled, all, linear )
                       .Storage( "u_HistoryOut", color.Current, RDG::Access::StorageWrite, 0 );
                  if ( historyIsOutput )
                      bindings.Storage( "u_Output", sceneColorOutput, RDG::Access::StorageWrite, 0 );
              },
-             dispatch( kUpdateHistory,
-                       std::format( "TSR_UPDATE_QUALITY={};TSR_WRITE_OUTPUT={}", quality.HistoryUpdateQuality,
-                                    historyIsOutput ? 1 : 0 ),
-                       history ) );
+             dispatch( kUpdateHistory, updateDefines, history ) );
 
         if ( !historyIsOutput )
             graph.AddPass(

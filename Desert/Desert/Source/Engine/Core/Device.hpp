@@ -82,6 +82,10 @@ namespace Desert::Engine
         uint32_t MaxTexture2DSize      = 0;
         uint32_t MaxTextureArrayLayers = 0;
         uint32_t MaxColorAttachments   = 0; ///< The deferred G-buffer needs 4 + depth; RSM mirrors it.
+        /// VkPhysicalDeviceLimits::maxComputeSharedMemorySize: the bytes of shared (Workgroup) memory one compute
+        /// workgroup may declare. Vulkan guarantees 16 KiB; desktop GPUs give 32-64 KiB, Apple 32 KiB. Reader:
+        /// VulkanShader::Reflect, which refuses a compute program above it by name (the driver does not have to).
+        uint32_t MaxComputeSharedMemorySize = 0;
         /// VK textureCompressionBC: the BC1..BC7 block-compressed formats, as a DEVICE FEATURE.
         ///
         /// NOT the same question as `IsFormatSupported(BC7, Sampled)`. That one reads

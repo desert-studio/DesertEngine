@@ -42,8 +42,8 @@ layout(std430, binding = 0) readonly buffer TSRParamsBuffer
     mat4  u_ClipToResurrectionClip;    // this frame's unjittered clip -> the resurrection frame's clip
     float u_ReprojectionFieldAntiAliasVelocityThreshold; // UE TemporalSuperResolution.cpp :2531
     float u_ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
-    float u_ParamsPad0;
-    float u_ParamsPad1;
+    float u_ThinGeometryDetection;  // the project's r.TSR.ThinGeometryDetection: 0 / 1 (TSR.DilateVelocity's offset)
+    float u_ThinGeometryFrameIndex; // the frame count since the history reset, mod 64 (the coverage dither)
 };
 
 const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush

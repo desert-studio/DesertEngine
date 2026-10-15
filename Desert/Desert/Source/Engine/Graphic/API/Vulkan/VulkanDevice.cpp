@@ -103,6 +103,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
             m_Capabilities.MaxColorAttachments       = deviceProperties.limits.maxColorAttachments;
+            m_Capabilities.MaxComputeSharedMemorySize = deviceProperties.limits.maxComputeSharedMemorySize;
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
 

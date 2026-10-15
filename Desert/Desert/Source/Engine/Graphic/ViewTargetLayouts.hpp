@@ -18,7 +18,8 @@ namespace Desert::Graphic
     inline RenderTargetLayout SceneTargetLayout()
     {
         return RenderTargetLayout{
-             { ViewTargetFormats::kSceneColor, ViewTargetFormats::kVelocity, ViewTargetFormats::kResponsiveAA },
+             { ViewTargetFormats::kSceneColor, ViewTargetFormats::kVelocity, ViewTargetFormats::kResponsiveAA,
+               ViewTargetFormats::kThinGeometryCoverage },
              ViewTargetFormats::kSceneDepth,
              1 };
     }
@@ -27,7 +28,7 @@ namespace Desert::Graphic
     {
         return RenderTargetLayout{ { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB,
                                      ViewTargetFormats::kGBufferShadingWord, ViewTargetFormats::kGBufferEmissive,
-                                     ViewTargetFormats::kVelocity },
+                                     ViewTargetFormats::kVelocity, ViewTargetFormats::kThinGeometryCoverage },
                                    ViewTargetFormats::kGBufferDepth,
                                    1 };
     }
@@ -37,4 +38,7 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSceneTargetVelocitySlot     = 1;
     inline constexpr uint32_t kSceneTargetResponsiveAASlot = 2;
     inline constexpr uint32_t kGBufferVelocitySlot         = 4;
+    // The thin-geometry coverage after them on both (written by the passes that write the view's depth).
+    inline constexpr uint32_t kSceneTargetThinGeometryCoverageSlot = 3;
+    inline constexpr uint32_t kGBufferThinGeometryCoverageSlot     = 5;
 } // namespace Desert::Graphic
