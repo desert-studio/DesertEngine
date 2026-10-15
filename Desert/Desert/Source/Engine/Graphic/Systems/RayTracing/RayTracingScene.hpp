@@ -88,6 +88,12 @@ namespace Desert::Graphic::RayTracing
         std::array<float, 12> Transform{}; // row-major 3x4, VkTransformMatrixKHR
         uint32_t              CustomIndex = 0;
         uint8_t               Mask        = 0;
+        // The RayTracingPrimitive this instance traces (index into the frame's primitive list).
+        uint32_t Primitive = 0;
+        // First geometry record of this instance's BLAS segments (RayTracingSceneMetadata.hpp,
+        // BuildRayTracingMetadata): the TLAS row's instanceShaderBindingTableRecordOffset, read inline by
+        // rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT.
+        uint32_t GeometryRecordOffset = 0;
     };
 
     // Why a queued primitive is NOT in the TLAS. Counted, never silent: the overlay and the log say how much of
@@ -205,8 +211,9 @@ namespace Desert::Graphic::RayTracing
         RayTracingInstanceList list;
         list.Instances.reserve( primitives.size() );
         const auto skip = [&list]( RayTracingSkip reason ) { ++list.Skipped[static_cast<std::size_t>( reason )]; };
-        for ( const RayTracingPrimitive& primitive : primitives )
+        for ( std::size_t index = 0; index < primitives.size(); ++index )
         {
+            const RayTracingPrimitive& primitive = primitives[index];
             if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::Skinned );
@@ -226,6 +233,7 @@ namespace Desert::Graphic::RayTracing
             instance.Geometry            = primitive.Geometry;
             instance.Transform           = ToRowMajor3x4( primitive.World );
             instance.CustomIndex         = primitive.GpuSceneRow;
+            instance.Primitive           = static_cast<uint32_t>( index );
             instance.Mask =
                  static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];

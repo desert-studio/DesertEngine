@@ -93,7 +93,9 @@ namespace Desert::Graphic::RayTracing
             std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
             const uint32_t indexAndMask =
                  ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
-            const uint32_t sbtAndFlags = 0; // one hit group; culling is the ray's choice, not the instance's
+            // The SBT record offset is the instance's first geometry record (RayTracingSceneMetadata.hpp); no
+            // instance flags: culling is the ray's choice, and a masked segment is non-opaque in its BLAS.
+            const uint32_t sbtAndFlags = instance.GeometryRecordOffset & kMaxGpuSceneRow;
             const uint64_t address =
                  static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
             std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );

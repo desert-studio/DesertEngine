@@ -42,6 +42,9 @@ namespace Desert::Graphic::RayTracing
         // The submesh this geometry is: what a hit's geometry index maps back to (its material slot). Not the
         // segment's position, because a hidden submesh contributes no segment and shifts the ones after it.
         uint32_t SubmeshIndex = 0;
+        // UE !bForceOpaque: the submesh's material is Masked (or the segment is a landscape hole), so the BLAS
+        // geometry is NOT opaque and a ray query alpha-tests its candidates (RayQueryVisibility.glslh).
+        bool Masked = false;
     };
 
     // Is submesh @p index hidden by @p hiddenSubmeshes (MeshComponent::HiddenSubmeshes: bit i = submesh i hidden)?
