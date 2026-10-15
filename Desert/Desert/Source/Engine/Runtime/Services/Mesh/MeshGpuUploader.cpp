@@ -55,6 +55,9 @@ namespace Desert::Runtime
                                built.GetError() );
                     return;
                 }
+                if ( built.GetValue() )
+                    built.GetValue()->ClaimOwnership( Graphic::ResourceOwner::AssetService,
+                                                      asset.GetMetadata().Handle );
                 mesh->SetRayTracingGeometry( built.GetValue() );
             }
         };

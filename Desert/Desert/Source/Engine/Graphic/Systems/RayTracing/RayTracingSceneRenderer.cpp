@@ -37,6 +37,8 @@ namespace Desert::Graphic::RayTracing
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "TLAS instance rows", mib( stats.TlasInstanceBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "primitive instance ranges",
                         mib( stats.PrimitiveInstanceBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "TLAS build scratch", mib( stats.TlasScratchBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "dynamic BLAS scratch", mib( stats.DynamicScratchBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "traced BLAS", mib( stats.TracedBlasBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "variant BLAS (scene)", mib( stats.VariantBlasBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "procedural BLAS (scene)",
@@ -98,10 +100,10 @@ namespace Desert::Graphic::RayTracing
         m_DynamicBuilds.insert( m_DynamicBuilds.end(), external.Builds.begin(), external.Builds.end() );
         m_DynamicBlas.insert( m_DynamicBlas.end(), external.Resident.begin(), external.Resident.end() );
         // ONE pass builds every dynamic BLAS of the view (skin cache, procedural, landscape tiles).
-        if ( const Common::BoolResultStr built =
-                  AddRayTracingDynamicGeometryPass( graph, m_DynamicBuilds, m_DynamicBlas );
-             !built )
-            return built;
+        const Common::ResultStr<uint64_t> dynamicScratch =
+             AddRayTracingDynamicGeometryPass( graph, m_DynamicBuilds, m_DynamicBlas );
+        if ( !dynamicScratch )
+            return Common::MakeError( dynamicScratch.GetError() );
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
@@ -127,13 +129,11 @@ namespace Desert::Graphic::RayTracing
         const RayTracingSkinCache::MemoryBytes skin = cache.GetSkinCache().GetMemoryBytes();
         m_Stats.SkinCacheBlasBytes                  = skin.Blas;
         m_Stats.SkinCachePositionsBytes             = skin.Positions;
-        m_Stats.TlasBytes                           = m_Target->GetStorage().Desc.Bytes;
-        m_Stats.TlasInstanceBytes =
-             static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Instances.size(), 1u ) ) *
-             kInstanceRowBytes;
-        m_Stats.PrimitiveInstanceBytes =
-             static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Ranges.size(), 1u ) ) *
-             kPrimitiveInstancesRowBytes;
+        m_Stats.TlasBytes                           = m_Target->GetMemoryBytes();
+        m_Stats.TlasInstanceBytes                   = m_Frame.InstanceBytes;
+        m_Stats.PrimitiveInstanceBytes              = m_Frame.PrimitiveInstanceBytes;
+        m_Stats.TlasScratchBytes                    = m_Frame.ScratchBytes;
+        m_Stats.DynamicScratchBytes                 = dynamicScratch.GetValue();
         m_Stats.SkinCacheEntries     = static_cast<uint32_t>( cache.GetSkinCache().GetEntryCount() );
         m_Stats.LandscapeBuilt       = external.Built;
         m_Stats.LandscapeRefit       = external.Refit;

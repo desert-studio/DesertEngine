@@ -218,13 +218,14 @@ namespace Desert::Graphic::API::Vulkan
             return BOOLSUCCESS;
         }
 
+        // Both read the buffers' ledger rows: the one statement of what the tile holds on the device.
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
-            return m_Storage.Bytes;
+            return m_Storage.Ledger.GetBytes();
         }
         [[nodiscard]] uint64_t GetBuildInputBytes() const override
         {
-            return m_Vertices.Bytes + m_Indices.Bytes;
+            return m_Vertices.Ledger.GetBytes() + m_Indices.Ledger.GetBytes();
         }
 
     private:
@@ -243,7 +244,11 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError<bool>( "{} ({} bytes): {}", name, bytes, memory.GetError() );
             out.Memory = memory.GetValue();
             out.Bytes  = bytes;
-            out.Ledger = ResourceOwnership::Take( kind, VulkanAllocator::AllocationSize( out.Memory ) );
+            out.Ledger = kind == ResourceKind::BottomLevelAccelerationStructure
+                              ? RayTracing::RecordAccelerationStructureMemory(
+                                     RayTracing::AccelerationStructureLevel::Bottom,
+                                     VulkanAllocator::AllocationSize( out.Memory ) )
+                              : ResourceOwnership::Take( kind, VulkanAllocator::AllocationSize( out.Memory ) );
             return BOOLSUCCESS;
         }
 

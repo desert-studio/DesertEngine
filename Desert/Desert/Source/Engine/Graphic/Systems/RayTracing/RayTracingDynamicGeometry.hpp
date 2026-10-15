@@ -88,8 +88,8 @@ namespace Desert::Graphic::RayTracing
     // Declares "RayTracingScene.DynamicGeometry" (Compute) building every request in order, its scratch one
     // transient buffer sliced per build. No request: no pass, no scratch. Every Storage is appended to @p blasOut
     // for the TLAS pass to read. Error: a request without a target or storage (a producer bug, named with its
-    // index).
-    [[nodiscard]] Common::BoolResultStr
+    // index). Value: the scratch bytes declared (0 without a request) — the RT scene stats read it.
+    [[nodiscard]] Common::ResultStr<uint64_t>
     AddRayTracingDynamicGeometryPass( RDG::Builder& graph, std::span<const RayTracingDynamicGeometryBuild> builds,
                                       std::vector<RDG::BufferRef>& blasOut );
 } // namespace Desert::Graphic::RayTracing

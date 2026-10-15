@@ -19,12 +19,12 @@ namespace Desert::Graphic::RayTracing
         };
     } // namespace
 
-    Common::BoolResultStr AddRayTracingDynamicGeometryPass( RDG::Builder&                                   graph,
-                                                            std::span<const RayTracingDynamicGeometryBuild> builds,
-                                                            std::vector<RDG::BufferRef>& blasOut )
+    Common::ResultStr<uint64_t>
+    AddRayTracingDynamicGeometryPass( RDG::Builder& graph, std::span<const RayTracingDynamicGeometryBuild> builds,
+                                      std::vector<RDG::BufferRef>& blasOut )
     {
         if ( builds.empty() )
-            return BOOLSUCCESS;
+            return Common::MakeSuccess<uint64_t>( 0 );
 
         std::vector<ScheduledBuild> scheduled;
         scheduled.reserve( builds.size() );
@@ -33,7 +33,7 @@ namespace Desert::Graphic::RayTracing
         {
             const RayTracingDynamicGeometryBuild& build = builds[index];
             if ( build.Target == nullptr || !build.Storage.IsValid() || !build.Vertices.IsValid() )
-                return Common::MakeError(
+                return Common::MakeError<uint64_t>(
                      std::format( "{}: build request {} of {} has no target, vertices or storage",
                                   kDynamicGeometryPassName, index, builds.size() ) );
             scheduled.push_back( { build.Target, build.Vertices, build.Indices, build.Storage, scratchBytes } );
@@ -88,6 +88,6 @@ namespace Desert::Graphic::RayTracing
              } );
         for ( const ScheduledBuild& build : scheduled )
             blasOut.push_back( build.Storage );
-        return BOOLSUCCESS;
+        return Common::MakeSuccess( scratchBytes );
     }
 } // namespace Desert::Graphic::RayTracing

@@ -63,6 +63,9 @@ namespace Desert::Editor
         rows.push_back( std::format(
              "  TLAS: {}, instances: {}, primitive ranges: {}", FormatMiB( locale, stats.TlasBytes ),
              FormatMiB( locale, stats.TlasInstanceBytes ), FormatMiB( locale, stats.PrimitiveInstanceBytes ) ) );
+        rows.push_back( std::format( "  Scratch: TLAS {}, dynamic BLAS {}",
+                                     FormatMiB( locale, stats.TlasScratchBytes ),
+                                     FormatMiB( locale, stats.DynamicScratchBytes ) ) );
 
         // Bottom-right, right-aligned: the render-methods rows hold the bottom-left, the axis triad the top-right.
         constexpr float kMargin = 12.0f;

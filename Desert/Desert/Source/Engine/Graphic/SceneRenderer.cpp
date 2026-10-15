@@ -1184,6 +1184,13 @@ namespace Desert::Graphic
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
+            // Every RT allocation this block makes is a ledger row of the scene renderer (RT-SCENE-2 contract,
+            // Memory accounting): the view's TLAS storage, the landscape tiles' vertex / index buffers and BLASes,
+            // and the scene cache's variant, procedural and skin-cache BLASes and skinned positions. A mesh BLAS
+            // built here by a lazy upload is claimed by the mesh service for its asset (an explicit claim wins).
+            // The graph transients (TLAS instance rows, build scratch, PrimitiveInstances) live in the device's
+            // transient heaps, each a TransientHeap row of the Device.
+            const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const auto*     camera     = GetMainCamera();

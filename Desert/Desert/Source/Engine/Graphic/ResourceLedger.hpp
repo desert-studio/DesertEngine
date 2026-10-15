@@ -86,6 +86,11 @@ namespace Desert::Graphic
         // answers people ask of the census differ: 'what do the meshes cost to trace' vs 'what does a view'.
         BottomLevelAccelerationStructure,
         TopLevelAccelerationStructure,
+        // One render-graph transient heap: the memory every graph-transient buffer and texture of one graph is
+        // PLACED in (the TLAS instance rows, the acceleration-structure build scratch, RayTracingScene.
+        // PrimitiveInstances, SSAO targets...). The heap and not the placed resource is the row because
+        // placed resources alias: a row per resource would count the same bytes once per alias.
+        TransientHeap,
 
         // NOT a kind: the number of them. A new kind is added ABOVE this line and turns
         // Desert/Tests/Engine/AssetEviction red until it is named in ResourceKindName.
@@ -127,6 +132,8 @@ namespace Desert::Graphic
                 return "BottomLevelAccelerationStructure";
             case ResourceKind::TopLevelAccelerationStructure:
                 return "TopLevelAccelerationStructure";
+            case ResourceKind::TransientHeap:
+                return "TransientHeap";
             case ResourceKind::Count:
                 return "Count";
         }
@@ -242,6 +249,11 @@ namespace Desert::Graphic
 
         [[nodiscard]] ResourceOwner       GetOwner() const;
         [[nodiscard]] Common::AssetHandle GetAsset() const;
+        /// The device bytes the row holds (0 for an unaccounted token or a row whose size nobody reported).
+        /// THE way an owner states its own footprint: a size kept beside the token is a second statement of
+        /// the row's number, and the two drift (RT-LEDGER: an acceleration structure's stats said the
+        /// requested size while its row said the allocation's).
+        [[nodiscard]] std::size_t GetBytes() const;
 
     private:
         explicit ResourceOwnership( uint64_t row ) noexcept : m_Row( row )
@@ -389,6 +401,7 @@ namespace Desert::Graphic
         static void     Attribute( uint64_t row, ResourceOwner owner, Common::AssetHandle asset );
         static void     SetBytes( uint64_t row, std::size_t bytes );
         static bool     Read( uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset );
+        static std::size_t ReadBytes( uint64_t row );
     };
 
     // A NAMED detail namespace and INLINE functions, not an anonymous namespace. An anonymous namespace
@@ -519,6 +532,11 @@ namespace Desert::Graphic
         return asset;
     }
 
+    inline std::size_t ResourceOwnership::GetBytes() const
+    {
+        return m_Row != 0 ? ResourceLedger::ReadBytes( m_Row ) : 0;
+    }
+
     // ────────────────────────────────────────────────────────────────────────────────────────────────
     // ResourceLedger — the storage
     // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -578,6 +596,13 @@ namespace Desert::Graphic
         owner = it->second.Owner;
         asset = it->second.Asset;
         return true;
+    }
+
+    inline std::size_t ResourceLedger::ReadBytes( const uint64_t row )
+    {
+        std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+        const auto                  it = LedgerDetail::Rows().find( row );
+        return it != LedgerDetail::Rows().end() ? it->second.Bytes : 0;
     }
 
     inline ResourceCensus ResourceLedger::Take()

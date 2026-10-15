@@ -25,6 +25,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_External;
         }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_Ledger.GetBytes();
+        }
         [[nodiscard]] Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                          const RDG::BufferBinding& instances,
                                                          const RDG::BufferBinding& scratch,

@@ -50,13 +50,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        // The storage's ledger row is the one statement of what this BLAS costs (ResourceOwnership::GetBytes).
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
-            return m_StorageBytes;
+            return m_StorageLedger.GetBytes();
         }
         [[nodiscard]] uint64_t GetPositionsBytes() const override
         {
-            return m_PositionsBytes;
+            return m_PositionsLedger.GetBytes();
         }
 
     private:

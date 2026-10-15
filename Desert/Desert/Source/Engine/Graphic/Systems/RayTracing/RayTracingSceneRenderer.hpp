@@ -56,6 +56,12 @@ namespace Desert::Graphic::RayTracing
         // upload is culled on a frame nobody reads it.
         RDG::BufferRef PrimitiveInstances;
         uint32_t       InstanceCount = 0;
+        // The graph-transient buffers' sizes as declared (the descs above were created with exactly these): the
+        // memory is placed in the device's transient heaps (ledger kind TransientHeap), so these are the frame's
+        // share of those rows, stated once here and read by RayTracingSceneStats.
+        uint64_t InstanceBytes          = 0;
+        uint64_t PrimitiveInstanceBytes = 0;
+        uint64_t ScratchBytes           = 0;
     };
 
     // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
@@ -116,13 +122,17 @@ namespace Desert::Graphic::RayTracing
             return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName, sizes.GetError() );
 
         const std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
-        frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ rows.size() }, kTlasInstancesName );
+        frame.InstanceBytes               = rows.size();
+        frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
         graph.QueueBufferUpload( frame.Instances, rows );
         const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );
-        frame.PrimitiveInstances = graph.CreateBuffer( RDG::BufferDesc{ ranges.size() }, kPrimitiveInstancesName );
+        frame.PrimitiveInstanceBytes        = ranges.size();
+        frame.PrimitiveInstances =
+             graph.CreateBuffer( RDG::BufferDesc{ frame.PrimitiveInstanceBytes }, kPrimitiveInstancesName );
         graph.QueueBufferUpload( frame.PrimitiveInstances, ranges );
+        frame.ScratchBytes = sizes.GetValue().ScratchBytes;
         const RDG::BufferRef scratch =
-             graph.CreateBuffer( RDG::BufferDesc{ sizes.GetValue().ScratchBytes }, kTlasScratchName );
+             graph.CreateBuffer( RDG::BufferDesc{ frame.ScratchBytes }, kTlasScratchName );
         frame.Tlas = graph.RegisterExternal( target.GetStorage(), kTlasStorageName );
 
         const RDG::BufferRef instances = frame.Instances;
@@ -158,8 +168,12 @@ namespace Desert::Graphic::RayTracing
     // One view's ray-tracing scene (SceneRenderer owns one per view): gathers the primitives MeshRenderer queued
     // and gave a GPU-scene row, builds the instance list and declares the TLAS pass. The API target is created on
     // the first frame that needs a TLAS and kept for the view's life.
-    // What one view's RT scene holds this frame (the viewport's RT scene overlay). Bytes are the storage
-    // allocations; the ledger rows of the same allocations are the census.
+    // What one view's RT scene holds this frame (the viewport's RT scene overlay and the [ViewMemory] lines).
+    // Every persistent byte count is READ FROM the ledger rows of the allocations (ResourceOwnership::GetBytes
+    // through GetMemoryBytes / GetPositionsBytes / GetBuildInputBytes): one statement per allocation, the census
+    // and these numbers cannot disagree. The graph transients (instance rows, primitive ranges, scratch) are
+    // placed in the device's TransientHeap rows; their sizes are the frame's declared descs
+    // (RayTracingSceneFrame).
     struct RayTracingSceneStats
     {
         bool Built = false; // the frame built a TLAS: the rest is meaningful
@@ -171,8 +185,10 @@ namespace Desert::Graphic::RayTracing
         uint64_t SkinCacheBlasBytes      = 0; // the scene's skin-cache BLASes
         uint64_t SkinCachePositionsBytes = 0; // the scene's skin-cache positions buffers
         uint64_t TlasBytes               = 0; // this view's TLAS storage
-        uint64_t TlasInstanceBytes       = 0; // this frame's instance rows
-        uint64_t PrimitiveInstanceBytes  = 0; // this frame's RayTracingScene.PrimitiveInstances rows
+        uint64_t TlasInstanceBytes       = 0; // this frame's instance rows (transient)
+        uint64_t PrimitiveInstanceBytes  = 0; // this frame's RayTracingScene.PrimitiveInstances rows (transient)
+        uint64_t TlasScratchBytes        = 0; // this frame's TLAS build scratch (transient)
+        uint64_t DynamicScratchBytes     = 0; // this frame's RayTracingScene.DynamicGeometry scratch (transient)
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
         // The landscape tiles (RayTracingExternalPrimitives): built / refit this frame, their vertex + index
         // buffers and their BLAS storage (also counted in TracedBlasBytes, as the variants are).

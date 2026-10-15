@@ -47,6 +47,10 @@ namespace
         {
             return m_Storage;
         }
+        uint64_t GetMemoryBytes() const override
+        {
+            return m_Storage.Desc.Bytes;
+        }
         Common::BoolResultStr RecordBuild( const PassContext&, const BufferBinding&, const BufferBinding&,
                                            uint32_t ) override
         {

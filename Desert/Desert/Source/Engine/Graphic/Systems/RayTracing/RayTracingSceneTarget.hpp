@@ -32,6 +32,9 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] virtual Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount ) = 0;
         // The TLAS storage as a graph external; it carries its own state across graphs.
         [[nodiscard]] virtual RDG::ExternalBuffer& GetStorage() = 0;
+        // Device bytes of the TLAS storage: its ledger row (TopLevelAccelerationStructure), the one statement of
+        // the allocation (the storage's graph desc is the size the build asked for, not what the device holds).
+        [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;
         // Records the build of @p instanceCount rows of @p instances into the TLAS, inside the pass's exec.
         [[nodiscard]] virtual Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                                  const RDG::BufferBinding& instances,
