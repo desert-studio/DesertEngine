@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <vector>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/MemoryReadout.hpp>
 
 namespace Desert::Editor
 {
@@ -36,6 +37,9 @@ namespace Desert::Editor
         std::sort( scopes.begin(), scopes.end(),
                    []( const auto& a, const auto& b ) { return a.TotalMs > b.TotalMs; } );
         const int scopeRows = std::min<int>( 5, static_cast<int>( scopes.size() ) );
+        // The bindless table as the renderer's last memory sample saw it; no row (not "0 / 0") before the table
+        // exists or when the dev instruments do not sample (Renderer::BeginFrame).
+        const std::optional<Graphic::BindlessOccupancy> bindless = Graphic::MemoryWatch::LastBindless();
 
         constexpr float kPad    = 8.0f;
         constexpr float kWidth  = 240.0f;
@@ -44,7 +48,7 @@ namespace Desert::Editor
         // +lineH для строки отрисовок: рамка считается по тому, ЧТО рисуется, иначе новая строка
         // вылезает за подложку — и это видно только на кадре, чего ни один тест не скажет.
         const float height = kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + lineH /*draws*/ +
-                             static_cast<float>( scopeRows ) * lineH;
+                             ( bindless ? lineH : 0.0f ) + static_cast<float>( scopeRows ) * lineH;
 
         const ImVec2 p0( viewportMax.x - kWidth - 12.0f, viewportMin.y + 12.0f );
         const ImVec2 p1( p0.x + kWidth, p0.y + height );
@@ -99,6 +103,17 @@ namespace Desert::Editor
             char tail[32];
             std::snprintf( tail, sizeof( tail ), " / %u", draws.Instances );
             dl->AddText( ImVec2( p0.x + kPad + 160.0f, y ), IM_COL32( 150, 160, 190, 255 ), tail );
+            y += lineH;
+        }
+
+        // BINDLESS: live slots against the live set's capacity. Live tracks the uploaded textures resident on the
+        // GPU; a capacity jump on screen is the table growing (BindlessTextureTable), i.e. a descriptor-set
+        // rebuild.
+        if ( bindless )
+        {
+            char row[96];
+            std::snprintf( row, sizeof( row ), "Bindless: %u live / %u", bindless->Live, bindless->Capacity );
+            dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 200, 235, 255 ), row );
             y += lineH;
         }
 

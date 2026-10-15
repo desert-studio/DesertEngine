@@ -4,20 +4,24 @@
 // THE GLOBAL BINDLESS TEXTURE TABLE (Engine/Graphic/BindlessTextureTable.hpp, VulkanBindlessTextureTable.hpp).
 // Every texture created from uploaded pixels has a slot for its GPU life; slot 0 is the magenta "missing" texture.
 // Sampled images and samplers are separate arrays: the sampler is the material slot's state, picked from a FIXED
-// set of 18 (one per wrap U x wrap V x filter), never one per texture.
+// set (one per wrap U x wrap V x filter), never one per texture.
 //
-// The set index is the engine's (kBindlessSetIndex), handed to every compile as DESERT_BINDLESS_SET, so the shader
-// and the pipeline layout cannot disagree. The binding numbers mirror kBindlessSamplerBinding / kBindlessTextureBinding:
-// the variable-count image array must be the highest binding.
+// The set index, both binding numbers and the sampler count are the engine's constants
+// (Core/ShaderCompiler/BindlessSetIndex.hpp kBindlessShaderDefines), handed to every compile as defines, so the
+// shader and the pipeline layout cannot disagree.
 
 #extension GL_EXT_nonuniform_qualifier : require
 
-#ifndef DESERT_BINDLESS_SET
-#error "DESERT_BINDLESS_SET is defined by the shader compiler (kBindlessSetIndex); this shader was compiled without it"
+#if !defined( DESERT_BINDLESS_SET ) || !defined( DESERT_BINDLESS_SAMPLER_BINDING )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+#if !defined( DESERT_BINDLESS_TEXTURE_BINDING ) || !defined( DESERT_BINDLESS_SAMPLER_COUNT )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
 #endif
 
-layout( set = DESERT_BINDLESS_SET, binding = 0 ) uniform sampler u_BindlessSamplers[18];
-layout( set = DESERT_BINDLESS_SET, binding = 1 ) uniform texture2D u_BindlessTextures[];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_SAMPLER_BINDING ) uniform sampler
+     u_BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D u_BindlessTextures[];
 
 // Sampler indices: wrapU + 3 * wrapV + 9 * filter, with wrap Repeat 0 / Clamp 1 / Mirror 2 and filter Linear 0 /
 // Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).

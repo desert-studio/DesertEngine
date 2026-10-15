@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 
 #include <algorithm>
 #include <format>
@@ -187,12 +188,13 @@ namespace Desert::Graphic::API::Vulkan
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
                                         limits.MaxSetUpdateAfterBindSampledImages );
             }
-            if ( limits.SamplerCeiling() < kBindlessSamplerCount )
+            if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
             {
                 if ( !missing.empty() )
                     missing += ", ";
                 missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
-                                        kBindlessSamplerCount, limits.MaxPerStageUpdateAfterBindSamplers,
+                                        ::Desert::Core::kBindlessSamplerStateCount,
+                                        limits.MaxPerStageUpdateAfterBindSamplers,
                                         limits.MaxSetUpdateAfterBindSamplers );
             }
         }

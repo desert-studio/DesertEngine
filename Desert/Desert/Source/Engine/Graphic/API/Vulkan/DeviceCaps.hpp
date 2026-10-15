@@ -133,9 +133,8 @@ namespace Desert::Graphic::API::Vulkan
     // CheckRequired with both numbers. Owned here (not by the table) so this header stays pure.
     // The capacity doubles from here up to SampledImageCeiling() (BindlessTextureTable).
     inline constexpr uint32_t kBindlessInitialTextureCapacity = 16384;
-    // The fixed sampler set: one sampler per Core::Formats::SamplerState (3 wraps U x 3 wraps V x 2 filters),
-    // so every material's state has its exact sampler (BindlessSamplerIndex in BindlessTextureTable.hpp).
-    inline constexpr uint32_t kBindlessSamplerCount = 18;
+    // The sampler count it needs is Core::kBindlessSamplerStateCount (Core/ShaderCompiler/BindlessSetIndex.hpp),
+    // the one size the table's layout and the shaders' DESERT_BINDLESS_SAMPLER_COUNT also use.
 
     struct DeviceCaps
     {

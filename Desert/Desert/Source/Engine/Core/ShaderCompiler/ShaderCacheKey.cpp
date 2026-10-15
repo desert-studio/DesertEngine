@@ -45,7 +45,8 @@ namespace Desert::Core
         void MixCompileOptions( uint64_t& key )
         {
             FnvMix( key, kOptionsFingerprint );
-            FnvMix( key, std::format( "|{}={}", kBindlessSetDefine, kBindlessSetIndex ) );
+            for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
+                FnvMix( key, std::format( "|{}={}", define.Name, define.Value ) );
         }
 
         // The include walk, shared by the collector and the hash. `visited` carries across the whole
