@@ -696,8 +696,10 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Point Light\nIntensity: {}\nRadius: {}\nPosition: ({}, {}, {})",
-                                  light.Intensity, light.Radius, worldPos.x, worldPos.y, worldPos.z )
+                     std::format( "Point Light\nIntensity: {} {}\nRadius: {}\nPosition: ({}, {}, {})",
+                                  light.Intensity,
+                                  ::Desert::ECS::LightPhotometry::UnitsLabel( light.IntensityUnits ), light.Radius,
+                                  worldPos.x, worldPos.y, worldPos.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -789,8 +791,9 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Directional Light (sun)\nIntensity: {}\nDirection: ({:.2f}, {:.2f}, {:.2f})",
-                                  sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
+                     std::format(
+                          "Directional Light (sun)\nIntensity: {} lux\nDirection: ({:.2f}, {:.2f}, {:.2f})",
+                          sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -900,9 +903,10 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Spot Light\nIntensity: {}\nRange: {}\nCone: {} / {}\nPosition: ({}, {}, {})",
-                                  light.Intensity, light.Range, light.InnerConeAngle, light.OuterConeAngle,
-                                  worldPos.x, worldPos.y, worldPos.z )
+                     std::format( "Spot Light\nIntensity: {} {}\nRange: {}\nCone: {} / {}\nPosition: ({}, {}, {})",
+                                  light.Intensity,
+                                  ::Desert::ECS::LightPhotometry::UnitsLabel( light.IntensityUnits ), light.Range,
+                                  light.InnerConeAngle, light.OuterConeAngle, worldPos.x, worldPos.y, worldPos.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }

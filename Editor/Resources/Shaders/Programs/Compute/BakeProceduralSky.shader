@@ -205,7 +205,7 @@ Shader "BakeProceduralSky"
         {
             vec3 originKm       = vec3(0.0f, atm.BottomRadiusKm + kBakeAnchorAltitudeKm, 0.0f);
             vec3 sunDir         = UnpackSunDirection(s);
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             SkyScatterResult result = SkyIntegrateScatteredLuminance(atm, originKm, dir, sunDir,
                                                                      sunIlluminance, kBakeSampleCount);
@@ -484,7 +484,7 @@ Shader "BakeProceduralSky"
 
                 SkyScatterResult air =
                      SkyApIntegrateSegment(atm, originKm, dir, UnpackSunDirection(s),
-                                           UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s),
+                                           UnpackAtmosphereLightIlluminance(s),
                                            startDepthKm, max(meanDistanceKm, startDepthKm),
                                            vec3(0.0f, 0.0f, 0.0f), vec3(1.0f, 1.0f, 1.0f));
 

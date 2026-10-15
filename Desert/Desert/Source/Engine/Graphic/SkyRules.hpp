@@ -64,50 +64,7 @@ namespace Desert::Graphic
         return best;
     }
 
-    // ---------------------------------------------------------------------------------------------------
-    // Time of day -> sun direction
-    // ---------------------------------------------------------------------------------------------------
-
-    // Where the sun is at @p hours of solar time, as the direction the sunlight TRAVELS (sun -> scene) —
-    // which is exactly what a directional light's TransformComponent::Translation encodes.
-    //
-    // Horizon frame: +X east, +Y up, +Z north. Solar declination is ZERO: the model has no calendar, so
-    // this is the equinox path — the sun rises due east, sets due west, and @p latitudeDeg only decides
-    // how high noon gets. @p northOffsetDeg rotates solar north onto the scene's north about world +Y, in
-    // DEGREES converted here (the reference implementation this model comes from fed 45 degrees into a
-    // radians parameter and got a sun path nobody could explain).
-    inline glm::vec3 SunDirectionFromTimeOfDay( float hours, float latitudeDeg, float northOffsetDeg )
-    {
-        // Hour angle: 0 at noon, -pi at midnight, +-pi/2 at 06:00 / 18:00.
-        const float hourAngle = ( hours / 24.0f ) * glm::two_pi<float>() - glm::pi<float>();
-        const float latitude  = glm::radians( latitudeDeg );
-
-        const float sinH = std::sin( hourAngle );
-        const float cosH = std::cos( hourAngle );
-
-        // Already unit length: sin^2(H) + cos^2(H) * (cos^2(lat) + sin^2(lat)) == 1.
-        const glm::vec3 towardSunSolar( -sinH, std::cos( latitude ) * cosH, -std::sin( latitude ) * cosH );
-
-        const glm::vec3 towardSun = glm::vec3(
-             glm::rotate( glm::mat4( 1.0f ), glm::radians( northOffsetDeg ), glm::vec3( 0.0f, 1.0f, 0.0f ) ) *
-             glm::vec4( towardSunSolar, 0.0f ) );
-
-        return -towardSun;
-    }
-
-    // Advances the clock by one frame. @p dayLengthSeconds == 0 freezes the sun at the authored hour, which
-    // is what makes "Drive Sun From Time Of Day" usable as a posing tool and not only as an animation.
-    inline float AdvanceTimeOfDay( float hours, float dtSeconds, float dayLengthSeconds )
-    {
-        if ( dayLengthSeconds <= 0.0f )
-            return hours;
-
-        float next = hours + dtSeconds * 24.0f / dayLengthSeconds;
-        next       = std::fmod( next, 24.0f );
-        if ( next < 0.0f )
-            next += 24.0f;
-        return next;
-    }
+    // Time of day -> sun direction: Engine/Graphic/SunPosition.hpp (UE SunPosition's calendar).
 
     // ---------------------------------------------------------------------------------------------------
     // When the sky IBL is re-baked

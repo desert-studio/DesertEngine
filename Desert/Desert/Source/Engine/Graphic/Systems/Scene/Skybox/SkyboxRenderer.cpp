@@ -599,6 +599,10 @@ namespace Desert::Graphic::System
         m_Sky              = sky;
         m_BakeRequested    = m_BakeRequested || bakeNow;
 
+        // The physical sky's sun is the atmosphere sun LIGHT (UE): no light chosen, no sun in the sky.
+        m_SunInputs.OuterSpaceIlluminance = fx.OuterSpaceIlluminance;
+        m_SunInputs.DiskColorScale        = fx.SunDiskColorScale;
+
         // The evaluated sky other renderers consume. It is rebuilt from this frame's numbers rather than
         // accumulated, so a frame in which the sky is switched off publishes Valid == false immediately.
         //
@@ -651,12 +655,20 @@ namespace Desert::Graphic::System
         UploadSkyParams();
     }
 
+    void SkyboxRenderer::SetSkyLuminanceCeiling( float ceiling )
+    {
+        if ( ceiling == m_SunInputs.LuminanceCeiling )
+            return;
+        m_SunInputs.LuminanceCeiling = ceiling;
+        UploadSkyParams();
+    }
+
     void SkyboxRenderer::UploadSkyParams()
     {
         if ( !m_SkyParams || !m_UseProceduralSky )
             return;
 
-        const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky );
+        const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky, m_SunInputs );
         const auto          uploaded = m_SkyParams->SetData( &payload, kSkyPayloadBytes );
         if ( !uploaded.IsSuccess() )
             // REPORTED, NOT RETURNED, AND THE REASON IS THE CALL GRAPH. This is called from the settings
@@ -708,7 +720,7 @@ namespace Desert::Graphic::System
 
         // THE SKY'S OWN INPUTS, as the bake will read them. Formed from the same PackSky the parameter
         // buffer is filled from, so the number cannot describe a sky the dispatch will not see.
-        const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky ),
+        const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky, m_SunInputs ),
                                                             static_cast<uint32_t>( m_Sky.EnvironmentResolution ) );
 
         if ( !ShouldRebakeSkyEnvironment( m_BakedSunDir, m_SunDir, m_Sky.RebakeSunAngleThreshold,
