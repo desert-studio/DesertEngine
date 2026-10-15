@@ -62,7 +62,8 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Method" ), Category( "Reflections" ),
                   Refuse( "Common::Scalability::RefuseReflectionMethod" ),
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
-        Common::Scalability::ReflectionMethod ReflectionsMethod = Common::Scalability::ReflectionMethod::ScreenSpace;
+        Common::Scalability::ReflectionMethod ReflectionsMethod =
+             Common::Scalability::ReflectionMethod::ScreenSpace;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Reflections" ), Range( 0.0f, 1.0f ) )
         float SSRIntensity = 1.0f;
         PROPERTY( DisplayName( "SSR Max Distance" ), Category( "Reflections" ), Length, Range( 100.0f, 20000.0f ) )

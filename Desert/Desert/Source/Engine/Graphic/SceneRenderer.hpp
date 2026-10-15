@@ -459,8 +459,9 @@ namespace Desert::Graphic
             return m_GBuffer;
         }
 
-        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMethod::ReflectiveShadowMaps.
-        // Same attachment layout as the G-buffer, at a fixed light-space resolution.
+        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for
+        // GIMethod::ReflectiveShadowMaps. Same attachment layout as the G-buffer, at a fixed light-space
+        // resolution.
         const std::shared_ptr<Framebuffer>& GetRSMBuffer() const
         {
             return m_RSMBuffer;

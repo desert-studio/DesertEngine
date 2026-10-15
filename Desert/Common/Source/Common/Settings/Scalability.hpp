@@ -84,9 +84,10 @@ namespace Common::Scalability
     //
     // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
     // feature the engine does not have yet (TAA quality, texture streaming). The loader validates it like any row,
-    // Resolve passes it through (range + catalog), but nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
-    // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
-    // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
+    // Resolve passes it through (range + catalog), but nothing applies it: ListedParameters() and IsGroupListed()
+    // leave it out of every UI and of the game API, and QualityState::SetOverride refuses it. The day its feature
+    // lands the row gains its reader and appears. A contract test pins both directions: every placeholder is
+    // hidden, every listed row names its reader.
     enum class Parameter : int
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
@@ -117,10 +118,10 @@ namespace Common::Scalability
         ReflectionCaptureSize, // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
                                // 2^n
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
-        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
-        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
-        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
-        // not a request, and the resolution never lands on an unimplemented method.
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
+        // also applies the device (no device narrowing here: the device's limit and this one are reported
+        // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
+        // is a limit, not a request, and the resolution never lands on an unimplemented method.
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
@@ -147,9 +148,9 @@ namespace Common::Scalability
         // StreamingSource::RangeScale). Instruments a caller passes are not scaled. 100 at High+. 25..100
         StreamingRangePercent,
         // ---- placeholders (Reader = nullopt) ----
-        TemporalAAQuality,            // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
-        UpscalerSharpness,            // ResolutionScale: percent
+        TemporalAAQuality, // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
+                           // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness, // ResolutionScale: percent
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

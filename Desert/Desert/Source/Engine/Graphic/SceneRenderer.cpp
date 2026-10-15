@@ -781,7 +781,7 @@ namespace Desert::Graphic
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
-        m_CloudQuality   = CloudQualityFor( quality );
+        m_CloudQuality = CloudQualityFor( quality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // device, each lowered axis logged once.
         m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
@@ -1141,7 +1141,8 @@ namespace Desert::Graphic
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
-            // After the velocity on the scene target (kSceneTargetResponsiveAASlot); the G-buffer has no such slot.
+            // After the velocity on the scene target (kSceneTargetResponsiveAASlot); the G-buffer has no such
+            // slot.
             const ViewVelocity responsive = CreateViewResponsiveAA(
                  graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
             textures.Transients.ResponsiveAA = responsive.Resolved;
@@ -1206,7 +1207,8 @@ namespace Desert::Graphic
 
             RDG::TextureRef giAccum;
 
-            if ( m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::ReflectiveShadowMaps &&
+            if ( m_RenderMethods.GlobalIllumination.Effective ==
+                      Common::Scalability::GIMethod::ReflectiveShadowMaps &&
                  meshRenderer != nullptr && EnsureGIResources() )
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
@@ -1829,9 +1831,9 @@ namespace Desert::Graphic
         const std::vector<HistoryRefs> histories =
              temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
         const TemporalUpscalerInputs inputs{
-             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
-             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
-             .Velocity   = textures.Transients.Velocity,
+             .SceneColor   = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth   = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity     = textures.Transients.Velocity,
              .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
              .Exposure = exposure.IsValid() ? exposure : textures.System.White,

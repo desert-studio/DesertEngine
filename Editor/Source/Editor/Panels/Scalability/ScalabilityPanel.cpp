@@ -295,16 +295,16 @@ namespace Desert::Editor
         }
 
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp). A view's own method
-        // (its PostProcessVolume) above the ceiling is lowered by Graphic::ResolveRenderMethods, which also applies
-        // the device; the viewport overlay shows what each view really renders.
+        // (its PostProcessVolume) above the ceiling is lowered by Graphic::ResolveRenderMethods, which also
+        // applies the device; the viewport overlay shows what each view really renders.
         if ( Utils::ImGuiUtilities::SectionHeader( "Render Methods" ) )
         {
-            const auto methodCombo = [&]( const char* label, SC::Parameter parameter,
-                                          std::span<const std::string_view> names )
+            const auto methodCombo =
+                 [&]( const char* label, SC::Parameter parameter, std::span<const std::string_view> names )
             {
                 const auto requested = static_cast<std::size_t>( Requested( parameter ) );
-                if ( const auto picked = ValueCombo( label, requested, names.size(),
-                                                     [names]( std::size_t i ) { return std::string( names[i] ); } ) )
+                if ( const auto picked = ValueCombo( label, requested, names.size(), [names]( std::size_t i )
+                                                     { return std::string( names[i] ); } ) )
                     SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
             };
             methodCombo( "Global Illumination", SC::Parameter::GlobalIlluminationMethod, SC::kGIMethodNames );

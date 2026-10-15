@@ -53,7 +53,8 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanShader::Reload()
     {
         auto asset = m_ShaderAsset.lock();
-        if ( !asset ) return Common::MakeError( "Shader asset expired" );
+        if ( !asset )
+            return Common::MakeError( "Shader asset expired" );
 
         // The CPU half (shader map cache, preprocess, compile) is Core::BuildShaderMap, shared with the cold-start
         // build that runs it on the job system (SHC1); only the device half stays here.

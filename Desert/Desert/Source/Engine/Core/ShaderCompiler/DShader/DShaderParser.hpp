@@ -155,7 +155,7 @@ namespace Desert::Core::Preprocess
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
-        bool ResponsiveAA = false;
+        bool                     ResponsiveAA = false;
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
     };

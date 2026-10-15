@@ -5111,8 +5111,9 @@ namespace
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
         CollectedBlock& Storage( std::string_view name, BufferRef buffer, Access access )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer,
-                                       buffer.Index, access, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::StorageBuffer,
+                                       ResourceKind::Buffer, buffer.Index, access, SubresourceRange::All(),
+                                       SamplerDesc::LinearClamp() } );
             return *this;
         }
     };

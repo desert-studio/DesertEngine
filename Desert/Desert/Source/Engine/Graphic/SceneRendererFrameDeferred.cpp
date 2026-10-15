@@ -423,9 +423,9 @@ namespace Desert::Graphic
         // this pass, 2 the RSM resolve's buffer. Spelled here, not cast from the enum, whose numbering is the
         // method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
-        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : gi == GIMethod::ReflectiveShadowMaps ? 2 : 0;
-        const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
+        const GIMethod gi       = m_RenderMethods.GlobalIllumination.Effective;
+        const int   compositeGI = gi == GIMethod::ScreenSpace ? 1 : gi == GIMethod::ReflectiveShadowMaps ? 2 : 0;
+        const float giIntensity = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -443,8 +443,8 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, compositeGI,
-                                         cloudShadow, environment );
+                                         shadow, giIntensity, m_EnableSSAO, compositeGI, cloudShadow,
+                                         environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },

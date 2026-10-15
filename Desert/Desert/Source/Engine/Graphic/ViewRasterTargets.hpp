@@ -190,11 +190,11 @@ namespace Desert::Graphic
                            RDG::ClearValue{}, GraphColorResolve::SampleZero };
     }
 
-    // The view's responsive-AA mask of this graph (FrameTransients::ResponsiveAA, ViewTargetFormats::kResponsiveAA):
-    // one transient at the render extent, a colour slot of the scene target only (kSceneTargetResponsiveAASlot),
-    // cleared to 0 (no responsive pixel) by the scene target's first writer and written by the translucent cells
-    // of a `ResponsiveAA` surface template. At MSAA a multisampled twin AVERAGED into it: a coverage is a colour,
-    // not vector data, so the box filter is right for it.
+    // The view's responsive-AA mask of this graph (FrameTransients::ResponsiveAA,
+    // ViewTargetFormats::kResponsiveAA): one transient at the render extent, a colour slot of the scene target
+    // only (kSceneTargetResponsiveAASlot), cleared to 0 (no responsive pixel) by the scene target's first writer
+    // and written by the translucent cells of a `ResponsiveAA` surface template. At MSAA a multisampled twin
+    // AVERAGED into it: a coverage is a colour, not vector data, so the box filter is right for it.
     inline ViewVelocity CreateViewResponsiveAA( RDG::Builder& graph, const RDG::Extent3D extent,
                                                 const uint32_t samples )
     {

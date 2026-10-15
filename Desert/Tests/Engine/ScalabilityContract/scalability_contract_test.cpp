@@ -1091,7 +1091,7 @@ namespace
         EXPECT_FALSE( root.empty() ) << "Editor/Resources/Config/Scalability.json not found";
         const std::ifstream in( std::filesystem::path( root ) / "Editor/Resources/Config/Scalability.json",
                                 std::ios::binary );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         auto parsed = ScalabilityTable::Parse( text.str() );
         EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -1124,8 +1124,8 @@ namespace
 // instrument after it keeps its own. Red if a tier value moves or the helper stops scaling.
 TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheComponentStreamingRadius )
 {
-    namespace Rules              = Desert::Core::Rules;
-    const ScalabilityTable table = ShippedTable();
+    namespace Rules                                  = Desert::Core::Rules;
+    const ScalabilityTable                     table = ShippedTable();
     Desert::Core::WorldPartitionGridSerialized grid;
     grid.LoadingRange = 10000.0f; // cm
     for ( const TierScale& tier : kShippedPercentTiers )
@@ -1151,9 +1151,9 @@ TEST( ScalabilityContract, EveryShippedViewDistanceTierMovesTheLandscapeLodSwitc
     std::array<float, 5>   chosen{};
     for ( std::size_t i = 0; i < kShippedPercentTiers.size(); ++i )
     {
-        const TierScale& tier    = kShippedPercentTiers[i];
-        const int        percent = ShippedAt( table, Group::ViewDistance, tier.Tier )
-                                 .As<int>( Parameter::LandscapeLodDistancePercent );
+        const TierScale& tier = kShippedPercentTiers[i];
+        const int        percent =
+             ShippedAt( table, Group::ViewDistance, tier.Tier ).As<int>( Parameter::LandscapeLodDistancePercent );
         chosen[i] =
              Sys::LandscapeLodAtDistanceScale( lod, kSize, Sys::LandscapeLodDistanceScaleForPercent( percent ) );
         EXPECT_FLOAT_EQ( chosen[i], Sys::LandscapeLodFromScreenSize( lod, kSize * tier.Scale * tier.Scale ) )
@@ -1169,7 +1169,7 @@ TEST( ScalabilityContract, EveryShippedViewDistanceTierMovesTheLandscapeLodSwitc
 // a foliage type's is never touched.
 TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheFoliageCull )
 {
-    namespace G                  = Desert::Graphic;
+    namespace G                   = Desert::Graphic;
     const ScalabilityTable  table = ShippedTable();
     G::InstanceCullDistance foliage;
     foliage.Min                   = 1000.0f;
@@ -1180,7 +1180,8 @@ TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheFoliageCull )
     plain.FoliageType             = false;
     for ( const TierScale& tier : kShippedPercentTiers )
     {
-        const G::FoliageQualityScale q = G::FoliageQualityFor( ShippedAt( table, Group::ViewDistance, tier.Tier ) );
+        const G::FoliageQualityScale q =
+             G::FoliageQualityFor( ShippedAt( table, Group::ViewDistance, tier.Tier ) );
         const G::InstanceCullDistance scaled = G::ScaledForQuality( foliage, q );
         EXPECT_FLOAT_EQ( scaled.Min, 1000.0f * tier.Scale ) << LevelKey( tier.Tier );
         EXPECT_FLOAT_EQ( scaled.Max, 2000.0f * tier.Scale ) << LevelKey( tier.Tier );
@@ -1222,7 +1223,7 @@ TEST( ScalabilityContract, EveryShippedEffectsTierSetsTheCloudLayerCeilings )
 // engine image carries and every graph read naming it: +1 / +0.5 / 0 mip at Low / Medium / High+.
 TEST( ScalabilityContract, EveryShippedTexturesTierBiasesTheGlobalSampler )
 {
-    namespace G                                = Desert::Graphic;
+    namespace G = Desert::Graphic;
     constexpr std::array<TierScale, 5> kTiers{ { { Level::Low, 1.0f },
                                                  { Level::Medium, 0.5f },
                                                  { Level::High, 0.0f },

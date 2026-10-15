@@ -124,8 +124,8 @@ namespace Desert::Graphic
             };
             for ( const RDG::TextureRef map : ShadowMaps )
                 add( map );
-            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, LocalShadowAtlas,
-                                                ReflectionCaptureCubes } )
+            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap,
+                                                LocalShadowAtlas, ReflectionCaptureCubes } )
                 add( ref );
             return refs;
         }
@@ -140,8 +140,8 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
     inline constexpr std::string_view kSceneViewCloudShadowMapName = "u_CloudShadowMap";
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
-    inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
-    inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
+    inline constexpr std::string_view kSceneViewReflectionCubesName  = "u_ReflectionCaptureCubes";
+    inline constexpr std::string_view kSceneViewReflectionListName   = "ReflectionCapturesUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -153,7 +153,7 @@ namespace Desert::Graphic
         inputs.EnvSpecular    = t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube;
         inputs.BrdfLut        = t.BrdfLut.IsValid() ? t.BrdfLut : refs.System.Black;
         inputs.CloudShadowMap = CloudShadowMapOrWhite( refs );
-        inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
+        inputs.LocalShadowAtlas       = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         inputs.ReflectionCaptureCubes = t.ReflectionCaptureCubes;
         inputs.ReflectionCaptures     = t.ReflectionCaptures;
         return inputs;

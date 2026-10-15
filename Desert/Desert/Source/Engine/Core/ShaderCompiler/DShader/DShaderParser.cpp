@@ -1981,10 +1981,9 @@ namespace Desert::Core::Preprocess
         }
         else if ( surfaceSettingLine != 0 )
         {
-            err = {
-                 surfaceSettingLine,
-                 "TwoSided, BlendMode, ShadingModel, Usage and ResponsiveAA shape a Surface block, and this shader "
-                 "has none" };
+            err = { surfaceSettingLine, "TwoSided, BlendMode, ShadingModel, Usage and ResponsiveAA shape a "
+                                        "Surface block, and this shader "
+                                        "has none" };
             return fail();
         }
 
@@ -2100,9 +2099,10 @@ namespace Desert::Core::Preprocess
             result.Meta.Blend = result.Surface.Blend;
             if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
             {
-                err = { responsiveLine,
-                        "ResponsiveAA marks translucency that writes no velocity of its own (BlendMode Translucent "
-                        "or Additive); an opaque or masked surface writes the velocity TAA reprojects it with" };
+                err = {
+                     responsiveLine,
+                     "ResponsiveAA marks translucency that writes no velocity of its own (BlendMode Translucent "
+                     "or Additive); an opaque or masked surface writes the velocity TAA reprojects it with" };
                 return fail();
             }
             if ( masked )
@@ -2135,10 +2135,10 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
-                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
-                                                         result.Surface.Blend, shadingModelDefine,
-                                                         result.Surface.ResponsiveAA ) );
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
+                                                              autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                              result.Surface.ResponsiveAA ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2152,11 +2152,10 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

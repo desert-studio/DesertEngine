@@ -182,8 +182,8 @@ namespace Common::Scalability
         // Reader: ResolutionScale group (RenderScalePercent).
         RenderScaleRange RenderScale;
 
-        // Reader: Graphic::ResolveRenderMethods (the traced GI / reflection / shadow methods). Always contains None.
-        // Mac: None, plus RayQuery where MoltenVK exposes VK_KHR_ray_query (Apple7+ GPU, MoltenVK >= 1.2.x);
+        // Reader: Graphic::ResolveRenderMethods (the traced GI / reflection / shadow methods). Always contains
+        // None. Mac: None, plus RayQuery where MoltenVK exposes VK_KHR_ray_query (Apple7+ GPU, MoltenVK >= 1.2.x);
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;
 

@@ -11,9 +11,9 @@ namespace Desert::Editor
     void DrawRenderMethodsOverlay( const Graphic::RenderMethods& methods, const ImVec2& viewportMin,
                                    const ImVec2& viewportMax )
     {
-        const std::vector<std::string> rows    = Graphic::FormatRenderMethods( methods );
-        const std::array<bool, 3>      lowered = { methods.GlobalIllumination.Lowered(), methods.Reflections.Lowered(),
-                                                   methods.Shadows.Lowered() };
+        const std::vector<std::string> rows = Graphic::FormatRenderMethods( methods );
+        const std::array<bool, 3> lowered = { methods.GlobalIllumination.Lowered(), methods.Reflections.Lowered(),
+                                              methods.Shadows.Lowered() };
 
         constexpr float kMargin = 12.0f;
         const float     lineH   = ImGui::GetTextLineHeight();

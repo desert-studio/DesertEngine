@@ -10,11 +10,10 @@ namespace Desert::Graphic
     // THE ONE SOURCE of the attachment formats every pipeline drawing into the view's targets is built against
     // (RDG-correct, UE-style: the graph owns the images, a pipeline knows only formats; a pipeline on a view
     // target never names the Framebuffer - census NoViewTargetPipelineNamesAFramebuffer). The scene target:
-    // scene colour, the view's velocity and its responsive-AA mask (graph transients, ViewRasterTargets.hpp), scene
-    // depth. The G-buffer: A,
-    // B, C, Emissive, velocity, depth. Samples 1: a pipeline binds its variant for the open pass's count
-    // (VulkanPipeline::GetVkPipelineFor).
-    // MERGE NOTE (GBUF1): slot 2 is kGBufferShadingWord on task/GBUF1 - take GBUF1's name there.
+    // scene colour, the view's velocity and its responsive-AA mask (graph transients, ViewRasterTargets.hpp),
+    // scene depth. The G-buffer: A, B, C, Emissive, velocity, depth. Samples 1: a pipeline binds its variant for
+    // the open pass's count (VulkanPipeline::GetVkPipelineFor). MERGE NOTE (GBUF1): slot 2 is kGBufferShadingWord
+    // on task/GBUF1 - take GBUF1's name there.
     inline RenderTargetLayout SceneTargetLayout()
     {
         return RenderTargetLayout{

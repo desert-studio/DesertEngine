@@ -232,7 +232,7 @@ TEST( VFXEmitterSpawn, RefusalsNameWhatIsWrong )
 TEST( VFXEmitterSpawn, EveryShippedEffectsTierScalesTheBirths )
 {
     namespace Scal = Common::Scalability;
-    std::string    root;
+    std::string root;
     for ( std::string prefix = "./"; root.empty() && prefix.size() < 24; prefix += "../" )
         if ( std::ifstream( std::filesystem::path( prefix ) / "Editor/Resources/Config/Scalability.json" ) )
             root = prefix;
@@ -250,9 +250,9 @@ TEST( VFXEmitterSpawn, EveryShippedEffectsTierScalesTheBirths )
         Scal::Level   Level;
         std::uint32_t Births;
     };
-    for ( const Tier tier : { Tier{ Scal::Level::Low, 600u }, Tier{ Scal::Level::Medium, 900u },
-                              Tier{ Scal::Level::High, 1200u }, Tier{ Scal::Level::Epic, 1200u },
-                              Tier{ Scal::Level::Cinematic, 1200u } } )
+    for ( const Tier tier :
+          { Tier{ Scal::Level::Low, 600u }, Tier{ Scal::Level::Medium, 900u }, Tier{ Scal::Level::High, 1200u },
+            Tier{ Scal::Level::Epic, 1200u }, Tier{ Scal::Level::Cinematic, 1200u } } )
     {
         const auto percent = table.GetValue().ValueAt( Scal::Parameter::ParticleSpawnPercent, tier.Level );
         EXPECT_EQ( Sum( Births( rate, 600, kStep, VFX::SpawnCountScaleForPercent( percent ) ) ), tier.Births )

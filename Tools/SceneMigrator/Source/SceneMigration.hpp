@@ -276,9 +276,9 @@ namespace Desert::Migration
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
     //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
     //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
-    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
-    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
-    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the
+    //       record's volume and a prefab override's delta are renamed: the key is gone from the type either way. A
+    //       value outside the old type is refused, naming the entity. Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
     static_assert( kSceneVersionRenderMethods == kSceneVersion,
@@ -821,7 +821,8 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
+                   RenderMethodsRaised;
         }
     };
 
