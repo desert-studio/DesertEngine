@@ -7,7 +7,13 @@ Shader "JFA_Init"
 
         Out(0) vec4 o_Seed;
 
-        Uniform(0, 0) sampler2D u_StencilTexture;
+        // Shared sampler states (UE's shared samplers): each input below is a separate texture read through one.
+
+        Uniform(0, 1) sampler u_PointClampSampler;
+
+        Uniform(0, 0) texture2D u_StencilTexture;
+
+        #define u_StencilTexture sampler2D(u_StencilTexture, u_PointClampSampler)
 
         void main()
         {

@@ -293,13 +293,13 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgPassDescriptors& operator=( const VulkanRdgPassDescriptors& ) = delete;
 
         Common::ResultStr<VkDescriptorSet> Allocate( VkDescriptorSetLayout layout );
-        // @p type is the layout binding's type: SAMPLED_IMAGE, STORAGE_IMAGE or COMBINED_IMAGE_SAMPLER (with
-        // @p sampler) - a layout alone does not say whether an image in GENERAL is sampled or stored. @p element
-        // is the descriptor of an arrayed binding (a separate texture2D u_X[N]).
+        // @p type is the layout binding's type: SAMPLED_IMAGE or STORAGE_IMAGE - a layout alone does not say
+        // whether an image in GENERAL is sampled or stored. A pass never writes a COMBINED_IMAGE_SAMPLER: its
+        // sampler state is a SAMPLER slot of its own (WriteSampler). @p element is the descriptor of an arrayed
+        // binding (a separate texture2D u_X[N]).
         Common::BoolResultStr WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
                                             const RDG::TextureBinding& texture, RDG::SubresourceRange range,
-                                            VkImageLayout layout, VkSampler sampler = VK_NULL_HANDLE,
-                                            uint32_t element = 0 );
+                                            VkImageLayout layout, uint32_t element = 0 );
         // A separate sampler slot (VK_DESCRIPTOR_TYPE_SAMPLER).
         void WriteSampler( VkDescriptorSet set, uint32_t binding, VkSampler sampler );
         // @p type: UNIFORM_BUFFER or STORAGE_BUFFER; the whole buffer is bound.

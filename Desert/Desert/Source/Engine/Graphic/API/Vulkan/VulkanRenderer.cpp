@@ -506,24 +506,20 @@ namespace Desert::Graphic::API::Vulkan
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    VkSampler sampler = VK_NULL_HANDLE;
+                    // A pass binds no combined sampler: an input is a separate texture read through a Sampler
+                    // slot of the same pass (UE's shared sampler states).
                     if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                    {
-                        if ( !texture.Sampler )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
-                                                                     pass, name );
-                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
-                        if ( !made )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                        sampler = made.GetValue();
-                    }
-                    else if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is a combined sampler slot; a pass binds a separate texture (texture2D) and "
+                             "a Sampler slot",
+                             pass, name );
+                    if ( texture.Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
                              "texture is read through a Sampler slot of the pass",
                              pass, name, static_cast<int>( binding->descriptorType ) );
                     written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler,
+                                                        texture.Texture, texture.Range, layout,
                                                         entry.Slot.Element );
                 }
                 else

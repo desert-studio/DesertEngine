@@ -42,8 +42,13 @@ Shader "SkyAerialPerspectiveLut"
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_GlobalFilterSampler;
+        Uniform(2) texture2D u_TransmittanceLut;
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
+        Uniform(3) texture2D u_MultiScatterLut;
+        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
 
         // Mirrored by Graphic::SkyAerialPerspectivePush.
         PushConstant SkyApPush

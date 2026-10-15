@@ -156,21 +156,23 @@ namespace Desert::Graphic
                  // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
                  // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
                  pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_History", history.Previous, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_History", history.Previous, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
                       .Storage( "u_HistoryOut", history.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_Output", output, RDG::Access::StorageWrite, 0 )
                       .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_ResponsiveAA", inputs.ResponsiveAA, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                      .Texture( "u_ResponsiveAA", inputs.ResponsiveAA, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() );
              },
              [this, quality, extent]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

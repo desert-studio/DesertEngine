@@ -86,7 +86,9 @@ namespace Desert::Graphic::RDG
     // What the shader slot is. Checked against the reflected descriptor type by the consumer.
     enum class ShaderResourceKind : uint8_t
     {
-        SampledTexture, // sampler2D, read with the entry's SamplerDesc
+        // A combined sampler2D slot. Reflected for the engine programs whose texture still comes through a
+        // material property (the other route); a pass never binds one - its inputs are Texture + Sampler.
+        SampledTexture,
         // A separate texture2D / textureCube(Array) (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE), read through a Sampler
         // slot the same pass fills. An element of an arrayed slot is named "<name>[<element>]".
         Texture,

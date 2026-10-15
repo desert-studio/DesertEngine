@@ -611,8 +611,8 @@ namespace Desert::Graphic::System
                           .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
                                     RDG::Access::StorageRead );
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
-                    block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
-                                   RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
+                    block.Texture( "u_SceneDepth", depth, RDG::Access::SampledGraphics, "SceneDepth.Compute" )
+                         .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

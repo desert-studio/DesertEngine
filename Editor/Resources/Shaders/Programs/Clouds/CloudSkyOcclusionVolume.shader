@@ -42,18 +42,30 @@ Shader "CloudSkyOcclusionVolume"
         // The field, through the march's own bindings — one vocabulary for one field, exactly as
         // Programs/Clouds/CloudShadowMap.shader takes them. A column integrated from a different field
         // than the one the eye marches would darken clouds that are not there.
-        Uniform(3) sampler3D u_CloudNoise;
-        Uniform(10) sampler3D u_CloudNoise1;
-        Uniform(11) sampler3D u_CloudNoise2;
-        Uniform(12) sampler3D u_CloudNoise3;
-        Uniform(7) sampler3D u_CloudModelling;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_LinearRepeatSampler;
+        Uniform(3) texture3D u_CloudNoise;
+        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
+        Uniform(10) texture3D u_CloudNoise1;
+        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
+        Uniform(11) texture3D u_CloudNoise2;
+        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
+        Uniform(12) texture3D u_CloudNoise3;
+        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
+        Uniform(7) texture3D u_CloudModelling;
+        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler2D u_CloudFarWeather;
-        Uniform(16) sampler2D u_CloudLayoutPattern;
-        Uniform(17) sampler2D u_CloudLayoutMask;
-        Uniform(9) sampler3D u_CloudAuthoredAtlas;
+        Uniform(15) texture2D u_CloudFarWeather;
+        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
+        Uniform(16) texture2D u_CloudLayoutPattern;
+        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
+        Uniform(17) texture2D u_CloudLayoutMask;
+        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
+        Uniform(9) texture3D u_CloudAuthoredAtlas;
+        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
 
         // The same four-way select the other two passes declare, repeated for the same reason:
         // Common/CloudField.glslh must stay free of samplers to remain compilable as C++ by its tests.

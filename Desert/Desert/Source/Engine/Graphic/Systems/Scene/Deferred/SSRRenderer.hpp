@@ -205,14 +205,14 @@ namespace Desert::Graphic::System
             if ( !m_TracePipeline )
                 return;
             pass.Bindings( m_TraceLayout.Get( m_TraceShader ), Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
-                 .Sampled( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "u_GBufferAlbedo", gbuffer[0], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
                  .Uniform( "SSRTraceUB", uniforms )
@@ -254,14 +254,14 @@ namespace Desert::Graphic::System
                 return;
             pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ),
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
-                           RDG::SamplerDesc::LinearClamp() )
-                 .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
-                           RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_Trace", trace, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
         }
 
         // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).
@@ -302,12 +302,12 @@ namespace Desert::Graphic::System
                 return;
             pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                            m_CompositeMaterial->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_SSR", resolved, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( "u_SSR", resolved, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "u_SSRTileMask", tiles, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() );
         }
 
         // EXEC: draws the block DeclareCompositeBindings declared. Advances the ping-pong only when the draw was

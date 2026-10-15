@@ -30,8 +30,14 @@ Shader "SSAO"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferDepth;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
-        Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(4) sampler u_LinearRepeatSampler;
+        Uniform(1) texture2D u_GBufferDepth;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_GBufferNormal; // rgb = world normal
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
 
         Out(0) vec4 oAO;
 

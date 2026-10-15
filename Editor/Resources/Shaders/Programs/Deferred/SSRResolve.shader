@@ -21,13 +21,17 @@ Shader "SSRResolve"
     {
         // Fullscreen: the GI gather writes every pixel, so its resolve has nothing to skip. SSR draws the same
         // body over its reflecting tiles only (SSRResolveTiled.shader).
+        // Shared sampler states (UE's shared samplers), declared before the includes that sample through them.
+        Uniform(4) sampler u_LinearClampSampler;
+        Uniform(5) sampler u_LinearRepeatSampler;
+        Uniform(6) sampler u_PointClampSampler;
         #include <Common/SSRDenoise.glslh>
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_Trace;           // this frame's jittered estimate (rgb, a = weight)
-        Uniform(2) sampler2D u_History;         // previous frame's resolved result
-        Uniform(3) sampler2D u_GBufferDepth; // device depth (nearest): world position for the reprojection
+        Uniform(1) texture2D u_Trace;           // this frame's jittered estimate (rgb, a = weight)
+        Uniform(2) texture2D u_History;         // previous frame's resolved result
+        Uniform(3) texture2D u_GBufferDepth; // device depth (nearest): world position for the reprojection
 
         Out(0) vec4 oColor;
 

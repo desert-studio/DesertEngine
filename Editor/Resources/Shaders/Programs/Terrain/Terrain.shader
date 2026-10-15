@@ -71,7 +71,11 @@ Shader "Terrain"
         // render path's mesh shaders. Slots 6/7 are the first free ones in this shader's own small layout;
         // they need not (and do not) match the mesh shaders' 20/21, because only the NAMES are shared and
         // every material binds by name (Graphic::CloudShadowBind).
-        Uniform(6) sampler2D u_CloudShadowMap;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_LinearRepeatSampler;
+        Uniform(6) texture2D u_CloudShadowMap;
+        #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
         Uniform(7) CloudShadowUB
         {
         	mat4 u_CloudShadowWorldToMap;

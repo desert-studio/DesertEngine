@@ -1333,12 +1333,19 @@ namespace Desert::Editor::ShaderGraph
                                     ::Desert::Core::kCloudMediumBlockName, ::Desert::Core::kCloudMediumStructName,
                                     ::Desert::Core::kCloudMediumInstanceName );
             }
+            // Each texture is a SEPARATE texture read through one shared state, u_CloudMediumSampler, bound right
+            // after them (the cloud passes fill it with GlobalTextureFilterSampler, VolumetricCloudRenderer); the
+            // macro of the same name keeps every lookup the graph emits in the sampled form. GLSL never re-expands
+            // a macro inside its own expansion, so the inner name is the texture.
             for ( std::size_t i = 0; i < mediumTextures.size(); ++i )
-                out << std::format( "        layout( binding = {} ) uniform sampler2D {};\n",
+                out << std::format( "        layout( binding = {0} ) uniform texture2D {1};\n"
+                                    "        #define {1} sampler2D({1}, u_CloudMediumSampler)\n",
                                     ::Desert::Core::kCloudMediumTextureFirst + static_cast<uint32_t>( i ),
                                     mediumTextures[i]->ParamName );
             if ( !mediumTextures.empty() )
-                out << "\n";
+                out << std::format( "        layout( binding = {} ) uniform sampler u_CloudMediumSampler;\n\n",
+                                    ::Desert::Core::kCloudMediumTextureFirst +
+                                         static_cast<uint32_t>( mediumTextures.size() ) );
 
             out << bodies.str();
             out << "    }\n}\n";

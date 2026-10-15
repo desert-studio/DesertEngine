@@ -22,10 +22,18 @@ Shader "SSR"
         #include <Common/SSRGate.glslh>
         #include <Common/ReconstructPosition.glslh>
 
-        Uniform(0) sampler2D u_GBufferAlbedo;   // rgb = albedo, a = metallic
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
-        Uniform(3) sampler2D u_SceneColor;      // composited opaque scene (reflection source)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(7) sampler u_LinearRepeatSampler;
+        Uniform(8) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_GBufferAlbedo;   // rgb = albedo, a = metallic
+        #define u_GBufferAlbedo sampler2D(u_GBufferAlbedo, u_LinearRepeatSampler)
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(3) texture2D u_SceneColor;      // composited opaque scene (reflection source)
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearRepeatSampler)
         layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
 

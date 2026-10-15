@@ -32,11 +32,20 @@ Shader "GIResolve"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferB;     // rgb = world normal
-        Uniform(2) sampler2D u_GBufferDepth; // r = device depth (nearest sampler)
-        Uniform(3) sampler2D u_RSMAlbedo;    // rgb = surface albedo (flux colour)
-        Uniform(4) sampler2D u_RSMNormal;    // rgb = surface world normal
-        Uniform(5) sampler2D u_RSMDepth;     // r = the RSM device depth (nearest sampler)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(6) sampler u_LinearRepeatSampler;
+        Uniform(7) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_GBufferB;     // rgb = world normal
+        #define u_GBufferB sampler2D(u_GBufferB, u_LinearRepeatSampler)
+        Uniform(2) texture2D u_GBufferDepth; // r = device depth (nearest sampler)
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(3) texture2D u_RSMAlbedo;    // rgb = surface albedo (flux colour)
+        #define u_RSMAlbedo sampler2D(u_RSMAlbedo, u_LinearRepeatSampler)
+        Uniform(4) texture2D u_RSMNormal;    // rgb = surface world normal
+        #define u_RSMNormal sampler2D(u_RSMNormal, u_LinearRepeatSampler)
+        Uniform(5) texture2D u_RSMDepth;     // r = the RSM device depth (nearest sampler)
+        #define u_RSMDepth sampler2D(u_RSMDepth, u_PointClampSampler)
 
         Out(0) vec4 oColor;
 

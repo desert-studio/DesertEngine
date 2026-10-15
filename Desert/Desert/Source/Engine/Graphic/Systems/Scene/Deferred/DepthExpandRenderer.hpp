@@ -74,8 +74,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !gbufferDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on the multisampled scene depth: opens block 0.

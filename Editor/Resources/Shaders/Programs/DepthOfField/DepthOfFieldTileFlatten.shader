@@ -7,7 +7,11 @@ Shader "DepthOfFieldTileFlatten"
         // largest foreground radius (x, from the most negative CoC) and the largest background radius (y).
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_Half; // rgb colour, a signed CoC (half-res pixels); HalfExtent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Half; // rgb colour, a signed CoC (half-res pixels); HalfExtent
+        #define u_Half sampler2D(u_Half, u_PointClampSampler)
         layout(binding = 1, rg16f) restrict writeonly uniform image2D u_Tiles;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.

@@ -118,8 +118,8 @@ namespace Desert::Graphic
                  {
                      // texelFetch only: the Catmull-Rom weights are the filter, the sampler filters nothing.
                      pass.Bindings( SupersampleResolveLayout(), RDG::OtherRouteFill{} )
-                          .Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_Destination", destination, RDG::Access::StorageWrite, 0 )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) );
                  },

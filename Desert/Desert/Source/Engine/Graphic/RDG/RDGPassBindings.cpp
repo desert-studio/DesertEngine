@@ -309,17 +309,6 @@ namespace Desert::Graphic::RDG
         return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Sampled( std::string_view shaderName, TextureRef texture,
-                                                       Access declared, SubresourceRange range,
-                                                       SamplerDesc sampler )
-    {
-        m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Sampled" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::SampledTexture, ResourceKind::Texture, texture.Index,
-               declared, range, sampler } );
-        return *this;
-    }
-
     BindingBlockBuilder& BindingBlockBuilder::Texture( std::string_view shaderName, TextureRef texture,
                                                        Access declared, SubresourceRange range )
     {
@@ -332,8 +321,18 @@ namespace Desert::Graphic::RDG
 
     BindingBlockBuilder& BindingBlockBuilder::Sampler( std::string_view shaderName, SamplerDesc sampler )
     {
-        // No resource and no access: nothing for the graph to declare, only the slot to fill.
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        // No resource and no access: nothing for the graph to declare, only the slot to fill. The same shared
+        // state named again by another input of the block is the entry already there.
+        std::vector<DeclaredBindingEntry>& entries = m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries;
+        const bool already = std::any_of( entries.begin(), entries.end(),
+                                          [&]( const DeclaredBindingEntry& e )
+                                          {
+                                              return e.Kind == ShaderResourceKind::Sampler &&
+                                                     e.ShaderName == shaderName && e.Sampler == sampler;
+                                          } );
+        if ( already )
+            return *this;
+        entries.push_back(
              { std::string( shaderName ), ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
                Access::None, SubresourceRange::All(), sampler } );
         return *this;
@@ -394,8 +393,10 @@ namespace Desert::Graphic::RDG
             switch ( entry.Kind )
             {
                 case ShaderResourceKind::SampledTexture:
-                    ResolveSampled( entry.ShaderName, entry.Kind, TextureRef{ entry.Index }, entry.Declared,
-                                    entry.Range, entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
+                    // No builder makes one (BindingBlockBuilder has Texture + Sampler only): a hand-built entry.
+                    if ( m_FirstError.empty() )
+                        KeepFirstError( m_FirstError, context.GetPassName(), entry.ShaderName, "texture",
+                                        "a pass binds no combined sampler; declare a Texture and a Sampler" );
                     break;
                 case ShaderResourceKind::Texture:
                     ResolveSampled( entry.ShaderName, entry.Kind, TextureRef{ entry.Index }, entry.Declared,

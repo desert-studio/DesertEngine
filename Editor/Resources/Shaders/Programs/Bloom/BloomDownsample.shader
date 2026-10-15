@@ -9,7 +9,11 @@ Shader "BloomDownsample"
         // folded in here (so no separate bright-pass is needed). u_Source is bound as a single-mip view of the
         // source mip, so the whole bloom mip-chain can live in one image while each mip keeps its own layout.
 
-        Uniform(0) sampler2D u_Source;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_Source;
+        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
 
         PushConstant PushConstants

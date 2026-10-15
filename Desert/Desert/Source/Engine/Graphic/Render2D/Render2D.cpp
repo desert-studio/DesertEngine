@@ -387,10 +387,10 @@ namespace Desert::Graphic::Render2D
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
                                     RDG::OtherRouteFill{} )
-                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                         .Sampled( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                   RDG::SamplerDesc::LinearClamp() )
+                         .Texture( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All() )
+                         .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                         .Texture( "u_Mask", pic.Mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RetainerPush ) ) );
                 }
                 else
@@ -400,8 +400,9 @@ namespace Desert::Graphic::Render2D
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
                                     resolved.Executor->GetRouteFill() )
-                         .Sampled( "u_Content", pic.Content, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                         .Texture( "u_Content", pic.Content, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All() )
+                         .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
                 }
                 continue;
             }
@@ -410,8 +411,8 @@ namespace Desert::Graphic::Render2D
                 // The sampler the glass sampled its backdrop with before: LinearClamp over every mip.
                 declared
                      .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-                     .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                               RDG::SamplerDesc::LinearClamp() )
+                     .Texture( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                      .PushConstantBytes( static_cast<uint32_t>( sizeof( GlassPush ) ) );
                 continue;
             }

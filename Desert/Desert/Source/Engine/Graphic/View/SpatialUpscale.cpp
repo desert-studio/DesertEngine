@@ -136,8 +136,8 @@ namespace Desert::Graphic
              {
                  // texelFetch only: the EASU lobes are the filter, the sampler filters nothing.
                  pass.Bindings( SpatialUpscaleLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_Destination", output, RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SpatialUpscalePush ) ) );
              },
@@ -193,8 +193,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( SharpenLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Source", color, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_Source", color, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_Destination", output, RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SharpenPush ) ) );
              },

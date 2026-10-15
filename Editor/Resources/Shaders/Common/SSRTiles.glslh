@@ -18,7 +18,9 @@
 const vec2 SSR_TILE_CORNERS[6] = vec2[](vec2(0.0, 1.0), vec2(1.0, 1.0), vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(1.0, 0.0),
                                         vec2(0.0, 0.0));
 
-Uniform(8) sampler2D u_SSRTileMask; // r = 1 where the tile holds a pixel that can reflect
+// A separate texture read through the includer's u_PointClampSampler, which it declares BEFORE including this file.
+Uniform(8) texture2D u_SSRTileMask; // r = 1 where the tile holds a pixel that can reflect
+#define u_SSRTileMask sampler2D(u_SSRTileMask, u_PointClampSampler)
 
 bool SSRTileActive(ivec2 tile, ivec2 grid, int dilate)
 {

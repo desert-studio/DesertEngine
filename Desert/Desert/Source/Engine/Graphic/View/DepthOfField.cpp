@@ -312,8 +312,10 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofSetupLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all, linear )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Half", halfColor, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -324,7 +326,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileFlattenLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Half", halfColor, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_Half", halfColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Tiles", tiles, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -335,7 +338,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileDilateLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Tiles", tiles, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_Tiles", tiles, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Dilated", dilated, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -350,8 +354,10 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( layout, RDG::OtherRouteFill{} )
-                          .Sampled( "u_Half", halfColor, RDG::Access::SampledCompute, all, linear )
-                          .Sampled( "u_Dilated", dilated, RDG::Access::SampledCompute, all, point )
+                          .Texture( "u_Half", halfColor, RDG::Access::SampledCompute, all )
+                          .Sampler( "u_LinearClampSampler", linear )
+                          .Texture( "u_Dilated", dilated, RDG::Access::SampledCompute, all )
+                          .Sampler( "u_PointClampSampler", point )
                           .Storage( "u_Layer", layer, RDG::Access::StorageWrite, 0 )
                           .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
                  },
@@ -365,10 +371,14 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofRecombineLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all, point )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all, point )
-                      .Sampled( "u_Foreground", foreground, RDG::Access::SampledCompute, all, linear )
-                      .Sampled( "u_Background", background, RDG::Access::SampledCompute, all, linear )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_Foreground", foreground, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Texture( "u_Background", background, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
                       .Storage( "u_Output", result, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },

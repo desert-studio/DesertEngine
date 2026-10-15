@@ -39,8 +39,13 @@ Shader "UIRetainer"
         In(0) vec2 v_TexCoord;
         In(1) vec4 v_Color;
 
-        Uniform(0) sampler2D u_Content;
-        Uniform(1) sampler2D u_Mask;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_Content;
+        #define u_Content sampler2D(u_Content, u_LinearClampSampler)
+        Uniform(1) texture2D u_Mask;
+        #define u_Mask sampler2D(u_Mask, u_LinearClampSampler)
 
         PushConstant constants
         {

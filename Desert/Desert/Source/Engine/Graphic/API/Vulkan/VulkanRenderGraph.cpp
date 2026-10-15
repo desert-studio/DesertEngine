@@ -869,22 +869,19 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr
     VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
                                             const RDG::TextureBinding& texture, RDG::SubresourceRange range,
-                                            VkImageLayout layout, VkSampler sampler, uint32_t element )
+                                            VkImageLayout layout, uint32_t element )
     {
-        const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
-            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type",
+        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE )
+            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not a separate or storage image "
+                                               "type (a pass binds no combined sampler)",
                                                texture.Name, static_cast<int>( type ) );
-        if ( combined != ( sampler != VK_NULL_HANDLE ) )
-            return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
-                                               texture.Name );
         const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
         const Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
         if ( !view )
             return Common::MakeFormattedError( "texture '{}': {}", texture.Name, view.GetError() );
-        const VkDescriptorImageInfo image{ sampler, view.GetValue(), layout };
+        const VkDescriptorImageInfo image{ VK_NULL_HANDLE, view.GetValue(), layout };
         VkWriteDescriptorSet        write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;

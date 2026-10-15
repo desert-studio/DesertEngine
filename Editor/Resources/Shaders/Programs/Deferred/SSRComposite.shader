@@ -10,6 +10,9 @@ Shader "SSRComposite"
         // buffer is non-zero up to ~6 px past a marked tile (half-resolution trace read bilinearly, 5x5 resolve)
         // and the blur reads it up to 4 px away; elsewhere the output alpha is 0 and the blend is a no-op.
         #include <Common/FullscreenTriangle.glslh>
+        // Shared sampler states (UE's shared samplers), declared before the include that samples through one.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(4) sampler u_LinearRepeatSampler;
         #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;
@@ -29,8 +32,10 @@ Shader "SSRComposite"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_SSR;           // rgb = reflected colour, a = reflectance
-        Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal, a = roughness
+        Uniform(1) texture2D u_SSR;           // rgb = reflected colour, a = reflectance
+        #define u_SSR sampler2D(u_SSR, u_LinearRepeatSampler)
+        Uniform(2) texture2D u_GBufferNormal; // rgb = world normal, a = roughness
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
 
         Out(0) vec4 oColor;
 

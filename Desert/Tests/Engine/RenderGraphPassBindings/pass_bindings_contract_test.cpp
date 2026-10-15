@@ -176,8 +176,8 @@ namespace
     BindingBlockBuilder DeclareBloomBlock( PassBuilder& pass, TextureRef chain )
     {
         BindingBlockBuilder block = pass.Bindings( BloomLayout(), OtherRouteFill{} );
-        block.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                       SamplerDesc::LinearClamp() )
+        block.Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, Access::StorageWrite, 0 )
              .PushConstantBytes( 12 );
         return block;
@@ -296,8 +296,8 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() )
+                  .Texture( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
@@ -314,8 +314,8 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() )
+                  .Texture( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
                   .Storage( "u_Source", chain, Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
@@ -336,8 +336,8 @@ TEST( RenderGraphPassBindings, ASlotDeclaredTwiceFaultsThePassBeforeItsExec )
          []( PassBuilder& pass, TextureRef chain )
          {
              DeclareBloomBlock( pass, chain )
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::LinearClamp() );
+                  .Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
          },
          []( PassContext&, TextureRef ) -> Common::BoolResultStr
          { return Common::MakeError( std::string( "the exec of a refused block ran" ) ); } );
@@ -361,8 +361,8 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                            SamplerDesc::PointClamp() )
+                  .Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_PointClampSampler", SamplerDesc::PointClamp() )
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
@@ -410,8 +410,8 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
              pass.Bindings( ShaderBindingLayout{ .ShaderName = "ReadsBlack",
                                                  .Slots = { { "u_Source", ShaderResourceKind::SampledTexture } } },
                             OtherRouteFill{} )
-                  .Sampled( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ),
-                            SamplerDesc::LinearClamp() );
+                  .Texture( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
          },
          [&]( PassContext& context ) -> Common::BoolResultStr
          {

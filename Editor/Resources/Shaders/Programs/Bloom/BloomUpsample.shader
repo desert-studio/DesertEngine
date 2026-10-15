@@ -7,7 +7,11 @@ Shader "BloomUpsample"
         // and ADDS it into the next-larger mip (read-modify-write on the storage image), walking the chain back
         // up to mip 0. u_Output is the larger (destination) mip; u_Source is a single-mip view of the smaller mip.
 
-        Uniform(0) sampler2D u_Source;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_Source;
+        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba16f) uniform image2D u_Output;
 
         PushConstant PushConstants

@@ -413,15 +413,17 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             {
                 claimSlot( resource );
                 // A fixed array is ArraySize descriptors of one binding (dstArrayElement per element); a runtime
-                // array has no count a pass could fill, and more than one dimension no element name.
+                // array has no count a pass could fill, and more than one dimension no element name. Every image
+                // dimension a pass reads is accepted (2D, 3D, cube, cube array, multisampled 2D): a SAMPLED_IMAGE
+                // descriptor carries the view, and the view carries the dimension.
                 const bool fixedArray = type.array.size() == 1 && type.array_size_literal[0] && type.array[0] > 0;
                 const ImageKind kind  = ClassifyImage( type );
-                if ( ( !type.array.empty() && !fixedArray ) || kind == ImageKind::Image3D ||
-                     kind == ImageKind::Image2DMultisample || kind == ImageKind::Unsupported )
+                if ( ( !type.array.empty() && !fixedArray ) || kind == ImageKind::Unsupported )
                 {
                     diagnostics.push_back( std::format(
                          "resource '{}' (set {}, binding {}) is a separate {}{}; a pass's separate texture is a "
-                         "texture2D, textureCube or textureCubeArray, alone or in a fixed-size array",
+                         "texture2D, texture2DMS, texture3D, textureCube or textureCubeArray, alone or in a "
+                         "fixed-size array",
                          resource.name, set, binding, DescribeImageType( type ),
                          type.array.empty() ? "" : " array" ) );
                     continue;

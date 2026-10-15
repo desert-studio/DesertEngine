@@ -65,8 +65,8 @@ namespace Desert::Graphic::System
             if ( !m_Current )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( "u_Velocity", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const

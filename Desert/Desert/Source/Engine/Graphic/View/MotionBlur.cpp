@@ -240,10 +240,12 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurFlattenLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
+                      .Texture( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Flat", flat, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -254,7 +256,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurTileMaxLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All(), point )
+                      .Texture( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_TileMax", tileMax, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -265,8 +268,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_TileMax", tileMax, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                point )
+                      .Texture( "u_TileMax", tileMax, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_NeighborMax", neighborMax, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -279,11 +282,14 @@ namespace Desert::Graphic
                  // The colour taps are bilinear (sub-pixel positions along the velocity); the flattened velocity
                  // and the tiles are read at texel centres.
                  pass.Bindings( MotionBlurGatherLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All(), point )
-                      .Sampled( "u_NeighborMax", neighborMax, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_NeighborMax", neighborMax, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Output", blurred, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },

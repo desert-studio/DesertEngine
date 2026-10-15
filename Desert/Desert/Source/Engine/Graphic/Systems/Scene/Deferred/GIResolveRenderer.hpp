@@ -153,14 +153,14 @@ namespace Desert::Graphic::System
             auto                       block    = pass.Bindings( m_GatherLayout.Get( m_Pipeline->GetShader() ),
                                                                  m_Material->GetMaterialExecutor()->GetRouteFill() );
             const auto                 sampled  = [&]( std::string_view name, RDG::TextureRef texture ) {
-                block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                                kSampler );
+                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( "u_LinearRepeatSampler", kSampler );
             };
             // The two depths through a nearest sampler: DEPTH32F is not guaranteed linear-filterable (MoltenVK).
             const auto depth = [&]( std::string_view name, RDG::TextureRef texture )
             {
-                block.Sampled( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                               RDG::SamplerDesc::PointClamp() );
+                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
             };
             sampled( "u_GBufferB", inputs.GBufferNormal );
             depth( "u_GBufferDepth", inputs.GBufferDepth );
@@ -169,20 +169,23 @@ namespace Desert::Graphic::System
             depth( "u_RSMDepth", inputs.RSMDepth );
         }
 
-        // SETUP of pass 2: the node's one block (block 0) - u_Trace / u_History (linear, REPEAT, as the material
-        // route sampled them) and u_GBufferDepth (nearest), the resolve material as the other route.
+        // SETUP of pass 2: the node's one block (block 0) - u_Trace (linear, clamped: SSRResolve.shader's shared
+        // denoiser, Common/SSRDenoise.glslh, reads its trace through u_LinearClampSampler for SSR and GI alike),
+        // u_History (linear, REPEAT) and u_GBufferDepth (nearest), the resolve material as the other route.
         void DeclareTemporalBindings( RDG::PassBuilder& pass, RDG::TextureRef gather, RDG::TextureRef history,
                                       RDG::TextureRef gbufferDepth ) const
         {
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_ResolveLayout.Get( m_ResolvePipeline->GetShader() ),
                            m_ResolveMaterial->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
-                 .Sampled( "u_GBufferDepth", gbufferDepth, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_Trace", gather, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( "u_LinearRepeatSampler", kSampler )
+                 .Texture( "u_History", history, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", kSampler )
+                 .Texture( "u_GBufferDepth", gbufferDepth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Whether the accumulation target this frame reprojects is the view's previous frame (PassHistory.hpp).

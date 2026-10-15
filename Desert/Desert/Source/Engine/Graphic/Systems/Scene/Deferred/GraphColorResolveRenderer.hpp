@@ -84,8 +84,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !multisample.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Input", multisample, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_Input", multisample, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the graph opens on the single-sample colour of @p format: opens block 0.

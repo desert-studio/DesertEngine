@@ -254,8 +254,8 @@ namespace
 
     void FillComplete( BindingBlockBuilder& block, TextureRef chain )
     {
-        block.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                       SamplerDesc::LinearClamp() )
+        block.Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, Access::StorageWrite, 0 );
     }
 } // namespace
@@ -286,8 +286,8 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
                         []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
                             FillComplete( bindings, chain );
-                            bindings.Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                              SamplerDesc::LinearClamp() );
+                            bindings.Texture( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                                 .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
                         } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -306,8 +306,8 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
                         []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
                             bindings
-                                 .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() )
+                                 .Texture( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                                 .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
                                  .Storage( "u_Source", chain, Access::StorageWrite, 0 );
                         } );
     ASSERT_FALSE( resolved.IsSuccess() );
@@ -325,8 +325,9 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
                         Believed( { { "u_Source", ShaderResourceKind::SampledTexture } }, 12 ),
                         []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
-                            bindings.Sampled( "u_Source", chain, Access::SampledCompute,
-                                              SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp() );
+                            bindings.Texture( "u_Source", chain, Access::SampledCompute,
+                                              SubresourceRange::Mip( 1 ) )
+                                 .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
                         } );
     ASSERT_FALSE( noOutput.IsSuccess() );
     EXPECT_NE( noOutput.GetError().find( "'u_Output' (set 0 binding 1)" ), std::string::npos )

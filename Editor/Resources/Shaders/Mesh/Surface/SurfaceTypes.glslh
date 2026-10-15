@@ -100,7 +100,11 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 // of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
 // and returns the opacity unchanged, as UE's DepthFade does outside translucency.
 #if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
-layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+// A separate texture read through its own point-clamped state (ParticleRenderer binds both); 24 is the one set-0
+// slot below the scene-read range that no sprite-cell declaration takes.
+layout( binding = 24 ) uniform sampler u_PointClampSampler;
+layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
 
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {

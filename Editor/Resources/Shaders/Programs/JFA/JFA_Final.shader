@@ -7,8 +7,17 @@ Shader "JFA_Final"
 
         Out(0) vec4 o_Color;
 
-        Uniform(0, 0) sampler2D u_JFATexture;
-        Uniform(0, 1) sampler2D u_SceneTexture;
+        // Shared sampler states (UE's shared samplers): each input below is a separate texture read through one.
+
+        Uniform(0, 3) sampler u_PointClampSampler;
+
+        Uniform(0, 4) sampler u_LinearClampSampler;
+
+        Uniform(0, 0) texture2D u_JFATexture;
+
+        #define u_JFATexture sampler2D(u_JFATexture, u_PointClampSampler)
+        Uniform(0, 1) texture2D u_SceneTexture;
+        #define u_SceneTexture sampler2D(u_SceneTexture, u_LinearClampSampler)
 
         Uniform(2) JFAFinalUB
         {

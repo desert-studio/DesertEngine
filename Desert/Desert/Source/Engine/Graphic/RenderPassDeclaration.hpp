@@ -103,7 +103,7 @@ namespace Desert::Graphic
         struct BlockEntry
         {
             std::string                     ShaderName;
-            RDG::ShaderResourceKind         Kind = RDG::ShaderResourceKind::SampledTexture;
+            RDG::ShaderResourceKind         Kind = RDG::ShaderResourceKind::Texture;
             RDG::TextureRef                 Texture;
             std::shared_ptr<Image>          Image;
             std::string                     ImportName;
@@ -128,20 +128,6 @@ namespace Desert::Graphic
                  : m_Declaration( declaration ), m_Index( index )
             {
             }
-            BlockDeclaration& Sampled( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
-                                       RDG::SubresourceRange range, RDG::SamplerDesc sampler )
-            {
-                Block().Entries.push_back( { std::string( shaderName ),
-                                             RDG::ShaderResourceKind::SampledTexture,
-                                             texture,
-                                             {},
-                                             {},
-                                             {},
-                                             access,
-                                             range,
-                                             sampler } );
-                return *this;
-            }
             // A separate texture slot (RDG::ShaderResourceKind::Texture), read through a Sampler slot of the
             // block.
             BlockDeclaration& Texture( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
@@ -158,9 +144,15 @@ namespace Desert::Graphic
                                              std::nullopt } );
                 return *this;
             }
-            // A separate sampler slot (RDG::ShaderResourceKind::Sampler): a state, no resource.
+            // A separate sampler slot (RDG::ShaderResourceKind::Sampler): a state, no resource, shared by every
+            // Texture entry read through it - named again with the same state it adds nothing (see
+            // RDG::BindingBlockBuilder::Sampler).
             BlockDeclaration& Sampler( std::string_view shaderName, RDG::SamplerDesc sampler )
             {
+                for ( const BlockEntry& e : Block().Entries )
+                    if ( e.Kind == RDG::ShaderResourceKind::Sampler && e.ShaderName == shaderName &&
+                         e.Sampler == sampler )
+                        return *this;
                 Block().Entries.push_back( { std::string( shaderName ),
                                              RDG::ShaderResourceKind::Sampler,
                                              {},
@@ -172,19 +164,20 @@ namespace Desert::Graphic
                                              sampler } );
                 return *this;
             }
-            // An engine image its system owns, sampled whole (resolved to its import, see BlockEntry).
-            BlockDeclaration& Sampled( std::string_view shaderName, std::shared_ptr<Image> image,
-                                       RDG::Access access, RDG::SamplerDesc sampler, std::string importName )
+            // An engine image its system owns as a separate texture, read whole (resolved to its import, see
+            // BlockEntry) through a Sampler slot of the block.
+            BlockDeclaration& Texture( std::string_view shaderName, std::shared_ptr<Image> image,
+                                       RDG::Access access, std::string importName )
             {
                 Block().Entries.push_back( { std::string( shaderName ),
-                                             RDG::ShaderResourceKind::SampledTexture,
+                                             RDG::ShaderResourceKind::Texture,
                                              {},
                                              std::move( image ),
                                              std::move( importName ),
                                              {},
                                              access,
                                              RDG::SubresourceRange::All(),
-                                             sampler } );
+                                             std::nullopt } );
                 return *this;
             }
             BlockDeclaration& Storage( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
@@ -341,8 +334,7 @@ namespace Desert::Graphic
                 // A sampler slot names no resource.
                 if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
                     continue;
-                const bool texture = entry.Kind == RDG::ShaderResourceKind::SampledTexture ||
-                                     entry.Kind == RDG::ShaderResourceKind::Texture ||
+                const bool texture = entry.Kind == RDG::ShaderResourceKind::Texture ||
                                      entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                 // An engine image is not a ref yet: its import is checked where it is resolved (ResolveDeclared).
                 if ( texture && entry.Image )
@@ -403,10 +395,9 @@ namespace Desert::Graphic
                     texture = nextImage < blockImages.size() ? blockImages[nextImage++] : RDG::TextureRef{};
                 switch ( entry.Kind )
                 {
+                    // No BlockDeclaration makes a combined entry; one built by hand is declared as the texture it
+                    // names, and ValidatePassBindings refuses it against the shader's slot kind.
                     case RDG::ShaderResourceKind::SampledTexture:
-                        bindings.Sampled( entry.ShaderName, texture, entry.Access, entry.Range,
-                                          entry.Sampler.value_or( RDG::SamplerDesc::LinearClamp() ) );
-                        break;
                     case RDG::ShaderResourceKind::Texture:
                         bindings.Texture( entry.ShaderName, texture, entry.Access, entry.Range );
                         break;

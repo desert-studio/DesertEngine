@@ -8,7 +8,11 @@ Shader "FXAA"
         // deferred-friendly, post-process-only technique (no MSAA, no motion vectors).
 
         In(0)  vec2 v_TexCoord;
-        Uniform(2) sampler2D u_InputTexture;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(0) sampler u_LinearRepeatSampler;
+        Uniform(2) texture2D u_InputTexture;
+        #define u_InputTexture sampler2D(u_InputTexture, u_LinearRepeatSampler)
         Out(0) vec4 oColor;
 
         #define FXAA_SPAN_MAX   8.0

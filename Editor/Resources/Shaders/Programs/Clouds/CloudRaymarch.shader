@@ -160,7 +160,12 @@ Shader "CloudRaymarch"
         // The scene depth attachment, presented to this dispatch by ComputeImageBeginRead and handed back
         // afterwards. Point-sampled with texelFetch, never filtered: a filtered depth across a silhouette
         // averages foreground and background into a distance where nothing is.
-        Uniform(2) sampler2D u_SceneDepth;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_GlobalFilterSampler;
+        Uniform(8) sampler u_LinearRepeatSampler;
+        Uniform(2) texture2D u_SceneDepth;
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_GlobalFilterSampler)
 
         // The noise volume, now an ASSET rather than a bake: four named channels from the Nubis deck
         // (p.96) — R,G Curly-Alligator LF/HF, B,A Alligator LF/HF — generated on the CPU by
@@ -168,7 +173,8 @@ Shader "CloudRaymarch"
         // includes, and shipped as a .dcnv file. REPEAT and LINEAR,
         // which every volume sampler in this engine is; the volume was baked to tile exactly under that
         // assumption.
-        Uniform(3) sampler3D u_CloudNoise;
+        Uniform(3) texture3D u_CloudNoise;
+        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
 
         // AND THREE MORE OF THEM, because a layer carries four cloud types and a type names its own
         // volume. Separate bindings and not an array: this engine's reflection refuses an array of
@@ -177,9 +183,12 @@ Shader "CloudRaymarch"
         // sampler here is bound on — Graphic::ResolveCloudNoiseVolumes fills the slots a layer does not
         // need with slot 0's image, so an unused one is a second descriptor onto bytes that are already
         // resident rather than a hole in the set.
-        Uniform(10) sampler3D u_CloudNoise1;
-        Uniform(11) sampler3D u_CloudNoise2;
-        Uniform(12) sampler3D u_CloudNoise3;
+        Uniform(10) texture3D u_CloudNoise1;
+        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
+        Uniform(11) texture3D u_CloudNoise2;
+        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
+        Uniform(12) texture3D u_CloudNoise3;
+        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
 
         // THE FOUR-WAY SELECT, and it is a chain of compares because a sampler is not indexable in this
         // dialect. It costs the wave every branch the wave takes — which is why the CPU DEDUPLICATES the
@@ -204,12 +213,14 @@ Shader "CloudRaymarch"
         // with no image is an INVALID descriptor set rather than an unused one, and this engine's compute
         // path answers that by silently skipping the whole dispatch — which would lose the clouds with
         // nothing in the log. u_CloudAmbient.w decides whether it is sampled.
-        Uniform(4) sampler2D u_DistantSkyLight;
+        Uniform(4) texture2D u_DistantSkyLight;
+        #define u_DistantSkyLight sampler2D(u_DistantSkyLight, u_GlobalFilterSampler)
 
         // The sky's CAMERA AERIAL-PERSPECTIVE volume, 32x32x16 froxels of pre-integrated atmosphere
         // (Programs/Sky/SkyAerialPerspectiveLut.shader). Bound on the same terms as the texel above and
         // read only when u_CloudAerial.z says the volume exists.
-        Uniform(5) sampler3D u_CloudAerialPerspective;
+        Uniform(5) texture3D u_CloudAerialPerspective;
+        #define u_CloudAerialPerspective sampler3D(u_CloudAerialPerspective, u_LinearRepeatSampler)
 
         // THE PROCEDURAL MODELLING VOLUME, 256 x 32 x 256 RGBA8, baked on the CPU by
         // Assets::BakeCloudProceduralVolume and uploaded by Runtime::CloudProceduralVolumeService
@@ -228,13 +239,17 @@ Shader "CloudRaymarch"
         // LINEAR AND REPEAT, like every sampler this engine creates, and here the REPEAT is load-bearing
         // rather than tolerated: the bake splats every lump at its wrapped positions, so the volume is
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
-        Uniform(7) sampler3D u_CloudModelling;
+        Uniform(7) texture3D u_CloudModelling;
+        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler2D u_CloudFarWeather;
-        Uniform(16) sampler2D u_CloudLayoutPattern;
-        Uniform(17) sampler2D u_CloudLayoutMask;
+        Uniform(15) texture2D u_CloudFarWeather;
+        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
+        Uniform(16) texture2D u_CloudLayoutPattern;
+        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
+        Uniform(17) texture2D u_CloudLayoutMask;
+        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
 
         // THE SCULPTED HERO-CLOUD BODY — slot A of the seam. 128 x 64 x 128 RGBA8 of dimensional
         // profile, detail type, density scale and cutout envelope, loaded from a `.dcmv` and uploaded by
@@ -243,7 +258,8 @@ Shader "CloudRaymarch"
         // unused one, and this backend answers an invalid set by silently skipping the dispatch — the
         // clouds would vanish with nothing in the log. When the scene has no hero cloud the renderer
         // binds the engine's fallback volume and the instance count is zero, so nothing reads it.
-        Uniform(9) sampler3D u_CloudAuthoredAtlas;
+        Uniform(9) texture3D u_CloudAuthoredAtlas;
+        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
 
         // THE SKY-LIGHT OCCLUSION VOLUME — 128 x 16 x 128 RGBA16F over the procedural modelling volume's
         // own region, .r holding the diffuse transmittance of everything ABOVE that column at that
@@ -258,7 +274,8 @@ Shader "CloudRaymarch"
         // ALWAYS BOUND, fallback included, on the terms every sampler here is bound on: a declared sampler
         // with no image is an INVALID descriptor set, and this backend answers one by silently skipping
         // the dispatch. u_CloudFrame.x decides whether it is read.
-        Uniform(13) sampler3D u_CloudSkyOcclusionVolume;
+        Uniform(13) texture3D u_CloudSkyOcclusionVolume;
+        #define u_CloudSkyOcclusionVolume sampler3D(u_CloudSkyOcclusionVolume, u_LinearRepeatSampler)
 
         // THE ATMOSPHERE'S TRANSMITTANCE LUT — 256x64 RGBA16F of what survives the trip from a point in
         // the atmosphere to space along a given zenith angle, marched by
@@ -274,7 +291,8 @@ Shader "CloudRaymarch"
         // no division by a transmittance that reaches zero at a low sun.
         //
         // ALWAYS BOUND, fallback included, on the terms every sampler above is bound on.
-        Uniform(14) sampler2D u_CloudSunTransmittanceLut;
+        Uniform(14) texture2D u_CloudSunTransmittanceLut;
+        #define u_CloudSunTransmittanceLut sampler2D(u_CloudSunTransmittanceLut, u_GlobalFilterSampler)
 
         // The seam's three callbacks. Declared here, next to the samplers, because Common/CloudField.glslh
         // must stay free of samplers to remain compilable as C++ by its tests.

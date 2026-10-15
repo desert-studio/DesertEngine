@@ -116,16 +116,24 @@ Shader "CloudTemporalResolve"
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_ReconstructedGuide;
 
         // This frame's QUARTER-resolution trace and its guide.
-        Uniform(0) sampler2D u_CloudTrace;
-        Uniform(1) sampler2D u_CloudTraceGuide;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(8) sampler u_LinearClampSampler;
+        Uniform(9) sampler u_GlobalFilterSampler;
+        Uniform(0) texture2D u_CloudTrace;
+        #define u_CloudTrace sampler2D(u_CloudTrace, u_LinearClampSampler)
+        Uniform(1) texture2D u_CloudTraceGuide;
+        #define u_CloudTraceGuide sampler2D(u_CloudTraceGuide, u_LinearClampSampler)
 
         // The PREVIOUS frame's half-resolution reconstruction and its guide. On the first frame after the
         // targets are allocated these are bound to the engine's fallback texture rather than left unbound
         // — a declared sampler with no image is an INVALID descriptor set, not an unused one, and this
         // backend answers an invalid set by skipping the entire dispatch, which would lose the clouds with
         // nothing in the log. u_HistoryValid is what says the bytes mean anything.
-        Uniform(2) sampler2D u_CloudHistory;
-        Uniform(3) sampler2D u_CloudHistoryGuide;
+        Uniform(2) texture2D u_CloudHistory;
+        #define u_CloudHistory sampler2D(u_CloudHistory, u_GlobalFilterSampler)
+        Uniform(3) texture2D u_CloudHistoryGuide;
+        #define u_CloudHistoryGuide sampler2D(u_CloudHistoryGuide, u_GlobalFilterSampler)
 
         // THIS PIXEL'S OWN SCENE DEPTH — the same single-sample image the march cuts its rays with, read
         // at the same texel the march would read for this half-res pixel. It is what makes the guide's .y
@@ -138,7 +146,8 @@ Shader "CloudTemporalResolve"
         // frame under a STATIC camera). Unreal's reconstruction compares against the pixel's own opaque
         // depth for the same reason (VolumetricRenderTarget.usf, SceneDepthMinAndMax / the mode-4
         // compose reading SceneDepth).
-        Uniform(7) sampler2D u_SceneDepth;
+        Uniform(7) texture2D u_SceneDepth;
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_GlobalFilterSampler)
 
         // The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),
         // where a static_assert pins every offset. Raw std430 rather than the ReadBuffer(n) sugar, as

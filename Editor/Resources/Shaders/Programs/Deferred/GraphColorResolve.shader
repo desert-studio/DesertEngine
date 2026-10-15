@@ -20,7 +20,13 @@ Shader "GraphColorResolve"
         // Sample 0 of the pixel, fetched: the resolved value is one a surface at that pixel really has, never the
         // average of an edge's two (the mean of two motion vectors is a motion nothing on screen makes).
 
-        Uniform(1) sampler2DMS u_Input;
+        // A separate multisampled texture read (texelFetch) through the pass's point-clamped shared state.
+
+        Uniform(2) sampler u_PointClampSampler;
+
+        Uniform(1) texture2DMS u_Input;
+
+        #define u_Input sampler2DMS(u_Input, u_PointClampSampler)
 
         Out(0) vec4 oColor;
 
