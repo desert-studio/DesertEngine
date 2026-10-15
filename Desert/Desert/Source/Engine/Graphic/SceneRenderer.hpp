@@ -220,8 +220,9 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         // THE REFLECTION CAPTURES (ReflectionCaptures/ReflectionCaptureRenderer.hpp) are the scene's; a view only
-        // reads them. Whether this view's profile does (ViewProfile::ReflectionCaptures), and the identity of the
-        // sky bake it holds (0 before it has one) - the scene recaptures when it changes.
+        // reads them. Whether this view does (ViewProfile::ReflectionCaptures and a resolved reflection method of
+        // Captures or above), and the identity of the sky bake it holds (0 before it has one) - the scene
+        // recaptures when it changes.
         [[nodiscard]] bool     ReadsReflectionCaptures() const;
         [[nodiscard]] uint64_t GetEnvironmentIdentity();
         // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a

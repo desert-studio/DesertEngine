@@ -159,7 +159,7 @@
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
                 "Shadows.ContactShadowSteps": 12,
-                "Shadows.Method": "VirtualMaps",
+                "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 32
@@ -169,7 +169,7 @@
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 20000,
                 "Shadows.ContactShadowSteps": 16,
-                "Shadows.Method": "HardwareTraced",
+                "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 64
@@ -179,7 +179,7 @@
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 30000,
                 "Shadows.ContactShadowSteps": 24,
-                "Shadows.Method": "Stochastic",
+                "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 64,
                 "Shadows.LightGridMaxLightsPerCell": 64
@@ -218,7 +218,7 @@
             },
             "High": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
-                "GlobalIllumination.Method": "HardwareTraced",
+                "GlobalIllumination.Method": "SoftwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 3584,
                 "GlobalIllumination.CardTexelDensityScale": 100,
                 "GlobalIllumination.CardMinResolution": 4,
@@ -233,7 +233,7 @@
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
-                "GlobalIllumination.Method": "HardwareTraced",
+                "GlobalIllumination.Method": "SoftwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,
                 "GlobalIllumination.CardMinResolution": 2,
@@ -248,7 +248,7 @@
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
-                "GlobalIllumination.Method": "PathTraced",
+                "GlobalIllumination.Method": "SoftwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,
                 "GlobalIllumination.CardMinResolution": 2,
@@ -267,7 +267,7 @@
                 "Reflections.MaxSteps": 24,
                 "Reflections.CaptureSize": 64,
                 "Reflections.RaysPerPixel": 1,
-                "Reflections.Method": "ScreenSpace"
+                "Reflections.Method": "Captures"
             },
             "Medium": {
                 "Reflections.MaxSteps": 32,
@@ -279,19 +279,19 @@
                 "Reflections.MaxSteps": 48,
                 "Reflections.CaptureSize": 128,
                 "Reflections.RaysPerPixel": 2,
-                "Reflections.Method": "HardwareTraced"
+                "Reflections.Method": "ScreenSpace"
             },
             "Epic": {
                 "Reflections.MaxSteps": 64,
                 "Reflections.CaptureSize": 128,
                 "Reflections.RaysPerPixel": 4,
-                "Reflections.Method": "HardwareTraced"
+                "Reflections.Method": "ScreenSpace"
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 96,
                 "Reflections.CaptureSize": 256,
                 "Reflections.RaysPerPixel": 8,
-                "Reflections.Method": "PathTraced"
+                "Reflections.Method": "ScreenSpace"
             }
         },
         "PostProcess": {

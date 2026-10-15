@@ -1134,7 +1134,7 @@ namespace Desert::Graphic
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
-            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
+            m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1923,9 +1923,13 @@ namespace Desert::Graphic
         return overlay;
     }
 
+    // The view reads the captures when its profile has them and its resolved reflection method is Captures or
+    // above (ScreenSpace composes over them, UE's SSR-then-reflection-environment); Off reads the sky alone. The
+    // scene asks before this frame's BeginScene, so a method change reaches the capture schedule one frame later.
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
-        return m_ViewProfile.ReflectionCaptures;
+        return m_ViewProfile.ReflectionCaptures &&
+               m_RenderMethods.Reflections.Effective >= Common::Scalability::ReflectionMethod::Captures;
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
