@@ -2714,7 +2714,8 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
     const std::vector<Barrier> onDepth = BarriersOn( &result.Passes[0], target.Depth.Index );
     ASSERT_EQ( onDepth.size(), 1u );
     EXPECT_EQ( onDepth[0].Before.Layout, ImageLayout::DepthStencilAttachment );
-    EXPECT_EQ( onDepth[0].After, GetAccessState( Access::DepthRead ) );
+    // Tested only, but the render pass's storeOp writes it: the state carries that write for the next barrier.
+    EXPECT_EQ( onDepth[0].After, ReadOnlyAttachmentStoreState( GetAccessState( Access::DepthRead ) ) );
 
     RecordingBackend backend;
     ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
