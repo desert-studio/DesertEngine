@@ -76,9 +76,9 @@ namespace Desert::Graphic
     }
 
     // THE EDITOR'S EXPOSURE-INDEPENDENT DISPLAY MAPPING, for content that has no scene to meter: a radiance shown
-    // as an object (the HDR thumbnail in the Content Browser, the cubemap preview ball after the tonemap) is graded
-    // by the default view grade at the default manual exposure (compensation 0), never by the viewport's adapted
-    // exposure. One definition, so the preview ball and its thumbnail read the same.
+    // as an object (the HDR thumbnail in the Content Browser, the cubemap preview ball after the tonemap) is
+    // graded by the default view grade at the default manual exposure (compensation 0), never by the viewport's
+    // adapted exposure. One definition, so the preview ball and its thumbnail read the same.
     struct PreviewDisplayMapping
     {
         FilmGradeParams Grade;

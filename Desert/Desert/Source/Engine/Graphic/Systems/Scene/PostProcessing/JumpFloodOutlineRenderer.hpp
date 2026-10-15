@@ -26,10 +26,10 @@ namespace Desert::Graphic::System
     // no image at all.
     //
     // AN EDITOR OVERLAY AFTER THE TONEMAP (UE EPass::SelectionOutline, composited after the tonemap and FXAA and
-    // before EPass::EditorPrimitive). The selection depth is the scene's own: the silhouette mask MeshRenderer draws
-    // for the selected meshes. The chain runs only on a frame that outlines something, after the spatial AA, and the
-    // Final pass blends the band (One, OneMinusSrcAlpha) over the display image, encoded for the view's output
-    // device; the scene colour the tonemap reads is never written by it.
+    // before EPass::EditorPrimitive). The selection depth is the scene's own: the silhouette mask MeshRenderer
+    // draws for the selected meshes. The chain runs only on a frame that outlines something, after the spatial AA,
+    // and the Final pass blends the band (One, OneMinusSrcAlpha) over the display image, encoded for the view's
+    // output device; the scene colour the tonemap reads is never written by it.
     class JumpFloodOutlineRenderer final : public RenderSystem
     {
     public:

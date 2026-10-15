@@ -6,8 +6,9 @@
 
 namespace Desert::Graphic
 {
-    // Final Jump Flood pass: the outline band laid over the display image after the tonemap (JFA_Final.shader). Holds
-    // the uniform block only; the seed is bound per pass by the frame graph (JumpFloodOutlineRenderer::RecordFinal).
+    // Final Jump Flood pass: the outline band laid over the display image after the tonemap (JFA_Final.shader).
+    // Holds the uniform block only; the seed is bound per pass by the frame graph
+    // (JumpFloodOutlineRenderer::RecordFinal).
     class MaterialJFAComposite final : public Material
     {
     public:

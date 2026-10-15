@@ -859,7 +859,7 @@ TEST( ShippingPipelines, TheOutlineRunsOnEveryFrameThatOutlinesSomething )
     const size_t body = postFx.find( "void SceneRenderer::AddFrameJumpFlood" );
     ASSERT_NE( body, std::string::npos );
     const size_t bodyEnd = postFx.find( "void SceneRenderer::", body + 1 );
-    const std::string node = postFx.substr( body, bodyEnd - body );
+    const std::string node    = postFx.substr( body, bodyEnd - body );
 
     const size_t active = node.find( "jfa->Runs()" );
     const size_t final  = node.find( "\"PostFX: JumpFloodFinal\"" );

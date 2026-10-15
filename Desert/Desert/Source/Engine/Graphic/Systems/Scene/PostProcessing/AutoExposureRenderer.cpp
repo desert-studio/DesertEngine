@@ -194,9 +194,9 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const HistogramPush hp{ .MinLogLum      = kWindow.MinLogLum,
-                                .InvLogLumRange = 1.0f / kWindow.Range(),
-                                .WeightScale    = static_cast<float>( AutoExposureWeightScale(
+        const HistogramPush hp{ .MinLogLum            = kWindow.MinLogLum,
+                                .InvLogLumRange       = 1.0f / kWindow.Range(),
+                                .WeightScale          = static_cast<float>( AutoExposureWeightScale(
                                      static_cast<uint64_t>( width ) * static_cast<uint64_t>( height ) ) ),
                                 .BlackBucketInfluence = kEyeAdaptationBlackHistogramBucketInfluence };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );

@@ -1311,8 +1311,8 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
 
         // The point for an outside pass that must be exposed and tonemapped like the scene. Nothing editor-only is
-        // here: the editor primitives (grid, colliders, tool previews, debug lines, the cubemap preview with its own
-        // display mapping) and the selection outline draw after the tonemap (AddFrameEditorPrimitives,
+        // here: the editor primitives (grid, colliders, tool previews, debug lines, the cubemap preview with its
+        // own display mapping) and the selection outline draw after the tonemap (AddFrameEditorPrimitives,
         // AddFrameJumpFlood), so no editor-only pixel reaches the bloom or any HDR pass.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
@@ -1341,8 +1341,8 @@ namespace Desert::Graphic
             AddFrameSMAA( graph, textures );
         }
         // The editor overlays over the display image, last, in UE's order: the selection outline
-        // (EPass::SelectionOutline), then the editor primitives (EPass::EditorPrimitive), both after the tonemap and
-        // FXAA. Neither writes an image the tonemap or any HDR pass reads.
+        // (EPass::SelectionOutline), then the editor primitives (EPass::EditorPrimitive), both after the tonemap
+        // and FXAA. Neither writes an image the tonemap or any HDR pass reads.
         AddFrameJumpFlood( graph, textures );
         AddFrameEditorPrimitives( graph, textures, overlay );
         // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.

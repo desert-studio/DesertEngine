@@ -56,9 +56,9 @@ namespace Desert::Graphic::System
             GraphicsPipelineSpecification spec;
             spec.DebugName = debugName;
             spec.Shader    = shader;
-            spec.TargetLayout = RenderTargetLayout{
-                 .ColorFormats = { overDisplay ? ViewTargetFormats::kTonemap : kSeedFormat },
-                 .DepthFormat  = std::nullopt };
+            spec.TargetLayout =
+                 RenderTargetLayout{ .ColorFormats = { overDisplay ? ViewTargetFormats::kTonemap : kSeedFormat },
+                                     .DepthFormat  = std::nullopt };
             if ( overDisplay )
             {
                 spec.BlendEnable         = true;

@@ -62,8 +62,9 @@ namespace Desert::Graphic
         const RDG::TextureRef display = textures.Import( GetFinalImage(), "final image" );
         if ( !display.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] {}: no selection outline this frame: the display image is not in the graph",
-                       m_ViewResources.GetName() );
+            LOG_ERROR(
+                 "[SceneRenderer] {}: no selection outline this frame: the display image is not in the graph",
+                 m_ViewResources.GetName() );
             return;
         }
         // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.

@@ -123,9 +123,9 @@ namespace Desert::Graphic
     {
         if ( bins == 0 )
             return { 0, 0, 0.0f };
-        const float floorLum = std::exp2( window.MinLogLum );
-        const float metered  = ( luminance >= floorLum ) ? luminance : floorLum; // NaN -> the floor
-        const uint32_t last  = bins - 1;
+        const float    floorLum = std::exp2( window.MinLogLum );
+        const float    metered  = ( luminance >= floorLum ) ? luminance : floorLum; // NaN -> the floor
+        const uint32_t last     = bins - 1;
         const float    fBucket =
              std::clamp( ( std::log2( metered ) - window.MinLogLum ) / window.Range(), 0.0f, 1.0f ) *
              static_cast<float>( last );

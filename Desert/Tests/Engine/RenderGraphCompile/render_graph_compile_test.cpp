@@ -2534,10 +2534,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
     // overdraw); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split. The outline
     // keeps no image (its seeds are graph transients).
-    declares( "ResizeRenderTargets",
-              { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
-                "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
-                "overdrawFb->Resize(width,height);" } );
+    declares( "ResizeRenderTargets", { "m_TargetFramebuffer->Resize(width,height);",
+                                       "m_GBuffer->Resize(width,height);", "resolve->Resize(width,height);",
+                                       "maskFb->Resize(width,height);", "overdrawFb->Resize(width,height);" } );
     declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
                           "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
                           "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",

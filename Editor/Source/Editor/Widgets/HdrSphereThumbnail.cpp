@@ -97,11 +97,11 @@ namespace Desert::Editor::HdrSphereThumbnail
 
     std::array<unsigned char, 3> ToDisplay( const glm::vec3& linear )
     {
-        // A tile has no scene to meter: the editor's exposure-independent display mapping (the default grade at the
-        // default manual exposure, Graphic::PreviewDisplayMappingOf - the cubemap preview ball uses the same),
+        // A tile has no scene to meter: the editor's exposure-independent display mapping (the default grade at
+        // the default manual exposure, Graphic::PreviewDisplayMappingOf - the cubemap preview ball uses the same),
         // graded per pixel here through FilmCombine instead of through the baked table.
         static const Graphic::PreviewDisplayMapping mapping = Graphic::PreviewDisplayMappingOf();
-        const glm::vec3 display = FilmCombine( linear * mapping.Exposure, mapping.Grade );
+        const glm::vec3              display = FilmCombine( linear * mapping.Exposure, mapping.Grade );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
             out[static_cast<size_t>( c )] = static_cast<unsigned char>( std::lround( 255.0f * display[c] ) );

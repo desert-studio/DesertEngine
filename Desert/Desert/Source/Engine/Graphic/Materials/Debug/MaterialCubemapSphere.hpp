@@ -73,7 +73,8 @@ namespace Desert::Graphic
             PreviewDisplayMapping Mapping;
             std::array<float, 3>  Padding{};
         };
-        static_assert( sizeof( CubemapDisplayUB ) == 26 * sizeof( glm::vec4 ),
-                       "CubemapDisplayUB must match the shader's block: 25 vec4s of grade + one vec4 of exposure" );
+        static_assert(
+             sizeof( CubemapDisplayUB ) == 26 * sizeof( glm::vec4 ),
+             "CubemapDisplayUB must match the shader's block: 25 vec4s of grade + one vec4 of exposure" );
     };
 } // namespace Desert::Graphic
