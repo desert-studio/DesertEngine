@@ -4,8 +4,8 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
-#include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <Engine/Graphic/Environment/SceneSkyEnvironment.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialProceduralSky.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -17,7 +17,6 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
-#include <chrono>
 #include <memory>
 #include <optional>
 
@@ -27,6 +26,8 @@ namespace Desert::Graphic::System
     {
     public:
         using RenderSystem::RenderSystem;
+        // Settles a bake this renderer left on the GPU (its batch reads this renderer's LUTs and buffers).
+        ~SkyboxRenderer() override;
 
         virtual Common::BoolResultStr Initialize() override;
 
@@ -55,16 +56,27 @@ namespace Desert::Graphic::System
         // frame-boundary-safe point (BEFORE the render graph records), NOT from inside a pass. The bake is
         // SUBMITTED, not waited for: it lands on the first call that finds its batch complete, and until then
         // the previous environment (or none, on the first bake) stays. @p deltaSeconds drives the debounce
-        // that keeps a drag from baking on every frame it crosses the angular threshold. @p scene is the ledger
-        // instance the bake's rows belong to (EnvironmentManager::BeginProcedural).
-        void EnsureProceduralEnvironment( float deltaSeconds, ResourceOwnerInstance scene );
+        // that keeps a drag from baking on every frame it crosses the angular threshold. The environment, the
+        // trigger and the debounce are the bound scene's (BindSceneSky): the first view of the scene in a frame
+        // drives them, the views after it read what it left.
+        void EnsureProceduralEnvironment( float deltaSeconds );
+
+        // The scene this view renders this frame: its procedural environment is the one GetEnvironment reads.
+        // Called by SceneRenderer::BeginScene, every frame.
+        void BindSceneSky( const std::shared_ptr<SceneSkyEnvironment>& sky )
+        {
+            m_SceneSky = sky;
+        }
 
         /// "The light this view's sky gives is not the one it will give a frame from now": a procedural sky
-        /// whose bake is still on the GPU, or that has none yet. A capture of the view waits on this — a
+        /// whose scene's bake is still on the GPU, or that has none yet. A capture of the view waits on this — a
         /// picture taken now would be lit by no sky, or by the previous one.
         [[nodiscard]] bool IsEnvironmentSettling() const
         {
-            return m_UseProceduralSky && ( m_PendingBake != nullptr || !m_ProceduralEnv );
+            if ( !m_UseProceduralSky )
+                return false;
+            const std::shared_ptr<SceneSkyEnvironment> sky = m_SceneSky.lock();
+            return !sky || sky->IsSettling();
         }
 
         // The physical atmosphere's LUTs (Hillaire 2020): the cached pair — transmittance 256x64 +
@@ -110,8 +122,12 @@ namespace Desert::Graphic::System
         const std::optional<Environment> GetEnvironment() const
         {
             // While the procedural sky is active, the baked atmosphere IBL drives ambient/reflections.
-            if ( m_UseProceduralSky && m_ProceduralEnv )
-                return m_ProceduralEnv.Get();
+            if ( m_UseProceduralSky )
+            {
+                const std::shared_ptr<SceneSkyEnvironment> sky = m_SceneSky.lock();
+                if ( sky && sky->HasEnvironment() )
+                    return sky->GetEnvironment();
+            }
 
             if ( const auto& material = m_MaterialSkybox.lock() )
             {
@@ -305,47 +321,19 @@ namespace Desert::Graphic::System
         /// from it declare the block.
         std::shared_ptr<ShaderResources::StorageBuffer> m_CloudBakeMediumParams;
 
-        // Baked sky IBL (radiance/irradiance/prefiltered cubes) generated from the procedural atmosphere.
-        // OWNED, not a copy of handles: its cubes live in the process-wide ImageService, and this view is the
-        // only one that can release them — when it rebakes, and when it dies (see OwnedEnvironment).
-        OwnedEnvironment m_ProceduralEnv;
-        glm::vec3   m_BakedSunDir = glm::vec3( 0.0f, 1.0f, 0.0f );
-        bool        m_BakeRequested = false;
+        // THE SCENE'S BAKED SKY IBL, watched, never held: the environment, its bake state and its debounce are
+        // the scene's (SceneSkyEnvironment, UE's per-FScene sky light capture), bound by SceneRenderer::BeginScene
+        // every frame. Two views of one scene read one environment; a view bound to another scene reads that one.
+        std::weak_ptr<SceneSkyEnvironment> m_SceneSky;
+        // The scene this renderer last ISSUED a bake to. The bake's batch reads this renderer's LUTs and
+        // parameter buffers, so the destructor settles it (SceneSkyEnvironment::SettlePendingBake) before they die.
+        std::weak_ptr<SceneSkyEnvironment> m_BakeIssuedTo;
+        // The editor's one-shot Bake request, seen by the settings path (SetProceduralSky) and handed to the
+        // scene's environment by the next EnsureProceduralEnvironment.
+        bool m_BakeRequested = false;
 
-        // What the environment on the device was baked from, on the CLOUD side —
-        // Graphic::CloudEnvironmentFingerprint of the field the panorama saw. 0 means "no clouds", which
-        // is also the value of a scene that has never had any, so the first bake of a cloudless sky is not
-        // charged for one. See ShouldRebakeSkyEnvironment: this is one of the two keys the sun is not.
-        uint64_t m_BakedCloudFingerprint = 0;
-
-        // ...and the other one: what it was baked from on the SKY side, Graphic::SkyBakeFingerprint of the
-        // packed block plus the panorama's extent. Stamped only by a bake that SUCCEEDED, exactly like
-        // m_BakedSunDir above — a failed bake that stamped its inputs would look up to date forever.
-        uint64_t m_BakedSkyFingerprint = 0;
-
-        // Debounce state (see SkyEnvironmentRebakeMayRun). m_SecondsSinceSunMoved is how long the sun has
-        // held still, m_SecondsSinceStale how long a rebake has been wanted; the first collapses a drag
-        // into one bake, the second stops a sun that never stops from deferring it forever.
-        glm::vec3 m_LastSeenSunDir       = glm::vec3( 0.0f, 1.0f, 0.0f );
-        float     m_SecondsSinceSunMoved = 0.0f;
-        float     m_SecondsSinceStale    = 0.0f;
-
-        // The High-resolution memory report is emitted once per renderer, not once per bake: with the
-        // time-of-day driver a bake can happen every few seconds, and a cost that is announced every time
-        // stops being read. Same reasoning for the below-horizon warning, which is a per-frame condition.
-        bool m_HighResCostLogged  = false;
+        // The below-horizon warning is emitted once per renderer, not once per frame: a cost that is announced
+        // every time stops being read.
         bool m_BelowHorizonLogged = false;
-
-        // THE BAKE ON THE GPU, and what it was baked from — stamped into m_Baked* only when it lands, for the
-        // reason m_BakedSkyFingerprint gives. Declared LAST so it is destroyed FIRST: its destructor waits for
-        // the batch, which reads the LUTs and parameter buffers declared above.
-        bool                                       LandPendingBake();
-        std::unique_ptr<ProceduralEnvironmentBake> m_PendingBake;
-        glm::vec3                                  m_PendingSunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
-        uint64_t                                   m_PendingCloudFingerprint = 0;
-        uint64_t                                   m_PendingSkyFingerprint   = 0;
-        SkyEnvironmentSize                         m_PendingSize{};
-        const char*                                m_PendingWhat = "";
-        std::chrono::steady_clock::time_point      m_PendingStarted{};
     };
 } // namespace Desert::Graphic::System

@@ -8,7 +8,6 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -177,7 +176,7 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer() = default;
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene ) {}
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -277,7 +276,7 @@ namespace Desert::Graphic
                 // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
                 m_Faces[f]->Renderer = std::make_unique<SceneRenderer>(
                      ViewExtent{ faceSize, faceSize }, kReflectionCaptureViewProfile,
-                     scene.GetRayTracingCache().GetLedgerInstance() );
+                     m_Scene );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }
@@ -434,7 +433,12 @@ namespace Desert::Graphic
                                                     .Layers = 6u * cubes,
                                                     .Dim    = RDG::TextureDim::CubeArray },
                                   name );
-        graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        {
+            // THE ARRAY IS THE SCENE'S, whichever view's graph creates it: the extraction is attributed to the
+            // scene, and the backend's pool opens the array's ledger row under it (RDG::Builder::Extract).
+            const ResourceAttributionScope sceneScope( ResourceOwner::SceneRenderer, m_Scene );
+            graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        }
         array.Cubes    = cubes;
         array.FaceSize = faceSize;
         array.Built    = true;

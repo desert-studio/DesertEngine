@@ -20,6 +20,9 @@ namespace Desert::Graphic::RayTracing
     class RayTracingSceneCache
     {
     public:
+        // @p scene is the owning Core::Scene's ledger instance (Scene::GetLedgerInstance).
+        explicit RayTracingSceneCache( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene ) {}
+
         // Every view calls this before it gathers, with the engine's absolute frame number. A new number ends the
         // previous frame: the variants and skin-cache entries no view asked for during it are released (their
         // API objects retire on the frame ring, so a frame in flight still traces them safely).
@@ -83,7 +86,7 @@ namespace Desert::Graphic::RayTracing
         }
 
     private:
-        ResourceOwnerInstance      m_LedgerInstance = ResourceOwnerInstance::NewScene();
+        ResourceOwnerInstance      m_LedgerInstance; // the owning Core::Scene's (Scene::GetLedgerInstance)
         RayTracingGeometryVariants m_Variants{ MakeVariantBuild() };
         RayTracingSkinCache        m_SkinCache;
         RayTracingProceduralCache  m_Procedural; // BLASes of meshes the uploader built none for

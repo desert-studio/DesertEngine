@@ -29,6 +29,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <entt/entt.hpp>
 #include <functional>
@@ -47,6 +48,7 @@ namespace Desert::Graphic
 {
     class SceneRenderer;
     class ReflectionCaptureRenderer;
+    class SceneSkyEnvironment;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -562,6 +564,22 @@ namespace Desert::Core
             return *m_RayTracingCache;
         }
 
+        // THE SCENE'S PROCEDURAL SKY ENVIRONMENT (UE: FScene's sky light capture): one bake per scene, driven by
+        // the first of its views each frame and read by all of them (SkyboxRenderer::BindSceneSky). Shared, not
+        // unique, because each view WATCHES it through a weak_ptr and must never reach a closed scene's.
+        [[nodiscard]] const std::shared_ptr<Graphic::SceneSkyEnvironment>& GetSkyEnvironment() const
+        {
+            return m_SkyEnvironment;
+        }
+
+        // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
+        // reflection-capture arrays, the ray-tracing cache, the sky environment — is a row of this instance, and
+        // the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
+        [[nodiscard]] Graphic::ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerInstance;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -676,10 +694,14 @@ namespace Desert::Core
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
 
+        // See GetLedgerInstance. Declared BEFORE the members it is handed to.
+        Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
+        // See GetSkyEnvironment. Never null: made by both constructors.
+        std::shared_ptr<Graphic::SceneSkyEnvironment> m_SkyEnvironment;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

@@ -590,7 +590,7 @@ namespace Desert::Graphic
             LedgerView& operator=( LedgerView&& )      = delete;
         };
         LedgerView m_LedgerView;
-        // The ledger instance of the scene this view last began (its RayTracingSceneCache's). A value, not the
+        // The ledger instance of the scene this view last began (Scene::GetLedgerInstance). A value, not the
         // cache pointer: the overlay reads it after EndScene cleared m_FrameRayTracingCache.
         ResourceOwnerInstance m_SceneLedgerInstance;
 

@@ -3,6 +3,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Common/Core/Timestep.hpp>
@@ -93,7 +94,9 @@ namespace Desert::Graphic
     class ReflectionCaptureRenderer
     {
     public:
-        ReflectionCaptureRenderer();
+        // @p scene is the owning Core::Scene's ledger instance (Scene::GetLedgerInstance): the capture arrays and
+        // the face views' rows are the scene's.
+        explicit ReflectionCaptureRenderer( ResourceOwnerInstance scene );
         ~ReflectionCaptureRenderer();
         ReflectionCaptureRenderer( const ReflectionCaptureRenderer& )            = delete;
         ReflectionCaptureRenderer& operator=( const ReflectionCaptureRenderer& ) = delete;
@@ -144,7 +147,8 @@ namespace Desert::Graphic
         uint64_t                            m_Signature = 0;
 
         // The capture whose faces are being rendered, and how many consecutive frames its face views have had a
-        // sky environment (the face views bake their own sky; the capture is written once they have it).
+        // sky environment (the face views read the scene's sky, SceneSkyEnvironment; the capture is written once
+        // it has landed).
         static constexpr uint32_t kNoCapture               = 0xFFFFFFFFu;
         uint32_t                  m_Pending                = kNoCapture;
         uint32_t                  m_PendingSettled         = 0;
@@ -152,6 +156,8 @@ namespace Desert::Graphic
         bool                      m_FacesRenderedThisFrame = false;
 
         std::array<std::unique_ptr<FaceView>, 6> m_Faces;
+
+        ResourceOwnerInstance m_Scene; // see the constructor
 
         SharedArray m_Cubes; // the scene's captures
         SharedArray m_Black; // one black cube, for the views that read none

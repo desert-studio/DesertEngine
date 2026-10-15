@@ -791,7 +791,9 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
-        m_SceneLedgerInstance  = m_FrameRayTracingCache->GetLedgerInstance();
+        m_SceneLedgerInstance  = scene.GetLedgerInstance();
+        // The scene's procedural sky environment: baked once per scene, read by this view (SceneSkyEnvironment).
+        skyboxSystem->BindSceneSky( scene.GetSkyEnvironment() );
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1049,8 +1051,7 @@ namespace Desert::Graphic
         // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
-            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds(),
-                                                       m_SceneLedgerInstance );
+            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes

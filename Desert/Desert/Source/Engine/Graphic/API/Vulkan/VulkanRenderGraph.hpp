@@ -143,6 +143,13 @@ namespace Desert::Graphic::API::Vulkan
         }
         // The same description and usage: an image created for one can stand in for the other.
         [[nodiscard]] bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
+
+        // Hands the image's ledger row to @p holder (VulkanRdgPool: the extractor while leased, the device while
+        // idle). A placed or wrapped image has no row of its own — the heap's row / its owner's covers it.
+        void ClaimLedger( const ResourceAttribution& holder )
+        {
+            m_Ledger.Claim( holder.Owner, Common::AssetHandle{}, holder.Instance );
+        }
         [[nodiscard]] uint32_t GetAccessMask() const
         {
             return m_AccessMask;
@@ -159,6 +166,8 @@ namespace Desert::Graphic::API::Vulkan
         VkImageAspectFlags m_Aspect     = 0;
         RDG::TextureDesc   m_Desc;
         uint32_t           m_AccessMask = 0;
+        // The dedicated allocation's ledger row (Create only): the image's kind and the allocation's bytes.
+        ResourceOwnership m_Ledger;
         std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, VkImageView> m_Views;
     };
 
@@ -225,6 +234,12 @@ namespace Desert::Graphic::API::Vulkan
         // Makes device writes visible to the host on non-coherent memory; no-op on coherent memory.
         void InvalidateForHost() const;
 
+        // See VulkanRdgTexture::ClaimLedger.
+        void ClaimLedger( const ResourceAttribution& holder )
+        {
+            m_Ledger.Claim( holder.Owner, Common::AssetHandle{}, holder.Instance );
+        }
+
     private:
         VulkanRdgBuffer() = default;
 
@@ -233,6 +248,8 @@ namespace Desert::Graphic::API::Vulkan
         VkBuffer      m_Buffer     = VK_NULL_HANDLE;
         uint64_t      m_Size       = 0;
         uint32_t      m_AccessMask = 0;
+        // The dedicated allocation's ledger row (Create only), as VulkanRdgTexture's.
+        ResourceOwnership m_Ledger;
         void*         m_Mapped     = nullptr;
 
         VkAccelerationStructureKHR m_AccelerationStructure = VK_NULL_HANDLE;
@@ -262,10 +279,17 @@ namespace Desert::Graphic::API::Vulkan
         // frame in flight may still reference.
         void Retire( std::shared_ptr<RDG::IPhysicalTexture> texture );
 
-        Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
-        AcquireTexture( const RDG::TextureDesc& desc, uint32_t accessMask, std::string_view name );
-        Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
-        AcquireBuffer( const RDG::BufferDesc& desc, uint32_t accessMask, std::string_view name );
+        // An extracted transient's dedicated resource, LEASED to @p holder (RDG::ResourceView::ExtractOwner): its
+        // ledger row is the holder's while any copy of the returned pointer lives, and the device's (the pool's)
+        // from the moment the last one is dropped until it is handed out again or freed.
+        Common::ResultStr<std::shared_ptr<VulkanRdgTexture>> AcquireTexture( const RDG::TextureDesc&    desc,
+                                                                             uint32_t                   accessMask,
+                                                                             std::string_view           name,
+                                                                             const ResourceAttribution& holder );
+        Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> AcquireBuffer( const RDG::BufferDesc&     desc,
+                                                                           uint32_t                   accessMask,
+                                                                           std::string_view           name,
+                                                                           const ResourceAttribution& holder );
 
         [[nodiscard]] size_t GetTextureCount() const;
         [[nodiscard]] size_t GetBufferCount() const;

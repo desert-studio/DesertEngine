@@ -589,6 +589,21 @@ namespace Desert::Graphic
         return { ResourceInstanceKind::View, LedgerDetail::MintInstanceId( ResourceInstanceKind::View ) };
     }
 
+    /// Who a row opened HERE, now, would belong to: the innermost ResourceAttributionScope of this thread. Read by
+    /// whoever decides the owner now and opens or claims the row later — RDG::Builder::Extract records it, and the
+    /// backend's pool claims the extracted resource's row with it when the graph executes, in whatever scope that
+    /// runs (the reflection-capture array is the scene's even though a view's graph creates it).
+    struct ResourceAttribution
+    {
+        ResourceOwner         Owner = ResourceOwner::Unclaimed;
+        ResourceOwnerInstance Instance;
+    };
+
+    inline ResourceAttribution CurrentResourceAttribution()
+    {
+        return { LedgerDetail::AmbientOwner(), LedgerDetail::AmbientInstance() };
+    }
+
     inline ResourceAttributionScope::ResourceAttributionScope( const ResourceOwner owner ) noexcept
          : ResourceAttributionScope( owner, ResourceOwnerInstance{} )
     {

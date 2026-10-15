@@ -247,6 +247,7 @@ namespace Desert::Graphic::RDG
         record.ExtractTex     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
+        record.ExtractOwner   = CurrentResourceAttribution();
     }
 
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
@@ -279,6 +280,7 @@ namespace Desert::Graphic::RDG
         record.ExtractBuf     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
+        record.ExtractOwner   = CurrentResourceAttribution();
     }
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
@@ -915,6 +917,7 @@ namespace Desert::Graphic::RDG
             view.ExternalTex             = record.ExternalTex;
             view.ExternalBuf             = record.ExternalBuf;
             view.Extracted               = record.IsExtracted() && !record.IsExternal();
+            view.ExtractOwner            = record.ExtractOwner;
             anyFaultDefault              = anyFaultDefault || record.Default != FaultDefault::None;
         }
         for ( const DerivedUsage& usage : result.Usages )
