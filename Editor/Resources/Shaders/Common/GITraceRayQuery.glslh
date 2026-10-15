@@ -1,0 +1,127 @@
+#ifndef GI_TRACE_RAY_QUERY_GLSLH
+#define GI_TRACE_RAY_QUERY_GLSLH
+
+// THE HARDWARE GI TRACER (GI-HWRT): GITraceRay, GITraceVisibility and GIRayBias of the GI ray contract
+// (Common/GITracing.glslh) for the DESERT_GI_TRACER_HARDWARE permutation, as inline rayQueryEXT over the view's TLAS.
+// Follows UE 5.8 Lumen/LumenHardwareRayTracingCommon.ush (the inline TraceLumenHardwareRay path, hit read from the
+// surface cache) and LumenScreenProbeHardwareRayTracing.usf:146-158 (the ray's TMin and normal bias), adapted: GLSL
+// ray query instead of an HLSL RayQuery, the hit normal interpolated from the vertex buffers through the
+// RT-SHADOWS geometry records (UE FRayTracingSceneMetadata), the mesh cards through the surface cache's
+// instance-row table instead of GPUScene's GetMeshCardsIndexFromSceneInstanceIndex. C++ side:
+// Graphic/GlobalIllumination/GIHardwareTracer.hpp.
+//
+// Binding-free, like every Common header: the includer (a consumer's _HW permutation, which DeclareTracerReads binds)
+// declares u_SceneTLAS (accelerationStructureEXT) and the record buffers Common/RayQueryVisibility.glslh reads, and
+// includes Common/GITracing.glslh, Common/RayQueryVisibility.glslh and Common/SurfaceCache.glslh before this file.
+
+#ifndef DESERT_GI_TRACER_HARDWARE
+#error "GITraceRayQuery.glslh is the hardware tracer: include it only under DESERT_GI_TRACER_HARDWARE"
+#endif
+
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+// UE r.Lumen.ScreenProbeGather.HardwareRayTracing.Bias / .NormalBias (both 0.1, UE units = cm): the ray starts this
+// far off the surface along its normal, and skips this much along its direction, so it does not re-hit the triangle
+// it leaves where the traced triangles differ from the G-buffer's surface.
+const float kGIHardwareRayBiasCm    = 0.1;
+const float kGIHardwareNormalBiasCm = 0.1;
+
+// A vertex buffer read by device address, 4-byte words: every attribute the records name is float data at a
+// 4-byte-aligned offset (RayTracingGeometryRecord: VertexStride, NormalOffset).
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer GIHardwareWords
+{
+    uint words[];
+};
+
+vec3 GIHardwareVertexVec3( uvec2 vertexAddress, uint vertexIndex, uint stride, uint byteOffset )
+{
+    GIHardwareWords vertices = GIHardwareWords( vertexAddress );
+    const uint      word     = ( vertexIndex * stride + byteOffset ) >> 2;
+    return uintBitsToFloat( uvec3( vertices.words[word], vertices.words[word + 1u], vertices.words[word + 2u] ) );
+}
+
+// The interpolated object-space normal of @p primitive of geometry record @p recordIndex at @p barycentrics (the
+// ray query's: weights of vertices 1 and 2). A segment without a normal stream gives the triangle's face normal.
+vec3 GIHardwareObjectNormal( uint recordIndex, uint primitive, vec2 barycentrics )
+{
+    const RayTracingGeometryRecord record  = RayTracingGeometryAt( recordIndex );
+    GIHardwareWords                indices = GIHardwareWords( record.IndexAddress );
+    const uint                     first   = record.FirstIndex + primitive * 3u;
+    const uvec3 corner = uvec3( indices.words[first], indices.words[first + 1u], indices.words[first + 2u] ) +
+                         uvec3( record.FirstVertex );
+    const vec3 weights = vec3( 1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y );
+
+    if ( record.NormalOffset == 0xFFFFFFFFu )
+    {
+        // Position offset 0: RayTracingGeometrySegment::PositionOffset of every engine vertex (Desert::Vertex).
+        const vec3 p0 = GIHardwareVertexVec3( record.VertexAddress, corner.x, record.VertexStride, 0u );
+        const vec3 p1 = GIHardwareVertexVec3( record.VertexAddress, corner.y, record.VertexStride, 0u );
+        const vec3 p2 = GIHardwareVertexVec3( record.VertexAddress, corner.z, record.VertexStride, 0u );
+        return cross( p1 - p0, p2 - p0 );
+    }
+    return GIHardwareVertexVec3( record.VertexAddress, corner.x, record.VertexStride, record.NormalOffset ) * weights.x +
+           GIHardwareVertexVec3( record.VertexAddress, corner.y, record.VertexStride, record.NormalOffset ) * weights.y +
+           GIHardwareVertexVec3( record.VertexAddress, corner.z, record.VertexStride, record.NormalOffset ) * weights.z;
+}
+
+// The per-tracer origin offset of the GI ray contract: UE's normal bias (the normal turned to the ray's side, so a ray
+// leaving the back of a two-sided surface is pushed out of that side) plus its bias along the ray.
+vec3 GIRayBias( vec3 position, vec3 normal, vec3 direction )
+{
+    const vec3 side = dot( normal, direction ) < 0.0 ? -normal : normal;
+    return position + side * kGIHardwareNormalBiasCm + direction * kGIHardwareRayBiasCm;
+}
+
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    const bool shadowRay = ( ray.flags & GI_TRACE_SHADOW_RAY ) != 0u;
+    const uint flags     = shadowRay ? gl_RayFlagsTerminateOnFirstHitEXT : gl_RayFlagsNoneEXT;
+    const uint cullMask  = shadowRay ? kMaskShadowCaster : kMaskOpaque;
+
+    rayQueryEXT query;
+    rayQueryInitializeEXT( query, u_SceneTLAS, flags, cullMask, ray.origin, ray.tMin, ray.direction, ray.tMax );
+    while ( rayQueryProceedEXT( query ) )
+    {
+        // Only masked segments are non-opaque (RT-SHADOWS): commit one where its opacity passes the cutoff.
+        if ( rayQueryGetIntersectionTypeEXT( query, false ) != gl_RayQueryCandidateIntersectionTriangleEXT )
+            continue;
+        const uint record = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT( query, false ) +
+                            uint( rayQueryGetIntersectionGeometryIndexEXT( query, false ) );
+        if ( RayQueryAlphaTestPasses( record, uint( rayQueryGetIntersectionPrimitiveIndexEXT( query, false ) ),
+                                      rayQueryGetIntersectionBarycentricsEXT( query, false ) ) )
+            rayQueryConfirmIntersectionEXT( query );
+    }
+
+    GITraceResult result;
+    result.hit = rayQueryGetIntersectionTypeEXT( query, true ) == gl_RayQueryCommittedIntersectionTriangleEXT;
+    if ( !result.hit )
+        return result;
+
+    const uint record = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT( query, true ) +
+                        uint( rayQueryGetIntersectionGeometryIndexEXT( query, true ) );
+    const uint primitive    = uint( rayQueryGetIntersectionPrimitiveIndexEXT( query, true ) );
+    const vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT( query, true );
+    // Object -> world for a normal: the inverse transpose, i.e. the world -> object rows applied from the left.
+    const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT( query, true );
+    const vec3   objectNormal  = GIHardwareObjectNormal( record, primitive, barycentrics );
+
+    result.surface.distance     = rayQueryGetIntersectionTEXT( query, true );
+    result.surface.position     = ray.origin + ray.direction * result.surface.distance;
+    result.surface.normal       = normalize( objectNormal * mat3( worldToObject ) );
+    result.surface.instance     = uint( rayQueryGetIntersectionInstanceCustomIndexEXT( query, true ) );
+    result.surface.meshCards    = GIMeshCardsForInstanceRow( result.surface.instance );
+    result.surface.primitive    = primitive;
+    result.surface.barycentrics = barycentrics;
+    result.surface.frontFace    = rayQueryGetIntersectionFrontFaceEXT( query, true );
+    return result;
+}
+
+// THE hardware visibility walk is RT-SHADOWS' (alpha-tested, first hit ends it); GI adds nothing to it.
+float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
+{
+    return RayQueryVisibility( origin, direction, maxT, kMaskShadowCaster );
+}
+
+#endif // GI_TRACE_RAY_QUERY_GLSLH
