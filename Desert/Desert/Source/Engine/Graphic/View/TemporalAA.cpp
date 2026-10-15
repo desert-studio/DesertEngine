@@ -95,7 +95,9 @@ namespace Desert::Graphic
         return RDG::Extent3D{ extent.Width, extent.Height, 1 };
     }
 
-    std::vector<HistoryTextureDesc> TemporalAA::HistoryDescs( const ResolutionSplit& split ) const
+    std::vector<HistoryTextureDesc>
+    TemporalAA::HistoryDescs( const ResolutionSplit& split,
+                              const Common::Scalability::ResolvedQuality& /*quality*/ ) const
     {
         HistoryTextureDesc history;
         history.Desc.Size    = ResolveExtent( split );

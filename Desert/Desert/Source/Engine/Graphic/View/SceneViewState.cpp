@@ -57,6 +57,8 @@ namespace Desert::Graphic
                     return "DLSS";
                 case TemporalMethod::FSR:
                     return "FSR";
+                case TemporalMethod::TSR:
+                    return "TSR";
             }
             return "<unknown TemporalMethod>";
         }
@@ -214,8 +216,15 @@ namespace Desert::Graphic
                      split.GetValue().RenderScalePercent );
         }
 
+        if ( upscaler != nullptr && inputs.Scalability == nullptr )
+            return Common::MakeFormattedError<ViewFrame>(
+                 "SceneViewState::BeginFrame: upscaler '{}' needs ViewInputs::Scalability (the renderer's "
+                 "resolved "
+                 "quality its history shape is read from), and none was given",
+                 upscaler->DebugName() );
         const std::vector<HistoryTextureDesc> descs =
-             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue() ) : std::vector<HistoryTextureDesc>{};
+             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue(), *inputs.Scalability )
+                                 : std::vector<HistoryTextureDesc>{};
         if ( upscaler != nullptr )
         {
             const Common::BoolResultStr named = CheckHistoryNames( descs, upscaler->DebugName() );

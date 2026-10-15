@@ -59,8 +59,8 @@ namespace Desert::Graphic::API::Vulkan
     // PURE. The rules (each list's comment in CapabilityCatalog.hpp says who reads it):
     //   MSAACounts        = counts in Color & Depth, ascending from 1.
     //   AntiAliasing      = None, FXAA, SMAA, TAA always; MSAA iff a count > 1; FSRNative iff FSR; DLAA iff DLSS.
-    //   Upscalers         = None, TAAU always; then DLSS (NVIDIA only), FSR, XeSS, MetalFX (Portability only)
-    //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TAAU, None.
+    //   Upscalers         = None, TAAU, TSR always; then DLSS (NVIDIA only), FSR, XeSS, MetalFX (Portability only)
+    //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TSR, TAAU, None.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
     //   AnisotropyLevels  = 1,2,4,8,16 up to MaxSamplerAnisotropy; {1} without SamplerAnisotropy.
@@ -84,7 +84,8 @@ namespace Desert::Graphic::API::Vulkan
     //   * Capability::StorageImageWriteWithoutFormat absent: the upscaled-output binding is a storage image
     //     written without a format.
     // ProbeCatalog logs the error once; the catalog then never offers Upscaler::FSR / AntiAliasingMethod::
-    // FSRNative, so Scalability Resolve walks a saved FSR down to TAAU / TAA (rule 4) with that reason.
+    // FSRNative, so Scalability Resolve walks a saved FSR down to the level's engine temporal upscaler (TAAU or
+    // TSR) / TAA (rule 4) with that reason.
     [[nodiscard]] Common::BoolResultStr FsrDeviceSupport( const DeviceCaps& caps, bool built );
 
     // The probe's driver half: fills CatalogProbe from the physical device and (when non-null) the surface.

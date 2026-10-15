@@ -47,7 +47,9 @@ namespace Desert::Graphic
         // Native ("FSR Native AA") and Upscale; never Supersample — FSR reconstructs at or above its input size.
         [[nodiscard]] bool Supports( const ResolutionSplit& split ) const override;
         // Empty: FSR keeps its history inside its context.
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override;
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit&                      split,
+                      const Common::Scalability::ResolvedQuality& quality ) const override;
 
         // ffxFsr3UpscalerGetJitterPhaseCount( Render.Width, Output.Width ): ceil( 8 * ratio^2 ).
         [[nodiscard]] uint32_t JitterSequenceLength( const ResolutionSplit& split ) const override;

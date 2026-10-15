@@ -240,7 +240,8 @@ namespace Desert::Graphic
         return split.Mode != Common::Scalability::ScaleMode::Supersample;
     }
 
-    std::vector<HistoryTextureDesc> Fsr3Upscaler::HistoryDescs( const ResolutionSplit& ) const
+    std::vector<HistoryTextureDesc> Fsr3Upscaler::HistoryDescs( const ResolutionSplit&,
+                                                                const Common::Scalability::ResolvedQuality& ) const
     {
         return {};
     }

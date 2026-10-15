@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
+#include <Engine/Graphic/View/TemporalSuperResolution.hpp>
 #if defined( DESERT_UPSCALER_DLSS )
 #include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
 #endif
@@ -40,6 +41,8 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
             case TemporalMethod::TAAU:
                 return std::make_unique<TemporalAA>( method );
+            case TemporalMethod::TSR:
+                return std::make_unique<TemporalSuperResolution>();
             // A vendor method outside its SDK's build is never selected (SelectTemporalMethod reads
             // UpscalerBuild.hpp); null is "no implementation", which SceneViewState::BeginFrame names.
             case TemporalMethod::DLSS:
@@ -194,14 +197,16 @@ namespace Desert::Graphic
     Common::ResultStr<ViewResolution> ResolveViewResolution(
          const ViewExtent output, const int settingPercent, const std::optional<int> viewportOverridePercent,
          const Common::Scalability::PathAntiAliasing& antiAliasing, const Common::Scalability::Upscaler upscaler,
+         const Common::Scalability::EngineTemporalUpscaler                engineTemporal,
          const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
     {
         const int requested = viewportOverridePercent.value_or( settingPercent );
         // The upscaler of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): the setting's
         // resolved upscaler is for the setting's percent, and a viewport override may sit on the other side of
         // 100 % (or under another AA method's side: below 100 % without temporal AA it is Spatial).
-        const auto upscalerAt = [&]( const int percent )
-        { return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent, upscaler ); };
+        const auto upscalerAt = [&]( const int percent ) {
+            return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent, upscaler, engineTemporal );
+        };
         const auto choose = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
         {
             const auto split = MakeResolutionSplit( output, percent );

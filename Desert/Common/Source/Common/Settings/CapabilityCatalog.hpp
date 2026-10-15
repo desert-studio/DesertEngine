@@ -74,6 +74,19 @@ namespace Common::Scalability
         XeSS,    // Intel XeSS — offered once its SDK is integrated
         MetalFX, // Apple MetalFX temporal scaler — Mac only, reached through the MoltenVK/Metal interop
         Spatial, // the engine's edge-adaptive spatial upscale (FSR1 EASU port) — always offered, no history
+        // The engine's temporal super resolution (UE TSR: Graphic::TemporalSuperResolution) — always offered: pure
+        // Vulkan compute, no vendor SDK, nothing beyond the required feature set (MoltenVK included).
+        TSR,
+    };
+
+    // WHICH OF THE ENGINE'S OWN TEMPORAL UPSCALERS a temporal AA method upscales with below 100 % when no vendor
+    // upscaler is asked for (Parameter::TemporalUpscaler; UE: r.AntiAliasingMethod TSR vs TAA, whose quality
+    // follows sg.AntiAliasingQuality). Scalability UpscalerForScale maps it to Upscaler::TAAU / Upscaler::TSR,
+    // and a vendor upscaler the device does not offer falls back to it.
+    enum class EngineTemporalUpscaler : int
+    {
+        TAAU = 0,
+        TSR,
     };
 
     // How rays may be traced on this device. Reader: Graphic::ResolveRenderMethods — a traced render method
@@ -151,12 +164,15 @@ namespace Common::Scalability
     // enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
                                                                                "TAA",  "FSRNative", "DLAA" };
-    inline constexpr std::array<std::string_view, 7> kUpscalerNames{ "None", "TAAU",    "FSR",    "DLSS",
-                                                                     "XeSS", "MetalFX", "Spatial" };
+    inline constexpr std::array<std::string_view, 8> kUpscalerNames{ "None", "TAAU",    "FSR",     "DLSS",
+                                                                     "XeSS", "MetalFX", "Spatial", "TSR" };
+    inline constexpr std::array<std::string_view, 2> kEngineTemporalUpscalerNames{ "TAAU", "TSR" };
     inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
                                                                            "RayTracingPipeline" };
     static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
-    static_assert( static_cast<std::size_t>( Upscaler::Spatial ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( Upscaler::TSR ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( EngineTemporalUpscaler::TSR ) + 1 ==
+                   kEngineTemporalUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
 

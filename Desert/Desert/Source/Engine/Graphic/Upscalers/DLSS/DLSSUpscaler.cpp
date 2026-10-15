@@ -218,7 +218,9 @@ namespace Desert::Graphic
         return ModeFor( split ).IsSuccess();
     }
 
-    std::vector<HistoryTextureDesc> DLSSUpscaler::HistoryDescs( const ResolutionSplit& /*split*/ ) const
+    std::vector<HistoryTextureDesc>
+    DLSSUpscaler::HistoryDescs( const ResolutionSplit& /*split*/,
+                                const Common::Scalability::ResolvedQuality& /*quality*/ ) const
     {
         return {}; // the DLSS feature keeps its own history
     }

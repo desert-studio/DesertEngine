@@ -77,6 +77,9 @@ namespace Desert::Graphic
         // AMD FSR 3.1 (Graphic::Fsr3Upscaler, FidelityFX SDK): AntiAliasingMethod::FSRNative at 100 % ("Native
         // AA"), Upscaler::FSR below it.
         FSR,
+        // The engine's temporal super resolution (Graphic::TemporalSuperResolution, UE TSR): Upscaler::TSR below
+        // 100 %. Vendor-neutral, pure compute; at 100 % the native method is TAA.
+        TSR,
     };
 
     // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):

@@ -45,7 +45,9 @@ namespace Desert::Graphic
             return TemporalMethod::DLSS;
         }
         [[nodiscard]] bool                            Supports( const ResolutionSplit& split ) const override;
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override;
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+                            HistoryDescs( const ResolutionSplit&                      split,
+                                          const Common::Scalability::ResolvedQuality& quality ) const override;
         [[nodiscard]] float MaterialMipBias( const ResolutionSplit& split ) const override;
         [[nodiscard]] Common::ResultStr<TemporalUpscalerOutputs>
         AddPasses( RDG::Builder& graph, const ViewFrame& frame,

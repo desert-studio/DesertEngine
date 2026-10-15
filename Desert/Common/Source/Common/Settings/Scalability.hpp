@@ -137,6 +137,15 @@ namespace Common::Scalability
         DlssPresetBalanced,
         DlssPresetPerformance,
         DlssPresetUltraPerformance,
+        // The engine's own temporal upscaler below 100 % when no vendor one is asked for, and the fallback of a
+        // vendor upscaler the device does not offer. Values: EngineTemporalUpscaler (TAAU / TSR).
+        TemporalUpscaler,
+        // TSR (Graphic::TemporalSuperResolution), UE's sg.AntiAliasingQuality rows of r.TSR.*. Read only while
+        // TSR runs.
+        TsrHistoryScreenPercentage,    // r.TSR.History.ScreenPercentage: history extent, % of output. 100..200
+        TsrHistoryUpdateQuality,       // r.TSR.History.UpdateQuality: UpdateHistory shader variant. 0..3
+        TsrShadingRejectionFlickering, // r.TSR.ShadingRejection.Flickering: flicker-tolerant rejection. 0/1
+        TsrRejectionAntiAliasing,      // r.TSR.RejectionAntiAliasingQuality: spatial AA of rejected pixels. 0..2
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
@@ -324,12 +333,17 @@ namespace Common::Scalability
     [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
 
     // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
-    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> TAAU), and a
+    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> the engine's
+    // own temporal upscaler @p engineTemporal: TAAU or TSR), and a
     // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
     // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
     // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
     // cannot disagree.
-    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride );
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride,
+                                             EngineTemporalUpscaler engineTemporal );
+
+    // The Upscaler value of an EngineTemporalUpscaler (TAAU -> Upscaler::TAAU, TSR -> Upscaler::TSR).
+    [[nodiscard]] Upscaler UpscalerOf( EngineTemporalUpscaler engineTemporal );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing

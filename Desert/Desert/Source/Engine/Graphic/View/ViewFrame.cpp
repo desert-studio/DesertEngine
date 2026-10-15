@@ -38,6 +38,8 @@ namespace Desert::Graphic
                     return "MetalFX";
                 case Scal::Upscaler::Spatial:
                     return "Spatial";
+                case Scal::Upscaler::TSR:
+                    return "TSR";
             }
             return "<unknown Upscaler>";
         }
@@ -123,6 +125,8 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
+            if ( upscaler == Scal::Upscaler::TSR )
+                return Common::MakeSuccess( TemporalMethod::TSR );
             if ( upscaler == Scal::Upscaler::DLSS && kDlssBuilt )
                 return Common::MakeSuccess( TemporalMethod::DLSS );
             if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
@@ -195,8 +199,10 @@ namespace Desert::Graphic
             // DLSS: NVIDIA's rule is UE's TAAU rule (8 phases per output pixel, the render/output pixel ratio
             // times it), so it shares TAAU's sequence length below. FSR has its own phase count
             // (Fsr3Upscaler::JitterSequenceLength overrides the ITemporalUpscaler default); it is listed so this
-            // free function stays total.
+            // free function stays total. TSR is UE's TAAU rule too (TemporalSuperResolution.cpp: the jitter
+            // sequence of a temporal upsample, 8 samples per output pixel).
             case TemporalMethod::TAAU:
+            case TemporalMethod::TSR:
             case TemporalMethod::DLSS:
             case TemporalMethod::FSR:
                 break;

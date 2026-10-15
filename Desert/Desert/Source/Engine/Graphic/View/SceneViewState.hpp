@@ -91,6 +91,10 @@ namespace Desert::Graphic
         Common::Scalability::PathAntiAliasing AntiAliasing; // ResolveAntiAliasingForPath( resolved, path )
         Common::Scalability::Upscaler         Upscaler = Common::Scalability::Upscaler::None;
         TemporalAAQuality                     Quality  = TemporalAAQuality::Medium;
+        // The renderer's resolved quality (SceneRenderer m_Quality), outliving BeginFrame. Required whenever the
+        // frame has a temporal upscaler: ITemporalUpscaler::HistoryDescs reads its own rows from it (TSR: the
+        // history screen percentage). BeginFrame refuses a temporal frame without it, naming the upscaler.
+        const Common::Scalability::ResolvedQuality* Scalability = nullptr;
 
         double TimeSeconds = 0.0; // the view's clock (scene time; paused scene -> unchanged -> DeltaSeconds 0)
     };

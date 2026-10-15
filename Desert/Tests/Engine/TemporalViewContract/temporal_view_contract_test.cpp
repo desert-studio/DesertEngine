@@ -32,6 +32,8 @@ namespace Scal = Common::Scalability;
 
 namespace
 {
+    // The resolved quality BeginFrame hands HistoryDescs (ViewInputs::Scalability); the fixtures read none of it.
+    const Scal::ResolvedQuality kResolvedQuality{};
     constexpr ViewExtent k1080p{ 1920, 1080 };
 
     // ResultStr::GetValue is deleted on an rvalue (it would hand out a reference into a dying temporary).
@@ -79,7 +81,8 @@ namespace
         {
             return ( m_Method == TemporalMethod::TAAU ) == ( split.Mode == Scal::ScaleMode::Upscale );
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& /*quality*/ ) const override
         {
             const ViewExtent   side = split.Mode == Scal::ScaleMode::Supersample ? split.Render : split.Output;
             HistoryTextureDesc desc;
@@ -110,6 +113,7 @@ namespace
         in.CameraIdentity = 7;
         in.SceneIdentity  = 1;
         in.Output         = k1080p;
+        in.Scalability    = &kResolvedQuality;
         in.AntiAliasing   = Path( Scal::AntiAliasingMethod::TAA );
         in.TimeSeconds    = time;
         return in;
@@ -620,9 +624,10 @@ namespace
         OneNameUpscaler() : FixtureUpscaler( TemporalMethod::TAA )
         {
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& quality ) const override
         {
-            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split );
+            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split, quality );
             descs.front().PreviousName            = descs.front().Name;
             return descs;
         }

@@ -1044,6 +1044,7 @@ namespace Desert::Graphic
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
              m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), m_DebugView.ScreenPercentage,
              m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             m_Quality.As<Common::Scalability::EngineTemporalUpscaler>( Parameter::TemporalUpscaler ),
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
                  EnsureTemporalUpscaler( method );
@@ -1061,6 +1062,7 @@ namespace Desert::Graphic
         inputs.AntiAliasing                      = m_RenderedAntiAliasing;
         inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
         inputs.Quality                           = m_TemporalAAQuality;
+        inputs.Scalability                       = &m_Quality;
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );

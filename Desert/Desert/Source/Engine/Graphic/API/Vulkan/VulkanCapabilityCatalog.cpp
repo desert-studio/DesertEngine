@@ -82,6 +82,9 @@ namespace Desert::Graphic::API::Vulkan
             catalog.Upscalers.push_back( Upscaler::MetalFX );
         if ( probe.FsrAvailable )
             catalog.Upscalers.push_back( Upscaler::FSR );
+        // TSR before TAAU: both are ours and need nothing beyond the required feature set (pure compute, buffer
+        // atomics only: MoltenVK has them), and TSR reconstructs more per input pixel.
+        catalog.Upscalers.push_back( Upscaler::TSR );
         catalog.Upscalers.push_back( Upscaler::TAAU );
         catalog.Upscalers.push_back( Upscaler::Spatial ); // ours, needs nothing beyond the required feature set
         catalog.Upscalers.push_back( Upscaler::None );

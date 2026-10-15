@@ -291,8 +291,46 @@ namespace Desert::Editor
             std::vector<SC::Upscaler> vendors;
             for ( const SC::Upscaler upscaler : catalog.Upscalers )
                 if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU &&
-                     upscaler != SC::Upscaler::Spatial )
+                     upscaler != SC::Upscaler::TSR && upscaler != SC::Upscaler::Spatial )
                     vendors.push_back( upscaler );
+            // The engine's own temporal upscaler (UE: TSR vs TAAU), used below 100 % when no vendor override is
+            // picked and when the picked one is not offered.
+            const auto engineTemporal =
+                 static_cast<SC::EngineTemporalUpscaler>( Requested( SC::Parameter::TemporalUpscaler ) );
+            if ( const auto picked = ValueCombo( "Temporal Upscaler", static_cast<std::size_t>( engineTemporal ),
+                                                 SC::kEngineTemporalUpscalerNames.size(), []( std::size_t i )
+                                                 { return std::string( SC::kEngineTemporalUpscalerNames[i] ); } ) )
+                SC::QualityState::SetOverride( SC::Parameter::TemporalUpscaler,
+                                               static_cast<SC::ParameterValue>( *picked ) );
+            Utils::ImGuiUtilities::Tooltip( "The engine's temporal upscaler below 100 %: TSR (temporal super "
+                                            "resolution, UE TSR) or TAAU. A vendor override replaces it where "
+                                            "the device offers one." );
+            ShowFallback( resolved, SC::Parameter::TemporalUpscaler );
+            if ( resolved.As<SC::EngineTemporalUpscaler>( SC::Parameter::TemporalUpscaler ) ==
+                 SC::EngineTemporalUpscaler::TSR )
+            {
+                // UE's sg.AntiAliasingQuality rows of r.TSR.*; the level sets them, an override replaces one.
+                const auto tsrSlider = [&]( const char* label, SC::Parameter parameter, const char* tooltip )
+                {
+                    const SC::ParameterSpec& spec  = SC::SpecOf( parameter );
+                    int                      value = Requested( parameter );
+                    if ( ImGui::SliderInt( label, &value, spec.Min, spec.Max, "%d",
+                                           ImGuiSliderFlags_AlwaysClamp ) )
+                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( value ) );
+                    Utils::ImGuiUtilities::Tooltip( tooltip );
+                    ShowFallback( resolved, parameter );
+                };
+                tsrSlider( "TSR History %", SC::Parameter::TsrHistoryScreenPercentage,
+                           "r.TSR.History.ScreenPercentage: the history's size in percent of the output." );
+                tsrSlider( "TSR Update Quality", SC::Parameter::TsrHistoryUpdateQuality,
+                           "r.TSR.History.UpdateQuality: how the history is resampled and clamped (0..3)." );
+                tsrSlider( "TSR Flickering", SC::Parameter::TsrShadingRejectionFlickering,
+                           "r.TSR.ShadingRejection.Flickering: keep the history of flickering detail (1) or "
+                           "reject it like any other change (0)." );
+                tsrSlider(
+                     "TSR Rejection AA", SC::Parameter::TsrRejectionAntiAliasing,
+                     "r.TSR.RejectionAntiAliasingQuality: spatial anti-aliasing of rejected pixels (0 off)." );
+            }
             if ( !vendors.empty() )
             {
                 const auto requestedUpscaler = static_cast<SC::Upscaler>( Requested( SC::Parameter::Upscaler ) );
@@ -301,7 +339,7 @@ namespace Desert::Editor
                 if ( const auto picked =
                           ValueCombo( "Upscaler Override", IndexOf( choices, requestedUpscaler ), choices.size(),
                                       [&choices]( std::size_t i ) {
-                                          return i == 0 ? std::string( "Engine (TAAU)" )
+                                          return i == 0 ? std::string( "Engine" )
                                                         : std::string( rfl::enum_to_string( choices[i] ) );
                                       } ) )
                     SC::QualityState::SetOverride( SC::Parameter::Upscaler,

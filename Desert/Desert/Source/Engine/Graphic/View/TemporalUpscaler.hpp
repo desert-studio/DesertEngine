@@ -96,10 +96,14 @@ namespace Desert::Graphic
         // SceneViewState::BeginFrame refuses a mismatch with both values named.
         [[nodiscard]] virtual bool Supports( const ResolutionSplit& split ) const = 0;
 
-        // The histories this method carries between frames, at this split. Empty for an implementation whose
-        // history is internal to it (it then reads only ViewFrame::HistoryReset).
+        // The histories this method carries between frames, at this split and quality. Empty for an
+        // implementation whose history is internal to it (it then reads only ViewFrame::HistoryReset). @p quality
+        // is the renderer's resolved quality (ViewInputs::Scalability), from which an implementation reads its
+        // own rows (TSR: its history screen percentage), as UE's upscalers read their own console variables; a
+        // desc that changes with it recreates the history (TemporalHistory::Prepare -> HistoryResetReason).
         [[nodiscard]] virtual std::vector<HistoryTextureDesc>
-        HistoryDescs( const ResolutionSplit& split ) const = 0;
+        HistoryDescs( const ResolutionSplit&                      split,
+                      const Common::Scalability::ResolvedQuality& quality ) const = 0;
 
         // THE SUB-PIXEL JITTER this method resolves (UE: the upscaler's own sample pattern), read by
         // SceneViewState::BeginFrame into ViewFrame::JitterSequenceLength / JitterPixels. Default: the engine's
@@ -154,7 +158,8 @@ namespace Desert::Graphic
     };
 
     // THE ONE PER-VIEW RESOLUTION FUNCTION: the resolved setting's percent, replaced by the editor viewport's
-    // override when it has one (@p viewportOverridePercent), split against @p output, the method chosen for it
+    // override when it has one (@p viewportOverridePercent), split against @p output, the upscaler of that percent
+    // (Scalability UpscalerForScale with @p upscaler and the level's @p engineTemporal), the method chosen for it
     // (SelectTemporalMethod: its refusal is this function's error), then clamped by the upscaler that implements
     // that method (@p upscalerFor: the view's object for a method, null for None): a split the upscaler does not
     // Support falls back to native scale (100 %) when that is supported, else the named error.
@@ -162,6 +167,7 @@ namespace Desert::Graphic
     ResolveViewResolution( ViewExtent output, int settingPercent, std::optional<int> viewportOverridePercent,
                            const Common::Scalability::PathAntiAliasing&                     antiAliasing,
                            Common::Scalability::Upscaler                                    upscaler,
+                           Common::Scalability::EngineTemporalUpscaler                      engineTemporal,
                            const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor );
 
     // The fixed SSAA downsample (Split.Mode == Supersample): RenderExtent -> OutputExtent, a separable Catmull-Rom

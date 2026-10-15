@@ -1,0 +1,124 @@
+#ifndef TSR_COMMON_GLSLH
+#define TSR_COMMON_GLSLH
+//
+// TSR (Graphic::TemporalSuperResolution) — what every pass of the chain shares. Ported from UE 5.8
+// Engine/Shaders/Private/TemporalSuperResolution/TSRCommon.ush (ComputePrevWeightMultiplier :497,
+// RejectionFactorToBlendFactor :502, WeightedLerpFactors :455) and TSRColorSpace.ush (LinearToGCS :59, GCSToLinear :72,
+// GCSToSMCS :102, kGCSPreceptionAdd :50, kMoireLumaToChannel :46, MeasureBackbufferLDRQuantizationError :244),
+// adapted: GLSL, full precision (no tsr_half), one pixel per lane.
+//
+// THE PARAMETERS, binding 0 of every TSR shader. The C++ side is Graphic::TsrParams (View/TemporalSuperResolution.hpp),
+// offsets pinned there by static_asserts.
+
+#include <Common/ReconstructPosition.glslh>
+
+layout(std430, binding = 0) readonly buffer TSRParamsBuffer
+{
+    mat4  u_InvViewProjection;  // this frame, unjittered
+    mat4  u_PrevViewProjection; // previous frame, unjittered
+    mat4  u_PrevInvProjection;  // previous frame, unjittered: device depth -> view depth
+    vec2  u_RenderSize;
+    vec2  u_HistorySize;
+    vec2  u_OutputSize;
+    vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
+    float u_HistoryValid;
+    float u_HistorySampleCount;
+    float u_HistoryHisteresis;
+    float u_WeightClampingRejection;
+    float u_WeightClampingPixelSpeedAmplitude;
+    float u_InvWeightClampingPixelSpeed;
+    float u_InputToHistoryFactor;
+    float u_FlickeringFramePeriod;
+    float u_DepthPixelRadiusScale;
+    float u_DepthPixelRadiusBias;
+    float u_EnableFlickeringHeuristic;  // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
+    float u_RejectionAntiAliasingSteps; // r.TSR.RejectionAntiAliasingQuality 0 / 1 / 2 -> 0 / 4 / 8 search steps
+};
+
+const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush
+const float kMoireLumaToChannel = 3.0;           // UE TSRColorSpace.ush
+const float kQuantizationError  = 0.5 / 1024.0;  // UE MeasureBackbufferLDRQuantizationError: a 10-bit backbuffer
+const float kFilteringWeight    = 1.0 / (1.0 + 4.0 * 0.5 + 4.0 * 0.25); // UE TSRShadingAnalysis.ush :25
+
+float TsrLuma(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The exposure the history was resolved under: AutoExposure's previous adapted luminance (as TemporalAA.shader).
+float TsrExposure(sampler2D exposureTexture)
+{
+    return 1.0 / max(texelFetch(exposureTexture, ivec2(0), 0).r, 1e-4);
+}
+
+// UE's guide colour space: the pre-exposed linear colour compressed as c / (c + 0.17).
+vec3 LinearToGCS(vec3 linearColor)
+{
+    return linearColor / (linearColor + kGCSPreceptionAdd);
+}
+
+// UE's shading-measurement colour space of a guide colour.
+vec3 GCSToSMCS(vec3 g)
+{
+    return g * g;
+}
+
+// UE HdrWeight on the pre-exposed colour (kHistoryAccumulationPreceptionAdd = 1).
+float TsrHdrWeight(vec3 preExposed)
+{
+    return 1.0 / (1.0 + max(TsrLuma(preExposed), 0.0));
+}
+
+// UE ComputeSampleWeigth: 1 - 1.9 x^2 + 0.905 x^4 of x^2 = saturate(factor^2 * d.d), d in input pixels, never below
+// @p minimal.
+float TsrSampleWeight(float factor, vec2 d, float minimal)
+{
+    const float x2 = clamp(factor * factor * dot(d, d), 0.0, 1.0);
+    return max((0.905 * x2 - 1.9) * x2 + 1.0, minimal);
+}
+
+float ComputePrevWeightMultiplier(float blendFactor)
+{
+    // (1 - b) / b; a zero blend factor (the history fully trusted) is an unbounded multiplier, kept finite.
+    return (1.0 - blendFactor) / max(blendFactor, 1e-4);
+}
+
+float RejectionFactorToBlendFactor(float rejectionFactor)
+{
+    return 1.0 - rejectionFactor;
+}
+
+// (weight of A, weight of B) of lerp(A, B, blend) re-weighted by the tone weights of A and B.
+vec2 WeightedLerpFactors(float weightA, float weightB, float blend)
+{
+    float a   = (1.0 - blend) * weightA;
+    float b   = blend * weightB;
+    float sum = a + b;
+    return sum > 0.0 ? vec2(a, b) / sum : vec2(1.0, 0.0);
+}
+
+// The unjittered screen uv of the surface the render pixel @p p shows (its centre minus this frame's jitter).
+vec2 TsrSurfaceUv(ivec2 p)
+{
+    return (vec2(p) + 0.5) / u_RenderSize - u_JitterUv;
+}
+
+// The previous frame's view depth of a previous device depth (perspective and orthographic alike).
+float TsrPrevViewDepth(float prevDeviceDepth)
+{
+    const vec4 v = u_PrevInvProjection * vec4(0.0, 0.0, prevDeviceDepth, 1.0);
+    return abs(v.z / v.w);
+}
+
+// The world radius of one render pixel at view depth @p depth (UE GetDepthPixelRadiusForProjectionType).
+float TsrDepthPixelRadius(float depth)
+{
+    return depth * u_DepthPixelRadiusScale + u_DepthPixelRadiusBias;
+}
+
+ivec2 TsrClampRender(ivec2 p)
+{
+    return clamp(p, ivec2(0), ivec2(u_RenderSize) - 1);
+}
+
+#endif
