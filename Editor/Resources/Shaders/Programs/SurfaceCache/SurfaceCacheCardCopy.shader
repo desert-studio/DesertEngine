@@ -3,7 +3,7 @@
 // CopyCardCaptureLightingToAtlas): the frame's card captures - the G-buffer light-view permutation drawn through
 // each card's orthographic camera into the capture atlas (SurfaceCacheRenderer) - moved page by page into the
 // surface-cache layers. One 8 x 8 group per tile of a 128² page; z = the page copy. The capture's depth is
-// standard-Z of the card box (0 = the card plane), cleared to 1: a texel at 1 saw no surface (opacity 0).
+// reversed-Z of the card box (1 = the card plane), cleared to 0: a texel at 0 saw no surface (opacity 0).
 Shader "SurfaceCacheCardCopy"
 {
     Compute
@@ -52,9 +52,9 @@ Shader "SurfaceCacheCardCopy"
             const ivec2 target    = ivec2(physical.xy + texel);
 
             const float depth   = texelFetch(u_CaptureDepth, source, 0).r;
-            const bool  covered = depth < 1.0;
+            const bool  covered = depth > 0.0; // reversed-Z, cleared to 0
             const vec3  normal  = texelFetch(u_CaptureNormal, source, 0).xyz;
-            imageStore(u_AtlasDepth, target, vec4(covered ? depth : 1.0));
+            imageStore(u_AtlasDepth, target, vec4(covered ? 1.0 - depth : 1.0));
             imageStore(u_AtlasAlbedo, target, vec4(texelFetch(u_CaptureAlbedo, source, 0).rgb, 1.0));
             imageStore(u_AtlasOpacity, target, vec4(covered ? 1.0 : 0.0));
             imageStore(u_AtlasNormal, target,

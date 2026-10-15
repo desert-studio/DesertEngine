@@ -729,10 +729,13 @@ namespace Desert::Graphic::System
             MaterialInstance*   Instance = nullptr;
             DataDrivenMaterial* Surface  = nullptr;
             uint64_t            Hidden   = 0;
+            uint32_t            MotionRow = 0; // the view's ObjectMotions row (the world the view-pass cell reads)
         };
         std::vector<CardCaptureSource>      m_CardCaptureSources;
-        std::shared_ptr<DataDrivenMaterial> m_CardCaptureMaterial;
-        std::vector<MaterialInstancePtr>    m_CardCaptureInstances; // one card camera each, grown on demand
+        // One material per capture of the frame: the camera block is the MATERIAL's (SceneFrameBinding::ApplyTo
+        // writes the parent), so one card camera needs one material - as m_ShadowMaterial[view] per light view.
+        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials;
+        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances;
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 

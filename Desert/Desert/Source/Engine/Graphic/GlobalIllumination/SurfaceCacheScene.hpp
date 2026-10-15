@@ -86,7 +86,7 @@ namespace Desert::Graphic::SurfaceCache
         uint32_t  Source = 0;         // SceneInstance::Source of the frame
         glm::mat4 World{ 1.0f };      // the instance's world
         glm::mat4 View{ 1.0f };       // the card camera: on the card plane, looking against the card direction
-        glm::mat4 Projection{ 1.0f }; // standard-Z orthographic box of the card (0 = card plane, 1 = far side)
+        glm::mat4 Projection{ 1.0f }; // reversed-Z orthographic box of the card (1 = card plane, 0 = far side)
         glm::vec3 Eye{ 0.0f };
         AtlasRect CaptureRect; // texels of the capture atlas
     };

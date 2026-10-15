@@ -66,10 +66,13 @@ namespace Desert::Graphic::SurfaceCache
         // The capture atlas: the RSM's slots (the light-view permutation's outputs), its own fixed side.
         FramebufferSpecification spec;
         spec.DebugName = "SurfaceCacheCapture";
-        for ( const std::optional<Core::Formats::ImageFormat>& slot : ViewTargetFormats::kRSMColourSlots )
-            spec.Attachments.Attachments.push_back( slot ? FramebufferAttachment( *slot )
-                                                         : FramebufferAttachment::UnusedColourSlot() );
-        spec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
+        // The G-buffer's own attachments (the view-pass cell's pipeline is built against GBufferLayout); the
+        // velocity slot is the capture pass's graph transient (SceneRenderer::AddFrameSurfaceCacheView).
+        for ( const Core::Formats::ImageFormat format :
+              { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB, ViewTargetFormats::kGBufferShadingWord,
+                ViewTargetFormats::kGBufferEmissive } )
+            spec.Attachments.Attachments.emplace_back( format );
+        spec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
         m_CaptureBuffer = Framebuffer::Create( spec );
         if ( !m_CaptureBuffer )
             return Common::MakeError<bool>( "surface cache: the capture framebuffer could not be created" );

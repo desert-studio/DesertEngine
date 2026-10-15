@@ -16,7 +16,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, uint32_t> repeats;
         const auto                             add = [&]( uint64_t key, const Mesh* mesh,
                               std::shared_ptr<const Assets::MeshCardsBuildData> cards, const glm::mat4& world,
-                              const SurfaceSlot slot, const uint64_t hidden )
+                              const SurfaceSlot slot, const uint64_t hidden, const uint32_t motionRow )
         {
             const uint32_t repeat = repeats[key]++;
             if ( repeat > 0 )
@@ -30,7 +30,8 @@ namespace Desert::Graphic::System
                                               .World    = world,
                                               .Instance = slot.Instance,
                                               .Surface  = slot.Surface,
-                                              .Hidden   = hidden } );
+                                              .Hidden   = hidden,
+                                              .MotionRow = motionRow } );
         };
         for ( const auto& data : m_StaticQueue )
         {
@@ -44,85 +45,63 @@ namespace Desert::Graphic::System
             if ( !slot || IsTranslucent( slot.Surface ) )
                 continue;
             const uint64_t key = ( static_cast<uint64_t>( data.Entity ) << 24u ) | ( data.MotionPart & 0xFFFFFFu );
-            add( key, data.Mesh, std::move( cards ), data.Transform, slot, data.HiddenSubmeshes );
+            add( key, data.Mesh, std::move( cards ), data.Transform, slot, data.HiddenSubmeshes, data.MotionRow );
         }
-        for ( uint32_t batch = 0; batch < m_InstancedQueue.size(); ++batch )
-        {
-            const auto& ism = m_InstancedQueue[batch];
-            if ( ism.Mesh == nullptr || !ism.Transforms || !ism.Material )
-                continue;
-            auto cards = ism.Mesh->GetCards();
-            if ( !cards || cards->Cards.empty() )
-                continue;
-            MaterialInstance* const instance = ism.Material.get();
-            auto* const             surface  = dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() );
-            if ( surface == nullptr || IsTranslucent( surface ) )
-                continue;
-            for ( uint32_t i = 0; i < ism.Transforms->size(); ++i )
-                add( 0x8000000000000000ull | ( static_cast<uint64_t>( batch ) << 32u ) | i, ism.Mesh, cards,
-                     ( *ism.Transforms )[i], SurfaceSlot{ .Instance = instance, .Surface = surface }, 0u );
-        }
+        // Instanced meshes have no ObjectMotions row of their own (the view-pass static cell draws a world from one):
+        // their capture needs the instanced G-buffer cell - REMAINDER GI-SURFACE-CACHE-2.
+        
     }
 
     void MeshRenderer::DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
                                                 const std::vector<SurfaceCache::CardCapture>& captures )
     {
         m_CardCaptureDraws.Clear();
-        if ( !m_RSMPipeline || captures.empty() )
+        if ( !m_StaticGBufferPipeline || captures.empty() )
             return;
-        if ( !m_CardCaptureMaterial )
+        // The view-pass G-buffer cell (world = the view's ObjectMotions row x the push transform; reversed-Z), one
+        // dedicated material per capture: its camera block holds that card's camera.
+        while ( m_CardCaptureMaterials.size() < captures.size() )
         {
-            // (Static x GBuffer), allocated from the cell by name like the RSM's: it binds against the light-view
-            // permutation's pipeline unchanged (SetupGBufferPass says why).
-            m_CardCaptureMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
-            if ( !m_CardCaptureMaterial )
+            auto material = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
+            if ( !material )
             {
                 m_CardCaptureDraws.Fail( "the G-buffer cell material for the card capture could not be created" );
                 return;
             }
+            m_CardCaptureInstances.push_back( material->CreateInstance() );
+            m_CardCaptureMaterials.push_back( std::move( material ) );
         }
-
-        // The captured surfaces' effective rows, in the dedicated material's Materials buffer, written ONCE before
-        // the block is declared (the RSM's order).
-        std::vector<glm::vec4> rows;
-        std::vector<uint32_t>  rowOf;
-        rowOf.reserve( captures.size() );
-        for ( const SurfaceCache::CardCapture& capture : captures )
-        {
-            const CardCaptureSource& source = m_CardCaptureSources[capture.Source];
-            rowOf.push_back( AppendRow( rows, EffectiveRow( source.Surface, source.Instance ) ) );
-        }
-        if ( auto* sb = m_CardCaptureMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
-
-        while ( m_CardCaptureInstances.size() < captures.size() )
-            m_CardCaptureInstances.push_back( m_CardCaptureMaterial->CreateInstance() );
-
-        DataDrivenMaterial* const material = m_CardCaptureMaterial.get();
         for ( std::size_t i = 0; i < captures.size(); ++i )
         {
-            const SurfaceCache::CardCapture& capture = captures[i];
-            const CardCaptureSource&         source  = m_CardCaptureSources[capture.Source];
-            // The card is not a view (no jitter, no previous frame): its camera block, in its own instance.
+            const SurfaceCache::CardCapture& capture  = captures[i];
+            const CardCaptureSource&         source   = m_CardCaptureSources[capture.Source];
+            DataDrivenMaterial* const        material = m_CardCaptureMaterials[i].get();
+            MaterialInstance* const          instance = m_CardCaptureInstances[i].get();
+            // Its one row: the surface's effective parameters (the RSM's way - the textures are not captured).
+            std::vector<glm::vec4> rows;
+            AppendRow( rows, EffectiveRow( source.Surface, source.Instance ) );
+            if ( auto* sb = material->Get<StorageBufferProperty>( "Materials" ) )
+                sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
+            // The card is not a view of its own (no jitter, no previous frame): its camera, in its material.
             const ViewFrame cardView =
                  MakeStillViewFrame( capture.View, capture.Projection, capture.Eye, m_WorldTimeSeconds );
-            MaterialInstance* const instance = m_CardCaptureInstances[i].get();
-            CaptureFrameState( &cardView ).ApplyTo( instance );
+            CaptureFrameState( &cardView ).ApplyTo( material );
             const SurfaceCache::AtlasRect rect = capture.CaptureRect;
-            m_CardCaptureDraws.Add( { .Pipeline          = m_RSMPipeline.get(),
+            m_CardCaptureDraws.Add( { .Pipeline          = m_StaticGBufferPipeline.get(),
                                       .Mesh              = source.Mesh,
                                       .Transform         = source.World,
                                       .Material          = material->GetMaterialExecutor(),
                                       .HiddenSubmeshMask = source.Hidden,
-                                      .BindState = [material, instance, world = source.World, row = rowOf[i], rect]
+                                      .BindState = [material, instance, row = source.MotionRow, rect]
                                       {
                                           // Its own rectangle of the capture atlas only (the pass cleared the
                                           // whole atlas: every capture of the frame is new).
                                           Renderer::GetInstance().SetViewportRegion(
                                                static_cast<int32_t>( rect.X ), static_cast<int32_t>( rect.Y ),
                                                rect.Width, rect.Height );
-                                          material->SetPushMatrix( world );
-                                          material->SetMaterialIndex( row );
+                                          material->SetPushMatrix( glm::mat4( 1.0f ) );
+                                          material->SetMaterialIndex( 0u );
+                                          material->SetPrimitiveIndex( row );
                                           material->Bind( instance );
                                       } } );
         }

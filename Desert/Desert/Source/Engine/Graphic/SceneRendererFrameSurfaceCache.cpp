@@ -7,6 +7,8 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <format>
 
@@ -73,6 +75,12 @@ namespace Desert::Graphic
                 return;
             }
             const std::vector<SurfaceCache::CardCapture>& captures = scene.Captures;
+            // The G-buffer layout's velocity slot: written by the cell, read by nobody here.
+            RDG::TextureDesc velocityDesc;
+            velocityDesc.Size   = { SurfaceCache::SurfaceCacheRenderer::kCaptureAtlasSize,
+                                    SurfaceCache::SurfaceCacheRenderer::kCaptureAtlasSize, 1 };
+            velocityDesc.Format = ViewTargetFormats::kVelocity;
+            const RDG::TextureRef velocity = graph.CreateTexture( velocityDesc, "SurfaceCacheCapture.Velocity" );
             graph.AddPass(
                  passName, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
                  [&]( RDG::PassBuilder& pass )
@@ -83,7 +91,8 @@ namespace Desert::Graphic
                          if ( targets->Colors[slot].IsValid() )
                              pass.ColorTarget( slot, targets->Colors[slot],
                                                RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-                     pass.DepthTarget( targets->Depth, RDG::LoadOp::ClearDepth( 1.0f ), true );
+                     pass.ColorTarget( kGBufferVelocitySlot, velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.DepthTarget( targets->Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), true );
                  },
                  [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderCardCaptureManual( context ); } );

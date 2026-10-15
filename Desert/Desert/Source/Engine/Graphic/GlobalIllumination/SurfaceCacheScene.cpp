@@ -1,5 +1,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 
+#include <Engine/Core/Projection.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -358,7 +360,7 @@ namespace Desert::Graphic::SurfaceCache
             const glm::vec3 y = card->Axes[1], z = card->Axes[2];
             capture.Eye        = card->Center + z * card->Extent.z;
             capture.View       = glm::lookAt( capture.Eye, capture.Eye - z, y );
-            capture.Projection = glm::orthoRH_ZO( -card->Extent.x, card->Extent.x, -card->Extent.y, card->Extent.y,
+            capture.Projection = Core::MakeOrthographic( -card->Extent.x, card->Extent.x, -card->Extent.y, card->Extent.y,
                                                   0.0f, 2.0f * card->Extent.z );
             captured.emplace( card, static_cast<uint32_t>( frame.Captures.size() ) );
             frame.Captures.push_back( capture );
