@@ -82,4 +82,11 @@ namespace Desert::VFX
         /// count.
         [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds, double spawnCountScale );
     };
+
+    /// Effects.ParticleSpawnPercent (25..100) as the spawnCountScale SpawnState::Step takes: the one place the
+    /// percent becomes a share, so the scene and the tier tests read the same conversion.
+    [[nodiscard]] inline double SpawnCountScaleForPercent( std::int32_t spawnPercent )
+    {
+        return static_cast<double>( spawnPercent ) / 100.0;
+    }
 } // namespace Desert::VFX

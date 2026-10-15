@@ -10,12 +10,12 @@
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
-#include <Engine/Graphic/Clouds/CloudQuality.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/Clouds/CloudQuality.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1139,9 +1139,9 @@ TEST( ScalabilityContract, EveryShippedViewDistanceTierScalesTheComponentStreami
     }
 }
 
-// ViewDistance.LandscapeLodPercent -> TerrainRenderer::SetLodDistanceScale (percent / 100 in
-// SceneRenderer::SetQuality) -> LandscapeLodAtDistanceScale: a tile on LOD 1 at full scale takes the LOD of a
-// screen size 0.25x / 0.5625x / 1x at Low / Medium / High+, so Low is coarser than Medium, Medium than High.
+// ViewDistance.LandscapeLodPercent -> SceneRenderer::SetQuality -> LandscapeLodDistanceScaleForPercent ->
+// TerrainRenderer::SetLodDistanceScale -> LandscapeLodAtDistanceScale: a tile on LOD 1 at full scale takes the LOD
+// of a screen size 0.25x / 0.5625x / 1x at Low / Medium / High+, so Low is coarser than Medium, Medium than High.
 TEST( ScalabilityContract, EveryShippedViewDistanceTierMovesTheLandscapeLodSwitch )
 {
     namespace Sys                = Desert::Graphic::System;
@@ -1154,7 +1154,8 @@ TEST( ScalabilityContract, EveryShippedViewDistanceTierMovesTheLandscapeLodSwitc
         const TierScale& tier    = kShippedPercentTiers[i];
         const int        percent = ShippedAt( table, Group::ViewDistance, tier.Tier )
                                  .As<int>( Parameter::LandscapeLodDistancePercent );
-        chosen[i] = Sys::LandscapeLodAtDistanceScale( lod, kSize, static_cast<float>( percent ) / 100.0f );
+        chosen[i] =
+             Sys::LandscapeLodAtDistanceScale( lod, kSize, Sys::LandscapeLodDistanceScaleForPercent( percent ) );
         EXPECT_FLOAT_EQ( chosen[i], Sys::LandscapeLodFromScreenSize( lod, kSize * tier.Scale * tier.Scale ) )
              << LevelKey( tier.Tier );
     }

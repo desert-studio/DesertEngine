@@ -650,7 +650,8 @@ namespace Desert::Core
         {
             DESERT_PROFILE_SCOPE( "VFX World" );
             const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
-            m_VFXWorld.SetSpawnCountScale( Graphic::RenderConfig::ParticleSpawnPercent.load() / 100.0 );
+            m_VFXWorld.SetSpawnCountScale(
+                 VFX::SpawnCountScaleForPercent( Graphic::RenderConfig::ParticleSpawnPercent.load() ) );
             m_VFXWorld.Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
         }
 

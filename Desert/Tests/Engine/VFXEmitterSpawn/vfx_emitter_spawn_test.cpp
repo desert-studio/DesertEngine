@@ -226,7 +226,7 @@ TEST( VFXEmitterSpawn, RefusalsNameWhatIsWrong )
 }
 
 // SCAL-COVER: every SHIPPED Effects tier through the spawn (Editor/Resources/Config/Scalability.json ->
-// RenderConfig::ParticleSpawnPercent -> Scene: VFXWorld::SetSpawnCountScale( percent / 100 ) -> SpawnState::Step):
+// RenderConfig::ParticleSpawnPercent -> Scene: SpawnCountScaleForPercent -> VFXWorld::SetSpawnCountScale -> Step):
 // a 120/s rate over ten seconds births 600 / 900 / 1200 at Low / Medium / High+. Red if a shipped tier value
 // moves or Step stops applying the share.
 TEST( VFXEmitterSpawn, EveryShippedEffectsTierScalesTheBirths )
@@ -255,7 +255,7 @@ TEST( VFXEmitterSpawn, EveryShippedEffectsTierScalesTheBirths )
                               Tier{ Scal::Level::Cinematic, 1200u } } )
     {
         const auto percent = table.GetValue().ValueAt( Scal::Parameter::ParticleSpawnPercent, tier.Level );
-        EXPECT_EQ( Sum( Births( rate, 600, kStep, static_cast<double>( percent ) / 100.0 ) ), tier.Births )
+        EXPECT_EQ( Sum( Births( rate, 600, kStep, VFX::SpawnCountScaleForPercent( percent ) ) ), tier.Births )
              << Scal::LevelKey( tier.Level );
     }
 }

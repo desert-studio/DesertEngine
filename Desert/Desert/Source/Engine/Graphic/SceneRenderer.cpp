@@ -843,8 +843,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetFoliageQuality( FoliageQualityFor( quality ) );
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->SetLodDistanceScale(
-                  static_cast<float>( quality.As<int>( Parameter::LandscapeLodDistancePercent ) ) / 100.0f );
+             ->SetLodDistanceScale( System::LandscapeLodDistanceScaleForPercent(
+                  quality.As<std::int32_t>( Parameter::LandscapeLodDistancePercent ) ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )

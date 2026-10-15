@@ -212,6 +212,13 @@ namespace Desert::Graphic::System
         return LandscapeLodFromScreenSize( settings, screenSizeSquared * lodDistanceScale * lodDistanceScale );
     }
 
+    // ViewDistance.LandscapeLodPercent (25..100) as the lodDistanceScale above takes it: the one place the
+    // percent becomes a scale, so SceneRenderer::SetQuality and the tier tests read the same conversion.
+    [[nodiscard]] inline float LandscapeLodDistanceScaleForPercent( std::int32_t lodDistancePercent )
+    {
+        return static_cast<float>( lodDistancePercent ) / 100.0f;
+    }
+
     // A tile's LOD and what its borders and corners take. `lodAt(dx, dz)` is the continuous LOD of the tile
     // at that offset from this one, or nullopt where there is none (the landscape's own edge: nothing to
     // agree with there, so the tile's own LOD). max() on both sides of a border is what makes it one value.
