@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9072d755d005afb36804094fd5773882",
         "Versions": {
-            "SCNE": 57,
+            "SCNE": 58,
             "UNIT": 1
         },
         "Dependencies": ["732b2b6a48f6b68a5c5ab22f00719633", "b33524f57b8f411039fb457c1c34be51"]
@@ -88,6 +88,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             },
             "VolumetricCloud": {

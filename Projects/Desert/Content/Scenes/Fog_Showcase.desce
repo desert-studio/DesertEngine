@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2e7f1fb2dd84686b69de21a859f5f018",
         "Versions": {
-            "SCNE": 57,
+            "SCNE": 58,
             "UNIT": 1
         },
         "Dependencies": ["b33524f57b8f411039fb457c1c34be51", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
@@ -75,6 +75,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             }
         },
