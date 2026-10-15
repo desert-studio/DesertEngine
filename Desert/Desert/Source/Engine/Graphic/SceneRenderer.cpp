@@ -1639,7 +1639,8 @@ namespace Desert::Graphic
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows )
+                                           const std::string& directTextureSampler, bool castShadows,
+                                           bool visibleInRayTracing )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1651,6 +1652,7 @@ namespace Desert::Graphic
                                     .Overrides            = overrides,
                                     .Outlined             = outlined,
                                     .CastShadows          = castShadows,
+                                    .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
                                     .DirectTextureSampler = directTextureSampler } );
     }
@@ -1668,6 +1670,8 @@ namespace Desert::Graphic
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,
+                                    // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
+                                    .VisibleInRayTracing = true,
                                     .SlotMaterial       = material,
                                     .VisibleSubmeshMask = visibleSubmeshMask } );
     }
@@ -1680,7 +1684,8 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
+                                             const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, const InstanceCullDistance& cullDistance,
                                              const InstanceWind& wind )
@@ -1694,7 +1699,8 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh         = mesh,
+             ->SubmitInstancedMesh( { .Entity       = entity,
+                                      .Mesh         = mesh,
                                       .Material     = material,
                                       .Transforms   = transforms,
                                       .CastShadows  = castShadows,

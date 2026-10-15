@@ -69,6 +69,7 @@ namespace Desert::Graphic::Render
     // recorded this command, and the entity can be destroyed by Lua before the command is executed (A8-3).
     struct DrawInstancedStaticMeshCommand : RenderCommand
     {
+        uint32_t                                      Entity; // keys each instance's GPU-scene row
         Desert::Mesh*                                 Mesh;
         Graphic::MaterialInstancePtr                  Material;
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
@@ -76,10 +77,10 @@ namespace Desert::Graphic::Render
         InstanceCullDistance                          CullDistance; // the foliage type's (FO-5); {0, 0} = none
         InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
-        DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
+        DrawInstancedStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         const InstanceCullDistance& cullDistance, const InstanceWind& wind )
-             : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
+             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
                CastShadows( castShadows ), CullDistance( cullDistance ), Wind( wind )
         {
         }
@@ -87,7 +88,7 @@ namespace Desert::Graphic::Render
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CullDistance, Wind );
+                renderer.SubmitInstancedMesh( Entity, Mesh, Material, Transforms, CastShadows, CullDistance, Wind );
         }
     };
 } // namespace Desert::Graphic::Render

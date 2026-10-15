@@ -269,7 +269,8 @@ namespace Desert::Graphic
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
-                                const std::string& directTextureSampler = {}, bool castShadows = false );
+                                const std::string& directTextureSampler = {}, bool castShadows = false,
+                                bool visibleInRayTracing = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
@@ -288,7 +289,7 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
-        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+        void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, const InstanceCullDistance& cullDistance,
                                   const InstanceWind& wind );

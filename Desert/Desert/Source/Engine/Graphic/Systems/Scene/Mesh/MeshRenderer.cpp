@@ -467,11 +467,24 @@ namespace Desert::Graphic::System
         // records, writes each one's row back and uploads.
         auto& records = m_ScratchMotionRecords;
         records.clear();
-        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
+        size_t instanceCount = 0;
+        for ( const auto& data : m_InstancedQueue )
+            instanceCount += data.Transforms->size();
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + m_SkinnedQueue.size() );
         for ( const auto& data : m_StaticQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
+        // Every ISM instance is a primitive row of its own (UE instance scene data; the GI card table and the TLAS
+        // custom index are keyed per instance). Part = instance + 1 keeps each instance's previous world its own.
+        for ( const auto& data : m_InstancedQueue )
+        {
+            const std::vector<glm::mat4>& transforms = *data.Transforms;
+            for ( size_t instance = 0; instance < transforms.size(); ++instance )
+                records.push_back( { .Entity = data.Entity,
+                                     .Part   = static_cast<uint32_t>( instance + 1 ),
+                                     .World  = transforms[instance] } );
+        }
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
@@ -484,6 +497,14 @@ namespace Desert::Graphic::System
             data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_GenericQueue )
             data.MotionRow = built.RecordRows[record++];
+        m_InstancedMotionRows.clear();
+        m_InstancedMotionRows.reserve( instanceCount );
+        for ( auto& data : m_InstancedQueue )
+        {
+            data.FirstMotionRow = static_cast<uint32_t>( m_InstancedMotionRows.size() );
+            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
+                m_InstancedMotionRows.push_back( built.RecordRows[record++] );
+        }
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
         const auto& rows     = built.Rows;

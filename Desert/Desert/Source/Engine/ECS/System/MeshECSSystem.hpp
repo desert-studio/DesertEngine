@@ -278,7 +278,7 @@ namespace Desert::ECS
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts, mesh.MaxDrawDistance );
+                                      overrideCasts, mesh.MaxDrawDistance, /*visibleInRayTracing*/ true );
                                  return; // skip the lit path for this entity
                              }
                          }
@@ -432,7 +432,8 @@ namespace Desert::ECS
                                                                    m_WindSeconds );
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
+                              static_cast<uint32_t>( entity ), targetMesh, ismInstancePtr,
+                              ism.RuntimeInstanceSnapshot, ism.CastShadows,
                               Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }
