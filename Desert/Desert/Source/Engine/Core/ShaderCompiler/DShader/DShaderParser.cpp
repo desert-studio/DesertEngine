@@ -1440,10 +1440,12 @@ namespace Desert::Core::Preprocess
                           : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
-            // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
-            // mesh, the sprite header composites a particle.
-            const std::string passInclude =
-                 particle ? std::string( kSurfaceParticleSpritePassInclude ) : SurfacePassInclude( pass, blend );
+            // A particle cell of the particle pass has its own pass header whatever the blend: the mesh Forward / glass
+            // headers light a mesh, the particle header composites a particle. An opaque mesh particle's G-buffer and
+            // shadow cells are the mesh passes' (kSurfaceParticleMeshOpaquePasses).
+            const std::string passInclude = particle && pass == kSurfaceParticleSpritePass
+                                                 ? std::string( kSurfaceParticleSpritePassInclude )
+                                                 : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -2157,27 +2159,34 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
-            // The particle usages: one cell each, after every mesh cell (the mesh cells' order is unchanged),
-            // in kSurfaceParticleUsages order.
+            // The particle usages: one cell each (an opaque mesh usage also its kSurfaceParticleMeshOpaquePasses
+            // cells), after every mesh cell (the mesh cells' order is unchanged), in kSurfaceParticleUsages order.
             const bool declared[] = { result.Surface.UsedWithParticleSprites, result.Surface.UsedWithParticleMeshes,
                                       result.Surface.UsedWithParticleRibbons };
             static_assert( std::size( declared ) == kSurfaceParticleUsages.size() );
+            const auto addParticleCell = [&]( const std::string_view path, const std::string_view pass )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( path, pass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
+                                                                          includeBlock, autoDecls, result.Surface.Blend,
+                                                                          shadingModelDefine,
+                                                                          result.Surface.ResponsiveAA ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            };
             for ( std::size_t u = 0; u < kSurfaceParticleUsages.size(); ++u )
             {
                 if ( !declared[u] )
                     continue;
                 const std::string_view path = kSurfaceParticleUsages[u].Path;
-                DShaderPass            cell;
-                cell.Name  = SurfaceCellName( path, kSurfaceParticleSpritePass );
-                cell.State = cellState;
-                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, path, kSurfaceParticleSpritePass, *surfaceBlock,
-                                                          includeBlock, autoDecls, result.Surface.Blend,
-                                                          shadingModelDefine, result.Surface.ResponsiveAA ) );
-                result.Meta.PassNames.push_back( cell.Name );
-                result.Surface.Cells.push_back( cell.Name );
-                result.Passes.push_back( std::move( cell ) );
+                addParticleCell( path, kSurfaceParticleSpritePass );
+                if ( path == kSurfaceParticleMeshPath && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                    for ( const std::string_view pass : kSurfaceParticleMeshOpaquePasses )
+                        addParticleCell( path, pass );
             }
         }
 

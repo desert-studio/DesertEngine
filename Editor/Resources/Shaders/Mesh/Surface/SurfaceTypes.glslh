@@ -94,10 +94,11 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 
 // Depth Fade (UE's DepthFade expression, "soft particles"): @p opacity scaled by how far the scene behind the pixel
 // is, over @p fadeDistance CENTIMETRES — 0 where the pixel touches the scene, @p opacity at fadeDistance or more.
-// Only the particle cells read the scene depth (the parser defines DESERT_SURFACE_PARTICLE in both stages
-// of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
-// and returns the opacity unchanged, as UE's DepthFade does outside translucency.
-#if defined( DESERT_SURFACE_PARTICLE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+// Only the particle pass's cells read the scene depth (the parser defines DESERT_SURFACE_PARTICLE in both stages
+// of every particle cell; the Forward one's fragment stage declares the depth here); a mesh cell - and an opaque
+// mesh particle's G-buffer / shadow cell, which WRITES that depth - has no scene depth behind it to read and returns
+// the opacity unchanged, as UE's DepthFade does outside translucency.
+#if defined( DESERT_SURFACE_PARTICLE ) && defined( DESERT_SURFACE_PASS_Forward ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
 
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )

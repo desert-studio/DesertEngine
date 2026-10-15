@@ -1037,6 +1037,10 @@ namespace Desert::Tests::PointerCensus
           "MeshService::Get's resident mesh, looked up again by every PrepareFrame; m_ViewDraws is cleared at the "
           "top of every PrepareFrame and by OnSceneReplaced" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewDraw", "GBufferCell", Guard::OwnedByThisObject,
+          "the unique_ptr<CellDraw> in ParticleRenderer::m_Cells (the G-buffer node's state of the row's cell), a "
+          "node-based map that never erases while m_ViewDraws holds rows; a unique_ptr's pointee does not move" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
           "ParticleRenderer", "m_World", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareFrame to the scene's ParticleWorldGpu every frame and nulled by OnSceneReplaced; "
           "every reader checks it against nullptr" },

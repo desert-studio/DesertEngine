@@ -23,7 +23,7 @@ namespace Desert::Graphic
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
              { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
-             { "ParticleMesh.Forward", nullptr, nullptr, nullptr },
+             { "ParticleMesh.Forward", "ParticleMesh.GBuffer", nullptr, "ParticleMesh.ShadowDepth" },
              { "ParticleRibbon.Forward", nullptr, nullptr, nullptr },
         };
     } // namespace

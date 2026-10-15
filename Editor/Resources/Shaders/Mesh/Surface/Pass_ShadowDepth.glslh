@@ -3,6 +3,11 @@
 // only for its clip, so it carries the surface's bindings and the varyings.
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_PARTICLE
+// A masked ParticleMesh.ShadowDepth cell clips by the particle's colour / time / random as its G-buffer cell does.
+layout( location = 12 ) in flat vec4 v_ParticleColor;
+layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
+#endif
 #endif
 
 #include <Common/CameraUB.glslh>
@@ -20,9 +25,14 @@ void main()
     const float gradient = max( abs( dFdx( depth ) ), abs( dFdy( depth ) ) );
     const float biased   = depth + cameraUB.ShadowSlopeBias * min( gradient, cameraUB.ShadowSlopeClamp );
 #ifdef DESERT_SURFACE_MASKED
-    const SurfaceOutput s =
-         EvaluateSurface( DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
-                              v_Surface.VertexColor, gl_FrontFacing ) );
+    SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                         v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+#ifdef DESERT_SURFACE_PARTICLE
+    i.Particle.Color        = v_ParticleColor;
+    i.Particle.RelativeTime = v_ParticleTimeRandom.x;
+    i.Particle.Random       = v_ParticleTimeRandom.y;
+#endif
+    const SurfaceOutput s = EvaluateSurface( i );
     DESERT_SURFACE_CLIP( s );
 #endif
     o_Depth = vec4( biased, 0.0, 0.0, 1.0 );

@@ -304,6 +304,16 @@ namespace Desert::Graphic
              [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
     }
 
+    void SceneRenderer::AddFrameParticleGBuffer( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The opaque / masked mesh particles' base pass (ParticleRenderer::GBufferPass, UE: the base pass draws an
+        // opaque Niagara mesh renderer): LOAD, after the meshes' and the terrain's G-buffer nodes, so the three share
+        // one depth and the particles write depth, normal, material and velocity the deferred lighting reads.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+            AddSystemRaster( graph, textures, particles->GBufferPass() );
+    }
+
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the

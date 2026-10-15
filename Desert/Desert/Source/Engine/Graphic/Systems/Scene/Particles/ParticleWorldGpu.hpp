@@ -106,7 +106,9 @@ namespace Desert::Graphic::System
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
     // One renderer row's settings as the mesh and ribbon vertex paths read them (binding 14): Mode.x = the row's
-    // facing (VFXMeshFacing / VFXRibbonFacing value), Values.x = the ribbon's UVTiling.
+    // facing (VFXMeshFacing / VFXRibbonFacing value), Values.x = the ribbon's UVTiling, Values.y = the seconds the
+    // simulation advanced this tick (step count x fixed step): the mesh path's previous position for the velocity
+    // its G-buffer cell writes (Vertex_ParticleMesh.glslh).
     struct ParticleRendererParamsGpu
     {
         glm::uvec4 Mode   = glm::uvec4( 0u );

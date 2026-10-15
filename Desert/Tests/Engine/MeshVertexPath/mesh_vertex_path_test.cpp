@@ -1065,9 +1065,10 @@ TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStati
                                                   << " cell, got " << plain.value_or( "" );
         }
     // Every MESH path has Forward, GBuffer and ShadowDepth; only Static has Glass; each of the three particle
-    // paths (ParticleSprite, ParticleMesh, ParticleRibbon) has its Forward cell alone (registered here because the
-    // lambda registers every "SomeSurface/" name, as a template with every `Usage Particle*` does).
-    EXPECT_EQ( surfaceCells, ( Desert::Graphic::kMeshVertexPathCount - 3u ) * 3u + 1u + 3u );
+    // paths (ParticleSprite, ParticleMesh, ParticleRibbon) has its Forward cell, and ParticleMesh also its GBuffer and
+    // ShadowDepth cells (an opaque mesh particle's base pass and caster; registered here because the lambda registers
+    // every "SomeSurface/" name, as an opaque template with every `Usage Particle*` does).
+    EXPECT_EQ( surfaceCells, ( Desert::Graphic::kMeshVertexPathCount - 3u ) * 3u + 1u + 3u + 2u );
 }
 
 // THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth

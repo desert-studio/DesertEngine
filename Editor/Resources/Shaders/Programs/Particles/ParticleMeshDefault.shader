@@ -1,7 +1,10 @@
 // DesertAsset {"Kind":"Shader","Guid":"5a4722e8f4d6405ca2d83dd5779d5e71","Versions":{"SHDR":1},"Dependencies":[]}
 // The engine's mesh particle template (UE's DefaultMeshParticleMaterial): what a Mesh renderer row draws with when
 // it names no material, and what ParticleRenderer falls back to BY NAME (logged) when the named one has no
-// ParticleMesh.Forward cell. Opaque: the mesh's vertex colour times the particle's colour, unlit.
+// ParticleMesh.Forward cell. Opaque: the mesh's vertex colour times the particle's colour as its base colour. On the
+// deferred path the row is drawn by its ParticleMesh.GBuffer cell and lit like any mesh (the default shading model)
+// and casts through its ParticleMesh.ShadowDepth cell; the particle pass (the forward path) composites it unlit.
+// The State below is the particle pass's: the G-buffer and cascade nodes set their own depth state.
 Shader "ParticleMeshDefault"
 {
     Domain Surface
@@ -20,15 +23,12 @@ Shader "ParticleMeshDefault"
         ZWrite Off
     }
 
-    ShadingModel Unlit
-
     Surface
     {
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            s.BaseColor     = vec3( 0.0 );
-            s.Emissive      = i.VertexColor.rgb * u_Material.Tint.rgb;
+            s.BaseColor     = i.VertexColor.rgb * u_Material.Tint.rgb;
             return s;
         }
     }

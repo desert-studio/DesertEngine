@@ -715,6 +715,7 @@ namespace Desert::Graphic
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameParticleGBuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameRSM( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                           const glm::vec3& sunDir );
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );

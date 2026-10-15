@@ -95,17 +95,26 @@ namespace Desert::Core::Preprocess
     // THE PARTICLE USAGES, the sprite's and its two siblings (UE bUsedWithMeshParticles, bUsedWithBeamTrails): each
     // declared `Usage <Usage>` adds ONE cell `<Path>.Forward` after the mesh cells, in this table's order, built from
     // the path's vertex header and the one particle pass header (kSurfaceParticleSpritePassInclude). Every particle
-    // cell gets kSurfaceParticleDefine in both stages (the scene depth Depth Fade reads, SurfaceTypes.glslh).
+    // cell gets kSurfaceParticleDefine in both stages (the particle half of SurfaceInput; the Forward cell's Depth Fade
+    // reads the scene depth, SurfaceTypes.glslh). An opaque mesh usage adds kSurfaceParticleMeshOpaquePasses.
     struct SurfaceParticleUsage
     {
         std::string_view Usage;
         std::string_view Path;
     };
-    inline constexpr std::array<SurfaceParticleUsage, 3> kSurfaceParticleUsages = { {
+    inline constexpr std::string_view                    kSurfaceParticleMeshPath = "ParticleMesh";
+    inline constexpr std::array<SurfaceParticleUsage, 3> kSurfaceParticleUsages   = { {
          { "ParticleSprites", kSurfaceParticleSpritePath },
-         { "ParticleMeshes", "ParticleMesh" },
+         { "ParticleMeshes", kSurfaceParticleMeshPath },
          { "ParticleRibbons", "ParticleRibbon" },
     } };
+    // THE OPAQUE MESH PARTICLE (UE: an opaque or masked material on a Niagara mesh renderer is drawn by the base pass
+    // into the G-buffer - depth, velocity, lit by the deferred lighting - and by the shadow depth pass; only a
+    // translucent one is drawn by the translucency). A `Usage ParticleMeshes` template whose blend is not translucent
+    // gets, right after its ParticleMesh.Forward cell, one cell per pass here, built as the mesh cells of that pass
+    // are (the pass's own header, Mesh/Surface/Pass_<Pass>.glslh) over the ParticleMesh vertex header. The Forward
+    // cell stays: the forward render path has no G-buffer and draws it in the particle pass.
+    inline constexpr std::array<std::string_view, 2> kSurfaceParticleMeshOpaquePasses = { "GBuffer", "ShadowDepth" };
     inline constexpr std::string_view kSurfaceParticleDefine = "DESERT_SURFACE_PARTICLE";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";

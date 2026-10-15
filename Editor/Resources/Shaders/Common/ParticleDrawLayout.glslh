@@ -31,7 +31,8 @@ struct ParticleDrawLayout
 
 // One renderer row's settings (C++ Graphic::System::ParticleRendererParamsGpu, kParticleRendererParamsSize), read by
 // the mesh and ribbon vertex paths at binding 14: Mode.x = the row's facing (VFXMeshFacing / VFXRibbonFacing),
-// Values.x = the ribbon's UVTiling.
+// Values.x = the ribbon's UVTiling, Values.y = the seconds the simulation advanced this tick (its step count x the
+// fixed step: the mesh path's previous position for velocity).
 struct ParticleRendererParams
 {
     uvec4 Mode;

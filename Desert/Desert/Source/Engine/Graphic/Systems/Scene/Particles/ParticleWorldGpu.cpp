@@ -451,7 +451,9 @@ namespace Desert::Graphic::System
                                                      ? static_cast<uint32_t>( row.MeshFacing )
                                                      : static_cast<uint32_t>( row.RibbonFacing );
             const ParticleRendererParamsGpu params{ glm::uvec4( facing, 0u, 0u, 0u ),
-                                                    glm::vec4( row.RibbonUVTiling, 0.0f, 0.0f, 0.0f ) };
+                                                    glm::vec4( row.RibbonUVTiling,
+                                                               static_cast<float>( stepCount ) * stepSeconds, 0.0f,
+                                                               0.0f ) };
             if ( const auto set = gpu.RendererParams[r]->SetData( &params, kParticleRendererParamsSize );
                  !set.IsSuccess() )
             {

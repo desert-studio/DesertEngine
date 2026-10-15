@@ -509,8 +509,21 @@ namespace Desert::Graphic
             {
                 // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
                 RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
+                const auto& particleSystem = SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+                if ( !particleSystem->Initialize() )
+                {
                     LOG_WARN( "[SceneRenderer] Particle system unavailable." );
+                    return "Particle";
+                }
+                // The opaque mesh particles cast into the sun's cascades from inside the mesh renderer's cascade
+                // passes, as the terrain does (IShadowCaster). A renderer built without cascades has no target and
+                // nothing to cast into.
+                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                if ( meshSystem && meshSystem->GetCascadeFramebuffer() )
+                {
+                    particleSystem->SetCascadeTarget( meshSystem->GetCascadeFramebuffer() );
+                    meshSystem->AddShadowCaster( particleSystem );
+                }
                 return "Particle";
             }
             case 19:
@@ -1188,6 +1201,7 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            AddFrameParticleGBuffer( graph, textures );
             AddFrameDepthResolve( graph, textures );
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );

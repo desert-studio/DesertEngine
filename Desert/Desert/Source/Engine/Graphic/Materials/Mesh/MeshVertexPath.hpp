@@ -142,7 +142,9 @@ namespace Desert::Graphic
         ParticleSprite = 3,
         // A static mesh per alive particle (UE: the Niagara mesh vertex factory, "Used with Mesh Particles"): the
         // mesh's vertex streams, gl_InstanceIndex an entry of the alive list (Vertex_ParticleMesh.glslh). Only a
-        // template that declares `Usage ParticleMeshes` has its cell (ParticleMesh.Forward).
+        // template that declares `Usage ParticleMeshes` has its cells: ParticleMesh.Forward (the particle pass), and
+        // for an opaque / masked template ParticleMesh.GBuffer and ParticleMesh.ShadowDepth (the deferred base pass
+        // and the sun's cascades, ParticleRenderer::GBufferPass / DeclareShadowCascade).
         ParticleMesh = 4,
         // Particles joined into strips (UE: the Niagara ribbon vertex factory, "Used with Beam Trails"): six vertices
         // per entry of the view's ribbon order (Vertex_ParticleRibbon.glslh). Only a template that declares
@@ -152,8 +154,8 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kMeshVertexPathCount = 6;
 
-    // The particle paths: one Forward cell each, only on a template declaring the path's Usage, drawn by the
-    // particle pass alone (no G-buffer, glass or shadow-depth cell).
+    // The particle paths: cells only on a template declaring the path's Usage, drawn by ParticleRenderer alone - one
+    // Forward cell each (the particle pass), and ParticleMesh's opaque G-buffer and shadow-depth cells; no glass cell.
     [[nodiscard]] constexpr bool IsParticlePath( const MeshVertexPath path )
     {
         return path == MeshVertexPath::ParticleSprite || path == MeshVertexPath::ParticleMesh ||
