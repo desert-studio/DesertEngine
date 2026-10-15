@@ -2021,8 +2021,7 @@ namespace Desert::Editor
                 const ImVec2 viewportMax( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
                                           m_ViewportData.ViewportPos.y + m_ViewportData.Size.y );
                 DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
-                DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
-                                            renderer->GetLandscapeRayTracingFrame(), viewportMin, viewportMax );
+                DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(), viewportMin, viewportMax );
             }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -41,6 +42,8 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kTlasInstancesName      = "RayTracingScene.Instances";
     inline constexpr std::string_view kTlasScratchName        = "RayTracingScene.Scratch";
     inline constexpr std::string_view kTlasStorageName        = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kPrimitiveInstancesName = "RayTracingScene.PrimitiveInstances";
+    inline constexpr uint64_t         kPrimitiveInstancesRowBytes = sizeof( uint32_t ) * 2u; // uint2 per row
 
     // This frame's TLAS as the graph being built sees it. Refs are valid only for that graph.
     struct RayTracingSceneFrame
@@ -48,6 +51,10 @@ namespace Desert::Graphic::RayTracing
         bool           Built = false; // false: the frame traces no ray; the refs are invalid
         RDG::BufferRef Tlas;
         RDG::BufferRef Instances;
+        // RayTracingInstanceList::Ranges on the GPU: uint2 {FirstInstance, InstanceCount} per GPU-scene row,
+        // indexed by an instance's custom index. A reader declares it StorageRead; uploaded with the TLAS, and the
+        // upload is culled on a frame nobody reads it.
+        RDG::BufferRef PrimitiveInstances;
         uint32_t       InstanceCount = 0;
     };
 
@@ -75,6 +82,22 @@ namespace Desert::Graphic::RayTracing
         return bytes;
     }
 
+    // The rows of RayTracingScene.PrimitiveInstances: {FirstInstance, InstanceCount} per GPU-scene row, at least one
+    // row (a graph buffer cannot be empty).
+    [[nodiscard]] inline std::vector<std::byte>
+    EncodePrimitiveInstanceRows( std::span<const RayTracingPrimitiveInstances> ranges )
+    {
+        const std::size_t      rows = ranges.empty() ? 1u : ranges.size();
+        std::vector<std::byte> bytes( rows * kPrimitiveInstancesRowBytes );
+        for ( std::size_t i = 0; i < ranges.size(); ++i )
+        {
+            std::byte* const row = bytes.data() + i * kPrimitiveInstancesRowBytes;
+            std::memcpy( row, &ranges[i].FirstInstance, sizeof( uint32_t ) );
+            std::memcpy( row + sizeof( uint32_t ), &ranges[i].InstanceCount, sizeof( uint32_t ) );
+        }
+        return bytes;
+    }
+
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
     // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
     // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
@@ -95,6 +118,9 @@ namespace Desert::Graphic::RayTracing
         const std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
         frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ rows.size() }, kTlasInstancesName );
         graph.QueueBufferUpload( frame.Instances, rows );
+        const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );
+        frame.PrimitiveInstances = graph.CreateBuffer( RDG::BufferDesc{ ranges.size() }, kPrimitiveInstancesName );
+        graph.QueueBufferUpload( frame.PrimitiveInstances, ranges );
         const RDG::BufferRef scratch =
              graph.CreateBuffer( RDG::BufferDesc{ sizes.GetValue().ScratchBytes }, kTlasScratchName );
         frame.Tlas = graph.RegisterExternal( target.GetStorage(), kTlasStorageName );
@@ -146,7 +172,19 @@ namespace Desert::Graphic::RayTracing
         uint64_t SkinCachePositionsBytes = 0; // the scene's skin-cache positions buffers
         uint64_t TlasBytes               = 0; // this view's TLAS storage
         uint64_t TlasInstanceBytes       = 0; // this frame's instance rows
+        uint64_t PrimitiveInstanceBytes  = 0; // this frame's RayTracingScene.PrimitiveInstances rows
+        uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
+        // The landscape tiles (RayTracingExternalPrimitives): built / refit this frame, their vertex + index
+        // buffers and their BLAS storage (also counted in TracedBlasBytes, as the variants are).
+        uint32_t LandscapeBuilt          = 0;
+        uint32_t LandscapeRefit          = 0;
+        uint64_t LandscapeVertexBytes    = 0;
+        uint64_t LandscapeBlasBytes      = 0;
     };
+
+    // The view-memory lines of the RT scene (SceneRenderer logs them under [ViewMemory] when the TLAS storage is
+    // (re)allocated): the same numbers the viewport overlay draws, from the same stats.
+    [[nodiscard]] std::string FormatRayTracingSceneMemory( const RayTracingSceneStats& stats );
 
     // Primitives a renderer outside the mesh queues produced for this view's TLAS (LandscapeRayTracing): the
     // primitives, the dynamic-geometry builds they need this frame, and the storage of their BLASes built in an
@@ -156,6 +194,11 @@ namespace Desert::Graphic::RayTracing
         std::span<const RayTracingPrimitive>            Primitives;
         std::span<const RayTracingDynamicGeometryBuild> Builds;
         std::span<const RDG::BufferRef>                 Resident;
+        // The producer's own counts and storage this frame (RayTracingSceneStats::Landscape*).
+        uint32_t Built       = 0; // BLASes built from scratch
+        uint32_t Refit       = 0; // BLASes refit
+        uint64_t VertexBytes = 0; // vertex + index buffers the builds read
+        uint64_t BlasBytes   = 0; // BLAS storage of every primitive
     };
 
     class RayTracingSceneRenderer

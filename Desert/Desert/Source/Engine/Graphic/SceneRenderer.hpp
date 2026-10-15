@@ -343,13 +343,6 @@ namespace Desert::Graphic
         {
             return m_RenderMethods;
         }
-        // This frame's landscape in the view's TLAS (tiles built / refit, bytes): the ray-tracing stats overlay's
-        // landscape line. Its instance count is the TLAS list's InstancesByKind[Landscape].
-        [[nodiscard]] const RayTracing::LandscapeRayTracingFrame& GetLandscapeRayTracingFrame() const
-        {
-            return m_LandscapeRayTracing.GetFrame();
-        }
-
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.
@@ -884,6 +877,10 @@ namespace Desert::Graphic
         RayTracing::RayTracingSceneRenderer m_RayTracingScene;
         // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
         RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
+#if DESERT_DEV_INSTRUMENTS
+        // The TLAS storage size the RT scene's [ViewMemory] lines were last logged at (logged again when it steps).
+        uint64_t m_LoggedRayTracingTlasBytes = 0;
+#endif
         // BuildObjectMotions' landscape tile records, kept across frames (no per-frame allocation).
         std::vector<MotionRecord> m_ScratchTileMotions;
 

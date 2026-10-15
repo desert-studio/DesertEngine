@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -82,6 +83,16 @@ namespace Desert::Graphic::RayTracing
         uint64_t    HiddenSubmeshes = 0;
     };
 
+    // THE TLAS INSTANCES OF ONE GPU-SCENE ROW (UE: a primitive's ray-tracing instance range). Every row the frame
+    // traces has one contiguous range of TLAS instances; a row that traces nothing has InstanceCount 0. A consumer
+    // that needs "which instance of the row" reads rayQueryGetIntersectionInstanceIdEXT - FirstInstance (the GPU
+    // copy is RayTracingSceneFrame::PrimitiveInstances, indexed by the custom index).
+    struct RayTracingPrimitiveInstances
+    {
+        uint32_t FirstInstance = 0;
+        uint32_t InstanceCount = 0;
+    };
+
     struct RayTracingInstance
     {
         const void*           Geometry = nullptr;
@@ -131,7 +142,9 @@ namespace Desert::Graphic::RayTracing
 
     struct RayTracingInstanceList
     {
-        std::vector<RayTracingInstance>                                         Instances;
+        std::vector<RayTracingInstance> Instances;
+        // Indexed by GPU-scene row, up to the highest row the TLAS holds: the instances of each row.
+        std::vector<RayTracingPrimitiveInstances>                               Ranges;
         std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{};
         std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
 
@@ -199,14 +212,20 @@ namespace Desert::Graphic::RayTracing
         return requests;
     }
 
+    // The TLAS instances of @p primitives, in primitive order, the instances of one GPU-scene row kept contiguous
+    // (a row's later primitive joins its first one's range), so RayTracingInstanceList::Ranges names every row's
+    // instances as one range. Primitives that cannot be traced are counted by reason, never silently dropped.
     [[nodiscard]] inline RayTracingInstanceList
     BuildRayTracingInstances( std::span<const RayTracingPrimitive> primitives )
     {
         RayTracingInstanceList list;
-        list.Instances.reserve( primitives.size() );
         const auto skip = [&list]( RayTracingSkip reason ) { ++list.Skipped[static_cast<std::size_t>( reason )]; };
-        for ( const RayTracingPrimitive& primitive : primitives )
+        // Pass 1: which primitives enter, and how many instances each row holds.
+        std::vector<uint32_t> traced;
+        traced.reserve( primitives.size() );
+        for ( std::size_t i = 0; i < primitives.size(); ++i )
         {
+            const RayTracingPrimitive& primitive = primitives[i];
             if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::Skinned );
@@ -222,10 +241,35 @@ namespace Desert::Graphic::RayTracing
                 skip( RayTracingSkip::RowOutOfRange );
                 continue;
             }
-            RayTracingInstance& instance = list.Instances.emplace_back();
-            instance.Geometry            = primitive.Geometry;
-            instance.Transform           = ToRowMajor3x4( primitive.World );
-            instance.CustomIndex         = primitive.GpuSceneRow;
+            traced.push_back( static_cast<uint32_t>( i ) );
+            if ( primitive.GpuSceneRow >= list.Ranges.size() )
+                list.Ranges.resize( static_cast<std::size_t>( primitive.GpuSceneRow ) + 1u );
+            ++list.Ranges[primitive.GpuSceneRow].InstanceCount;
+        }
+        // Pass 2: each row's range starts where its first primitive comes in primitive order.
+        std::vector<uint32_t> placed( list.Ranges.size(), 0u );
+        uint32_t              next = 0;
+        for ( const uint32_t index : traced )
+        {
+            const uint32_t row = primitives[index].GpuSceneRow;
+            if ( placed[row] == 0u )
+            {
+                list.Ranges[row].FirstInstance = next;
+                next += list.Ranges[row].InstanceCount;
+                placed[row] = 1u;
+            }
+        }
+        // Pass 3: every instance in its row's range.
+        std::fill( placed.begin(), placed.end(), 0u );
+        list.Instances.resize( traced.size() );
+        for ( const uint32_t index : traced )
+        {
+            const RayTracingPrimitive& primitive = primitives[index];
+            const uint32_t             row       = primitive.GpuSceneRow;
+            RayTracingInstance&        instance  = list.Instances[list.Ranges[row].FirstInstance + placed[row]++];
+            instance.Geometry                    = primitive.Geometry;
+            instance.Transform                   = ToRowMajor3x4( primitive.World );
+            instance.CustomIndex                 = row;
             instance.Mask =
                  static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];

@@ -8,6 +8,8 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <unordered_set>
 
 namespace Desert::Graphic::RayTracing
@@ -23,6 +25,29 @@ namespace Desert::Graphic::RayTracing
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );
         };
+    }
+
+    std::string FormatRayTracingSceneMemory( const RayTracingSceneStats& stats )
+    {
+        const auto mib = []( const uint64_t bytes ) { return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 ); };
+        std::string text;
+        auto        out = std::back_inserter( text );
+        std::format_to( out, "ray tracing scene\n" );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "TLAS", mib( stats.TlasBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "TLAS instance rows", mib( stats.TlasInstanceBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "primitive instance ranges",
+                        mib( stats.PrimitiveInstanceBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "traced BLAS", mib( stats.TracedBlasBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "variant BLAS (scene)", mib( stats.VariantBlasBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "procedural BLAS (scene)",
+                        mib( stats.ProceduralBlasBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB  {} entries\n", "skin cache BLAS (scene)",
+                        mib( stats.SkinCacheBlasBytes ), stats.SkinCacheEntries );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "skin cache positions",
+                        mib( stats.SkinCachePositionsBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "landscape vertices", mib( stats.LandscapeVertexBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "landscape BLAS", mib( stats.LandscapeBlasBytes ) );
+        return text;
     }
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses( RDG::Builder& graph, bool required,
@@ -106,6 +131,14 @@ namespace Desert::Graphic::RayTracing
         m_Stats.TlasBytes                          = m_Target->GetStorage().Desc.Bytes;
         m_Stats.TlasInstanceBytes =
              static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Instances.size(), 1u ) ) * kInstanceRowBytes;
+        m_Stats.PrimitiveInstanceBytes =
+             static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Ranges.size(), 1u ) ) *
+             kPrimitiveInstancesRowBytes;
+        m_Stats.SkinCacheEntries     = static_cast<uint32_t>( cache.GetSkinCache().GetEntryCount() );
+        m_Stats.LandscapeBuilt       = external.Built;
+        m_Stats.LandscapeRefit       = external.Refit;
+        m_Stats.LandscapeVertexBytes = external.VertexBytes;
+        m_Stats.LandscapeBlasBytes   = external.BlasBytes;
         return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::RayTracing

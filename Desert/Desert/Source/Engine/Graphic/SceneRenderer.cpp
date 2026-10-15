@@ -1236,9 +1236,13 @@ namespace Desert::Graphic
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             RayTracing::RayTracingExternalPrimitives    external;
             if ( landscape.IsSuccess() )
-                external = { .Primitives = landscapeFrame.Primitives,
-                             .Builds     = landscapeFrame.Builds,
-                             .Resident   = landscapeFrame.Resident };
+                external = { .Primitives  = landscapeFrame.Primitives,
+                             .Builds      = landscapeFrame.Builds,
+                             .Resident    = landscapeFrame.Resident,
+                             .Built       = landscapeFrame.Built,
+                             .Refit       = landscapeFrame.Refit,
+                             .VertexBytes = landscapeFrame.VertexBytes,
+                             .BlasBytes   = landscapeFrame.BlasBytes };
 
             Common::BoolResultStr tlas = BOOLSUCCESS;
             if ( m_FrameRayTracingCache == nullptr )
@@ -1256,6 +1260,17 @@ namespace Desert::Graphic
                 LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
                            "nothing this frame: {}",
                            m_ViewResources.GetName(), tlas.GetError() );
+#if DESERT_DEV_INSTRUMENTS
+            // The RT scene's view-memory lines, beside the targets' census, when its TLAS storage is (re)allocated:
+            // the moment the view's RT memory steps, not every frame.
+            const RayTracing::RayTracingSceneStats& rtStats = m_RayTracingScene.GetStats();
+            if ( rtStats.Built && rtStats.TlasBytes != m_LoggedRayTracingTlasBytes )
+            {
+                m_LoggedRayTracingTlasBytes = rtStats.TlasBytes;
+                LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
+                          RayTracing::FormatRayTracingSceneMemory( rtStats ) );
+            }
+#endif
         }
 
         AddFrameParticlesSimulate( graph );
