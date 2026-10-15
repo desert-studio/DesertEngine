@@ -98,9 +98,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      * program fits. A stage that declares the bindless table also counts the table's kBindlessSamplerStateCount
      * samplers against the update-after-bind sampler limit. Device-free, like BuildLayoutBindings.
      */
-    [[nodiscard]] std::vector<std::string> PerStageLimitRefusals( const ShaderResource::ReflectionData& data,
-                                                                  const PerStageDescriptorLimits&       limits,
-                                                                  const DescriptorIndexingLimits& updateAfterBind );
+    [[nodiscard]] std::vector<std::string>
+    PerStageLimitRefusals( const ShaderResource::ReflectionData& data, const PerStageDescriptorLimits& limits,
+                           const DescriptorIndexingLimits& updateAfterBind );
 
     /** Total descriptors across @p bindings — the number the validation layer compares. */
     uint32_t CountDescriptors( const std::vector<VkDescriptorSetLayoutBinding>& bindings );

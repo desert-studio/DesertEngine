@@ -134,13 +134,14 @@ namespace Desert::Graphic
                 if ( ( !image.IsValid() || texture->SamplesEncoded() ) && !m_ReportedTextureSlot )
                 {
                     m_ReportedTextureSlot = true;
-                    LOG_ERROR( "[Materials] a material of shader '{}': row texture '{}' {}; it draws the "
-                               "bindless table's missing texture (reported once per material)",
-                               m_ShaderName, p.Name,
-                               texture->SamplesEncoded()
-                                    ? "asks for the image's stored encoding, which the bindless table does not hold"
-                                    : "has no bindless slot: only uploaded, single-sample, non-attachment, "
-                                      "non-storage images are in the table" );
+                    LOG_ERROR(
+                         "[Materials] a material of shader '{}': row texture '{}' {}; it draws the "
+                         "bindless table's missing texture (reported once per material)",
+                         m_ShaderName, p.Name,
+                         texture->SamplesEncoded()
+                              ? "asks for the image's stored encoding, which the bindless table does not hold"
+                              : "has no bindless slot: only uploaded, single-sample, non-attachment, "
+                                "non-storage images are in the table" );
                 }
                 m_Row[slot] = glm::vec4( glm::uintBitsToFloat( image.Index ),
                                          glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );

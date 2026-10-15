@@ -138,7 +138,8 @@ namespace Desert::Graphic
             if ( !Core::Formats::IsRowTexture( parameterSchema.LayoutBindings, param ) ||
                  m_Texture2DPropertiesLookup.contains( param.Name ) )
                 continue;
-            m_Texture2DPropertiesStorage.push_back( std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
+            m_Texture2DPropertiesStorage.push_back(
+                 std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
             m_Texture2DPropertiesLookup[param.Name] = m_Texture2DPropertiesStorage.size() - 1;
         }
     }

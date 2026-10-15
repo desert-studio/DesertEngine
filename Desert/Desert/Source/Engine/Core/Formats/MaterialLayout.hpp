@@ -205,7 +205,8 @@ namespace Desert::Core::Formats
                 if ( !IsRowTexture( bindings, p ) )
                     continue;
                 MaterialLayoutParam texture{ p.Name, ShaderValueType::Struct,
-                                             kMaterialParamSlotSize * static_cast<uint32_t>( layout.Params.size() ),
+                                             kMaterialParamSlotSize *
+                                                  static_cast<uint32_t>( layout.Params.size() ),
                                              kMaterialParamSlotSize, glm::vec4( 0.0f ) };
                 texture.IsTexture = true;
                 layout.Params.push_back( texture );
@@ -377,10 +378,11 @@ namespace Desert::Core::Formats
             for ( const auto& s : stage.Samplers )
                 if ( const auto* p = layout.FindParam( s.Name ); p != nullptr && p->IsTexture )
                     fail( stage.Stage,
-                          std::format( "texture '{}' is a row texture read through the bindless table (u_Material.{}), "
-                                       "and the stage also declares a sampler of that name at binding {}; remove "
-                                       "the sampler declaration",
-                                       s.Name, s.Name, s.Offset ) );
+                          std::format(
+                               "texture '{}' is a row texture read through the bindless table (u_Material.{}), "
+                               "and the stage also declares a sampler of that name at binding {}; remove "
+                               "the sampler declaration",
+                               s.Name, s.Name, s.Offset ) );
         }
         return errors;
     }

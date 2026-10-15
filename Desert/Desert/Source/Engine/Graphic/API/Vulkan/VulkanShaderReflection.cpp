@@ -764,13 +764,13 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             const uint32_t resources = tallies.SampledImages.Count + tallies.UniformBuffers.Count +
                                        tallies.StorageBuffers.Count + tallies.StorageImages.Count + attachments;
             if ( resources > limits.MaxResources )
-                refusals.push_back( std::format( "[{}] {} resources (device limit {}, maxPerStageResources): {} "
-                                                 "sampled image(s), {} uniform buffer(s), {} storage buffer(s), {} "
-                                                 "storage image(s), {} colour attachment(s)",
-                                                 stageName, resources, limits.MaxResources,
-                                                 tallies.SampledImages.Count, tallies.UniformBuffers.Count,
-                                                 tallies.StorageBuffers.Count, tallies.StorageImages.Count,
-                                                 attachments ) );
+                refusals.push_back(
+                     std::format( "[{}] {} resources (device limit {}, maxPerStageResources): {} "
+                                  "sampled image(s), {} uniform buffer(s), {} storage buffer(s), {} "
+                                  "storage image(s), {} colour attachment(s)",
+                                  stageName, resources, limits.MaxResources, tallies.SampledImages.Count,
+                                  tallies.UniformBuffers.Count, tallies.StorageBuffers.Count,
+                                  tallies.StorageImages.Count, attachments ) );
 
             // The update-after-bind limit counts EVERY sampler the stage sees: its own and the table's.
             if ( InStage( data.BindlessStages, stage ) )

@@ -188,8 +188,8 @@ namespace Desert::Core::Preprocess
     // Headers the parser writes into a stage that the authored text never names. A key computed over the
     // AUTHORED text (the shader map's, see ShaderCacheKey.hpp) must hash these as well, or editing one would
     // leave every material program on its old binary.
-    inline constexpr std::array<std::string_view, 2> kParserInjectedIncludes = {
-         "Common/MaterialTransport.glslh", "Common/BindlessTextures.glslh" };
+    inline constexpr std::array<std::string_view, 2> kParserInjectedIncludes = { "Common/MaterialTransport.glslh",
+                                                                                 "Common/BindlessTextures.glslh" };
 
     class DShaderParser
     {

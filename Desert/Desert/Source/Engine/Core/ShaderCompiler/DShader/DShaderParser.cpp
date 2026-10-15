@@ -1031,8 +1031,8 @@ namespace Desert::Core::Preprocess
                 uint32_t slot = 0;
                 for ( const auto& p : layout.Params )
                 {
-                    out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) ) << " "
-                        << p.Name << ";\n";
+                    out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) )
+                        << " " << p.Name << ";\n";
                     // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is exactly one
                     // 16-byte slot whatever the value's own type is (see Core/Formats/MaterialParamRow.hpp).
                     if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )

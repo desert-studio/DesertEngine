@@ -201,16 +201,17 @@ namespace Desert::Graphic::API::Vulkan
         // Every stage is held to the device's per-stage limits here, by name, before any layout exists: past
         // them the pipeline layout is invalid (VUID-VkPipelineLayoutCreateInfo-descriptorType-03016 and kin) and
         // MoltenVK fails the pipeline with no word of which resource tipped it (16 samplers per stage there).
-        const DeviceCaps&              caps     = logical->GetPhysicalDevice()->GetDeviceCaps();
-        const std::vector<std::string> overrun = ShaderReflection::PerStageLimitRefusals(
-             m_ReflectionData, caps.PerStage, caps.DescriptorIndexing );
+        const DeviceCaps&              caps = logical->GetPhysicalDevice()->GetDeviceCaps();
+        const std::vector<std::string> overrun =
+             ShaderReflection::PerStageLimitRefusals( m_ReflectionData, caps.PerStage, caps.DescriptorIndexing );
         for ( const auto& message : overrun )
         {
             LOG_ERROR( "Shader '{}': {}", m_ShaderName, message );
         }
         if ( !overrun.empty() )
-            return Common::MakeFormattedError( "Shader '{}' exceeds {} per-stage descriptor limit(s) of '{}'; first: {}",
-                                               m_ShaderName, overrun.size(), caps.DeviceName, overrun.front() );
+            return Common::MakeFormattedError(
+                 "Shader '{}' exceeds {} per-stage descriptor limit(s) of '{}'; first: {}", m_ShaderName,
+                 overrun.size(), caps.DeviceName, overrun.front() );
         for ( const auto& [setIndex, descriptorSet] : m_ReflectionData.ShaderDescriptorSets )
         {
             // The binding list comes from the device-free reflection unit, so the shape a pipeline
