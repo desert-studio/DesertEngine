@@ -887,6 +887,10 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                            const ViewFrame& frame );
+        // The pending reflection capture's cube, written in this view's graph with its capture point measured by
+        // the view's diffuse estimator (ReflectionCaptureLighting): the world radiance cache when @p tracedGI and
+        // this frame's AddFrameTracedGI produced one, otherwise the sky's irradiance cube.
+        void AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures, bool tracedGI );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,

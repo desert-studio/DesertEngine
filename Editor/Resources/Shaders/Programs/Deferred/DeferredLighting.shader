@@ -437,14 +437,15 @@ Shader "DeferredLighting"
         	// for the rest: the traced GI's final gather (screen probes or the irradiance field), else the reflection
         	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
         	// split-sum Fresnel of both together).
-        	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
-        	if (giMode == 2)
-        	{
-        		// The traced final gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
-        		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
-        		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
-        		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
-        	}
+        	// GI mode 2: the traced final gather at this pixel (one texel each, the G-buffer's extent) is the estimator -
+        	// its diffuse irradiance and specular radiance replace both sky terms, so a closed room neither glows nor
+        	// mirrors the sky. The captures compose over its specular and are normalised by its diffuse (the radiance
+        	// cache measured their capture points: ReflectionCaptureRenderer AddCaptureUpdate).
+        	DesertAmbient sampled = giMode == 2
+        	                             ? DesertSampleAmbient(surface, texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb,
+        	                                                   texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb,
+        	                                                   indirect, ao)
+        	                             : DesertSampleAmbient(surface, indirect, ao);
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);

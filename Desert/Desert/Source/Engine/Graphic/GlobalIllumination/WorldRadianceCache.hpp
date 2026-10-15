@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 // THE WORLD RADIANCE CACHE, RUNNING (GI-RADIANCE-CACHE) — the update of RadianceCache.hpp's interface, ported from
 // UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Six compute passes a
@@ -75,6 +76,9 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef                 WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
         RDG::BufferRef                 WorldGridCells;
         RDG::BufferRef                 GIFrame; // this frame's GIFramePayload (GITracing.hpp), "GIFrameUB"
+        // World points read in the six axis directions besides the pixels (cm): the reflection captures' points,
+        // whose stored diffuse is measured from this cache (ReflectionCaptures/ReflectionCaptureRenderer.hpp).
+        std::vector<glm::vec3>         MarkPoints;
         glm::vec3                      CameraPosition{ 0.0f };
         glm::uvec2                     Extent{ 0u };
     };

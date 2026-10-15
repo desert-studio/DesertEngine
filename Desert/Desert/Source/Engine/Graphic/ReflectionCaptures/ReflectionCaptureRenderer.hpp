@@ -3,6 +3,7 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
@@ -15,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -49,9 +51,8 @@ namespace Desert::Graphic
 
     // THE CAPTURE CUBE'S FACE, for every capture of the scene: one cube array holds them all, and an array has one
     // face size. It is the Scalability parameter Reflections.CaptureSize (UE: r.ReflectionCaptureResolution, a
-    // project-wide power of two); the mips are its whole chain, the last one 1x1 (the capture's average
-    // brightness is read from it - ReflectionCaptureFilter.shader). A size that is not a power of two inside
-    // the parameter's range is refused by the renderer (logged, no captures), never rounded.
+    // project-wide power of two); the mips are its whole chain, the last one 1x1. A size that is not a power of
+    // two inside the parameter's range is refused by the renderer (logged, no captures), never rounded.
     [[nodiscard]] uint32_t                      ReflectionCaptureFaceSize();
     inline constexpr Core::Formats::ImageFormat kReflectionCaptureFormat = Core::Formats::ImageFormat::RGBA16F;
 
@@ -73,6 +74,29 @@ namespace Desert::Graphic
                             const std::vector<bool>&                   captured );
 
     /**
+     * @brief WHAT A CAPTURE'S STORED DIFFUSE IS MEASURED WITH: the view's own diffuse estimator, the one its lit
+     * pixels receive (REFL-CAPTURE-NORM).
+     *
+     * A capture's reflection is normalised (UE ComputeMixingWeight, Common/ReflectionEnvironment.glslh) by the
+     * ratio "diffuse at the pixel / diffuse at the capture point". UE takes the pixel side from the lightmap (or,
+     * with no static lighting, from the SKY LIGHT's irradiance) and the capture side from the captured cube's own
+     * mean, so a capture of a lamp-lit street at night is divided by the bright cube and multiplied by the dark
+     * sky: black. Here BOTH sides come from the same estimator - the active GI's - so the ratio carries only how
+     * the lighting varies between the two points, and where the estimator is right at the capture point the ratio
+     * is exactly 1. RadianceCache set: the world radiance cache (GIMethod ProbeVolume / SoftwareTraced) - the
+     * probes the pixels' own final gather reads; the capture points are marked into it (CapturePoints).
+     *   RadianceCache unset: the view's GI has no world-space diffuse (Off, ScreenSpace, a forward view); its
+     * pixels are lit by the sky's irradiance cube, and so is the capture point.
+     */
+    struct ReflectionCaptureLighting
+    {
+        std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
+        RDG::TextureRef                                       EnvIrradiance; // SceneViewInputs::EnvIrradiance
+        glm::vec4                                             SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f }; // SkyLookGPU
+        glm::vec4                                             SkyGain{ 1.0f };
+    };
+
+    /**
      * @brief THE REFLECTION CAPTURES OF ONE SCENE (UE: FReflectionEnvironmentSceneData + the capture update).
      *
      * Owned by the scene (Core::Scene), as UE's are by FScene: ONE set of captures, shared by every view of the
@@ -81,12 +105,22 @@ namespace Desert::Graphic
      * Every capture is rendered from its capture point into six 90-degree face views - complete SceneRenderers
      * of this engine, so the cube holds the lit scene, the sky and its clouds exactly as a viewport draws them -
      * resampled into a radiance cube, given its mip chain, GGX-prefiltered into the capture's layers of the
-     * scene's cube array (Common/ReflectionCaptureMip.glslh: the one roughness ramp), and its average brightness
-     * stored in alpha. The lighting pass reads them through SceneViewInputs (Common/ReflectionEnvironment.glslh).
+     * scene's cube array (Common/ReflectionCaptureMip.glslh: the one roughness ramp), and the diffuse at its
+     * capture point (ReflectionCaptureLighting) stored in alpha - the ONE home of the capture's brightness,
+     * written with the cube it describes. The lighting pass reads them through SceneViewInputs
+     * (Common/ReflectionEnvironment.glslh).
      *
-     * WHEN A CAPTURE IS RENDERED: when it is new, moved or edited, when the set of captures changes, when the
-     * face size changes, and when the scene's sky environment is re-baked (a moved sun relights every capture) -
-     * UE's "recapture on change", never every frame. One capture per frame while any is pending.
+     * WHEN A CAPTURE IS RENDERED - by itself, never by a "Build Reflection Captures" command (UE leaves a relit
+     * level's captures stale until someone presses it):
+     *   - the STRUCTURE changed (a capture new, moved or edited, the set of captures, the face size): every
+     * capture is rendered again and none is read until it has been;
+     *   - the LIGHTING changed (the sky bake - a moved sun, the time of day -, the sun's payload, a point or spot
+     *     light added, removed, hidden, moved or re-coloured): every capture is marked stale and KEEPS BEING READ
+     *     while it is rendered again, so a relight never blinks the reflections out.
+     * The budget: ONE capture's six face views per frame, taken round-robin from the one after the last, so under
+     * a lighting that never stops changing (a running day) every capture is refreshed in turn instead of the first
+     * one forever. A capture is settled when its face views held one sky for kCaptureSettleFrames frames, or after
+     * kCaptureFrameBudget frames whatever the sky does (a running day re-bakes it every few frames).
      *
      * A view whose profile does not read captures (previews, thumbnails, the face views themselves) is handed
      * an empty list and the scene's one-cube black array: the lighting shader declares the bindings.
@@ -109,10 +143,20 @@ namespace Desert::Graphic
                                  const ShaderProtocols::DirectionLight& dirLights, uint64_t environment );
 
         /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
-        /// (SceneViewInputs). The first view that reads captures after a face-view frame also records the passes
-        /// that turn the face views into the capture's cube; the others register the array as it is.
-        /// @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the black array.
+        /// (SceneViewInputs). @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the
+        /// black array.
         void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
+
+        /// In the same graph, once the view's diffuse estimator of this frame exists (deferred: after the traced
+        /// GI; forward: anywhere, the sky's cube is the estimator): the first view that reads captures after a
+        /// face-view frame turns the face views into the pending capture's cube and measures @p lighting at its
+        /// capture point. A view whose AddPasses published no capturing array records nothing.
+        void AddCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
+                               const ReflectionCaptureLighting& lighting );
+
+        /// Every capture point of the scene (world cm), for the radiance cache to keep probes around (its cells
+        /// otherwise exist only where the screen's pixels read them, and a capture hangs in the air).
+        [[nodiscard]] std::vector<glm::vec3> CapturePoints() const;
 
     private:
         struct FaceView;
@@ -132,8 +176,13 @@ namespace Desert::Graphic
         [[nodiscard]] std::pair<RDG::TextureRef, bool> AcquireArray( RDG::Builder& graph, FrameTextures& textures,
                                                                      SharedArray& array, uint32_t cubes,
                                                                      uint32_t faceSize, std::string_view name );
+        // @p diffuse: the capture point's measured diffuse (ReflectionCaptureDiffuse.shader's record), or invalid
+        // for a black cube (stored 0: "not measured", never normalised by).
         void AddCapturePasses( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array, uint32_t cube,
-                               uint32_t faceSize, bool black );
+                               uint32_t faceSize, RDG::BufferRef diffuse, bool black );
+        [[nodiscard]] RDG::BufferRef AddDiffusePass( RDG::Builder& graph, FrameTextures& textures,
+                                                     const glm::vec3&                 point,
+                                                     const ReflectionCaptureLighting& lighting );
 
         // The face size the captures are rendered at (Reflections.CaptureSize when they were last gathered).
         uint32_t m_FaceSize = 0;
@@ -142,13 +191,20 @@ namespace Desert::Graphic
         std::vector<ReflectionCaptureEntry> m_Captures;
         std::vector<bool>                   m_Captured; // written at least once: the lighting reads it
         std::vector<bool>                   m_Done;     // settled: not rendered again until something changes
-        uint64_t                            m_Signature = 0;
+        uint64_t                            m_Signature         = 0; // the structure (see the class comment)
+        uint64_t                            m_LightingSignature = 0; // the lighting the cubes were rendered under
+        uint32_t                            m_LastCaptured      = 0; // the round-robin's last capture
+
+        // The array AddPasses registered into the graph being built, for AddCaptureUpdate in the same graph
+        // (invalid: that view captures nothing).
+        RDG::TextureRef m_GraphArray;
 
         // The capture whose faces are being rendered, and how many consecutive frames its face views have had a
         // sky environment (the face views bake their own sky; the capture is written once they have it).
         static constexpr uint32_t kNoCapture               = 0xFFFFFFFFu;
         uint32_t                  m_Pending                = kNoCapture;
         uint32_t                  m_PendingSettled         = 0;
+        uint32_t                  m_PendingFrames          = 0; // frames its cube has been written this round
         uint64_t                  m_PendingEnvironment     = 0;
         bool                      m_FacesRenderedThisFrame = false;
 
@@ -166,9 +222,11 @@ namespace Desert::Graphic
         std::shared_ptr<ComputePipeline> m_Assemble;
         std::shared_ptr<ComputePipeline> m_Downsample;
         std::shared_ptr<ComputePipeline> m_Filter;
+        std::shared_ptr<ComputePipeline> m_Diffuse;
         bool                             m_PipelinesFailed = false;
         mutable ShaderBindingLayoutCache m_AssembleLayout;
         mutable ShaderBindingLayoutCache m_DownsampleLayout;
         mutable ShaderBindingLayoutCache m_FilterLayout;
+        mutable ShaderBindingLayoutCache m_DiffuseLayout;
     };
 } // namespace Desert::Graphic

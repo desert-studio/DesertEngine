@@ -1209,6 +1209,9 @@ namespace Desert::Graphic
             AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
+        // A forward view lights its pixels with the sky's cubes: its captures are measured with the same.
+        if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
+            AddFrameReflectionCaptureUpdate( graph, textures, false );
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
@@ -1245,6 +1248,9 @@ namespace Desert::Graphic
                       ? AddFrameScreenTrace( graph, textures, frame )
                       : FrameScreenTrace{};
             AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+            // The pending capture's cube, measured by this view's GI (the radiance cache this frame's update just
+            // wrote) or, without traced GI, by the sky's irradiance - before the composite that reads it.
+            AddFrameReflectionCaptureUpdate( graph, textures, RadianceCacheRuns() );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
             // reflection environment pass).

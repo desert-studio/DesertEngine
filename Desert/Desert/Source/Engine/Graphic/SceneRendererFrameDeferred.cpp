@@ -1,6 +1,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -337,6 +338,24 @@ namespace Desert::Graphic
                m_ViewProfile.GlobalIllumination;
     }
 
+    void SceneRenderer::AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                                         const bool tracedGI )
+    {
+        if ( !m_FrameReflectionCaptures )
+            return;
+        ReflectionCaptureLighting lighting;
+        if ( tracedGI )
+            lighting.RadianceCache = m_TracedFrameShared.RadianceCache;
+        lighting.EnvIrradiance = SceneViewInputsOf( textures.GraphRefs() ).EnvIrradiance;
+        if ( const auto& env = GetEnvironment(); env.has_value() )
+        {
+            const SkyLookGPU look = ToGPU( env->Look );
+            lighting.SkyYawCosSin = look.YawCosSin;
+            lighting.SkyGain      = look.Gain;
+        }
+        m_FrameReflectionCaptures->AddCaptureUpdate( graph, textures, lighting );
+    }
+
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
@@ -407,6 +426,9 @@ namespace Desert::Graphic
         inputs.WorldGridParams     = t.Lights.WorldGridParams;
         inputs.WorldGridCells      = t.Lights.WorldGridCells;
         inputs.CameraPosition      = frame.CameraPosition;
+        // The captures' points are readers of this cache too: their stored diffuse is measured from it.
+        if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
+            inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
         inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         inputs.GIFrame              = AddFrameGIRecord( graph, frame, lightDir, lightColor, inputs.Extent );

@@ -8,10 +8,14 @@ Shader "ReflectionCaptureFilter"
         // ComputeReflectionCaptureRoughnessFromMip) as the sky's prefiltered cube (PrefilterEnvMap.shader), so a
         // capture and the sky it blends into are read with one LOD rule.
         //
-        // ALPHA IS THE CAPTURE'S AVERAGE BRIGHTNESS (UE: FReflectionCaptureData::AverageBrightness, computed from
-        // the captured cube): the luminance of its mean radiance, read from the radiance cube's 1x1 mip. Stored in
-        // every texel of the capture, so the lighting pass reads it with the very sample it reads the radiance
-        // with and the normalisation (UE: ComputeMixingWeight) costs no extra fetch and no extra buffer.
+        // ALPHA IS THE CAPTURE'S STORED DIFFUSE (UE: FReflectionCaptureData::AverageBrightness): the diffuse at the
+        // capture point as the view's GI measured it in this frame (ReflectionCaptureDiffuse.shader) - NOT the
+        // cube's own mean, which no pixel's diffuse estimator can be compared with (a lamp-lit street at night: a
+        // bright cube over a black sky light). PER FACE: every texel of face f holds the irradiance luminance about
+        // that face's axis, so the cube's last mip (1x1 per face) is an ambient cube of the capture point and the
+        // lighting reads it about the PIXEL'S NORMAL (Common/ReflectionEnvironment.glslh) - a floor is compared with
+        // the capture point's upward irradiance, not with a mean over every direction (UE's single value, which
+        // brightens every upward face and darkens every downward one).
 
         const float PI = 3.141592;
         const float TwoPI = 2 * PI;
@@ -21,6 +25,10 @@ Shader "ReflectionCaptureFilter"
 
         Uniform(0) samplerCube u_Radiance; // every mip of the capture's radiance cube
         layout(binding = 1, rgba16f) writeonly uniform imageCubeArray u_Output; // this mip, every layer
+        ReadBuffer(2) ReflectionCaptureDiffuseUB
+        {
+        	vec4 u_Diffuse[6]; // per face (+X -X +Y -Y +Z -Z): x = the irradiance luminance about its axis, 0 = not measured
+        };
 
         PushConstant PushConstants
         {
@@ -85,22 +93,6 @@ Shader "ReflectionCaptureFilter"
         	S = normalize(cross(N, T));
         }
 
-        float Luminance(vec3 c)
-        {
-        	return dot(c, vec3(0.2126, 0.7152, 0.0722));
-        }
-
-        // The mean radiance of the capture: the six texels of the radiance cube's 1x1 mip, each the mean of its
-        // face (equal solid angles to within the cube's own distortion, which the box chain already ignores).
-        float AverageBrightness()
-        {
-        	const float top = float(textureQueryLevels(u_Radiance) - 1);
-        	vec3 sum = textureLod(u_Radiance, vec3( 1, 0, 0), top).rgb + textureLod(u_Radiance, vec3(-1, 0, 0), top).rgb +
-        	           textureLod(u_Radiance, vec3( 0, 1, 0), top).rgb + textureLod(u_Radiance, vec3( 0,-1, 0), top).rgb +
-        	           textureLod(u_Radiance, vec3( 0, 0, 1), top).rgb + textureLod(u_Radiance, vec3( 0, 0,-1), top).rgb;
-        	return Luminance(sum / 6.0);
-        }
-
         LocalSize(8, 8, 1);
         void main()
         {
@@ -109,7 +101,7 @@ Shader "ReflectionCaptureFilter"
         		return;
 
         	const ivec3 texel = ivec3(gl_GlobalInvocationID.xy, int(u_FirstLayer + gl_GlobalInvocationID.z));
-        	const float brightness = AverageBrightness();
+        	const float brightness = u_Diffuse[gl_GlobalInvocationID.z].x;
         	const vec3  N = CubeTexelDirection(gl_GlobalInvocationID, vec2(size));
         	const float roughness = ComputeReflectionCaptureRoughnessFromMip(float(u_Mip), float(u_MaxMip));
 

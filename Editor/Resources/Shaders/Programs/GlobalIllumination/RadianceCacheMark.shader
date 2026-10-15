@@ -4,6 +4,8 @@
 // in each clipmap its dither may pick) is stamped with this frame. Until screen probes exist (GI-FINAL-GATHER) the
 // readers are the G-buffer's pixels themselves; one pixel of each 2x2 block per frame, the four in turn, so every
 // pixel marks within four frames — inside the eight a probe stays allocated unread.
+// The other readers are the REFLECTION CAPTURES' points (ReflectionCaptureDiffuse.shader reads the cache there in
+// the six axis directions): one thread stamps them every frame, since a capture hangs in the air where no pixel reads.
 Shader "RadianceCacheMark"
 {
     Compute
@@ -20,6 +22,11 @@ Shader "RadianceCacheMark"
         };
         Uniform(7) sampler2D u_GBufferDepth;
         Uniform(8) sampler2D u_GBufferB;
+        ReadBuffer(9) RadianceCacheMarkPointsUB
+        {
+            uvec4 u_MarkPointHeader; // x = the number of points
+            vec4  u_MarkPoints[];    // xyz = world cm
+        };
 
         void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
         {
@@ -37,8 +44,28 @@ Shader "RadianceCacheMark"
             }
         }
 
+        // A point read in the six axis directions with the bias along the normal (V = N), at both ends of the
+        // clipmap dither: every cell its read can touch.
+        void MarkPoint( vec3 p )
+        {
+            const vec3 axes[6] = vec3[6]( vec3( 1, 0, 0 ), vec3( -1, 0, 0 ), vec3( 0, 1, 0 ), vec3( 0, -1, 0 ),
+                                          vec3( 0, 0, 1 ), vec3( 0, 0, -1 ) );
+            const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
+            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
+            for ( int i = 0; i < 6; ++i )
+            {
+                if ( fine < radianceCache.shape.x )
+                    MarkClipmap( p, axes[i], axes[i], fine );
+                if ( coarse != fine && coarse < radianceCache.shape.x )
+                    MarkClipmap( p, axes[i], axes[i], coarse );
+            }
+        }
+
         void main()
         {
+            if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
+                for ( uint i = 0u; i < u_MarkPointHeader.x; ++i )
+                    MarkPoint( u_MarkPoints[i].xyz );
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( u_FrameIndex & 1u, ( u_FrameIndex >> 1 ) & 1u );
             if ( pixel.x >= u_Width || pixel.y >= u_Height )
                 return;

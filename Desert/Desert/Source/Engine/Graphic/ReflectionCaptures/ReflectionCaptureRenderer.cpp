@@ -44,6 +44,11 @@ namespace Desert::Graphic
         // own sky (asynchronously, SkyboxRenderer) and their clouds reproject a history: the first frames of a
         // freshly aimed face view are the unlit, cloudless picture, and a capture frozen there would keep it.
         constexpr uint32_t kCaptureSettleFrames = 8u;
+        // ...and is settled after this many frames whatever its sky does: under a running day the face views' sky
+        // is re-baked every few frames and never holds still for kCaptureSettleFrames, and a capture that waited
+        // for it would keep the one-capture-per-frame budget forever (every other capture stale). Three settle
+        // windows: a still sky settles long before it.
+        constexpr uint32_t kCaptureFrameBudget = 3u * kCaptureSettleFrames;
 
         struct FacesBlock
         {
@@ -58,6 +63,17 @@ namespace Desert::Graphic
             uint32_t FirstLayer = 0u;
         };
 
+        // ReflectionCaptureDiffuse.shader's push block.
+        struct DiffusePush
+        {
+            glm::vec4 CapturePoint{ 0.0f }; // xyz = world cm, w = 1 the radiance cache, 0 the sky's irradiance
+            glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkyGain{ 1.0f };
+        };
+        // Its record (std430, one vec4 per cube face +X -X +Y -Y +Z -Z): x = the irradiance luminance about the
+        // face's axis - the capture point's ambient cube -, 0 on every face when the estimator did not answer.
+        constexpr size_t kDiffuseRecordBytes = 6u * sizeof( glm::vec4 );
+
         [[nodiscard]] uint32_t GroupCount( uint32_t texels )
         {
             return ( std::max( texels, 1u ) + kGroupSize - 1u ) / kGroupSize;
@@ -71,6 +87,61 @@ namespace Desert::Graphic
                 hash ^= p[i];
                 hash *= 1099511628211ull;
             }
+        }
+
+        // THE LIGHTING A SCENE'S CAPTURES SEE, apart from the captures themselves: the sky bake (@p environment:
+        // the sun, the time of day, the sky's look), the sun's payload, and every visible point and spot light's
+        // colour, intensity, reach, cone and transform. Hashed field by field, not as raw component bytes: the
+        // components carry editor-only fields (ShowRadius, ShowCone) and padding that would relight on nothing.
+        [[nodiscard]] uint64_t LightingSignature( const entt::registry&                  registry,
+                                                  const ShaderProtocols::DirectionLight& dirLights,
+                                                  uint64_t                               environment )
+        {
+            uint64_t hash = 14695981039346656037ull;
+            HashBytes( hash, &environment, sizeof( environment ) );
+            for ( const ShaderProtocols::DirectionLightPayload& sun : dirLights.DirectionLights )
+                HashBytes( hash, &sun, sizeof( sun ) );
+            const auto hashTransform = [&hash]( const ECS::TransformComponent& transform )
+            {
+                HashBytes( hash, &transform.Translation, sizeof( transform.Translation ) );
+                HashBytes( hash, &transform.Rotation, sizeof( transform.Rotation ) );
+            };
+            for ( const auto [entity, light, transform] :
+                  registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>().each() )
+            {
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+                const ECS::PointLightData& d  = light.Data;
+                const auto                 id = entt::to_integral( entity );
+                HashBytes( hash, &id, sizeof( id ) );
+                HashBytes( hash, &d.Color, sizeof( d.Color ) );
+                HashBytes( hash, &d.Intensity, sizeof( d.Intensity ) );
+                HashBytes( hash, &d.IntensityUnits, sizeof( d.IntensityUnits ) );
+                HashBytes( hash, &d.Radius, sizeof( d.Radius ) );
+                HashBytes( hash, &d.MinRadius, sizeof( d.MinRadius ) );
+                HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
+                HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
+                hashTransform( transform );
+            }
+            for ( const auto [entity, light, transform] :
+                  registry.view<const ECS::SpotLightComponent, const ECS::TransformComponent>().each() )
+            {
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+                const ECS::SpotLightData& d  = light.Data;
+                const auto                id = entt::to_integral( entity );
+                HashBytes( hash, &id, sizeof( id ) );
+                HashBytes( hash, &d.Color, sizeof( d.Color ) );
+                HashBytes( hash, &d.Intensity, sizeof( d.Intensity ) );
+                HashBytes( hash, &d.IntensityUnits, sizeof( d.IntensityUnits ) );
+                HashBytes( hash, &d.Range, sizeof( d.Range ) );
+                HashBytes( hash, &d.InnerConeAngle, sizeof( d.InnerConeAngle ) );
+                HashBytes( hash, &d.OuterConeAngle, sizeof( d.OuterConeAngle ) );
+                HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
+                HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
+                hashTransform( transform );
+            }
+            return hash;
         }
 
         [[nodiscard]] std::shared_ptr<ComputePipeline> MakeCompute( std::string_view name )
@@ -183,14 +254,15 @@ namespace Desert::Graphic
 
     bool ReflectionCaptureRenderer::EnsurePipelines()
     {
-        if ( m_Assemble && m_Downsample && m_Filter )
+        if ( m_Assemble && m_Downsample && m_Filter && m_Diffuse )
             return true;
         if ( m_PipelinesFailed )
             return false;
         m_Assemble        = MakeCompute( "ReflectionCaptureAssemble" );
         m_Downsample      = MakeCompute( "ReflectionCaptureDownsample" );
         m_Filter          = MakeCompute( "ReflectionCaptureFilter" );
-        m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter );
+        m_Diffuse         = MakeCompute( "ReflectionCaptureDiffuse" );
+        m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter && m_Diffuse );
         return !m_PipelinesFailed;
     }
 
@@ -216,8 +288,9 @@ namespace Desert::Graphic
             m_Captures.clear();
             m_Captured.clear();
             m_Done.clear();
-            m_Signature = 0;
-            m_Pending   = kNoCapture;
+            m_Signature         = 0;
+            m_LightingSignature = 0;
+            m_Pending           = kNoCapture;
             return;
         }
         if ( faceSize != m_FaceSize )
@@ -231,7 +304,6 @@ namespace Desert::Graphic
 
         std::vector<ReflectionCaptureEntry> captures  = GatherReflectionCaptures( scene.GetRegistry() );
         uint64_t                            signature = 14695981039346656037ull;
-        HashBytes( signature, &environment, sizeof( environment ) );
         HashBytes( signature, &faceSize, sizeof( faceSize ) );
         for ( const ReflectionCaptureEntry& capture : captures )
         {
@@ -242,17 +314,40 @@ namespace Desert::Graphic
         if ( signature != m_Signature )
         {
             // UE recaptures every capture when any of them changes: a moved capture changes what its neighbours
-            // see too, and a re-baked sky changes all of them.
-            m_Captures  = std::move( captures );
-            m_Signature = signature;
+            // see too. The cube indices may have moved with the set, so nothing is read until it is rendered
+            // again.
+            m_Captures          = std::move( captures );
+            m_Signature         = signature;
+            m_LightingSignature = LightingSignature( scene.GetRegistry(), dirLights, environment );
             m_Captured.assign( m_Captures.size(), false );
             m_Done.assign( m_Captures.size(), false );
             m_Pending = kNoCapture;
+            // The round starts at capture 0: the one after the "last", which is the final index.
+            m_LastCaptured = m_Captures.empty() ? 0u : static_cast<uint32_t>( m_Captures.size() - 1u );
+        }
+        else if ( const uint64_t lighting = LightingSignature( scene.GetRegistry(), dirLights, environment );
+                  lighting != m_LightingSignature )
+        {
+            // RELIT: every cube is stale but still the best answer there is - it stays readable while the round
+            // renders it again. The capture in flight restarts its settle window under the new lighting.
+            m_LightingSignature = lighting;
+            m_Done.assign( m_Captures.size(), false );
+            m_PendingSettled = 0;
+            m_PendingFrames  = 0;
         }
         if ( m_Pending == kNoCapture )
         {
-            const auto next = std::find( m_Done.begin(), m_Done.end(), false );
-            if ( next == m_Done.end() )
+            // Round-robin from the one after the last capture rendered: a lighting that changes every frame still
+            // refreshes every capture in turn.
+            const size_t count = m_Done.size();
+            size_t       next  = count;
+            for ( size_t step = 1; step <= count && next == count; ++step )
+            {
+                const size_t candidate = ( static_cast<size_t>( m_LastCaptured ) + step ) % count;
+                if ( !m_Done[candidate] )
+                    next = candidate;
+            }
+            if ( next == count )
             {
                 // EVERY CAPTURE IS SETTLED: the six face views are released. Each is a complete SceneRenderer -
                 // G-buffer, its own sky bake, cascades, the local-light shadow atlas - and holding them between
@@ -266,8 +361,9 @@ namespace Desert::Graphic
                         m_RetiringFaces.Park( std::move( face ), frames.GetAbsoluteFrameCount() );
                 return;
             }
-            m_Pending            = static_cast<uint32_t>( next - m_Done.begin() );
+            m_Pending            = static_cast<uint32_t>( next );
             m_PendingSettled     = 0;
+            m_PendingFrames      = 0;
             m_PendingEnvironment = 0;
         }
 
@@ -317,8 +413,15 @@ namespace Desert::Graphic
 
     void ReflectionCaptureRenderer::AddCapturePasses( RDG::Builder& graph, FrameTextures& textures,
                                                       RDG::TextureRef array, uint32_t cube, uint32_t faceSize,
-                                                      bool black )
+                                                      RDG::BufferRef diffuse, bool black )
     {
+        if ( !diffuse.IsValid() )
+        {
+            // A black cube: stored diffuse 0, "not measured" - and the list never names a cube nothing captured.
+            const std::array<std::byte, kDiffuseRecordBytes> zeros{};
+            diffuse = graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "ReflectionCapture.DiffuseNone" );
+            graph.QueueBufferUpload( diffuse, std::span<const std::byte>( zeros ) );
+        }
         const uint32_t mips = Core::Formats::MipChainLength( faceSize );
         // The six face views (or black, for the cubes of a fresh array nothing has captured yet).
         std::array<RDG::TextureRef, 6> faces;
@@ -402,6 +505,7 @@ namespace Desert::Graphic
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
                           .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                          .Storage( "ReflectionCaptureDiffuseUB", diffuse, RDG::Access::StorageRead )
                           .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
@@ -442,12 +546,13 @@ namespace Desert::Graphic
         array.Built    = true;
         // Every layer of a fresh array is written before anything reads it: black, until its capture lands.
         for ( uint32_t cube = 0; cube < cubes; ++cube )
-            AddCapturePasses( graph, textures, created, cube, faceSize, true );
+            AddCapturePasses( graph, textures, created, cube, faceSize, RDG::BufferRef{}, true );
         return { created, true };
     }
 
     void ReflectionCaptureRenderer::AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures )
     {
+        m_GraphArray = RDG::TextureRef{};
         if ( !EnsurePipelines() )
             return; // logged once by MakeCompute; the composite then reports its unbound inputs by name
 
@@ -477,19 +582,7 @@ namespace Desert::Graphic
         if ( created )
             std::fill( m_Captured.begin(), m_Captured.end(), false ); // a reshaped array holds nothing yet
 
-        // The first view that reads captures after this frame's face views records the capture into the array;
-        // the views after it read the array as that view's graph left it.
-        if ( m_FacesRenderedThisFrame && m_Pending < m_Captures.size() )
-        {
-            AddCapturePasses( graph, textures, array, m_Pending, m_FaceSize, false );
-            m_Captured[m_Pending] = true;
-            if ( m_PendingSettled >= kCaptureSettleFrames )
-            {
-                m_Done[m_Pending] = true;
-                m_Pending         = kNoCapture;
-            }
-            m_FacesRenderedThisFrame = false;
-        }
+        m_GraphArray = array;
 
         const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, m_Captured );
         const RDG::BufferRef         buffer =
@@ -498,5 +591,98 @@ namespace Desert::Graphic
 
         textures.Transients.ReflectionCaptureCubes = array;
         textures.Transients.ReflectionCaptures     = buffer;
+    }
+
+    RDG::BufferRef ReflectionCaptureRenderer::AddDiffusePass( RDG::Builder& graph, FrameTextures& textures,
+                                                              const glm::vec3&                 point,
+                                                              const ReflectionCaptureLighting& lighting )
+    {
+        const FrameGraphRefs refs = textures.GraphRefs();
+        const RDG::BufferRef record =
+             graph.CreateBuffer( RDG::BufferDesc{ kDiffuseRecordBytes }, "ReflectionCapture.Diffuse" );
+        DiffusePush push;
+        push.CapturePoint = glm::vec4( point, lighting.RadianceCache ? 1.0f : 0.0f );
+        push.SkyYawCosSin = lighting.SkyYawCosSin;
+        push.SkyGain      = lighting.SkyGain;
+
+        // The shader declares both estimators; the one it does not read is bound to a neutral resource (a cache
+        // with no clipmap, the black cube), as the traced reflections bind an absent cache.
+        GlobalIllumination::RadianceCacheFrame cache;
+        if ( lighting.RadianceCache )
+            cache = *lighting.RadianceCache;
+        else
+        {
+            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
+            const RDG::BufferRef                                                             none =
+                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "ReflectionCapture.RadianceCacheNone" );
+            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
+            cache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
+                                                            .Indirection = none,
+                                                            .Probes      = none,
+                                                            .Irradiance  = refs.System.Black,
+                                                            .Depth       = refs.System.Black,
+                                                            .Radiance    = refs.System.Black };
+        }
+        const RDG::TextureRef sky =
+             lighting.EnvIrradiance.IsValid() ? lighting.EnvIrradiance : refs.System.BlackCube;
+
+        graph.AddPass(
+             "ReflectionCapture: Diffuse", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 constexpr RDG::Access kR  = RDG::Access::StorageRead;
+                 constexpr RDG::Access kS  = RDG::Access::SampledCompute;
+                 const auto            all = RDG::SubresourceRange::All();
+                 pass.Bindings( m_DiffuseLayout.Get( m_Diffuse->GetSpecification().Shader ),
+                                Renderer::GetPipelineRouteFill( *m_Diffuse ) )
+                      .Storage( "RadianceCacheParamsUB", cache.Params, kR )
+                      .Storage( "RadianceCacheIndirectionUB", cache.Indirection, kR )
+                      .Storage( "RadianceCacheProbesUB", cache.Probes, kR )
+                      .Sampled( "u_RadianceCacheIrradiance", cache.Irradiance, kS, all,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Sampled( "u_RadianceCacheDepth", cache.Depth, kS, all, RDG::SamplerDesc::LinearClamp() )
+                      .Sampled( "u_EnvIrradianceTex", sky, kS, all, RDG::SamplerDesc::LinearClamp() )
+                      .Storage( "ReflectionCaptureDiffuseUB", record, RDG::Access::StorageWrite )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DiffusePush ) ) );
+             },
+             [pipeline = m_Diffuse, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, sizeof( push ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
+             } );
+        return record;
+    }
+
+    void ReflectionCaptureRenderer::AddCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                                      const ReflectionCaptureLighting& lighting )
+    {
+        const RDG::TextureRef array = m_GraphArray;
+        m_GraphArray                = RDG::TextureRef{};
+        // The first view that reads captures after this frame's face views records the capture into the array;
+        // the views after it read the array as that view's graph left it.
+        if ( !array.IsValid() || !m_FacesRenderedThisFrame || m_Pending >= m_Captures.size() )
+            return;
+        const ReflectionCaptureEntry& capture = m_Captures[m_Pending];
+        const RDG::BufferRef diffuse = AddDiffusePass( graph, textures, capture.CapturePosition, lighting );
+        AddCapturePasses( graph, textures, array, m_Pending, m_FaceSize, diffuse, false );
+        m_Captured[m_Pending] = true;
+        ++m_PendingFrames;
+        if ( m_PendingSettled >= kCaptureSettleFrames || m_PendingFrames >= kCaptureFrameBudget )
+        {
+            m_Done[m_Pending] = true;
+            m_LastCaptured    = m_Pending;
+            m_Pending         = kNoCapture;
+        }
+        m_FacesRenderedThisFrame = false;
+    }
+
+    std::vector<glm::vec3> ReflectionCaptureRenderer::CapturePoints() const
+    {
+        std::vector<glm::vec3> points;
+        points.reserve( m_Captures.size() );
+        for ( const ReflectionCaptureEntry& capture : m_Captures )
+            points.push_back( capture.CapturePosition );
+        return points;
     }
 } // namespace Desert::Graphic
