@@ -421,7 +421,7 @@ namespace Desert::Graphic::API::Vulkan
             {
                 // Moved out first: the call may queue further destructions.
                 const std::function<void()> destroy = std::move( it->Destroy );
-                it = m_HostObjectDeletionQueue.erase( it );
+                it                                  = m_HostObjectDeletionQueue.erase( it );
                 destroy();
                 ++destroyed;
             }

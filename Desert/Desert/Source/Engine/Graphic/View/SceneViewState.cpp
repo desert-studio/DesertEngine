@@ -274,8 +274,9 @@ namespace Desert::Graphic
         // Halton sequence unless a vendor SDK prescribes another). No upscaler = method None = no jitter.
         f.JitterSequenceLength = upscaler != nullptr ? upscaler->JitterSequenceLength( f.Split ) : 0;
         f.JitterIndex  = ( isReset || f.JitterSequenceLength == 0 ) ? 0 : m_JitterIndex % f.JitterSequenceLength;
-        f.JitterPixels = f.JitterSequenceLength == 0 ? glm::vec2( 0.0f )
-                                                     : upscaler->JitterPixels( f.JitterIndex, f.JitterSequenceLength );
+        f.JitterPixels         = f.JitterSequenceLength == 0
+                                      ? glm::vec2( 0.0f )
+                                      : upscaler->JitterPixels( f.JitterIndex, f.JitterSequenceLength );
         f.JitterNdc    = JitterPixelsToNdc( f.JitterPixels, f.Split.Render );
 
         // Method None: no jitter at all, so the jittered matrices are bit-identical to the unjittered ones.

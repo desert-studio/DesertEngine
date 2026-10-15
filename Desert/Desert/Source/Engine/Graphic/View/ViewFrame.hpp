@@ -94,11 +94,12 @@ namespace Desert::Graphic
     // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
     // Upscale and the upscaler is TAAU; FSR iff the split is Upscale under Upscaler::FSR or Native under
     // AntiAliasingMethod::FSRNative (at Supersample too:
-    // Fsr3Upscaler::Supports refuses it and ResolveViewResolution clamps to 100 %), in a build with FSR; None for a non-temporal method at Native/Supersample,
-    // and for one under Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split
-    // with Upscaler::None, Spatial under a temporal method, FSR or FSRNative in a build without FSR,
-    // or any other vendor upscaler (DLSS / XeSS / MetalFX: no implementation in this build) is an error naming
-    // the value — SCAL1's Resolve never produces them, so it is a contract break, not a fallback.
+    // Fsr3Upscaler::Supports refuses it and ResolveViewResolution clamps to 100 %), in a build with FSR; None for
+    // a non-temporal method at Native/Supersample, and for one under Upscaler::Spatial at Upscale (the spatial
+    // upscale is not temporal). An Upscale split with Upscaler::None, Spatial under a temporal method, FSR or
+    // FSRNative in a build without FSR, or any other vendor upscaler (DLSS / XeSS / MetalFX: no implementation in
+    // this build) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
+    // not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
                           Common::Scalability::Upscaler upscaler );

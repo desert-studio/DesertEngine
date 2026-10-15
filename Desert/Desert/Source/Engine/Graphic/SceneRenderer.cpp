@@ -1866,13 +1866,13 @@ namespace Desert::Graphic
         const std::vector<HistoryRefs> histories =
              temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
         const TemporalUpscalerInputs inputs{
-             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
-             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
-             .Velocity   = textures.Transients.Velocity,
+             .SceneColor   = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth   = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity     = textures.Transients.Velocity,
              .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
-             .Exposure = exposure.IsValid() ? exposure : textures.System.White,
-             .History  = histories,
+             .Exposure    = exposure.IsValid() ? exposure : textures.System.White,
+             .History     = histories,
              .PrevHistory = temporal ? m_ViewState.UpscalerHistory() : nullptr };
         RDG::TextureRef resolvedColor;
         if ( spatial )
