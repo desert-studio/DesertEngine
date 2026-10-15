@@ -20,6 +20,9 @@
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
 #include <Engine/Animation/AnimationLibrary.hpp>
@@ -172,7 +175,8 @@ namespace Desert::Editor
              ECS::LevelSequenceMaterialSlotOverrides(),
              m_AssetManager != nullptr ? ECS::LevelSequenceSubsequences( *m_AssetManager )
                                        : ECS::LevelSequenceSubsequenceSource{},
-             ResolveLevelAsset() ? ResolveLevelAsset()->Guid() : Common::Content::AssetGuid{} );
+             ResolveLevelAsset() ? ResolveLevelAsset()->Guid() : Common::Content::AssetGuid{},
+             ECS::LevelSequenceVFXUserParamWriter() );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
@@ -370,6 +374,20 @@ namespace Desert::Editor
                   ECS::AddMaterialParameterTrack( sequence, binding, parameter, offered->Kind, offered->Current );
              !added.IsSuccess() )
             ToastManager::Push( std::format( "+ Track → Material Parameter refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+    }
+
+    void SequencerPanel::AddLevelVFXUserParameterTrack( const LevelTL::BindingGuid& binding, const std::string& name,
+                                                        const LevelTL::TrackKind kind, const glm::vec4& current )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto added = ECS::AddVFXUserParameterTrack( sequence, binding, name, kind, current );
+             !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → VFX Parameter refused: {}", added.GetError() ),
                                 ToastLevel::Error, 6.0f );
     }
 
@@ -708,6 +726,41 @@ namespace Desert::Editor
                                                                                    choice.Parameter ) ) )
                                 AddLevelMaterialParameterTrack( binding.Guid, choice.Parameter );
                         ImGui::EndMenu();
+                    }
+                    ImGui::EndMenu();
+                }
+                // UE: a Niagara component's User parameters as tracks — one per User row of the system the
+                // actor's VFX component plays; a row that already has a track is greyed out.
+                if ( entity && entity->HasComponent<ECS::VFXComponent>() &&
+                     ImGui::BeginMenu( ICON_MDI_CREATION " VFX Parameter" ) )
+                {
+                    namespace S         = Assets::Serialization;
+                    const auto& data    = entity->GetComponent<ECS::VFXComponent>().Data;
+                    const auto  system  = static_cast<uint64_t>( data.System ) != 0
+                                              ? Runtime::ResourceRegistry::GetVFXSystemService()->Get( data.System )
+                                              : Common::MakeError<Runtime::VFXSystemService::System>(
+                                                     "the VFX component plays no system" );
+                    if ( !system.IsSuccess() || !system.GetValue() || system.GetValue()->UserParams.empty() )
+                        ImGui::TextDisabled( "This actor's VFX system has no User parameters." );
+                    else
+                    {
+                        const auto values = VFX::ResolveUserParams( *system.GetValue(), data.UserParams );
+                        for ( std::size_t i = 0; i < system.GetValue()->UserParams.size(); ++i )
+                        {
+                            const S::VFXUserParam& row  = system.GetValue()->UserParams[i];
+                            const LevelTL::TrackKind kind =
+                                 row.Type == S::VFXValueType::Bool ? LevelTL::TrackKind::Bool
+                                 : row.Type == S::VFXValueType::Float || row.Type == S::VFXValueType::Int
+                                      ? LevelTL::TrackKind::Float
+                                      : LevelTL::TrackKind::Vector;
+                            const std::string property = ECS::LevelSequenceVFXUserProperty( row.Name );
+                            const bool        tracked  = std::any_of(
+                                 sequence.Tracks.begin(), sequence.Tracks.end(),
+                                 [&]( const LevelTL::Track& track )
+                                 { return track.Binding == binding.Guid && track.Property == property; } );
+                            if ( ImGui::MenuItem( row.Name.c_str(), nullptr, false, !tracked ) )
+                                AddLevelVFXUserParameterTrack( binding.Guid, row.Name, kind, values.Values[i] );
+                        }
                     }
                     ImGui::EndMenu();
                 }

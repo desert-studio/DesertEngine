@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 namespace Desert::VFX
@@ -78,7 +79,8 @@ namespace Desert::VFX
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
-                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
+                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm,
+                           std::span<const glm::vec4> user = {} ); // the instance's resolved User values
 
     // THE EFFECTS WORLD OF ONE SCENE (plan 02 §3.3-1): owns the effects clock and the per-instance
     // administration, and is ticked once per scene update — not once per view. Simulation is a function

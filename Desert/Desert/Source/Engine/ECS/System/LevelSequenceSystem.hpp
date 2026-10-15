@@ -10,6 +10,7 @@
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -72,6 +73,21 @@ namespace Desert::ECS
             return found ? found->GetDisplayName() : Common::Content::AssetGuidToText( guid );
         };
         return source;
+    }
+
+    /// The VFX Parameter track's writer: the bound entity's VFX component, through VFX::SetComponentUserParam.
+    [[nodiscard]] inline LevelSequenceVFXUserParams LevelSequenceVFXUserParamWriter()
+    {
+        LevelSequenceVFXUserParams writer;
+        writer.Set = []( entt::registry& registry, const entt::entity entity, const std::string_view name,
+                         const glm::vec4& value ) -> Common::BoolResultStr
+        {
+            auto* effect = registry.try_get<VFXComponent>( entity );
+            if ( effect == nullptr )
+                return Common::MakeFormattedError<bool>( "User.{}: the entity has no VFX component", name );
+            return VFX::SetComponentUserParam( effect->Data, name, value );
+        };
+        return writer;
     }
 
     [[nodiscard]] inline LevelSequenceMaterialSlots LevelSequenceMaterialSlotOverrides()
@@ -151,7 +167,8 @@ namespace Desert::ECS
 
                 const LevelSequenceStep result = AdvanceLevelSequence(
                      registry, component, *actor->Playback, ts.GetSeconds(), LevelSequenceClips( *m_AssetManager ),
-                     LevelSequenceMaterialSlotOverrides(), LevelSequenceSubsequences( *m_AssetManager ) );
+                     LevelSequenceMaterialSlotOverrides(), LevelSequenceSubsequences( *m_AssetManager ),
+                     LevelSequenceVFXUserParamWriter() );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )

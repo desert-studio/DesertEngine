@@ -111,6 +111,8 @@ namespace
 
         bool        isContainer   = false; // std::vector<...>
         std::string elemFieldType;         // FieldType of the element (when isContainer)
+        std::string elemTypeName;          // elemFieldType == "Struct": the element's C++ spelling, which must name
+                                           // a REFLECT()ed struct (checked once every header is parsed)
     };
 
     // A scanned enum definition (collected across all headers before reflected types are parsed, so a
@@ -1050,12 +1052,20 @@ namespace
                             else if ( std::string elem = VectorElement( typeName ); !elem.empty() )
                             {
                                 std::string et = MapFieldType( elem );
-                                // Supported element types (scalars + asset handle). vector<struct/vec> later.
+                                // Element types: scalars, an asset handle, and a reflected struct (UE's
+                                // TArray<FStruct>; the struct is checked to be REFLECT()ed once every header
+                                // is parsed).
                                 if ( et == "AssetHandle" || et == "Bool" || et == "Int" || et == "UInt" ||
                                      et == "Float" || et == "Double" || et == "String" )
                                 {
                                     f.isContainer   = true;
                                     f.elemFieldType = et;
+                                }
+                                else if ( et == "Struct" && FindEnum( enums, elem ) == nullptr )
+                                {
+                                    f.isContainer   = true;
+                                    f.elemFieldType = "Struct";
+                                    f.elemTypeName  = elem;
                                 }
                             }
                         }
@@ -1176,7 +1186,9 @@ namespace
             b.Set( "enumValues", Common::Json::Value( std::move( values ) ) );
         }
         if ( f.isContainer )
-            b.Set( "isContainer", true ).Set( "elemFieldType", f.elemFieldType );
+            b.Set( "isContainer", true )
+                 .Set( "elemFieldType", f.elemFieldType )
+                 .Set( "elemTypeName", f.elemTypeName );
         return b.Build();
     }
 
@@ -1483,6 +1495,28 @@ namespace
         for ( const ReflectedType& t : types )
             typeNames.push_back( { t.fqn, t.registryName } );
         Desert::HeaderTool::ResolveComponents( typeNames, components, errors );
+        // A vector-of-struct field must name a reflected struct: its elements are (de)serialized and drawn
+        // through that struct's own TypeInfo, and one that is not registered would be a field nobody writes.
+        for ( const ReflectedType& t : types )
+            for ( const Field& f : t.fields )
+            {
+                if ( !f.isContainer || f.elemFieldType != "Struct" )
+                    continue;
+                const std::size_t colon = f.elemTypeName.rfind( "::" );
+                const std::string shortName =
+                     colon == std::string::npos ? f.elemTypeName : f.elemTypeName.substr( colon + 2 );
+                const bool known = std::any_of( types.begin(), types.end(),
+                                                [&]( const ReflectedType& other )
+                                                {
+                                                    return other.registryName == shortName ||
+                                                           other.fqn == f.elemTypeName;
+                                                } );
+                if ( !known )
+                    errors.push_back( std::format(
+                         "{}: {}.{} is a std::vector of '{}', which is not a REFLECT()ed struct (a container "
+                         "element is a scalar, an asset handle or a reflected struct)",
+                         t.headerInclude, t.fqn, f.name, f.elemTypeName ) );
+            }
         for ( const std::string& error : errors )
             std::cerr << error << "\n";
         if ( !errors.empty() )

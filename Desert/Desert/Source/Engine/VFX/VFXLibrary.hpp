@@ -1,7 +1,10 @@
 #pragma once
 
 #include <CoreReflection/ReflectionMacros.hpp>
+#include <Engine/ECS/EntityValue.hpp>
 #include <Engine/Reflection/Value.hpp>
+
+#include <glm/vec4.hpp>
 
 #include <string>
 #include <vector>
@@ -28,5 +31,18 @@ namespace Desert::VFX
         FUNCTION( ScriptCallable, ScriptName( "writeChannel" ),
                   Tooltip( "Appends one entry per record for this frame; true when every field was written." ) )
         static bool WriteChannel( const std::string& name, const std::vector<Reflection::Value::Map>& entries );
+
+        /// UE UNiagaraComponent::SetVariable*: this placement's value of its system's User.<name> row, written
+        /// through VFX::SetComponentUserParam (the one validating writer Details and the Sequencer use).
+        ///   VFX.setParam(entity, "Density", {120})          -- Float: x; Vec2/3/4: x..w; Int: whole x; Bool: x ~= 0
+        FUNCTION( ScriptCallable, ScriptName( "setParam" ),
+                  Tooltip( "value = {x, y, z, w} (only the row's components are kept); false (logged) when the "
+                           "entity has no VFX component, its system has no such User row, or the value is not "
+                           "finite." ) )
+        static bool SetParam( ECS::Entity entity, const std::string& name, const glm::vec4& value );
+
+        FUNCTION( ScriptCallable, ScriptName( "clearParam" ),
+                  Tooltip( "Back to the system's default for that User row; false when it had no override." ) )
+        static bool ClearParam( ECS::Entity entity, const std::string& name );
     };
 } // namespace Desert::VFX

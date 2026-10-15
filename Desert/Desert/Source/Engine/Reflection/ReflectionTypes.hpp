@@ -135,6 +135,7 @@ namespace Desert::Reflection
     }
 
     class Value; // Value.hpp — what a container element travels as (FieldInfo::ContainerGet/Set)
+    struct AssetResolver; // ReflectionSerializer.hpp — passed through to a struct container's elements
 
     struct FieldInfo
     {
@@ -176,6 +177,25 @@ namespace Desert::Reflection
         void ( *ContainerResize )( void* /*field*/, std::size_t /*count*/ )     = nullptr;
         Value ( *ContainerGet )( const void* /*field*/, std::size_t /*index*/ ) = nullptr;
         bool ( *ContainerSet )( void* /*field*/, std::size_t /*index*/, const Value& /*value*/ ) = nullptr;
+        /// Drops the element at `index` (later elements move down); past the end, nothing.
+        void ( *ContainerErase )( void* /*field*/, std::size_t /*index*/ ) = nullptr;
+
+        // A std::vector OF A REFLECTED STRUCT (ElementType == Struct; UE's TArray<FStruct> property). Each element
+        // is that struct's own reflected object: the serializer writes it with SerializeReflected and reads it
+        // with DeserializeReflected (missing keys keep the element's default, the wrong-type rule per field),
+        // the property editor draws its fields at ContainerElement. ElementTypeName is the C++ spelling the
+        // header used; ResolveStructLinks resolves ElementStructType from it exactly as StructType. Such a
+        // container has no ContainerGet / ContainerSet (an element is not one Value): a language reaches it
+        // through a FUNCTION that owns the rule for its contents.
+        std::string     ElementTypeName;
+        const TypeInfo* ElementStructType                                                      = nullptr;
+        void* ( *ContainerElement )( void* /*field*/, std::size_t /*index*/ )                  = nullptr;
+        Common::Json::Value ( *SerializeStructContainer )( const void* /*field*/, const TypeInfo& /*element*/,
+                                                           const AssetResolver* /*resolver*/ ) = nullptr;
+        void ( *DeserializeStructContainer )( void* /*field*/, const TypeInfo& /*element*/,
+                                              const Common::Json::Node& /*src*/,
+                                              std::vector<Common::Json::Issue>& /*issues*/,
+                                              const AssetResolver* /*resolver*/ )              = nullptr;
 
         const std::string& DisplayName() const
         {

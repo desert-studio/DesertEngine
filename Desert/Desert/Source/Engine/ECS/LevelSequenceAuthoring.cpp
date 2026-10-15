@@ -768,6 +768,63 @@ namespace Desert::ECS
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AddVFXUserParameterTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                                    const std::string_view name, const T::TrackKind kind,
+                                                    const glm::vec4& current )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "VFX Parameter track: the binding is not an actor (Entity) binding" );
+        if ( kind != T::TrackKind::Float && kind != T::TrackKind::Vector && kind != T::TrackKind::Bool )
+            return Common::MakeError( "VFX Parameter track: a User parameter is keyed as a Float, a Vector or a Bool" );
+        if ( name.empty() )
+            return Common::MakeError( "VFX Parameter track: the parameter name is empty" );
+        const std::string property = LevelSequenceVFXUserProperty( name );
+        if ( std::any_of( sequence.Tracks.begin(), sequence.Tracks.end(), [&]( const T::Track& track )
+                          { return track.Binding == binding && track.Property == property; } ) )
+            return Common::MakeFormattedError<bool>( "VFX Parameter track: '{}' already has one for {}",
+                                                     bound->Label, property );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding  = binding;
+        created.Property = property;
+        created.Kind     = kind;
+        T::Channel channel;
+        if ( kind == T::TrackKind::Bool )
+        {
+            T::BoolChannel bits;
+            bits.Bits.Default = current.x != 0.0F ? 1.0F : 0.0F;
+            UpsertBit( bits.Bits, sequence.Start, current.x != 0.0F );
+            channel = T::Channel{ bits };
+        }
+        else
+        {
+            channel = T::MakeChannel( static_cast<T::ChannelKind>( kind ) );
+            if ( auto* scalar = std::get_if<T::FloatChannel>( &channel ) )
+                scalar->Default = current.x;
+            else if ( auto* vector = std::get_if<T::VectorChannel>( &channel ) )
+            {
+                vector->X.Default = current.x;
+                vector->Y.Default = current.y;
+                vector->Z.Default = current.z;
+            }
+            UpsertParameter( channel, sequence.Start, current );
+        }
+        T::Section section;
+        section.Start   = sequence.Start;
+        section.End     = sequence.End;
+        section.Content = std::move( channel );
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "VFX Parameter track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
     bool HasMaterialParameterTrack( const T::Sequence& sequence, const T::BindingGuid& binding,
                                     const LevelSequenceMaterialParameter& parameter )
     {
@@ -1227,7 +1284,8 @@ namespace Desert::ECS
                                                    const LevelSequenceClipSource&        clips,
                                                    const LevelSequenceMaterialSlots&     materials,
                                                    const LevelSequenceSubsequenceSource& subsequences,
-                                                   const Common::Content::AssetGuid&     asset )
+                                                   const Common::Content::AssetGuid&     asset,
+                                                   const LevelSequenceVFXUserParams&     vfx )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );
         m_Materials = materials;
@@ -1302,6 +1360,11 @@ namespace Desert::ECS
                     saved.Loop        = animation->Loop;
                     saved.Playing     = animation->Playing;
                 }
+                if ( const auto* effect = registry.try_get<VFXComponent>( entity ) )
+                {
+                    saved.HadVFX        = true;
+                    saved.VFXUserParams = effect->Data.UserParams;
+                }
                 m_Saved.push_back( saved );
             }
 
@@ -1309,7 +1372,7 @@ namespace Desert::ECS
         playback.Asset = asset;
         const Animation::FrameTime at{ tick, 0.0F };
         return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials,
-                                  subsequences );
+                                  subsequences, vfx );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )
@@ -1338,6 +1401,8 @@ namespace Desert::ECS
                     animation->Animator->SetTick( saved.Tick );
                 animation->Playing = saved.Playing;
             }
+            if ( auto* effect = registry.try_get<VFXComponent>( saved.Entity ); saved.HadVFX && effect != nullptr )
+                effect->Data.UserParams = saved.VFXUserParams;
         }
         m_Saved.clear();
         for ( const SavedMaterialParameter& saved : m_SavedMaterials )

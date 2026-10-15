@@ -281,7 +281,14 @@ namespace Desert::Migration
     //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
-    static_assert( kSceneVersionRenderMethods == kSceneVersion,
+    //  60 - A VFX PLACEMENT OVERRIDES ITS SYSTEM'S USER PARAMETERS (VFX-PARAMS; UE UNiagaraComponent override
+    //       parameters). VFXComponentData.UserParams is a new reflected key: every record VFX block that states
+    //       none gains `"UserParams": []` (MigrateVFXUserParamsV59ToV60), so the corpus is the saver's canonical
+    //       text. A prefab override's delta is not touched (an absent key there is "not overridden"). v54-v59 are
+    //       other branches' steps; the lead renumbers at merge. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionVFXUserParams = 60;
+
+    static_assert( kSceneVersionVFXUserParams == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -541,6 +548,10 @@ namespace Desert::Migration
     // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
     // override. PURE.
     RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
+
+    // States `"UserParams": []` on every record VFX block that states no UserParams, under the rule
+    // kSceneVersionVFXUserParams states. Returns the blocks it wrote. PURE.
+    std::size_t MigrateVFXUserParamsV59ToV60( std::vector<Assets::EntityData>& entities );
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -809,6 +820,9 @@ namespace Desert::Migration
         bool                RenderMethodsRaised = false; // below kSceneVersionRenderMethods
         RenderMethodsReport RenderMethods;
 
+        bool        VFXUserParamsRaised = false; // below kSceneVersionVFXUserParams
+        std::size_t VFXUserParamsStated = 0;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -821,7 +835,8 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised ||
+                   VFXUserParamsRaised;
         }
     };
 

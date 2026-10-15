@@ -36,7 +36,8 @@ namespace Desert::VFX
     }
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
-                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm )
+                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm,
+                           std::span<const glm::vec4> user )
     {
         instance.Steps.clear();
         instance.ChannelSpawns.clear();
@@ -61,7 +62,7 @@ namespace Desert::VFX
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {
-            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds ) };
+            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds, user ) };
             if ( s == 0 )
             {
                 step.ChannelFirst = 0;
@@ -168,7 +169,7 @@ namespace Desert::VFX
                          continue;
                      }
                      PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
-                                       emitterCm );
+                                       emitterCm, system.User );
                  }
              } );
 

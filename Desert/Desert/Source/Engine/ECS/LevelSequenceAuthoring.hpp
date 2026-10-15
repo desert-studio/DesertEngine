@@ -25,6 +25,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -244,6 +245,20 @@ namespace Desert::ECS
      * an Entity binding of this sequence, a kind other than Float / Vector, an empty parameter name and a
      * parameter that already has a track; the sequence is left as it was on any refusal. Revision++.
      */
+    /**
+     * @brief Adds a VFX Parameter track (UE: a Niagara User parameter track on the component): Property
+     * "VFX.User.<name>" on @p binding, kind Float / Vector (xyz) / Bool, ONE section over the playback range keyed
+     * at its start with @p current (the placement's value now) — the Material Parameter start-key rule. Playback
+     * writes it through LevelSequenceVFXUserParams (VFX::SetComponentUserParam). Refuses a binding that is not an
+     * Entity binding, another kind, an empty name and a name that already has a track; the sequence is left as it
+     * was on any refusal. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr AddVFXUserParameterTrack( Animation::Timeline::Sequence&          sequence,
+                                                                  const Animation::Timeline::BindingGuid& binding,
+                                                                  std::string_view                        name,
+                                                                  Animation::Timeline::TrackKind          kind,
+                                                                  const glm::vec4&                        current );
+
     [[nodiscard]] Common::BoolResultStr AddMaterialParameterTrack( Animation::Timeline::Sequence& sequence,
                                                                    const Animation::Timeline::BindingGuid& binding,
                                                                    const LevelSequenceMaterialParameter& parameter,
@@ -425,7 +440,8 @@ namespace Desert::ECS
                                  Animation::FrameNumber tick, const LevelSequenceClipSource& clips = {},
                                  const LevelSequenceMaterialSlots&     materials    = {},
                                  const LevelSequenceSubsequenceSource& subsequences = {},
-                                 const Common::Content::AssetGuid&     asset        = {} );
+                                 const Common::Content::AssetGuid&     asset        = {},
+                                 const LevelSequenceVFXUserParams&     vfx          = {} );
         void              Restore( entt::registry& registry );
 
         [[nodiscard]] bool Active() const
@@ -446,6 +462,9 @@ namespace Desert::ECS
             Animation::FrameTime            Tick;
             bool                            Loop    = true;
             bool                            Playing = true;
+            // A VFX Parameter track writes the placement's overrides: the whole list as it was comes back.
+            bool                              HadVFX = false;
+            std::vector<VFXUserParamOverride> VFXUserParams;
         };
         std::vector<Saved> m_Saved;
         /// A material parameter override as it was before the first scrub wrote it (nullopt = none: dropped).

@@ -251,6 +251,10 @@ namespace Desert::Editor
         /// actor's current value (ECS::AddMaterialParameterTrack), one undo step.
         void AddLevelMaterialParameterTrack( const Animation::Timeline::BindingGuid&    binding,
                                              const ECS::LevelSequenceMaterialParameter& parameter );
+        /// "+ Track ▸ VFX Parameter ▸ <User row>": the "VFX.User.<name>" track keyed at the range start with the
+        /// placement's current value (ECS::AddVFXUserParameterTrack), one undo step.
+        void AddLevelVFXUserParameterTrack( const Animation::Timeline::BindingGuid& binding, const std::string& name,
+                                            Animation::Timeline::TrackKind kind, const glm::vec4& current );
         /// A Material Parameter key @p value at the playhead on @p binding's track, one undo step.
         /// THE one setter of a Material Parameter value: the row's field, the palette's "Key Material Parameter"
         /// and the control channel's `set` (SetEditableProperty) all key through it (LevelMaterialEdit::Key).

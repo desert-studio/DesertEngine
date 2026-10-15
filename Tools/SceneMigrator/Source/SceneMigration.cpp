@@ -1143,6 +1143,22 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateVFXUserParamsV59ToV60( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t stated = 0;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "VFX",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           if ( block.get( "UserParams" ).has_value() )
+                               return false;
+                           block["UserParams"] = rfl::Generic( rfl::Generic::Array{} );
+                           ++stated;
+                           return true;
+                       } );
+        return stated;
+    }
+
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
     {
         std::size_t restated = 0;
@@ -3127,6 +3143,13 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.RenderMethods.Refused );
                     return;
                 }
+            }
+
+            // A VFX placement states its User parameter overrides (VFX-PARAMS).
+            if ( statedSceneVersion < kSceneVersionVFXUserParams )
+            {
+                report.VFXUserParamsRaised = true;
+                report.VFXUserParamsStated = MigrateVFXUserParamsV59ToV60( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

@@ -1149,7 +1149,8 @@ namespace Desert::ECS
         // UE UNiagaraComponent::OverrideParameters: this placement's values of the system's User.* rows, by
         // row name. The one store Details, VFX.setParam and a Sequencer VFX parameter track write through
         // (VFX/VFXUserParams.hpp SetUserParamOverride); a row without an override reads its Default.
-        PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ),
+        // Hidden: Details draws these as one typed row per system parameter (MakeVFXEntry), not as a raw list.
+        PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ), Hidden,
                   Tooltip( "This entity's values of the effect's User parameters" ) )
         std::vector<VFXUserParamOverride> UserParams;
     };

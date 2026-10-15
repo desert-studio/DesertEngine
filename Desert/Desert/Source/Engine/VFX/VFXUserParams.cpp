@@ -1,6 +1,8 @@
 #include <Engine/VFX/VFXUserParams.hpp>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <algorithm>
@@ -87,6 +89,19 @@ namespace Desert::VFX
             return false;
         overrides.erase( it );
         return true;
+    }
+
+    Common::BoolResultStr SetComponentUserParam( ECS::VFXComponentData& data, const std::string_view name,
+                                                 const glm::vec4& value )
+    {
+        if ( static_cast<std::uint64_t>( data.System ) == 0 )
+            return Common::MakeFormattedError<bool>( "User.{}: the VFX component plays no system", name );
+        const auto system = Runtime::ResourceRegistry::GetVFXSystemService()->Get( data.System );
+        if ( !system.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "User.{}: {}", name, system.GetError() );
+        if ( !system.GetValue() )
+            return Common::MakeFormattedError<bool>( "User.{}: the VFX system is still loading", name );
+        return SetUserParamOverride( data.UserParams, *system.GetValue(), name, value );
     }
 
     Common::ResultStr<std::vector<VFXUserParamRow>> UserParamRowsOf( const VFXCompiledEmitter& compiled,

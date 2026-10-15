@@ -496,6 +496,10 @@ namespace
                 << Desert::Migration::kSceneVersionParticleEmittersToVFX << " ("
                 << report.ParticleEmittersToVFX.Emitters << " ParticleEmitter block(s) now play a .dfx; "
                 << report.ParticleEmittersToVFX.NewSystems.size() << " system file(s) written)";
+        if ( report.VFXUserParamsRaised )
+            out << std::format( " scene v{}->v{} ({} VFX block(s) state UserParams)",
+                                Desert::Migration::kSceneVersionRenderMethods,
+                                Desert::Migration::kSceneVersionVFXUserParams, report.VFXUserParamsStated );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

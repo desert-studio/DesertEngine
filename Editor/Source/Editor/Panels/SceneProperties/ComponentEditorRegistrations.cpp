@@ -24,6 +24,8 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -635,6 +637,90 @@ namespace Desert::Editor
         return e;
     }
 
+    // THE PLACEMENT'S USER PARAMETERS (UE's User Parameters section of a Niagara component): one row per User row
+    // of the system, typed by the row, showing the override when there is one and the system's default otherwise.
+    // Every edit goes through VFX::SetUserParamOverride (the one validating writer script and Sequencer use too);
+    // the reset arrow clears the override. An override naming no row of the system (renamed or removed in the
+    // .dfx) is listed in red with a remove button: it does nothing, and saying so is better than dropping it.
+    static void DrawVFXUserParams( ::Desert::ECS::VFXComponentData& data )
+    {
+        namespace S = ::Desert::Assets::Serialization;
+        if ( static_cast<uint64_t>( data.System ) == 0 )
+            return;
+        const auto resolved = ::Desert::Runtime::ResourceRegistry::GetVFXSystemService()->Get( data.System );
+        if ( !resolved.IsSuccess() || !resolved.GetValue() )
+            return; // pending or failed: the service names the failure once
+        const S::VFXSystemData& system = *resolved.GetValue();
+        if ( system.UserParams.empty() && data.UserParams.empty() )
+            return;
+
+        if ( !ImGui::CollapsingHeader( "User Parameters", ImGuiTreeNodeFlags_DefaultOpen ) )
+            return;
+        const auto values = ::Desert::VFX::ResolveUserParams( system, data.UserParams );
+        for ( std::size_t i = 0; i < system.UserParams.size(); ++i )
+        {
+            const S::VFXUserParam& row        = system.UserParams[i];
+            glm::vec4              value      = values.Values[i];
+            const bool             overridden = std::any_of( data.UserParams.begin(), data.UserParams.end(),
+                                                             [&]( const auto& o ) { return o.Name == row.Name; } );
+            ImGui::PushID( row.Name.c_str() );
+            bool edited = false;
+            switch ( row.Type )
+            {
+                case S::VFXValueType::Float:
+                    edited = ImGui::DragFloat( row.Name.c_str(), &value.x, 0.01f );
+                    break;
+                case S::VFXValueType::Vec2:
+                    edited = ImGui::DragFloat2( row.Name.c_str(), &value.x, 0.01f );
+                    break;
+                case S::VFXValueType::Vec3:
+                    edited = ImGui::DragFloat3( row.Name.c_str(), &value.x, 0.01f );
+                    break;
+                case S::VFXValueType::Vec4:
+                    edited = ImGui::DragFloat4( row.Name.c_str(), &value.x, 0.01f );
+                    break;
+                case S::VFXValueType::Int:
+                {
+                    int whole = static_cast<int>( value.x );
+                    edited    = ImGui::DragInt( row.Name.c_str(), &whole );
+                    value.x   = static_cast<float>( whole );
+                    break;
+                }
+                case S::VFXValueType::Bool:
+                {
+                    bool on = value.x != 0.0f;
+                    edited  = ImGui::Checkbox( row.Name.c_str(), &on );
+                    value.x = on ? 1.0f : 0.0f;
+                    break;
+                }
+            }
+            if ( edited )
+            {
+                if ( const auto set = ::Desert::VFX::SetUserParamOverride( data.UserParams, system, row.Name, value );
+                     !set )
+                    LOG_WARN( "[VFX] User.{}: {}", row.Name, set.GetError() );
+            }
+            if ( overridden )
+            {
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( ICON_MDI_UNDO_VARIANT ) )
+                    ::Desert::VFX::ClearUserParamOverride( data.UserParams, row.Name );
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip( "Back to the system's default" );
+            }
+            ImGui::PopID();
+        }
+        for ( const std::string& stale : values.Unknown )
+        {
+            ImGui::PushID( stale.c_str() );
+            ImGui::TextColored( ImVec4( 0.9f, 0.3f, 0.3f, 1.0f ), "%s",
+                                std::format( "User.{}: no such parameter in this system", stale ).c_str() );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( ICON_MDI_DELETE ) )
+                ::Desert::VFX::ClearUserParamOverride( data.UserParams, stale );
+            ImGui::PopID();
+        }
+    }
+
     // VFX: transport first, then the reflected fields. Deactivate writes AutoActivate (the same field VFXWorld
     // reads, so nothing new can drift out of sync) and Restart raises the component's one-shot flag that VFXWorld
     // consumes next tick.
@@ -670,6 +756,8 @@ namespace Desert::Editor
 
             PropertyEditorBuilder::Draw( &c.Data, "VFXComponentData", ctx.AssetMgr(), ctx.UIHelper,
                                          ctx.FieldFilter );
+            if ( !ctx.FieldFilter )
+                DrawVFXUserParams( c.Data );
         };
         return e;
     }

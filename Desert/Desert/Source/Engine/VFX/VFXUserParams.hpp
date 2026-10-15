@@ -29,6 +29,7 @@
 namespace Desert::ECS
 {
     struct VFXUserParamOverride;
+    struct VFXComponentData;
 }
 
 namespace Desert::VFX
@@ -61,6 +62,13 @@ namespace Desert::VFX
 
     /// Removes the override of @p name (the row reads its Default again); false when there was none.
     bool ClearUserParamOverride( std::vector<ECS::VFXUserParamOverride>& overrides, std::string_view name );
+
+    /// THE ONE WRITER OF A PLACEMENT'S USER PARAMETER for every caller that holds a component rather than its
+    /// system (script VFX.setParam, a Sequencer VFX parameter track): reads the component's system from
+    /// Runtime::VFXSystemService and applies SetUserParamOverride. Refused, writing nothing: an empty System
+    /// slot, a system not yet read or failed (the service names it), and what SetUserParamOverride refuses.
+    Common::BoolResultStr SetComponentUserParam( ECS::VFXComponentData& data, std::string_view name,
+                                                 const glm::vec4& value );
 
     /// One User row of a compiled emitter's parameter buffer: buffer row Row takes resolved value User.
     struct VFXUserParamRow
