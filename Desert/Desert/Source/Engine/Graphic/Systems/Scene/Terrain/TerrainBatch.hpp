@@ -104,7 +104,7 @@ namespace Desert::Graphic::System
     // ground.
     struct LandscapeWeightDraw
     {
-        std::shared_ptr<Image2D>                                           Weightmap;
+        std::shared_ptr<Image2D> Weightmap;
         // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
         // ray-tracing BLAS of the tile reclassifies its hole cells on a change.
         uint64_t                                                           Revision   = 0;

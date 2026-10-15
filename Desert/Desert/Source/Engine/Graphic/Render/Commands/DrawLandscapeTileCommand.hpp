@@ -28,7 +28,8 @@ namespace Desert::Graphic::Render
 
         DrawLandscapeTileCommand( std::shared_ptr<Image2D> heightmap, const System::LandscapeTileDraw& tile,
                                   MaterialOverrides overrides, const System::LandscapeWeightDraw& weights )
-             : Heightmap( std::move( heightmap ) ), Tile( tile ), Overrides( std::move( overrides ) ), Weights( weights )
+             : Heightmap( std::move( heightmap ) ), Tile( tile ), Overrides( std::move( overrides ) ),
+               Weights( weights )
         {
         }
 

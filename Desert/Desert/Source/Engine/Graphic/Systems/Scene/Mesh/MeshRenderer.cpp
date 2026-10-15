@@ -461,7 +461,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory&                motion,
-                                                           std::span<const MotionRecord> otherRigid )
+                                                            std::span<const MotionRecord> otherRigid )
     {
         // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
         // records of one object share it, slots stable per submission); this function only gathers the queued

@@ -96,7 +96,7 @@ namespace Desert::Graphic::RayTracing
     // This frame's landscape for the view's TLAS. Refs are valid only for the graph they were declared in.
     struct LandscapeRayTracingFrame
     {
-        std::vector<RayTracingPrimitive>         Primitives; // Kind = Landscape, one per tile
+        std::vector<RayTracingPrimitive> Primitives; // Kind = Landscape, one per tile
         // The BLAS builds and refits this frame, for RayTracingScene.DynamicGeometry (after the vertex compute).
         std::vector<RayTracingDynamicGeometryBuild> Builds;
         // The storage of the tiles' BLASes built in an earlier frame and unchanged: the TLAS pass reads them.

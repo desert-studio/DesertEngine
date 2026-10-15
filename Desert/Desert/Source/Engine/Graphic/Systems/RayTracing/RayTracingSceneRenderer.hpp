@@ -37,10 +37,10 @@ namespace Desert::Graphic::System
 
 namespace Desert::Graphic::RayTracing
 {
-    inline constexpr std::string_view kTlasPassName           = "RayTracingScene.TLAS";
-    inline constexpr std::string_view kTlasInstancesName      = "RayTracingScene.Instances";
-    inline constexpr std::string_view kTlasScratchName        = "RayTracingScene.Scratch";
-    inline constexpr std::string_view kTlasStorageName        = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kTlasPassName      = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kTlasInstancesName = "RayTracingScene.Instances";
+    inline constexpr std::string_view kTlasScratchName   = "RayTracingScene.Scratch";
+    inline constexpr std::string_view kTlasStorageName   = "RayTracingScene.TLAS";
 
     // This frame's TLAS as the graph being built sees it. Refs are valid only for that graph.
     struct RayTracingSceneFrame
@@ -165,12 +165,14 @@ namespace Desert::Graphic::RayTracing
         // custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
-        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its views.
+        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its
+        // views.
         // @p external: primitives another renderer produced this frame (the landscape tiles), instanced after the
         // meshes; their BLAS requests join RayTracingScene.DynamicGeometry.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
-                                                       const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
-                                                       const glm::vec3& viewOrigin, float drawDistanceScale,
+                                                       const System::MeshRenderer& meshes,
+                                                       RayTracingSceneCache& cache, const glm::vec3& viewOrigin,
+                                                       float                               drawDistanceScale,
                                                        const RayTracingExternalPrimitives& external = {} );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
@@ -194,13 +196,13 @@ namespace Desert::Graphic::RayTracing
         }
 
     private:
-        std::unique_ptr<RayTracingSceneTarget> m_Target;
-        RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
-        RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
-        std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
+        std::unique_ptr<RayTracingSceneTarget>      m_Target;
+        RayTracingGatherResult                      m_Gather;        // CPU scratch, capacity kept
+        RDG::ExternalBuffer                         m_BonesImport;   // this view's ObjectBones, for the skin cache
+        std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;
-        RayTracingInstanceList                 m_Instances;
-        RayTracingSceneFrame                   m_Frame;
+        RayTracingInstanceList                      m_Instances;
+        RayTracingSceneFrame                        m_Frame;
     };
 } // namespace Desert::Graphic::RayTracing

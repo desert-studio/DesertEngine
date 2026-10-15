@@ -47,8 +47,8 @@ namespace Desert::Graphic::System
 // needs the cache to also keep the previous positions (velocity) and the tangent frame - a separate step.
 namespace Desert::Graphic::RayTracing
 {
-    inline constexpr std::string_view kSkinCacheShader         = "SkinCache";
-    inline constexpr std::string_view kSkinCachePassName = "SkinCache: Positions";
+    inline constexpr std::string_view kSkinCacheShader    = "SkinCache";
+    inline constexpr std::string_view kSkinCachePassName  = "SkinCache: Positions";
     inline constexpr uint32_t         kSkinCacheGroupSize = 64; // LocalSize of Programs/Compute/SkinCache.shader
 
     // The scene's skin cache (RayTracingSceneCache owns one, shared by every view of the scene, UE FGPUSkinCache
@@ -61,17 +61,16 @@ namespace Desert::Graphic::RayTracing
         // For every primitive SelectDynamicGeometry picks: prepares its entry (keyed {Entity, n-th skinned record
         // of the entity this frame}, MotionKey's slot rule), declares its "SkinCache: Positions" dispatch, appends
         // its BLAS build/refit to @p buildsOut (the RT scene's one "RayTracingScene.DynamicGeometry" pass records
-        // it), and points the primitive's Geometry at its BLAS. @p primitives[firstSkinned + i] is MeshRenderer's skinned record i.
-        // A BLAS another view built is appended to @p blasOut for this view's TLAS pass to read. A primitive
-        // whose entry cannot be prepared keeps Geometry null (counted RayTracingSkip::Skinned) and is logged once
-        // per entry, never silently. An entry another view already skinned in @p frame is not skinned again: its
-        // primitive points at the same BLAS. @p viewBones is the calling view's import slot for its ObjectBones.
-        [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
-                                                       RDG::ExternalBuffer&           viewBones,
-                                                       std::span<RayTracingPrimitive> primitives,
-                                                       uint32_t firstSkinned, uint64_t frame,
-                                                       std::vector<RayTracingDynamicGeometryBuild>& buildsOut,
-                                                       std::vector<RDG::BufferRef>&                 blasOut );
+        // it), and points the primitive's Geometry at its BLAS. @p primitives[firstSkinned + i] is MeshRenderer's
+        // skinned record i. A BLAS another view built is appended to @p blasOut for this view's TLAS pass to read.
+        // A primitive whose entry cannot be prepared keeps Geometry null (counted RayTracingSkip::Skinned) and is
+        // logged once per entry, never silently. An entry another view already skinned in @p frame is not skinned
+        // again: its primitive points at the same BLAS. @p viewBones is the calling view's import slot for its
+        // ObjectBones.
+        [[nodiscard]] Common::BoolResultStr
+        AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes, RDG::ExternalBuffer& viewBones,
+                   std::span<RayTracingPrimitive> primitives, uint32_t firstSkinned, uint64_t frame,
+                   std::vector<RayTracingDynamicGeometryBuild>& buildsOut, std::vector<RDG::BufferRef>& blasOut );
 
         // Releases the entries no view asked for in @p frame (RayTracingSceneCache::BeginViewFrame).
         void EndFrame( const uint64_t frame )

@@ -103,8 +103,8 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
     int kGuard    = 5;
 
     std::vector<RayTracingPrimitive> primitives( 5 );
-    primitives[0].Geometry        = &kRock; // static: never a dynamic build
-    primitives[1].Kind            = RayTracingPrimitiveKind::Skinned;   // skinned with no mesh
+    primitives[0].Geometry        = &kRock;                           // static: never a dynamic build
+    primitives[1].Kind            = RayTracingPrimitiveKind::Skinned; // skinned with no mesh
     primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
     primitives[2].DeformedMesh    = &kHero;
     primitives[2].HiddenSubmeshes = 0b100;

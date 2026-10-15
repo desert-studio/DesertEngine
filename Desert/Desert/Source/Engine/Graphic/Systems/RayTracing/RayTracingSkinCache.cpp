@@ -64,7 +64,7 @@ namespace Desert::Graphic::RayTracing
 
         if ( const auto imported = Renderer::ImportBuffer( meshes.GetObjectBones(), viewBones ); !imported )
             return Common::MakeError( std::format( "{}: the view's ObjectBones could not be imported: {}",
-                                               kSkinCachePassName, imported.GetError() ) );
+                                                   kSkinCachePassName, imported.GetError() ) );
         const RDG::BufferRef bones = graph.RegisterExternal( viewBones, "SkinCache.Bones" );
 
         const std::shared_ptr<ComputePipeline> pipeline = m_Pipeline;
@@ -78,10 +78,10 @@ namespace Desert::Graphic::RayTracing
         {
             const std::size_t recordIndex = request.Primitive - firstSkinned;
             if ( request.Primitive < firstSkinned || recordIndex >= records.size() )
-                return Common::MakeError( std::format(
-                     "{}: primitive {} is not a skinned record (first skinned {}, {} "
-                     "records)",
-                     kSkinCachePassName, request.Primitive, firstSkinned, records.size() ) );
+                return Common::MakeError(
+                     std::format( "{}: primitive {} is not a skinned record (first skinned {}, {} "
+                                  "records)",
+                                  kSkinCachePassName, request.Primitive, firstSkinned, records.size() ) );
             const System::MeshRenderer::SkinnedMeshRenderData& record = records[recordIndex];
             const uint64_t                                     key =
                  ( static_cast<uint64_t>( record.Entity ) << 32u ) | m_RecordsPerEntity[record.Entity]++;
@@ -114,8 +114,9 @@ namespace Desert::Graphic::RayTracing
                 continue;
             }
             if ( record.MotionRow >= rows.size() )
-                return Common::MakeError( std::format( "{}: entity {} names motion row {} of {}", kSkinCachePassName,
-                                                   record.Entity, record.MotionRow, rows.size() ) );
+                return Common::MakeError( std::format( "{}: entity {} names motion row {} of {}",
+                                                       kSkinCachePassName, record.Entity, record.MotionRow,
+                                                       rows.size() ) );
             if ( const auto imported =
                       Renderer::ImportVertexBuffer( record.Mesh->GetVertexBuffer(), entry.VerticesImport );
                  !imported )
@@ -158,11 +159,11 @@ namespace Desert::Graphic::RayTracing
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1, 1 );
                  } );
 
-            buildsOut.push_back( { .Target       = entry.Geometry.get(),
-                                   .Vertices     = positions,
-                                   .Storage =
-                                        graph.RegisterExternal( entry.Geometry->GetStorage(), "SkinCache.BLAS" ),
-                                   .ScratchBytes = prepared.GetValue().ScratchBytes } );
+            buildsOut.push_back(
+                 { .Target       = entry.Geometry.get(),
+                   .Vertices     = positions,
+                   .Storage      = graph.RegisterExternal( entry.Geometry->GetStorage(), "SkinCache.BLAS" ),
+                   .ScratchBytes = prepared.GetValue().ScratchBytes } );
 
             // Through the base: EncodeInstanceRows reads Geometry back as a RayTracingGeometryResource.
             const RayTracingGeometryResource* blas = entry.Geometry.get();
