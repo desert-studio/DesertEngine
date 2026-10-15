@@ -30,20 +30,21 @@ namespace Desert::Editor
 
         using Graphic::RayTracing::RayTracingPrimitiveKind;
         using Graphic::RayTracing::RayTracingSkip;
+        using Graphic::RayTracing::RayTracingPrimitiveKindName;
+        using Graphic::RayTracing::RayTracingSkipName;
         const Localization::LocaleRow& locale = Localization::Localization::Get().Language();
 
         std::vector<std::string> rows;
         rows.emplace_back( "Ray tracing scene" );
         for ( std::size_t k = 0; k < stats.InstancesByKind.size(); ++k )
             rows.push_back(
-                std::format( "  {}: {}",
-                             Graphic::RayTracing::RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
+                std::format( "  {}: {}", RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
                              Localization::FormatInteger( locale, stats.InstancesByKind[k] ) ) );
         const std::size_t firstSkip = rows.size();
         for ( std::size_t r = 0; r < stats.SkippedByReason.size(); ++r )
             rows.push_back(
                 std::format( "  Skipped, {}: {}",
-                             Graphic::RayTracing::RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
+                             RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
                              Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
         const std::size_t endSkip = rows.size();
         rows.push_back( std::format( "  Traced BLAS: {}", FormatMiB( locale, stats.TracedBlasBytes ) ) );
