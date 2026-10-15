@@ -8,27 +8,22 @@ Shader "ReflectionCaptureFilter"
         // ComputeReflectionCaptureRoughnessFromMip) as the sky's prefiltered cube (PrefilterEnvMap.shader), so a
         // capture and the sky it blends into are read with one LOD rule.
         //
-        // ALPHA IS THE CAPTURE'S STORED DIFFUSE (UE: FReflectionCaptureData::AverageBrightness): the diffuse at the
-        // capture point as the view's GI measured it in this frame (ReflectionCaptureDiffuse.shader) - NOT the
-        // cube's own mean, which no pixel's diffuse estimator can be compared with (a lamp-lit street at night: a
-        // bright cube over a black sky light). PER FACE: every texel of face f holds the irradiance luminance about
-        // that face's axis, so the cube's last mip (1x1 per face) is an ambient cube of the capture point and the
-        // lighting reads it about the PIXEL'S NORMAL (Common/ReflectionEnvironment.glslh) - a floor is compared with
-        // the capture point's upward irradiance, not with a mean over every direction (UE's single value, which
-        // brightens every upward face and darkens every downward one).
+        // ALPHA IS WRITTEN 0, "not measured": the capture's stored diffuse lives in the LAST mip's alpha only, and
+        // ReflectionCaptureDiffuse.shader stores it there right after this pass (and again on later frames while
+        // the view's estimator has not answered at the capture point). No other mip's alpha is read.
+        //
+        // THE SAMPLE COUNT IS UE'S REAL-TIME ONE (ReflectionEnvironmentShaders.usf FilterCS, "General real time":
+        // 32 below roughness 0.1, else 64), not the 1024 of its "Reference" branch this pass used to take: every
+        // sample reads the radiance mip whose texel matches its solid angle (the mipLevel below), so the lobe is
+        // integrated over the mip chain's prefiltered texels, not point-sampled, and 1024 bought 7.2 ms per cube
+        // written on Bistro for noise the filtered reads already remove.
 
         const float PI = 3.141592;
         const float TwoPI = 2 * PI;
         const float Epsilon = 0.00001;
-        const uint NumSamples = 1024;
-        const float InvNumSamples = 1.0 / float(NumSamples);
 
         Uniform(0) samplerCube u_Radiance; // every mip of the capture's radiance cube
         layout(binding = 1, rgba16f) writeonly uniform imageCubeArray u_Output; // this mip, every layer
-        ReadBuffer(2) ReflectionCaptureDiffuseUB
-        {
-        	vec4 u_Diffuse[6]; // per face (+X -X +Y -Y +Z -Z): x = the irradiance luminance about its axis, 0 = not measured
-        };
 
         PushConstant PushConstants
         {
@@ -49,9 +44,9 @@ Shader "ReflectionCaptureFilter"
         	return float(bits) * 2.3283064365386963e-10;
         }
 
-        vec2 sampleHammersley(uint i)
+        vec2 sampleHammersley(uint i, uint count)
         {
-        	return vec2(i * InvNumSamples, radicalInverse_VdC(i));
+        	return vec2(float(i) / float(count), radicalInverse_VdC(i));
         }
 
         vec3 sampleGGX(float u1, float u2, float roughness)
@@ -101,7 +96,7 @@ Shader "ReflectionCaptureFilter"
         		return;
 
         	const ivec3 texel = ivec3(gl_GlobalInvocationID.xy, int(u_FirstLayer + gl_GlobalInvocationID.z));
-        	const float brightness = u_Diffuse[gl_GlobalInvocationID.z].x;
+        	const float brightness = 0.0; // not measured: ReflectionCaptureDiffuse.shader stores it
         	const vec3  N = CubeTexelDirection(gl_GlobalInvocationID, vec2(size));
         	const float roughness = ComputeReflectionCaptureRoughnessFromMip(float(u_Mip), float(u_MaxMip));
 
@@ -118,9 +113,10 @@ Shader "ReflectionCaptureFilter"
         	computeBasisVectors(N, S, T);
         	vec3  color  = vec3(0);
         	float weight = 0;
+        	const uint NumSamples = roughness < 0.1 ? 32u : 64u;
         	for (uint i = 0; i < NumSamples; i++)
         	{
-        		vec2 u  = sampleHammersley(i);
+        		vec2 u  = sampleHammersley(i, NumSamples);
         		vec3 h  = sampleGGX(u.x, u.y, roughness);
         		vec3 Lh = S * h.x + T * h.y + N * h.z;
         		vec3 Li = 2.0 * dot(N, Lh) * Lh - N;
@@ -129,7 +125,7 @@ Shader "ReflectionCaptureFilter"
         		{
         			float cosLh = max(dot(N, Lh), 0.0);
         			float pdf = ndfGGX(cosLh, roughness) * 0.25;
-        			float ws = 1.0 / (NumSamples * pdf);
+        			float ws = 1.0 / (float(NumSamples) * pdf);
         			float mipLevel = max(0.5 * log2(ws / wt) + 1.0, 0.0);
         			color  += textureLod(u_Radiance, Li, mipLevel).rgb * cosLi;
         			weight += cosLi;

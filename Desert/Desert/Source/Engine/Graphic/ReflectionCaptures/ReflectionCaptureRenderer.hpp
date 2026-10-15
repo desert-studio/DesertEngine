@@ -96,6 +96,23 @@ namespace Desert::Graphic
         glm::vec4                                             SkyGain{ 1.0f };
     };
 
+    // THE PERCEPTIBLE STEP OF A SUN'S COLOUR for the captures: a sun whose illuminance changed by more than this
+    // ratio in some channel against the one the captures were last triggered under recaptures them. An even change
+    // of all three channels is carried by the normalisation (the stored diffuse is the lighting's at capture time,
+    // the pixel's is this frame's), so this step is about HUE - a sunset reddening - and is a quarter: about a
+    // third of a stop in one channel against the others, the step a graded image shows.
+    inline constexpr float kReflectionCaptureSunRatio = 1.25f;
+
+    /// Whether the suns @p current differ PERCEPTIBLY from @p reference for the reflection captures (pure):
+    /// another count, a direction turned by more than @p thresholdDeg (the sky's Rebake Sun Angle - one rule for
+    /// when a moving sun is a new lighting), or a channel's illuminance ratio between the two past
+    /// kReflectionCaptureSunRatio relative to the others (a dark sun - all channels 0 - against a lit one is a
+    /// change).
+    [[nodiscard]] bool
+    ReflectionCaptureSunChanged( const std::vector<ShaderProtocols::DirectionLightPayload>& reference,
+                                 const std::vector<ShaderProtocols::DirectionLightPayload>& current,
+                                 float                                                      thresholdDeg );
+
     /**
      * @brief THE REFLECTION CAPTURES OF ONE SCENE (UE: FReflectionEnvironmentSceneData + the capture update).
      *
@@ -114,13 +131,28 @@ namespace Desert::Graphic
      * level's captures stale until someone presses it):
      *   - the STRUCTURE changed (a capture new, moved or edited, the set of captures, the face size): every
      * capture is rendered again and none is read until it has been;
-     *   - the LIGHTING changed (the sky bake - a moved sun, the time of day -, the sun's payload, a point or spot
-     *     light added, removed, hidden, moved or re-coloured): every capture is marked stale and KEEPS BEING READ
-     *     while it is rendered again, so a relight never blinks the reflections out.
-     * The budget: ONE capture's six face views per frame, taken round-robin from the one after the last, so under
-     * a lighting that never stops changing (a running day) every capture is refreshed in turn instead of the first
-     * one forever. A capture is settled when its face views held one sky for kCaptureSettleFrames frames, or after
-     * kCaptureFrameBudget frames whatever the sky does (a running day re-bakes it every few frames).
+     *   - the LIGHTING changed PERCEPTIBLY (ReflectionCaptureRelit): a new sky bake (the sky's own rule already
+     * throttles a moving sun to its Rebake Sun Angle), a point or spot light added, removed, hidden, moved or
+     * re-coloured, or a sun that turned past that same angle or changed colour past kReflectionCaptureSunRatio.
+     * A sun that only dims or brightens evenly does not recapture: the normalisation is measured at the time of
+     * the capture and the pixel's diffuse is this frame's, so the ratio already carries it. Every capture is
+     * marked stale and KEEPS BEING READ while it is rendered again, so a relight never blinks the reflections out.
+     *
+     * THE BUDGET IS ONE FACE VIEW PER FRAME (UE's time-sliced real-time sky capture,
+     * r.SkyLight.RealTimeReflectionCapture.TimeSlice, applied to the scene's captures): the capture under update
+     * renders one of its six face views each frame, round-robin over the faces that have not settled, under the
+     * sun as it was when that capture started (its six faces are one lighting instant, not six). A face has
+     * settled when it held one sky environment for kCaptureSettleFrames of its own renders, or after
+     * kCaptureFrameBudget renders whatever its sky does. Only when all six have settled is the cube written -
+     * assembled, mipped, filtered with UE's real-time sample counts - in one frame, so the array holds either the
+     * previous cube or the new one, never a half-written mix. Captures are taken round-robin from the one after
+     * the last, so a lighting that keeps changing refreshes every capture in turn.
+     *
+     * THE STORED DIFFUSE IS RE-MEASURED UNTIL IT IS MEASURED: every frame, the first view that reads captures runs
+     * ReflectionCaptureDiffuse over every written cube, and a cube whose stored diffuse is still 0 ("not
+     * measured": the radiance cache had no traced probes around its point when it was written) is measured again
+     * - on the GPU, where the answer is - until the estimator answers. A cube being written is measured
+     * unconditionally.
      *
      * A view whose profile does not read captures (previews, thumbnails, the face views themselves) is handed
      * an empty list and the scene's one-cube black array: the lighting shader declares the bindings.
@@ -148,9 +180,9 @@ namespace Desert::Graphic
         void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
 
         /// In the same graph, once the view's diffuse estimator of this frame exists (deferred: after the traced
-        /// GI; forward: anywhere, the sky's cube is the estimator): the first view that reads captures after a
-        /// face-view frame turns the face views into the pending capture's cube and measures @p lighting at its
-        /// capture point. A view whose AddPasses published no capturing array records nothing.
+        /// GI): the first view that reads captures in a frame writes the pending capture's cube when its six faces
+        /// have settled, and measures @p lighting at the capture points whose stored diffuse is not measured yet
+        /// (and at the one being written). A view whose AddPasses published no capturing array records nothing.
         void AddCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
                                const ReflectionCaptureLighting& lighting );
 
@@ -176,13 +208,17 @@ namespace Desert::Graphic
         [[nodiscard]] std::pair<RDG::TextureRef, bool> AcquireArray( RDG::Builder& graph, FrameTextures& textures,
                                                                      SharedArray& array, uint32_t cubes,
                                                                      uint32_t faceSize, std::string_view name );
-        // @p diffuse: the capture point's measured diffuse (ReflectionCaptureDiffuse.shader's record), or invalid
-        // for a black cube (stored 0: "not measured", never normalised by).
+        // The cube's radiance, mips and GGX filter (alpha 0: "not measured" until AddDiffusePass stores it), from
+        // the face views, or black for the cubes of a fresh array.
         void AddCapturePasses( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array, uint32_t cube,
-                               uint32_t faceSize, RDG::BufferRef diffuse, bool black );
-        [[nodiscard]] RDG::BufferRef AddDiffusePass( RDG::Builder& graph, FrameTextures& textures,
-                                                     const glm::vec3&                 point,
-                                                     const ReflectionCaptureLighting& lighting );
+                               uint32_t faceSize, bool black );
+        // ReflectionCaptureDiffuse over every written cube of @p array: stores @p lighting's diffuse in the last
+        // mip's alpha where it is not measured yet, and unconditionally into @p forcedCube (kNoCapture: none).
+        void AddDiffusePass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array,
+                             uint32_t forcedCube, const ReflectionCaptureLighting& lighting );
+        // The sky's Rebake Sun Angle of the scene's primary sky (lowest entity), or that field's default without
+        // one.
+        [[nodiscard]] static float SunAngleThreshold( const entt::registry& registry );
 
         // The face size the captures are rendered at (Reflections.CaptureSize when they were last gathered).
         uint32_t m_FaceSize = 0;
@@ -192,21 +228,29 @@ namespace Desert::Graphic
         std::vector<bool>                   m_Captured; // written at least once: the lighting reads it
         std::vector<bool>                   m_Done;     // settled: not rendered again until something changes
         uint64_t                            m_Signature         = 0; // the structure (see the class comment)
-        uint64_t                            m_LightingSignature = 0; // the lighting the cubes were rendered under
-        uint32_t                            m_LastCaptured      = 0; // the round-robin's last capture
+        // The lighting the captures were last triggered under: the exact part (the sky bake, the local lights)
+        // and the suns, compared by ReflectionCaptureSunChanged.
+        uint64_t                                            m_LightingSignature = 0;
+        std::vector<ShaderProtocols::DirectionLightPayload> m_ReferenceSuns;
+        uint32_t                                            m_LastCaptured = 0; // the round-robin's last capture
 
         // The array AddPasses registered into the graph being built, for AddCaptureUpdate in the same graph
         // (invalid: that view captures nothing).
         RDG::TextureRef m_GraphArray;
 
-        // The capture whose faces are being rendered, and how many consecutive frames its face views have had a
-        // sky environment (the face views bake their own sky; the capture is written once they have it).
-        static constexpr uint32_t kNoCapture               = 0xFFFFFFFFu;
-        uint32_t                  m_Pending                = kNoCapture;
-        uint32_t                  m_PendingSettled         = 0;
-        uint32_t                  m_PendingFrames          = 0; // frames its cube has been written this round
-        uint64_t                  m_PendingEnvironment     = 0;
-        bool                      m_FacesRenderedThisFrame = false;
+        // The capture whose faces are being rendered, under the suns it started with; per face, how many times it
+        // was rendered, how many consecutive renders held one sky environment, and that environment (the face
+        // views bake their own sky; a face is written once it has it).
+        static constexpr uint32_t       kNoCapture = 0xFFFFFFFFu;
+        uint32_t                        m_Pending  = kNoCapture;
+        ShaderProtocols::DirectionLight m_PendingSuns;
+        bool                            m_PendingRelit = false; // relit while rendered: still stale once written
+        std::array<uint32_t, 6>         m_FaceRenders{};
+        std::array<uint32_t, 6>         m_FaceHeld{};
+        std::array<uint64_t, 6>         m_FaceEnvironment{};
+        uint32_t                        m_LastFace = 5u; // the face round's last face
+        bool     m_WriteCapture  = false;                // all six settled this frame: AddCaptureUpdate writes it
+        uint64_t m_MeasuredFrame = ~0ull;                // the frame the diffuse was last re-measured in
 
         std::array<std::unique_ptr<FaceView>, 6> m_Faces;
         // Face views released once every capture settled, kept alive until no frame in flight can still execute
