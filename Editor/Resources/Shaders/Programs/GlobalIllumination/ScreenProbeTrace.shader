@@ -85,6 +85,7 @@ Shader "ScreenProbeTrace"
         #include <Common/RadianceCache.glslh>
         #define GI_TRACER_BINDING 11
         #include <Common/GITracer.glslh>
+        #define GI_SURFACE_CACHE_BINDING 24
         #include <Common/GIHitLighting.glslh>
 
         // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).

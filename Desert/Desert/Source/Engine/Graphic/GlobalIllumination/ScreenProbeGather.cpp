@@ -127,6 +127,11 @@ namespace Desert::Graphic::GlobalIllumination
                  "screen probes: the GI frame record or the radiance cache of this frame is missing" );
         if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
+        // A hit reads the cards first (GIHitRadiance) unless the hardware tracer lights every hit in place.
+        const bool readsCards = inputs.Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
+             readsCards && !missing.empty() )
+            return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<ScreenProbeGatherFrame>( traced.GetError() );
         const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent );
@@ -220,6 +225,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR );
                      DeclareTracerReads( block, inputs.Tracer );
+                     if ( readsCards )
+                         DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
                      block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
                                     RDG::SamplerDesc::LinearClamp() )
                           .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,

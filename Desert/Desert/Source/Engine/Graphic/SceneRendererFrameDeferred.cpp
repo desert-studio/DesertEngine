@@ -445,17 +445,11 @@ namespace Desert::Graphic
         inputs.GBufferB            = gbuffer[1];
         inputs.GBufferEmissive     = gbuffer[3];
         inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        // The tracer's frame: the software walk's clipmap placement is its own record ("GITracerSoftwareUB").
-        GlobalIllumination::TracerFrame tracer{ .Pipeline            = m_GIPipeline,
-                                                .GlobalDistanceField = t.GlobalDistanceField };
-        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
-        {
-            tracer.GlobalDistanceFieldLevels = graph.CreateBuffer(
-                 RDG::BufferDesc{ sizeof( t.GlobalDistanceFieldLevels ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
-            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels,
-                                     std::as_bytes( std::span( t.GlobalDistanceFieldLevels ) ) );
-        }
-        inputs.Tracer              = tracer;
+        inputs.Tracer              = MakeTracerFrame( graph, textures, m_GIPipeline );
+        // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
+        // refused by the consumers (SurfaceCacheFrameMissing), never traced against stale records.
+        if ( m_SurfaceCacheFrame )
+            inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
         inputs.PointLights         = t.Lights.Point;
         inputs.SpotLights          = t.Lights.Spot;
         inputs.WorldGridParams     = t.Lights.WorldGridParams;
@@ -496,6 +490,7 @@ namespace Desert::Graphic
         gather.GBufferEmissive    = inputs.GBufferEmissive;
         gather.EnvSpecular        = inputs.EnvSpecular;
         gather.Tracer             = inputs.Tracer;
+        gather.SurfaceCache       = inputs.SurfaceCache;
         gather.PointLights        = inputs.PointLights;
         gather.SpotLights         = inputs.SpotLights;
         gather.WorldGridParams    = inputs.WorldGridParams;
@@ -517,11 +512,16 @@ namespace Desert::Graphic
 
     bool SceneRenderer::WorldLightGridRead() const
     {
-        if ( RadianceCacheRuns() )
+        // The traced GI's hits lit in place, and the surface cache's card lighting.
+        if ( RadianceCacheRuns() || SurfaceCacheRuns() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
+        // Its readers: the world grid's own view, and the surface cache's direct lighting (every surface cache
+        // view mode lights the cards).
+        const DeferredDebugMode mode = m_DebugView.DeferredDebug;
         return m_RenderPath == Core::RenderPath::Deferred &&
-               m_DebugView.DeferredDebug == DeferredDebugMode::LightGridWorld;
+               ( mode == DeferredDebugMode::LightGridWorld || mode == DeferredDebugMode::SurfaceCacheAtlas ||
+                 mode == DeferredDebugMode::SurfaceCacheScene || mode == DeferredDebugMode::SurfaceCacheSceneLit );
 #else
         return false;
 #endif // DESERT_DEV_INSTRUMENTS
@@ -661,6 +661,9 @@ namespace Desert::Graphic
     bool SceneRenderer::GlobalDistanceFieldRead() const
     {
         if ( RadianceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
+            return true;
+        // The surface cache's shadow rays off the view's maps.
+        if ( SurfaceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( SurfaceCacheTracer() ) )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&

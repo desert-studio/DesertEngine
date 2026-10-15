@@ -163,6 +163,30 @@ namespace Desert::Graphic::System
                        "while the scene renders deferred.",
                        DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::GBuffer ).value_or( "?" ) );
         }
+
+        // (Skinned x GBuffer): the pass state the surface cache captures a skinned mesh's cards with (the scene
+        // still draws skinned meshes forward, RenderSkinnedManual). Optional like the rest of this pass: without
+        // it skinned meshes are not in the Lumen scene, and the capture says so.
+        m_SkinnedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer );
+        if ( m_SkinnedGBufferShader )
+        {
+            GraphicsPipelineSpecification sspec;
+            sspec.DebugName      = "SkinnedMeshGBuffer";
+            sspec.Layout         = MeshVertexLayout( MeshVertexPath::Skinned );
+            sspec.DepthCompareOp = DepthCompare::CloserOrEqual;
+            sspec.CullMode       = CullMode::Back;
+            sspec.Shader         = m_SkinnedGBufferShader;
+            sspec.TargetLayout   = GBufferLayout();
+            if ( const auto skinned = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec ) )
+                m_SkinnedGBufferPipeline = skinned.GetValue();
+            else
+                LOG_ERROR( "[MeshRenderer] skinned meshes are not in the surface cache: {}", skinned.GetError() );
+        }
+        else
+        {
+            LOG_ERROR( "[MeshRenderer] shader '{}' is missing; skinned meshes are not in the surface cache.",
+                       DefaultSurfaceShaderName( MeshVertexPath::Skinned, MeshPass::GBuffer ).value_or( "?" ) );
+        }
         return true;
     }
 

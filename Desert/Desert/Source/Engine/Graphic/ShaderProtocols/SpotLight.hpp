@@ -24,7 +24,11 @@ namespace Desert::Graphic::ShaderProtocols
         // faces are that row and the five after it), or kNoLocalShadowView. Written by
         // MeshRenderer::UpdateLocalShadows, never by the light system.
         int32_t   ShadowView = -1;   // 56
-        float     _pad1 = 0.0f; // -> 64
+        // 1 when the light casts shadows in this view (its CastShadows, and the view draws local shadows): a
+        // receiver with no ShadowView then is one the shadow maps do not cover (the view budget refused the
+        // light), and the surface cache traces its shadow through the global distance field instead. Written by
+        // MeshRenderer::UpdateLocalShadows with ShadowView.
+        int32_t ShadowCaster = 0; // 60 -> 64
     };
 
     struct SpotLight

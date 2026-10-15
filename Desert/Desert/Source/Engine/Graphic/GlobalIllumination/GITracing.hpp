@@ -185,6 +185,33 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view TracerFrameMissing( const TracerFrame& frame );
 
     // Declares the tracer's reads on a consumer pass's binding block, under the shader names the tracer include
-    // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant.
-    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame );
+    // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant. @p sampled =
+    // the stage the consumer samples in (a compute consumer, or a raster one: the surface cache's card lighting).
+    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
+                             RDG::Access sampled = RDG::Access::SampledCompute );
+
+    // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card
+    // records, the instance table and object grid of contract B3 (SurfaceCache.hpp), and the atlas layers a hit
+    // samples - FinalLighting (what the hit returns), Albedo (its next bounce off the radiance cache until the
+    // radiosity lands), Depth and Opacity (whether the card holds the hit). Filled by the frame's owner from the
+    // surface cache's update (SurfaceCacheRenderer::HitReads) before any tracing consumer runs.
+    struct SurfaceCacheFrame
+    {
+        RDG::BufferRef  Cards;        // "SurfaceCardBuffer"
+        RDG::BufferRef  Pages;        // "SurfaceCardPageBuffer"
+        RDG::BufferRef  MeshCards;    // "SurfaceMeshCardsBuffer"
+        RDG::BufferRef  InstanceRows; // "SurfaceCacheInstancesUB"
+        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"
+        RDG::TextureRef FinalLighting;
+        RDG::TextureRef Albedo;
+        RDG::TextureRef Depth;
+        RDG::TextureRef Opacity;
+    };
+
+    // Empty when @p frame holds every read; otherwise what is missing.
+    [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
+
+    // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
+    // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 8).
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
 } // namespace Desert::Graphic::GlobalIllumination

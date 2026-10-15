@@ -30,6 +30,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -227,6 +228,8 @@ namespace Desert::Editor
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                    // A mesh's distance field (UE: built beside the render data on a DDC miss, editor only).
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
+                   // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).
+                   Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

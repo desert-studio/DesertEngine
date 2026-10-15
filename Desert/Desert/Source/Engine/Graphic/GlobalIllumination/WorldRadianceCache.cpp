@@ -154,6 +154,11 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeError<RadianceCacheFrame>( ensured.GetError() );
         if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
             return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
+        // A hit reads the cards first (GIHitRadiance) unless the hardware tracer lights every hit in place.
+        const bool readsCards = inputs.Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
+             readsCards && !missing.empty() )
+            return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<RadianceCacheFrame>( traced.GetError() );
 
@@ -242,6 +247,8 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( pass == Trace )
                      {
                          DeclareTracerReads( block, inputs.Tracer );
+                         if ( readsCards )
+                             DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
                          block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
                                         RDG::SamplerDesc::LinearClamp() )
                               .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,

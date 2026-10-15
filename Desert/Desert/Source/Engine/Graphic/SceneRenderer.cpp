@@ -849,6 +849,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetCardPlacementView( m_DebugView.ShowCardPlacement );
 
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
@@ -1193,14 +1195,11 @@ namespace Desert::Graphic
             AddFrameTerrainGBuffer( graph, textures );
             AddFrameDepthResolve( graph, textures );
 
-            glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
-            glm::vec4 lightColor( 1.0f, 0.98f, 0.92f, 3.0f );
-            if ( const auto& dl = m_DirectionLights.DirectionLights; !dl.empty() )
-            {
-                lightDir   = dl[0].Direction;
-                lightColor = dl[0].ColorIntensity;
-            }
+            const FrameSun  sun        = GetFrameSun();
+            const glm::vec4 lightDir   = sun.Direction;
+            const glm::vec4 lightColor = sun.ColorIntensity;
             AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameSurfaceCache( graph, textures, frame );
             AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             RDG::TextureRef giAccum;
@@ -1278,6 +1277,8 @@ namespace Desert::Graphic
                                     frame );
         AddFrameGlobalDistanceFieldView( graph, textures, frame,
                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameSurfaceCacheView( graph, textures, frame,
+                                  postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
