@@ -1,0 +1,18 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"240adf0c6a0f407489419764780491eb","Versions":{"VFXM":1},"Dependencies":[]}
+Module "SizeOverLife"
+{
+    Stage ParticleUpdate
+    Category Size
+    Description "Scales the initial sprite size by a curve over the normalized age."
+    Attribute SpriteSize vec2
+    Attribute InitialSpriteSize vec2
+    Input Scale vec2
+
+    // Engine VFX module SizeOverLife (port of UE NiagaraStatelessModule_ScaleSpriteSize.ush:6-16): the sprite
+    // size is the initial size times Scale, a Curve over the normalised age (VFX-05) or a Value — UE's CurveScale is
+    // folded into the curve's keys. Recomputed from InitialSpriteSize every step, so it never compounds. Update group.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        p.SpriteSize = max( p.InitialSpriteSize * i.Scale, vec2( 0.0 ) );
+    }
+}

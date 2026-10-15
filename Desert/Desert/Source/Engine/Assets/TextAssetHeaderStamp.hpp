@@ -62,9 +62,10 @@ namespace Desert::Assets
     // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
     inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 3;
-    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
+    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02). v3
+    // (VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by {Guid, Path}; the header states their GUIDs.
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 1;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
     // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
     // their first version (GP1a; Serialization/InputAssets.hpp).
     inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );
@@ -74,6 +75,10 @@ namespace Desert::Assets
     // A .dfxch: the VFX data channel file layout, stated in the header from its first version (VFX-10).
     inline constexpr uint32_t kVFXDataChannelSchemaTag     = Common::Content::FourCC( "VFXD" );
     inline constexpr uint32_t kVFXDataChannelSchemaVersion = 1;
+    // A .dfxmod: the VFX module file layout (comment header, `Module "<Name>"` block), stated in the header from
+    // its first version (VFX-MODULE-ASSET; Engine/VFX/VFXModuleFormat.hpp).
+    inline constexpr uint32_t kVFXModuleSchemaTag     = Common::Content::FourCC( "VFXM" );
+    inline constexpr uint32_t kVFXModuleSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

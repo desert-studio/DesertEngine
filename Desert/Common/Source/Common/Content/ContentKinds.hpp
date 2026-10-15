@@ -85,6 +85,7 @@ namespace Common::Content
         PhysicsAsset,
         Sound,
         VFXDataChannel,
+        VFXModule,
         COUNT,
     };
 
@@ -187,6 +188,11 @@ namespace Common::Content
              // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
              // (Engine/Assets/Serialization/VFXDataChannel.hpp).
              /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
+             // UE's UNiagaraScript of Usage Module (Engine/VFX/VFXModuleFormat.hpp). Rooted in the project's VFX
+             // folder, so ScanRootsOf also walks the engine content mount's VFX folder: the engine's module
+             // library (Editor/Resources/Engine/VFX/Modules) and a project's own modules are one list, as UE's
+             // /Niagara and /Game mounts are.
+             /* VFXModule            */ { "VFXModule", ".dfxmod", &P::VFX_PATH },
         } };
     }
 

@@ -22,16 +22,27 @@
 //
 // The header is the shader header's first-line comment form (ShaderAssetHeader.hpp), since the body is not JSON.
 // `Stage` names the stack groups the module may be added to (one or more of EmitterUpdate, ParticleSpawn,
-// ParticleUpdate). A module whose stages include EmitterUpdate is a CPU module: its behaviour is engine C++
-// registered under its GUID (VFXEmitterSpawn), so its block declares inputs only - no attributes, no GLSL - and a
-// file stating EmitterUpdate whose GUID the engine has no behaviour for is refused where the stack resolves it.
+// ParticleUpdate). The stage decides what runs where: EmitterUpdate runs on the CPU, as engine C++ registered
+// under the module's GUID (VFXEmitterSpawn), and a file stating EmitterUpdate whose GUID the engine has no
+// behaviour for is refused where the stack resolves it; ParticleSpawn and ParticleUpdate run the block's GLSL on
+// the GPU. A module may state both (SpawnFromChannel: the CPU gathers the channel's entries, the GLSL applies
+// them to the newborns), so a block has GLSL exactly when it states a particle stage.
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <optional>
+#include <utility>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,12 +50,17 @@
 namespace Desert::VFX
 {
     inline constexpr const char*      kVFXModuleExtension = ".dfxmod";
-    inline constexpr std::string_view kVFXModuleKindName  = "VFXModule";
     /// The header's Versions key and the layout generation it states.
     ///   1 - VFX-MODULE-ASSET: Module "<DisplayName>" block with Stage / Category / Description, the declarations
     ///       and the GLSL body.
-    inline constexpr std::string_view kVFXModuleSchemaTagName = "VFXM";
-    inline constexpr uint32_t         kVFXModuleSchemaVersion = 1;
+
+    /// The header's stated subsystem: the file layout's generation (Assets::kVFXModuleSchemaTag).
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> VFXModuleTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Assets::kVFXModuleSchemaTag, Assets::kVFXModuleSchemaVersion } };
+        return versions;
+    }
 
     /// The stack groups, as a module's `Stage` line names them.
     enum class VFXModuleStage : uint8_t
@@ -68,9 +84,15 @@ namespace Desert::VFX
         {
             return ( Stages & static_cast<uint8_t>( stage ) ) != 0;
         }
-        [[nodiscard]] bool IsCpuModule() const
+        /// EmitterUpdate: engine C++ registered under Guid runs it on the CPU.
+        [[nodiscard]] bool HasCpuStage() const
         {
             return AllowsStage( VFXModuleStage::EmitterUpdate );
+        }
+        /// ParticleSpawn or ParticleUpdate: the block's GLSL runs it on the GPU.
+        [[nodiscard]] bool HasParticleStage() const
+        {
+            return AllowsStage( VFXModuleStage::ParticleSpawn ) || AllowsStage( VFXModuleStage::ParticleUpdate );
         }
     };
 
@@ -92,5 +114,41 @@ namespace Desert::VFX
         virtual ~VFXModuleResolver() = default;
         [[nodiscard]] virtual Common::ResultStr<VFXModuleDefinition>
         Resolve( const Common::Content::AssetGuid& guid ) const = 0;
+    };
+
+    /// Where the engine's module library lies under the engine content mount (Constants::Path::
+    /// ENGINE_CONTENT_PATH): the mirror of the project's VFX folder that ScanRootsOf walks for the VFXModule kind.
+    inline constexpr std::string_view kVFXEngineModuleFolder = "VFX/Modules";
+
+    /**
+     * @brief Modules read straight from `.dfxmod` files and from memory, without the ContentRegistry: what a
+     * program that runs before or without a registry resolves through (Tools/SceneMigrator raising `.dfx` files,
+     * the stack-compile suite's in-memory modules). The engine resolves through the registry
+     * (Assets::RegistryVFXModuleResolver), never through this.
+     */
+    class VFXModuleLibrary final : public VFXModuleResolver
+    {
+    public:
+        /// Reads every `.dfxmod` under @p dir (recursively). @p pathOf turns a file into the Path a stack row
+        /// states for it. A file that does not parse, or a GUID two modules state, is an error naming both.
+        Common::BoolResultStr AddDirectory( const std::filesystem::path&                                dir,
+                                            const std::function<std::string( const std::filesystem::path& )>& pathOf );
+
+        /// Adds @p module, or replaces the one of the same GUID; @p path is the Path a row states for it.
+        void Set( VFXModuleDefinition module, std::string path );
+
+        [[nodiscard]] Common::ResultStr<VFXModuleDefinition>
+        Resolve( const Common::Content::AssetGuid& guid ) const override;
+
+        /// The row reference to the module whose DisplayName is @p name, if exactly one module has it.
+        [[nodiscard]] std::optional<Assets::AssetGuidRef> FindByName( std::string_view name ) const;
+
+    private:
+        struct Entry
+        {
+            VFXModuleDefinition Module;
+            std::string         Path;
+        };
+        std::map<std::pair<uint64_t, uint64_t>, Entry> m_Modules;
     };
 } // namespace Desert::VFX

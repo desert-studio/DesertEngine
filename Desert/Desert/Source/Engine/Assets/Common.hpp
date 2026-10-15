@@ -126,6 +126,10 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A VFX MODULE (`.dfxmod`): UE's UNiagaraScript of Usage Module - one stack module (its inputs, the
+        // attributes it touches, its GLSL, the stages it may run in) that a system's stack names by GUID. See
+        // Engine/Assets/VFXModuleAsset.hpp.
+        VFXModule,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -238,6 +242,10 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A VFX MODULE IS SCENE-SCOPED for the shader graph's reason: no component holds its handle, the stack
+            // compiler reads the file through the registry row of its GUID (VFX::RegistryModuleResolver), and a
+            // module asset object exists only while an editor document holds one.
+            case AssetTypeID::VFXModule:
             case AssetTypeID::Count:
                 return false;
         }
@@ -320,6 +328,8 @@ namespace Desert::Assets
                 return "Sound";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::VFXModule:
+                return "VFXModule";
             case AssetTypeID::Count:
                 return "Count";
         }

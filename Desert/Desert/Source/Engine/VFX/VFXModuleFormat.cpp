@@ -1,4 +1,6 @@
-#include <Engine/VFX/VFXModuleAsset.hpp>
+#include <Engine/VFX/VFXModuleFormat.hpp>
+
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -6,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <fstream>
 #include <iterator>
 #include <sstream>
 #include <string>
@@ -59,14 +62,12 @@ namespace Desert::VFX
         if ( !header )
             return Common::MakeFormattedError<Result>( "{}: {}", where, header.GetError() );
         const Common::Content::TextAssetHeaderSerialized& stated = header.GetValue();
-        if ( stated.Kind != kVFXModuleKindName )
-            return Common::MakeFormattedError<Result>( "{}: the header states Kind '{}', not '{}'", where,
-                                                       stated.Kind, kVFXModuleKindName );
-        const auto version = stated.Versions.find( std::string( kVFXModuleSchemaTagName ) );
-        if ( version == stated.Versions.end() || version->second != kVFXModuleSchemaVersion )
-            return Common::MakeFormattedError<Result>(
-                 "{}: the header states {} v{}; this engine reads v{} only", where, kVFXModuleSchemaTagName,
-                 version == stated.Versions.end() ? 0u : version->second, kVFXModuleSchemaVersion );
+        if ( auto checked = Assets::CheckStatedHeader( stated, Common::Content::ContentKind::VFXModule,
+                                                      Assets::kVFXModuleSchemaTag,
+                                                      static_cast<int>( Assets::kVFXModuleSchemaVersion ),
+                                                      VFXModuleTextSubsystems() );
+             !checked )
+            return Common::MakeFormattedError<Result>( "{}: VFX module {}", where, checked.GetError() );
         if ( !stated.Dependencies.empty() )
             return Common::MakeFormattedError<Result>(
                  "{}: the header states {} Dependencies; a module references "
@@ -155,27 +156,23 @@ namespace Desert::VFX
                                                        module.DisplayName );
 
         const std::string declarations( pos < inside.size() ? inside.substr( pos ) : std::string_view{} );
-        auto              block = ParseModuleBlock( declarations, where, !module.IsCpuModule() );
+        auto              block = ParseModuleBlock( declarations, where, module.HasParticleStage() );
         if ( !block )
             return Common::MakeError<Result>( block.GetError() );
         module.Block = block.ExtractValue();
-        if ( module.IsCpuModule() && ( !module.Block.Attributes.empty() || !Trim( module.Block.Body ).empty() ||
-                                       module.AllowsStage( VFXModuleStage::ParticleUpdate ) ) )
-            return Common::MakeFormattedError<Result>( "{}: module '{}' is a CPU module (Stage EmitterUpdate): it "
-                                                       "declares Inputs only - no Attribute, no "
-                                                       "GLSL, no ParticleUpdate stage",
+        if ( !module.HasParticleStage() &&
+             ( !module.Block.Attributes.empty() || !Trim( module.Block.Body ).empty() ) )
+            return Common::MakeFormattedError<Result>( "{}: module '{}' states no particle stage (ParticleSpawn or "
+                                                       "ParticleUpdate), so it has no GLSL to run: it declares "
+                                                       "Inputs only - no Attribute, no GLSL",
                                                        where, module.DisplayName );
         return Common::MakeSuccess( std::move( module ) );
     }
 
     std::string WriteVFXModule( const VFXModuleDefinition& module )
     {
-        Common::Content::TextAssetHeaderSerialized header;
-        header.Kind = std::string( kVFXModuleKindName );
-        header.Guid = Common::Content::AssetGuidToText( module.Guid );
-        header.Versions.emplace( std::string( kVFXModuleSchemaTagName ), kVFXModuleSchemaVersion );
-
-        std::string out = Common::Content::WriteShaderHeaderLine( header );
+        std::string out = Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader(
+             Common::Content::ContentKind::VFXModule, module.Guid, VFXModuleTextSubsystems() ) );
         std::format_to( std::back_inserter( out ), "Module \"{}\"\n{{\n    Stage", module.DisplayName );
         for ( const StageName& s : kStageNames )
             if ( module.AllowsStage( s.Stage ) )
@@ -193,5 +190,69 @@ namespace Desert::VFX
             out += '\n';
         out += "}\n";
         return out;
+    }
+
+    Common::BoolResultStr VFXModuleLibrary::AddDirectory(
+         const std::filesystem::path&                                      dir,
+         const std::function<std::string( const std::filesystem::path& )>& pathOf )
+    {
+        std::error_code ec;
+        if ( !std::filesystem::is_directory( dir, ec ) )
+            return Common::MakeFormattedError<bool>( "VFX module library '{}' is not a directory", dir.string() );
+        std::vector<std::filesystem::path> files;
+        for ( auto it = std::filesystem::recursive_directory_iterator( dir, ec );
+              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            if ( it->is_regular_file() && it->path().extension() == kVFXModuleExtension )
+                files.push_back( it->path() );
+        if ( ec )
+            return Common::MakeFormattedError<bool>( "cannot list '{}': {}", dir.string(), ec.message() );
+        std::sort( files.begin(), files.end() );
+        for ( const std::filesystem::path& file : files )
+        {
+            std::ifstream      in( file, std::ios::binary );
+            std::ostringstream text;
+            text << in.rdbuf();
+            if ( !in )
+                return Common::MakeFormattedError<bool>( "cannot read VFX module '{}'", file.string() );
+            auto parsed = ParseVFXModule( text.str(), file.string() );
+            if ( !parsed )
+                return Common::MakeError<bool>( parsed.GetError() );
+            const auto key = std::make_pair( parsed.GetValue().Guid.Hi, parsed.GetValue().Guid.Lo );
+            if ( const auto it = m_Modules.find( key ); it != m_Modules.end() )
+                return Common::MakeFormattedError<bool>( "VFX modules '{}' and '{}' state the same GUID {}",
+                                                         it->second.Path, file.string(),
+                                                         Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
+            Set( parsed.ExtractValue(), pathOf( file ) );
+        }
+        return BOOLSUCCESS;
+    }
+
+    void VFXModuleLibrary::Set( VFXModuleDefinition module, std::string path )
+    {
+        const auto key  = std::make_pair( module.Guid.Hi, module.Guid.Lo );
+        m_Modules[key] = Entry{ std::move( module ), std::move( path ) };
+    }
+
+    Common::ResultStr<VFXModuleDefinition> VFXModuleLibrary::Resolve( const Common::Content::AssetGuid& guid ) const
+    {
+        const auto it = m_Modules.find( std::make_pair( guid.Hi, guid.Lo ) );
+        if ( it == m_Modules.end() )
+            return Common::MakeFormattedError<VFXModuleDefinition>( "no VFX module states GUID {}",
+                                                                    Common::Content::AssetGuidToText( guid ) );
+        return Common::MakeSuccess( it->second.Module );
+    }
+
+    std::optional<Assets::AssetGuidRef> VFXModuleLibrary::FindByName( const std::string_view name ) const
+    {
+        std::optional<Assets::AssetGuidRef> found;
+        for ( const auto& [key, entry] : m_Modules )
+        {
+            if ( entry.Module.DisplayName != name )
+                continue;
+            if ( found )
+                return std::nullopt;
+            found = Assets::AssetGuidRef{ Common::Content::AssetGuidToText( entry.Module.Guid ), entry.Path };
+        }
+        return found;
     }
 } // namespace Desert::VFX

@@ -128,7 +128,8 @@ namespace
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
     constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
                                                 ".destrings",  ".detheme",  ".derig",
-                                                ".retarget",   ".skeleton", ".defoliage" };
+                                                ".retarget",   ".skeleton", ".defoliage",
+                                                ".dfx" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -359,6 +360,7 @@ namespace
          TextHeaderGate{ ".danimgraph", "ANGR", Desert::Assets::kAnimGraphSchemaVersion },
          TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
+         TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -1469,6 +1471,27 @@ namespace Desert::Migration
                     }
                     out << ( check ? "would raise " : "raised " ) << path.string() << " SKEL " << stated.GetValue()
                         << " -> " << Desert::Assets::kSkeletonSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
+            if ( path.extension() == ".dfx" )
+            {
+                // VFXS 1 -> 3 (VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by {Guid, Path}.
+                const auto stated = ReadStatedVersion( path, text, "VFXS" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystemToModuleAssets( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS 1 -> " << Desert::Assets::kVFXSystemSchemaVersion
+                            << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 1 -> "
+                        << Desert::Assets::kVFXSystemSchemaVersion << " (module assets)\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
                     continue;

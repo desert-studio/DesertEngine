@@ -34,14 +34,14 @@ namespace
 
     S::VFXModuleUse Rate( float perSecond )
     {
-        return { std::string( VFX::kVFXSpawnRateModule ),
+        return { VFX::ModuleRef( VFX::kVFXSpawnRateModule ),
                  true,
                  { Value( "SpawnRate", S::VFXValueType::Float, perSecond ) } };
     }
 
     S::VFXModuleUse Burst( float count, float time )
     {
-        return { std::string( VFX::kVFXSpawnBurstModule ),
+        return { VFX::ModuleRef( VFX::kVFXSpawnBurstModule ),
                  true,
                  { Value( "SpawnCount", S::VFXValueType::Int, count ),
                    Value( "SpawnTime", S::VFXValueType::Float, time ) } };
@@ -179,8 +179,11 @@ TEST( VFXEmitterSpawn, AUserBindingReadsTheParameterDefault )
 TEST( VFXEmitterSpawn, RefusalsNameWhatIsWrong )
 {
     auto gpu                                      = System( { Rate( 1.0f ) } );
-    gpu.Emitters[0].Stack.EmitterUpdate[0].Module = "engine:Gravity";
-    EXPECT_NE( Refusal( gpu ).find( "engine:SpawnRate" ), std::string::npos );
+    gpu.Emitters[0].Stack.EmitterUpdate[0].Module = { "bd19bb728e4646919475240f1a19369d",
+                                                      "engine:Engine/VFX/Modules/Gravity.dfxmod" };
+    const auto gpuError                           = Refusal( gpu );
+    EXPECT_NE( gpuError.find( "Gravity.dfxmod" ), std::string::npos ) << gpuError;
+    EXPECT_NE( gpuError.find( "SpawnRate" ), std::string::npos ) << gpuError;
 
     auto missing = System( { Burst( 1, 0.0f ) } );
     missing.Emitters[0].Stack.EmitterUpdate[0].Inputs.pop_back();

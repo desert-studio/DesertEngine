@@ -133,24 +133,13 @@ namespace Desert::Assets::Serialization
             for ( std::size_t i = 0; i < group.size(); ++i )
             {
                 const VFXModuleUse& use = group[i];
-                const std::string   at  = std::format( "{} module {} '{}'", where, i, use.Module );
-                if ( use.Module.starts_with( kVFXEnginePrefix ) )
-                {
-                    if ( use.Module.size() == kVFXEnginePrefix.size() )
-                        return Common::MakeFormattedError<bool>( "{}: no engine module name", at );
-                }
-                else if ( use.Module.starts_with( kVFXLocalPrefix ) )
-                {
-                    const std::string_view id    = std::string_view( use.Module ).substr( kVFXLocalPrefix.size() );
-                    bool                   found = false;
-                    for ( const VFXLocalModule& m : system.LocalModules )
-                        found = found || m.Id == id;
-                    if ( !found )
-                        return Common::MakeFormattedError<bool>( "{}: names no LocalModules row", at );
-                }
-                else
-                    return Common::MakeFormattedError<bool>( "{}: Module is neither engine:<Name> nor local:<Id>",
-                                                             at );
+                const std::string   at  = std::format( "{} module {} '{}'", where, i, use.Module.Path );
+                if ( const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
+                     !guid || guid.GetValue().IsNull() )
+                    return Common::MakeFormattedError<bool>( "{}: Module GUID '{}' is not well-formed", at,
+                                                             use.Module.Guid );
+                if ( use.Module.Path.empty() )
+                    return Common::MakeFormattedError<bool>( "{}: Module {} states no Path", at, use.Module.Guid );
                 std::set<std::string> names;
                 for ( const VFXModuleInput& in : use.Inputs )
                 {
@@ -208,11 +197,6 @@ namespace Desert::Assets::Serialization
             if ( auto ok = CheckValue( p.Default, p.Type, std::format( "User.{} Default", p.Name ) ); !ok )
                 return ok;
         }
-
-        std::set<std::string> modules;
-        for ( const VFXLocalModule& m : data.LocalModules )
-            if ( m.Id.empty() || !modules.insert( m.Id ).second )
-                return Common::MakeFormattedError<bool>( "local module id '{}' is empty or repeated", m.Id );
 
         std::set<std::string> emitters;
         for ( const VFXEmitterData& e : data.Emitters )
@@ -292,12 +276,25 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // A v1 system references no other asset, so a stated Dependency is an edge to nothing it names.
-        if ( data.Header && !data.Header->Dependencies.empty() )
-            return Common::MakeFormattedError<VFXSystemData>( "the header states {} Dependencies; a VFX system "
-                                                              "references no asset",
-                                                              data.Header->Dependencies.size() );
+        // The header's Dependencies are the cook's and the packager's edges (ContentRegistry::Closure): a module
+        // a row names and the header leaves out would be missing from a packaged game, so they must agree.
+        if ( const std::vector<std::string> expected = VFXSystemDependencies( data );
+             !data.Header || data.Header->Dependencies != expected )
+            return Common::MakeFormattedError<VFXSystemData>(
+                 "the header states {} Dependencies but the stacks name {} module(s); they must be exactly the "
+                 "modules' GUIDs, sorted - run Tools/SceneMigrator",
+                 data.Header ? data.Header->Dependencies.size() : std::size_t{ 0 }, expected.size() );
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
+    {
+        std::set<std::string> guids;
+        for ( const VFXEmitterData& e : data.Emitters )
+            for ( const auto* group : { &e.Stack.EmitterUpdate, &e.Stack.ParticleSpawn, &e.Stack.ParticleUpdate } )
+                for ( const VFXModuleUse& use : *group )
+                    guids.insert( use.Module.Guid );
+        return { guids.begin(), guids.end() };
     }
 
     std::string WriteVFXSystem( const VFXSystemData& data )
@@ -305,7 +302,7 @@ namespace Desert::Assets::Serialization
         VFXSystemData out = data;
         out.Header        = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::VFXSystem,
                                                      VFXSystemTextSubsystems() );
-        out.Header->Dependencies.clear();
+        out.Header->Dependencies = VFXSystemDependencies( data );
         return Common::Json::Write( out );
     }
 

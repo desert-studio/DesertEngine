@@ -8,6 +8,7 @@
 // drawing — belongs to later cards (VFX-04..08); this file states what an author made and nothing else.
 
 #include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -34,6 +35,11 @@ namespace Desert::Assets::Serialization
      *
      *   1 - VFX-02: system (Category, Tags, Duration, Loop, Seed, Bounds, UserParams, LocalModules, Emitters),
      *       emitters with lifecycle, the three-group module stack and renderer rows.
+     *   3 - VFX-MODULE-ASSET: a stack row names its module as {Guid, Path} of a `.dfxmod` (the engine's module
+     *       library or the project's own), the header's Dependencies are exactly the set of those GUIDs, and
+     *       LocalModules is gone (a system-local module is a project `.dfxmod`). Raised by Tools/SceneMigrator
+     *       (MigrateVFXSystemToModuleAssets): engine:<Name> becomes the GUID of <Name>.dfxmod in the engine module
+     *       library.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -48,15 +54,12 @@ namespace Desert::Assets::Serialization
         return versions;
     }
 
-    /// The spellings a stack row uses: a module reference is "engine:<Name>" or "local:<Id>", a binding is
-    /// "User.<param>" or "Particles.<attribute>". The reader validates them and the stack compiler (VFX-04)
-    /// resolves them, so both read these.
-    inline constexpr std::string_view kVFXEnginePrefix    = "engine:";
-    inline constexpr std::string_view kVFXLocalPrefix     = "local:";
+    /// The spellings a stack row's binding uses: "User.<param>" or "Particles.<attribute>". The reader validates
+    /// them and the stack compiler (VFX-04) resolves them, so both read these.
     inline constexpr std::string_view kVFXUserPrefix      = "User.";
     inline constexpr std::string_view kVFXParticlesPrefix = "Particles.";
     /// "DataChannel.<channel>" names a scene data channel (a `.dfxch` by file stem),
-    /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, engine:SpawnFromChannel;
+    /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, the SpawnFromChannel module;
     /// VFX/VFXDataChannel.hpp).
     inline constexpr std::string_view kVFXDataChannelPrefix = "DataChannel.";
 
@@ -126,11 +129,12 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXModuleInput& ) const = default;
     };
 
-    /// One module in a stack group. Module is "engine:<Name>" (the engine module library) or "local:<Id>"
-    /// (a LocalModules row of this system — UE's Scratch Pad, a module that lives inside the system).
+    /// One module in a stack group: the `.dfxmod` it runs, by its header GUID (UE: the module script a
+    /// FNiagaraModuleScript node names), with the path it had when the row was written - relative to the content
+    /// root the module was found under (the engine mount or the project's assets) - for the reader and messages.
     struct VFXModuleUse
     {
-        std::string                 Module;
+        Assets::AssetGuidRef        Module;
         bool                        Enabled = true;
         std::vector<VFXModuleInput> Inputs;
 
@@ -210,16 +214,6 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXUserParam& ) const = default;
     };
 
-    /// A module that lives inside the system (UE Scratch Pad): its DSL fragment in the Particle domain.
-    struct VFXLocalModule
-    {
-        std::string Id;
-        std::string DisplayName;
-        std::string Source;
-
-        [[nodiscard]] bool operator==( const VFXLocalModule& ) const = default;
-    };
-
     /// The fixed bounds of the whole system in its local space, centimetres (GPU emitters need fixed bounds).
     struct VFXBounds
     {
@@ -270,7 +264,6 @@ namespace Desert::Assets::Serialization
         uint32_t                    Seed     = 0;
         VFXBounds                   Bounds;
         std::vector<VFXUserParam>   UserParams;
-        std::vector<VFXLocalModule> LocalModules;
         std::vector<VFXEmitterData> Emitters;
 
         [[nodiscard]] bool operator==( const VFXSystemData& ) const = default;
@@ -278,6 +271,9 @@ namespace Desert::Assets::Serialization
 
     /// Rejects what no later stage could honour, naming the emitter, group, module and input.
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data );
+
+    /// What the header's Dependencies state: the GUID of every module a stack row names, each once, sorted.
+    [[nodiscard]] std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data );
 
     /// Parses a `.dfx`. A file without a header, of another version or kind, that states any Dependencies
     /// (a v1 system references no other asset), or that fails validation is an error naming why.

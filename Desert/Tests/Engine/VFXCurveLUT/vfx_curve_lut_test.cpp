@@ -151,15 +151,15 @@ TEST( VFXCurveLUT, TheAtlasHoldsEveryEnabledParticleCurveAtItsOwnOffset )
     S::VFXEmitterData a;
     S::VFXEmitterData b;
     a.Stack.ParticleSpawn.push_back(
-         { "engine:A",
+         { { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assets:VFX/Modules/A.dfxmod" },
            true,
            { value, curve( "Size", S::VFXValueType::Float, { { Key( 0, 1 ), Key( 1, 2 ) } } ) } } );
     a.Stack.ParticleUpdate.push_back(
-         { "engine:B", false, { curve( "Off", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
+         { { "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "assets:VFX/Modules/B.dfxmod" }, false, { curve( "Off", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
     a.Stack.EmitterUpdate.push_back(
-         { "engine:C", true, { curve( "Rate", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
+         { { "cccccccccccccccccccccccccccccccc", "assets:VFX/Modules/C.dfxmod" }, true, { curve( "Rate", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
     b.Stack.ParticleUpdate.push_back(
-         { "engine:D",
+         { { "dddddddddddddddddddddddddddddddd", "assets:VFX/Modules/D.dfxmod" },
            true,
            { curve( "Color", S::VFXValueType::Vec2, { { Key( 0, 0 ), Key( 1, 1 ) }, { Key( 0, 5 ) } } ) } } );
     system.Emitters = { a, b };
