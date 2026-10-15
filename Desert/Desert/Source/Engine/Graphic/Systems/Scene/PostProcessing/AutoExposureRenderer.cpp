@@ -2,7 +2,10 @@
 
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Texture.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <cstdint>
 
@@ -143,17 +146,47 @@ namespace Desert::Graphic::System
     }
 
     void AutoExposureRenderer::DeclareHistogramBindings( RDG::PassBuilder& pass, RDG::TextureRef scene,
-                                                         RDG::BufferRef histogram ) const
+                                                         RDG::BufferRef  histogram,
+                                                         RDG::TextureRef meterMask ) const
     {
         if ( !m_HistogramPipeline )
             return;
-        // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
+        // The shader reads scene texels with texelFetch: no filtering or addressing applies, PointClamp states
+        // that. The mask is UE's: bilinear, clamped (PostProcessEyeAdaptation.cpp:805).
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
              .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::PointClamp() )
+             .Sampled( "u_MeterMask", meterMask, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                       RDG::SamplerDesc::LinearClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
+    }
+
+    std::shared_ptr<Image> AutoExposureRenderer::MeterMaskImage() const
+    {
+        const Assets::AssetHandle& mask = m_Settings.AutoExposureMeterMask;
+        if ( mask.IsNull() )
+            return nullptr;
+        auto* const textures = Runtime::ResourceRegistry::GetTextureService();
+        auto* const images   = Runtime::ResourceRegistry::GetImageService();
+        if ( textures == nullptr || images == nullptr )
+            return nullptr;
+        const Assets::AssetRef<Texture2D> texture = textures->Require( mask );
+        if ( texture.IsPending() )
+            return nullptr;
+        if ( !texture.IsValid() )
+        {
+            if ( static_cast<uint64_t>( m_ReportedMissingMeterMask ) != static_cast<uint64_t>( mask ) )
+            {
+                LOG_ERROR( "[AutoExposure] the metering mask {} is not a texture of this project; the view meters "
+                           "every texel alike until it is",
+                           mask.ToString() );
+                m_ReportedMissingMeterMask = mask;
+            }
+            return nullptr;
+        }
+        return images->Share( texture.Get()->GetImageHandle() );
     }
 
     Common::BoolResultStr AutoExposureRenderer::RecordHistogram( const RDG::PassContext& context, uint32_t width,

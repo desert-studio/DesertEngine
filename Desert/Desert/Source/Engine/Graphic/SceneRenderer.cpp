@@ -852,6 +852,8 @@ namespace Desert::Graphic
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetGrade( post );
+        // The output device the editor primitives are encoded for after the tonemap (AddFrameEditorPrimitives).
+        m_DisplayGamma = post.Gamma;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] )->SetGrade( post );
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
@@ -1293,9 +1295,10 @@ namespace Desert::Graphic
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
         // THE METER READS THE SCENE, NOT WHAT IS DRAWN OVER IT. Passes run in the order they are added
-        // (RDGCompile.cpp: never reordered), so the histogram is added here, before the dev views, the debug
-        // lines, the editor's Overlay passes (colliders, tool preview, cubemap preview) and the UI canvas draw into
-        // the same image: as UE meters scene colour before editor primitives and UI are composited. Added after
+        // (RDGCompile.cpp: never reordered), so the histogram is added here, before the dev views, the HDR Overlay
+        // passes (the cubemap preview) and the UI canvas draw into the same image (the editor primitives never do:
+        // they draw after the tonemap, AddFrameEditorPrimitives): as UE meters scene colour before editor
+        // primitives and UI are composited. Added after
         // them, those overlays fed the exposure, and how much of the screen they cover changes with the view.
         AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
 #if DESERT_DEV_INSTRUMENTS
@@ -1308,13 +1311,9 @@ namespace Desert::Graphic
                                   postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
-#if DESERT_DEV_INSTRUMENTS
-        // The engine's debug lines (bounding boxes), the first overlay.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
-            AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
-#endif // DESERT_DEV_INSTRUMENTS
-       // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
+        // The HDR overlays that must be exposed and tonemapped like the scene (the cubemap preview shows
+        // radiance). The editor primitives (grid, colliders, tool previews, debug lines) are NOT here: they draw
+        // after the tonemap (AddFrameEditorPrimitives), so no editor-only pixel reaches the bloom or any HDR pass.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
         // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
@@ -1342,6 +1341,9 @@ namespace Desert::Graphic
         {
             AddFrameSMAA( graph, textures );
         }
+        // The editor primitives over the display image, last (UE: EPass::EditorPrimitive after the tonemap and
+        // FXAA).
+        AddFrameEditorPrimitives( graph, textures, overlay );
         // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
         if ( const auto extracted =
                   textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
@@ -1811,7 +1813,8 @@ namespace Desert::Graphic
                                                  "the resolve is single-sample",
                                                  samples ) );
         if ( !m_PopulateSceneDepth )
-            m_PopulateSceneDepth = std::make_unique<System::PopulateSceneDepthRenderer>();
+            m_PopulateSceneDepth = std::make_unique<System::PopulateSceneDepthRenderer>(
+                 System::PopulateSceneDepthRenderer::OverlayLayout(), "PopulateSceneDepth" );
         if ( const Common::BoolResultStr prepared = m_PopulateSceneDepth->Prepare(); !prepared )
             return withoutTemporal( prepared.GetError() );
         // Registered every frame the method runs: EndFrame reads which Current a fault lost. The spatial upscale

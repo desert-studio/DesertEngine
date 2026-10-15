@@ -18,9 +18,11 @@ namespace Desert::Graphic
     class SceneRenderer;
 
     // Per-frame data handed to an extension pass (the editor's grid, colliders, UI canvas...) when the render
-    // graph executes it. The pass draws into Target - the HDR scene framebuffer with the geometry depth attached
-    // (after the temporal resolve, the graph substitutes the output-extent overlay set for it) - so its output is
-    // depth-occluded by the scene and feeds the normal post-process chain.
+    // graph executes it. Before the tonemap the pass draws into Target - the HDR scene framebuffer with the
+    // geometry depth attached (after the temporal resolve, the graph substitutes the output-extent overlay set for
+    // it) - so its output is depth-occluded by the scene and feeds the normal post-process chain. At
+    // RDG::ExtensionPoint::EditorPrimitives the graph substitutes the editor primitives' target set instead
+    // (EditorPrimitivesLayout, after the tonemap); Target and Depth still name the scene framebuffer.
     struct ExtensionPassContext
     {
         const Core::Camera* Camera       = nullptr; // THIS VIEW's camera (editor or gameplay)

@@ -3,6 +3,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 
 namespace Desert::Graphic::ViewTargetFormats
@@ -54,6 +55,15 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kJFASeed        = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA8F;
+    // THE EDITOR PRIMITIVES' TARGET (UE SceneTextures.cpp:817-822, Editor.PrimitivesColor / PrimitivesDepth): the
+    // grid, colliders, tool previews and debug lines draw here after the tonemap, in DISPLAY-LINEAR colour
+    // (premultiplied by the blend, coverage in alpha; UE PF_B8G8R8A8), against the scene depth populated into
+    // their own depth, and "Editor: CompositeEditorPrimitives" puts them over the display image. Multisampled
+    // as UE's r.MSAA.CompositingSampleCount (default 4; Vulkan guarantees 4 samples for colour, depth and
+    // sampled images: VkPhysicalDeviceLimits framebuffer*/sampledImage*SampleCounts).
+    inline constexpr ImageFormat kEditorPrimitiveColor   = ImageFormat::RGBA8F;
+    inline constexpr ImageFormat kEditorPrimitiveDepth   = kSceneDepth;
+    inline constexpr uint32_t    kEditorPrimitiveSamples = 4;
     inline constexpr ImageFormat kSMAAEdges      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;

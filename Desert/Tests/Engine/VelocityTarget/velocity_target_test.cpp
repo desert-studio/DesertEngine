@@ -847,7 +847,7 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
     using VelocityTargetTest::ReadFile;
     const auto                  root = Desert::TestSupport::RepositoryRoot();
     const std::filesystem::path E    = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
-    // file -> how many pipelines in it draw into a view target (scene target or G-buffer)
+    // file -> how many pipelines in it draw into a view target (scene target, G-buffer or editor primitives)
     const std::map<std::filesystem::path, int> sites = {
          { E / "Skybox/SkyboxRenderer.cpp", 2 },
          { E / "Mesh/MeshRendererForward.cpp", 5 },
@@ -864,7 +864,7 @@ TEST( VelocityTarget, NoViewTargetPipelineNamesAFramebuffer )
          { "Editor/Source/Editor/RenderSystems/Passes/EditorCubemapPreviewPass.cpp", 1 },
     };
     const std::regex layout(
-         R"(\.TargetLayout\s*=\s*(Desert::Graphic::)?(SceneTargetLayout|GBufferLayout)\(\)|\.TargetLayout\s*=\s*layout;)" );
+         R"(\.TargetLayout\s*=\s*(Desert::Graphic::)?(SceneTargetLayout|GBufferLayout|EditorPrimitivesLayout)\(\)|\.TargetLayout\s*=\s*layout;)" );
     // A view target named as a pipeline's Framebuffer (the names those sites held before).
     const std::regex framebuffer(
          R"(\.Framebuffer\s*=\s*(target|targetFb|compositeFramebuffer|gbuffer|framebuffer|scene->GetTargetFramebuffer\(\))\s*;)" );
@@ -1024,17 +1024,16 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
     const std::filesystem::path E  = root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene";
     const std::filesystem::path Ed = root / "Editor/Source/Editor/RenderSystems/Passes";
     // shader name -> the site that builds its scene-target pipeline; the comment is why it owes no velocity.
+    // The editor primitives (DebugLine, Grid) draw into their own target after the tonemap
+    // (EditorPrimitivesLayout, no velocity slot) and are not on this list.
     const std::vector<std::pair<std::string, std::filesystem::path>> mustNotWrite = {
          { "Skybox", E / "Skybox/SkyboxRenderer.cpp" },                       // sky
          { "ProceduralSky", E / "Skybox/SkyboxRenderer.cpp" },                // sky
          { "HeightFogApply", E / "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
          { "CloudComposite", E / "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
          { "DeferredLighting", E / "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
-         { "DebugLine", E / "Mesh/MeshRendererDebug.cpp" },                   // debug lines
          { "OverdrawResolve", E / "Mesh/MeshRendererDebug.cpp" },             // debug view
          { "ParticleSpriteDefault", E / "Particles/ParticleRenderer.cpp" },   // translucent particles
-         { "Grid", Ed / "EditorGridPass.cpp" },                               // editor overlay
-         { "DebugLine", Ed / "EditorColliderPass.cpp" },                      // editor overlay
          { "CubemapSphere", Ed / "EditorCubemapPreviewPass.cpp" },            // editor overlay
     };
 

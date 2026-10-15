@@ -9,6 +9,8 @@
 
 #include <format>
 #include <memory>
+#include <string>
+#include <utility>
 
 namespace Desert::Graphic
 {
@@ -30,11 +32,29 @@ namespace Desert::Graphic::System
     // scene at any render scale, 100 % included (one path). Its target layout is the overlay set's: colour 0
     // velocity (kVelocity, written as no motion), depth kSceneDepth, one sample.
     //
-    // Not a RenderSystem: it registers no pass and has no framebuffer; the SceneRenderer owns one and the graph
-    // owns the targets. The pipeline is made on first use (Prepare), an error names why it could not be.
+    // The same node fills the EDITOR PRIMITIVES' depth (UE PostProcessCompositePrimitivesCommon.cpp
+    // PopulateDepthPass, "Editor: PopulateDepth"): the output-extent unjittered scene depth into the multisampled
+    // editor depth, colour 0 the editor colour cleared transparent (EditorPrimitivesLayout) - one pipeline per
+    // target layout, one renderer each.
+    //
+    // Not a RenderSystem: it registers no pass and has no framebuffer; the SceneRenderer owns one per layout and
+    // the graph owns the targets. The pipeline is made on first use (Prepare), an error names why it could not be.
     class PopulateSceneDepthRenderer final
     {
     public:
+        // The overlay set's layout: colour 0 the overlay velocity, the scene depth, one sample.
+        [[nodiscard]] static RenderTargetLayout OverlayLayout()
+        {
+            return RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kVelocity },
+                                       .DepthFormat  = ViewTargetFormats::kSceneDepth,
+                                       .Samples      = 1 };
+        }
+
+        PopulateSceneDepthRenderer( RenderTargetLayout layout, std::string debugName )
+             : m_Layout( std::move( layout ) ), m_DebugName( std::move( debugName ) )
+        {
+        }
+
         [[nodiscard]] Common::BoolResultStr Prepare()
         {
             if ( m_Pipeline )
@@ -43,17 +63,15 @@ namespace Desert::Graphic::System
             if ( !m_Shader )
                 return Common::MakeError( "PopulateSceneDepth shader not found" );
             GraphicsPipelineSpecification pipelineSpec;
-            pipelineSpec.DebugName         = "PopulateSceneDepth";
-            pipelineSpec.TargetLayout      = RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kVelocity },
-                                                                 .DepthFormat  = ViewTargetFormats::kSceneDepth,
-                                                                 .Samples      = 1 };
+            pipelineSpec.DebugName         = m_DebugName;
+            pipelineSpec.TargetLayout      = m_Layout;
             pipelineSpec.Shader            = m_Shader;
             pipelineSpec.DepthTestEnabled  = true;
             pipelineSpec.DepthCompareOp    = CompareOp::Always;
             pipelineSpec.DepthWriteEnabled = true;
             const auto pipeline            = Graphic::GraphicsPipeline::Create( pipelineSpec );
             if ( !pipeline )
-                return Common::MakeError( std::format( "PopulateSceneDepth pipeline: {}", pipeline.GetError() ) );
+                return Common::MakeError( std::format( "{} pipeline: {}", m_DebugName, pipeline.GetError() ) );
             m_Pipeline = pipeline.GetValue();
             m_Material = std::make_unique<MaterialPopulateSceneDepth>();
             return BOOLSUCCESS;
@@ -81,6 +99,8 @@ namespace Desert::Graphic::System
         }
 
     private:
+        RenderTargetLayout                          m_Layout;
+        std::string                                 m_DebugName;
         std::shared_ptr<Shader>                     m_Shader;
         mutable ShaderBindingLayoutCache            m_BindingLayout;
         std::shared_ptr<GraphicsPipeline>           m_Pipeline;

@@ -1,5 +1,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -169,9 +171,13 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass ) { autoExp->DeclareClearBindings( pass, histogram ); },
              [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordClear( context ); } );
+        // UE's metering mask (AutoExposureMeterMask), or its white dummy: every texel weighs 1.
+        const RDG::TextureRef meterMaskImported =
+             textures.Import( autoExp->MeterMaskImage(), "AutoExposure.MeterMask" );
+        const RDG::TextureRef meterMask = meterMaskImported.IsValid() ? meterMaskImported : textures.System.White;
         graph.AddPass(
-             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass ) { autoExp->DeclareHistogramBindings( pass, scene, histogram ); },
+             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+             { autoExp->DeclareHistogramBindings( pass, scene, histogram, meterMask ); },
              [autoExp, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
@@ -516,5 +522,126 @@ namespace Desert::Graphic
                  { return backdrop->RecordDownsample( context, pyramidDesc, mip ); } );
         // The UI extension point samples the pyramid: the caller declares that read on the UI passes.
         return pyramid;
+    }
+
+    void SceneRenderer::AddFrameEditorPrimitives( RDG::Builder& graph, FrameTextures& textures,
+                                                  const OverlayTargets& overlay )
+    {
+        // Outside a BeginScene/EndScene bracket there is no scene and no target to take the depth of. A reflection
+        // capture's face view shows the game scene only, never an editor primitive.
+        if ( !m_TargetFramebuffer || m_ViewProfile.SceneCapture )
+            return;
+        // What draws here this frame: the engine's debug lines (a developer build that shows them) and the passes
+        // registered at the point. None: no node and no target.
+        std::vector<SystemRasterPass> engine;
+#if DESERT_DEV_INSTRUMENTS
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+             mesh != nullptr && mesh->DrawsDebugLines() )
+            engine.push_back( mesh->DebugLinesPass() );
+#endif // DESERT_DEV_INSTRUMENTS
+        bool registered = false;
+        if ( m_FrameExtensions )
+            m_FrameExtensions->ForEachAt( RDG::ExtensionPoint::EditorPrimitives,
+                                          [&registered]( const ExtensionPass& ) { registered = true; } );
+        if ( engine.empty() && !registered )
+            return;
+
+        // THE DEPTH THEY TEST AGAINST: the scene's, at the display extent and unjittered (UE PopulateDepthPass
+        // reads the temporally upsampled depth). After a resolve that is the overlay depth PopulateSceneDepth
+        // filled; without one the scene target is at the display extent and never jittered: its depth, or at MSAA
+        // the single-sample depth the scene depth resolve wrote.
+        RDG::TextureRef sceneDepth;
+        if ( overlay.IsValid() )
+            sceneDepth = overlay.Depth;
+        else if ( m_TargetFramebuffer->GetSpecification().Samples > 1 )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* resolve =
+                 UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
+            if ( resolve == nullptr || !resolve->IsReady() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] {}: no editor primitives this frame: the scene target has {} samples and "
+                     "the scene depth resolve the editor primitives test against does not exist",
+                     m_ViewResources.GetName(), m_TargetFramebuffer->GetSpecification().Samples );
+                return;
+            }
+            sceneDepth = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
+        }
+        else
+            sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const RDG::TextureRef display = textures.Import( GetFinalImage(), "final image" );
+        if ( !sceneDepth.IsValid() || !display.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: no editor primitives this frame: the {} is not in the graph",
+                       m_ViewResources.GetName(), sceneDepth.IsValid() ? "display image" : "scene depth" );
+            return;
+        }
+        const Common::ResultStr<RDG::TextureDesc> displayDesc = graph.GetTextureDesc( display );
+        if ( !displayDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: no editor primitives this frame: {}", m_ViewResources.GetName(),
+                       displayDesc.GetError() );
+            return;
+        }
+
+        if ( !m_PopulateEditorDepth )
+            m_PopulateEditorDepth = std::make_unique<System::PopulateSceneDepthRenderer>(
+                 EditorPrimitivesLayout(), "Editor: PopulateDepth" );
+        if ( !m_EditorPrimitivesComposite )
+            m_EditorPrimitivesComposite = std::make_unique<System::EditorPrimitivesCompositeRenderer>();
+        if ( const Common::BoolResultStr prepared = m_PopulateEditorDepth->Prepare(); !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: no editor primitives this frame: {}", m_ViewResources.GetName(),
+                       prepared.GetError() );
+            return;
+        }
+        if ( const Common::BoolResultStr prepared = m_EditorPrimitivesComposite->Prepare(); !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: no editor primitives this frame: {}", m_ViewResources.GetName(),
+                       prepared.GetError() );
+            return;
+        }
+
+        // UE SceneTextures.cpp:817-822: Editor.PrimitivesColor (cleared transparent) and Editor.PrimitivesDepth,
+        // at the display extent, r.MSAA.CompositingSampleCount samples.
+        EditorPrimitiveTargets editor;
+        RDG::TextureDesc       desc;
+        desc.Size    = RDG::Extent3D{ displayDesc.GetValue().Size.Width, displayDesc.GetValue().Size.Height, 1 };
+        desc.Samples = ViewTargetFormats::kEditorPrimitiveSamples;
+        desc.Format  = ViewTargetFormats::kEditorPrimitiveColor;
+        editor.Color = graph.CreateTexture( desc, "Editor.PrimitivesColor" );
+        desc.Format  = ViewTargetFormats::kEditorPrimitiveDepth;
+        editor.Depth = graph.CreateTexture( desc, "Editor.PrimitivesDepth" );
+
+        const System::PopulateSceneDepthRenderer* populate = m_PopulateEditorDepth.get();
+        graph.AddPass(
+             "Editor: PopulateDepth", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 populate->DeclareBindings( pass, sceneDepth );
+                 pass.ColorTarget( 0, editor.Color, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 pass.DepthTarget( editor.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), /*write*/ true );
+             },
+             [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return populate->Record( context ); } );
+
+        // The engine's debug lines first, then the registered passes in registration order: all LOAD the targets.
+        AddSystemRasters( graph, textures, engine, false, {}, editor );
+        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::EditorPrimitives, {}, editor );
+
+        const System::EditorPrimitivesCompositeRenderer* composite = m_EditorPrimitivesComposite.get();
+        const float                                      gamma     = m_DisplayGamma;
+        graph.AddPass(
+             "Editor: CompositeEditorPrimitives", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 composite->DeclareBindings( pass, editor.Color, editor.Depth, sceneDepth, gamma );
+                 // Blended over what the tonemap / AA wrote: the old contents are loaded.
+                 pass.ColorTarget( 0, display, RDG::LoadOp::Load() );
+             },
+             [composite]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return composite->Record( context ); } );
     }
 } // namespace Desert::Graphic

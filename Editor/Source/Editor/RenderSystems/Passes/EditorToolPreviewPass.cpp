@@ -126,7 +126,8 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification faces;
         faces.DebugName         = "EditorToolPreviewFaces";
         faces.Shader            = shader;
-        faces.TargetLayout      = Desert::Graphic::SceneTargetLayout();
+        // An editor primitive: drawn after the tonemap (SceneRenderer::AddFrameEditorPrimitives).
+        faces.TargetLayout      = Desert::Graphic::EditorPrimitivesLayout();
         faces.Topology          = Graphic::PrimitiveTopology::Triangles;
         faces.DepthTestEnabled  = true;
         faces.DepthWriteEnabled = false;
@@ -159,11 +160,11 @@ namespace Desert::Editor::Render
         m_FaceMaterial = std::make_unique<Graphic::MaterialDebugLine>();
         m_EdgeMaterial = std::make_unique<Graphic::MaterialDebugLine>();
 
-        // After the temporal resolve, as the editor's collider lines: an authoring aid drawn unjittered over the
-        // resolved scene, depth-tested against it.
+        // An editor primitive, as the editor's collider lines: drawn after the tonemap, unjittered, depth-tested
+        // against the scene depth populated into the editor primitives' target, composited over the display image.
         Graphic::ExtensionPass pass;
         pass.Name    = kPassName;
-        pass.Point   = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Point   = Graphic::RDG::ExtensionPoint::EditorPrimitives;
         pass.Execute = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {

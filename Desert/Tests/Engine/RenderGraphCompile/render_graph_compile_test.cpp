@@ -2419,8 +2419,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: AutoExposureHistogram",
          "PostFX: AutoExposureAverage",
          "Debug: Velocity",
-         // The engine's debug lines (bounding boxes), the first overlay, below the editor's.
-         "system[mesh->DebugLinesPass()]",
          "extension[Overlay]",
          "UI: BackdropBlur{}",
          "extension[UI]",
@@ -2440,6 +2438,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: SMAAEdges",
          "PostFX: SMAAWeights",
          "PostFX: SMAABlend",
+         // AE-METER-2: the editor primitives after the tonemap and the AA (UE EPass::EditorPrimitive): the editor
+         // depth populated from the scene depth, the engine's debug lines, the registered passes, the composite.
+         "system[mesh->DebugLinesPass()]",
+         "Editor: PopulateDepth",
+         "rasters[engine,false,{},editor]",
+         "extension[EditorPrimitives]",
+         "Editor: CompositeEditorPrimitives",
     };
     EXPECT_EQ( added, frameOrder );
 
@@ -2511,8 +2516,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                 "returnwithoutTemporal(prepared.GetError());" } );
     declares( "OnUpdate",
               { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
-                "AddSystemRaster(graph,textures,mesh->DebugLinesPass(),overlay);",
                 "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::Overlay,overlay);",
+                "AddFrameEditorPrimitives(graph,textures,overlay);",
                 "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::UI,overlay);",
                 // The one resolution function, the render set resized to the frame's split, the velocity at it.
                 "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
@@ -4412,7 +4417,8 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph
     EXPECT_EQ( body.find( "ImportHistogram" ), std::string::npos ) << "the histogram is not an import any more";
     // The accesses are the setup-declared blocks' entries (RDG-FAULT1 C3b): each node's setup declares its block.
     EXPECT_NE( body.find( "autoExp->DeclareClearBindings(pass,histogram);" ), std::string::npos );
-    EXPECT_NE( body.find( "autoExp->DeclareHistogramBindings(pass,scene,histogram);" ), std::string::npos );
+    EXPECT_NE( body.find( "autoExp->DeclareHistogramBindings(pass,scene,histogram,meterMask);" ),
+               std::string::npos );
     EXPECT_NE( body.find( "autoExp->DeclareAverageBindings(pass,histogram,previous,adapted);" ),
                std::string::npos );
     EXPECT_EQ( body.find( "NeverCull" ), std::string::npos );

@@ -79,7 +79,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                           const std::span<const SystemRasterPass> passes, const bool clearFirst,
-                                          const OverlayTargets& overlay )
+                                          const OverlayTargets& overlay, const EditorPrimitiveTargets& editor )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
         // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
@@ -108,14 +108,15 @@ namespace Desert::Graphic
             const RDG::LoadOp depth =
                  clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
                         : RDG::LoadOp::Load();
-            AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
+            AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay, editor );
         }
     }
 
     void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                                         const SystemRasterPass& pass, const OverlayTargets& overlay )
+                                         const SystemRasterPass& pass, const OverlayTargets& overlay,
+                                         const EditorPrimitiveTargets& editor )
     {
-        AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &pass, 1 ), false, overlay );
+        AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &pass, 1 ), false, overlay, editor );
     }
 
     void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
@@ -206,7 +207,8 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
-                                           const RDG::ExtensionPoint point, const OverlayTargets& overlay )
+                                           const RDG::ExtensionPoint point, const OverlayTargets& overlay,
+                                           const EditorPrimitiveTargets& editor )
     {
         // Outside a BeginScene/EndScene bracket there is no scene, so no extension passes; without a scene target
         // there is nothing for them to draw over.
@@ -248,14 +250,14 @@ namespace Desert::Graphic
                                                                             const FrameGraphRefs&  refs )
                      { declare( declared, context( refs ) ); };
                  AddPassNode( graph, textures, node, m_TargetFramebuffer, node.Name, RDG::LoadOp::Load(),
-                              RDG::LoadOp::Load(), overlay );
+                              RDG::LoadOp::Load(), overlay, editor );
              } );
     }
 
     void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
                                      const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                                     const OverlayTargets& overlay )
+                                     const OverlayTargets& overlay, const EditorPrimitiveTargets& editor )
     {
         // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
         const bool                   layered = pass.TargetDepthArray.IsValid();
@@ -274,7 +276,17 @@ namespace Desert::Graphic
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
         // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
         // resolves).
-        if ( overlay.IsValid() && target == m_TargetFramebuffer )
+        // The editor primitives draw into their own target set instead (EditorPrimitivesLayout: one display-linear
+        // colour and the populated multisampled depth, the extent of the display image): every attachment
+        // replaced, nothing resolved - the composite reads the samples.
+        if ( editor.IsValid() && target == m_TargetFramebuffer )
+        {
+            RasterTargets primitives;
+            primitives.Colors = { editor.Color };
+            primitives.Depth  = editor.Depth;
+            targets           = std::move( primitives );
+        }
+        else if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
             if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
             {

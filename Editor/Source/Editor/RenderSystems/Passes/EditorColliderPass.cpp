@@ -71,13 +71,15 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorColliderPipeline";
         spec.Shader            = shader;
-        spec.TargetLayout      = Desert::Graphic::SceneTargetLayout();
+        // An editor primitive: drawn after the tonemap (SceneRenderer::AddFrameEditorPrimitives).
+        spec.TargetLayout      = Desert::Graphic::EditorPrimitivesLayout();
         spec.Topology          = Graphic::PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // no wideLines feature — width stays 1.0 in SubmitPulled
         spec.DepthTestEnabled  = true; // colliders occlude behind geometry (the old ImGui gizmo didn't)
         spec.DepthWriteEnabled = false;
         spec.DepthCompareOp    = Graphic::DepthCompare::CloserOrEqual;
         spec.CullMode          = Graphic::CullMode::None;
+        spec.BlendEnable       = true; // premultiplied colour + coverage over the editor primitives' clear
         // No vertex layout: the DebugLine shader pulls endpoints from the Lines storage buffer by index.
 
         const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
@@ -89,7 +91,7 @@ namespace Desert::Editor::Render
 
         Graphic::ExtensionPass pass;
         pass.Name                  = "EditorColliders";
-        pass.Point                 = Graphic::RDG::ExtensionPoint::Overlay;
+        pass.Point                 = Graphic::RDG::ExtensionPoint::EditorPrimitives;
         pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {

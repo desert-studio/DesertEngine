@@ -88,6 +88,12 @@ namespace Desert::Core
         }
 
         // ── THE WORLD ─────────────────────────────────────────────────────────────────────────────────
+        // A post-process volume's metering mask: the auto-exposure binds it every frame the volume is blended in.
+        for ( const auto entity : registry.view<ECS::PostProcessVolumeComponent>() )
+            roots.Mark(
+                 registry.get<ECS::PostProcessVolumeComponent>( entity ).Data.Settings.AutoExposureMeterMask,
+                 "a PostProcessVolume meters its exposure through it" );
+
         for ( const auto entity : registry.view<ECS::SkyboxComponent>() )
             roots.Mark( registry.get<ECS::SkyboxComponent>( entity ).SkyboxHandle,
                         "a SkyboxComponent is the scene's environment" );

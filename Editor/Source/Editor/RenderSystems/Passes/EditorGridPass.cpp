@@ -25,12 +25,13 @@ namespace Desert::Editor::Render
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = "EditorGridPipeline";
         spec.Shader            = shader;
-        spec.TargetLayout      = Desert::Graphic::SceneTargetLayout();
+        // An editor primitive: drawn after the tonemap (SceneRenderer::AddFrameEditorPrimitives).
+        spec.TargetLayout      = Desert::Graphic::EditorPrimitivesLayout();
         spec.DepthTestEnabled  = true;  // occluded by opaque geometry
         spec.DepthWriteEnabled = false; // overlay; don't write depth
         spec.DepthCompareOp    = Graphic::DepthCompare::Closer;
         spec.CullMode          = Graphic::CullMode::None;
-        spec.BlendEnable       = true; // alpha-composite the lines over the scene
+        spec.BlendEnable       = true; // premultiplied colour + coverage over the editor primitives' clear
 
         const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
         if ( !pipeline )
@@ -41,7 +42,10 @@ namespace Desert::Editor::Render
 
         Graphic::ExtensionPass pass;
         pass.Name                  = "EditorGrid";
-        pass.Point                 = Graphic::RDG::ExtensionPoint::AfterTranslucency;
+        // UE draws the grid with the editor primitives: after the tonemap, into their own target, composited over
+        // the display image - never into the HDR scene the exposure meters, the TAA accumulates and the bloom
+        // reads.
+        pass.Point                 = Graphic::RDG::ExtensionPoint::EditorPrimitives;
         pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
                                Graphic::RDG::PassContext&           context ) -> Common::BoolResultStr
         {

@@ -5,7 +5,9 @@ Shader "PopulateSceneDepth"
     // depth the overlay phases (debug lines, grid, gizmos, UI) test against after the temporal resolve (UE:
     // PopulateSceneDepth before the editor primitives). A full-screen triangle; depth test ALWAYS, depth write on.
     // Colour 0 is the overlay target's velocity slot, written as no motion: nothing after the resolve reads it and
-    // the overlay pipelines never write it (colour write mask 0).
+    // the overlay pipelines never write it (colour write mask 0). The same program fills the editor primitives'
+    // multisampled depth ("Editor: PopulateDepth", UE PopulateDepthPass): colour 0 is then the editor colour, and
+    // the zero written is its transparent clear.
 
     Vertex
     {

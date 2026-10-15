@@ -114,13 +114,17 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "DebugLinePipeline";
         spec.Shader            = m_DebugLineShader;
-        spec.TargetLayout      = SceneTargetLayout();
+        // An editor primitive: drawn after the tonemap (SceneRenderer::AddFrameEditorPrimitives).
+        spec.TargetLayout      = EditorPrimitivesLayout();
         spec.Topology          = PrimitiveTopology::Lines;
         spec.LineWidth         = 1.0f; // dynamic line width is set to 1.0 in SubmitPulled (no wideLines feature)
         spec.DepthTestEnabled  = true;
         spec.DepthWriteEnabled = false;
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
         spec.CullMode          = CullMode::None;
+        // Src-alpha over the editor primitives' transparent clear: the target holds premultiplied colour and the
+        // coverage in alpha, what the composite lays over the display image.
+        spec.BlendEnable = true;
         // No vertex Layout: the DebugLine shader pulls endpoints from the Lines storage buffer by index.
 
         // `return m_DebugLinePipeline != nullptr;` stood at the end of this function and could not be
@@ -276,7 +280,7 @@ namespace Desert::Graphic::System
         if ( !targetFb || !m_DebugLinePipeline )
             return {};
 
-        // Overlay debug lines (AABB wireframes) over the lit scene; runs after Geometry, depth-tested.
+        // Debug lines (AABB wireframes), an editor primitive: after the tonemap, depth-tested against the scene.
         SystemRasterPass pass{
              .Name        = "DebugLinesPass",
              .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr

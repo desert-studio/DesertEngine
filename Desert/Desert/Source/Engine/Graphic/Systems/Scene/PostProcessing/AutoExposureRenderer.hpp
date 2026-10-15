@@ -48,8 +48,15 @@ namespace Desert::Graphic::System
         // 2) Histogram of @p scene (texelFetch, so PointClamp), atomic adds into @p histogram. @p width x @p
         // height
         //    is the scene's size this frame (one thread per texel).
-        void DeclareHistogramBindings( RDG::PassBuilder& pass, RDG::TextureRef scene,
-                                       RDG::BufferRef histogram ) const;
+        //    @p meterMask weighs each texel (UE AutoExposureMeterMask, bilinear at the texel's screen UV, red
+        //    channel): the imported MeterMaskImage(), or System.White when it has none (every texel weighs 1).
+        void DeclareHistogramBindings( RDG::PassBuilder& pass, RDG::TextureRef scene, RDG::BufferRef histogram,
+                                       RDG::TextureRef meterMask ) const;
+        // The view's metering mask (PostProcessSettings::AutoExposureMeterMask, UE PostProcessEyeAdaptation.cpp:
+        // 792-805): its image, or null for none - the caller binds System.White then, UE's white dummy. A mask
+        // still loading meters uniform until it is resident, as UE's does before its texture resource exists; a
+        // mask the project does not have is reported (once per handle) and meters uniform.
+        [[nodiscard]] std::shared_ptr<Image> MeterMaskImage() const;
         [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context, uint32_t width,
                                                              uint32_t height );
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
@@ -129,5 +136,7 @@ namespace Desert::Graphic::System
         bool                      m_SnapNextAdaptation = false;
         float                     m_DeltaSeconds       = 0.0f;
         Core::PostProcessSettings m_Settings;
+        // The missing meter mask last reported (MeterMaskImage), so a frame loop reports it once.
+        mutable Assets::AssetHandle m_ReportedMissingMeterMask;
     };
 } // namespace Desert::Graphic::System

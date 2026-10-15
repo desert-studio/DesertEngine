@@ -7,10 +7,12 @@ Shader "AEHistogram"
         // (MainCS) and PostProcessHistogramCommon.ush:56-65: one thread per scene texel takes the metered luminance
         // (UE's uniform 1/3 weights, floored at the histogram bottom), maps log2 of it into [0, 1] over the window,
         // and splits it LINEARLY between the two buckets that straddle that position. Bucket 0's lower share is
-        // scaled by the black-bucket influence (UE default 0), so black never meters. UE's metering mask is its
-        // default white texture: every texel weighs 1 (PostProcessEyeAdaptation.cpp:792).
-        // Adapted: 256 buckets (UE 64), the weights in uint fixed point x u_WeightScale (AutoExposureWeightScale)
-        // because float atomics are not portable, and one texel per thread (UE gathers 2x2; the same texels).
+        // scaled by the black-bucket influence (UE default 0), so black never meters. Both shares are weighed by the
+        // metering mask (UE AdaptationWeightTexture, PostProcessHistogramCommon.ush:201-204: red channel, bilinear at
+        // the texel's screen UV; PostProcessSettings::AutoExposureMeterMask, System.White when none).
+        // Adapted: 256 buckets (UE 64: finer, the same window), the weights in uint fixed point x u_WeightScale
+        // (AutoExposureWeightScale) because float atomics are not portable, one texel per thread (UE gathers 2x2;
+        // the same texels) and the mask read at each texel's centre (UE: once per quad, at its corner).
         //
         // TWO-LEVEL accumulation: threads accumulate into a SHARED per-workgroup histogram, then each of the 256
         // threads (16x16 = one thread per bucket) flushes one bucket to the global buffer. Per-texel atomics into
@@ -19,6 +21,7 @@ Shader "AEHistogram"
         LocalSize(16, 16, 1);
 
         Uniform(0) sampler2D u_Scene;
+        Uniform(2) sampler2D u_MeterMask;
         Buffer(1) Histogram
         {
             uint u_Bins[256];
@@ -62,6 +65,9 @@ Shader "AEHistogram"
                 float weight0 = 1.0 - weight1;
                 if ( bucket0 == 0u )
                     weight0 *= u_BlackBucketInfluence;
+                const float screenWeight = textureLod( u_MeterMask, ( vec2( coord ) + 0.5 ) / vec2( size ), 0.0 ).x;
+                weight0 *= screenWeight;
+                weight1 *= screenWeight;
 
                 uint weight0Int = uint( weight0 * u_WeightScale );
                 uint weight1Int = uint( weight1 * u_WeightScale );

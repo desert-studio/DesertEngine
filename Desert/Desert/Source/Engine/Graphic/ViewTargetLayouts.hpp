@@ -23,6 +23,17 @@ namespace Desert::Graphic
              1 };
     }
 
+    // The editor primitives' target (RDG::ExtensionPoint::EditorPrimitives): one display-linear colour and the
+    // depth the scene depth is populated into, multisampled (ViewTargetFormats::kEditorPrimitiveSamples). Every
+    // pipeline drawing an editor primitive (the grid, colliders, tool previews, the engine's debug lines) is built
+    // against it.
+    inline RenderTargetLayout EditorPrimitivesLayout()
+    {
+        return RenderTargetLayout{ { ViewTargetFormats::kEditorPrimitiveColor },
+                                   ViewTargetFormats::kEditorPrimitiveDepth,
+                                   ViewTargetFormats::kEditorPrimitiveSamples };
+    }
+
     inline RenderTargetLayout GBufferLayout()
     {
         return RenderTargetLayout{ { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB,

@@ -394,8 +394,15 @@ namespace Desert::Graphic::System
             return m_LocalAtlasFB ? m_LocalAtlasFB->GetDepthAttachmentImage() : nullptr;
         }
 #if DESERT_DEV_INSTRUMENTS
-        // The bounding-box lines over the lit scene, depth-tested.
+        // The bounding-box lines, an editor primitive (RDG::ExtensionPoint::EditorPrimitives): drawn after the
+        // tonemap into the editor primitives' target (EditorPrimitivesLayout), depth-tested against the scene.
         [[nodiscard]] SystemRasterPass DebugLinesPass();
+        // Whether DebugLinesPass draws anything this frame - the frame build creates the editor primitives'
+        // targets only for a frame that has one.
+        [[nodiscard]] bool DrawsDebugLines() const
+        {
+            return m_ShowBoundingBoxes || m_ShowCardPlacement;
+        }
 #endif
 
         // Silhouette mask of the currently outlined meshes (white on the framebuffer clear color).

@@ -50,6 +50,7 @@
 #include "Systems/Scene/Water/WaterRenderer.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
+#include "Systems/Scene/PostProcessing/EditorPrimitivesCompositeRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
 #include "Systems/Scene/PostProcessing/FXAARenderer.hpp"
 #include "Systems/Scene/PostProcessing/SMAARenderer.hpp"
@@ -593,6 +594,14 @@ namespace Desert::Graphic
         std::unique_ptr<GlobalIllumination::IrradianceFieldGather> m_IrradianceFieldGather;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
+        // The editor primitives' nodes (AddFrameEditorPrimitives): "Editor: PopulateDepth" into the multisampled
+        // editor depth (EditorPrimitivesLayout) and "Editor: CompositeEditorPrimitives" onto the display image.
+        // Made on the first frame that has an editor primitive to draw.
+        std::unique_ptr<System::PopulateSceneDepthRenderer>        m_PopulateEditorDepth;
+        std::unique_ptr<System::EditorPrimitivesCompositeRenderer> m_EditorPrimitivesComposite;
+        // The view's Film Gamma (PostProcessSettings::Gamma, set by BeginScene): the output device the composite
+        // encodes the editor primitives for, the one the tonemap's table encodes the scene for.
+        float m_DisplayGamma = 2.2f;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
         // compute pipeline, so it lives with the view rather than in a static that would outlive the device.
         SupersampleResolve m_SupersampleResolve;
@@ -697,15 +706,29 @@ namespace Desert::Graphic
                 return Color.IsValid();
             }
         };
+        // The editor primitives' targets (EditorPrimitivesLayout, UE SceneTextures EditorPrimitiveColor / Depth):
+        // a display-linear colour cleared transparent and the depth "Editor: PopulateDepth" filled from the scene
+        // depth, both multisampled, at the display image's extent. Invalid: no editor primitive this frame.
+        struct EditorPrimitiveTargets
+        {
+            RDG::TextureRef    Color;
+            RDG::TextureRef    Depth;
+            [[nodiscard]] bool IsValid() const
+            {
+                return Color.IsValid();
+            }
+        };
         // Adds @p passes, one raster node each, in the given order; consecutive passes on one framebuffer share
         // one render pass (the first on each framebuffer CLEARS iff @p clearFirst, with the pass's clear values).
         // @p overlay: when valid, the OUTPUT-extent target set the passes drawing on the scene target draw into
         // instead of it (colour 0, the velocity slot and the depth replaced, no resolves; same formats and one
         // sample, so the render pass stays compatible with the one their pipelines were built against) - the
         // overlays after the temporal resolve.
+        // @p editor: when valid, the passes on the scene target draw into the editor primitives' targets instead
+        // (every attachment replaced: their pipelines are built against EditorPrimitivesLayout).
         void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                std::span<const SystemRasterPass> passes, bool clearFirst,
-                               const OverlayTargets& overlay = {} );
+                               const OverlayTargets& overlay = {}, const EditorPrimitiveTargets& editor = {} );
         // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
@@ -716,11 +739,12 @@ namespace Desert::Graphic
         // declared reads; @p color / @p depth are the loads of the node's targets.
         void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
                           const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
-                          const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay );
+                          const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay,
+                          const EditorPrimitiveTargets& editor = {} );
         // One system raster pass: one LOAD node on the pass's own target (or @p overlay's set), placed by the
         // position of this call. Nothing when the pass has no target (the system did not initialize).
         void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
-                              const OverlayTargets& overlay = {} );
+                              const OverlayTargets& overlay = {}, const EditorPrimitiveTargets& editor = {} );
         // The frame's translucency, in draw order by call order: the height fog apply, the cloud composite (far
         // field), the particles, then the AfterTranslucency extension point.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
@@ -728,7 +752,16 @@ namespace Desert::Graphic
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.
         void AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures, RDG::ExtensionPoint point,
-                                const OverlayTargets& overlay );
+                                const OverlayTargets& overlay, const EditorPrimitiveTargets& editor = {} );
+        // THE EDITOR PRIMITIVES (UE PostProcessCompositeEditorPrimitives.cpp, AddEditorPrimitivePass), after the
+        // tonemap and the spatial AA: when this frame has any (a pass registered at
+        // RDG::ExtensionPoint::EditorPrimitives, or the engine's debug lines), "Editor: PopulateDepth" fills the
+        // multisampled editor depth from the output-extent unjittered scene depth (@p overlay's after a resolve,
+        // the scene target's - resolved at MSAA - without one) and clears the editor colour, the primitives draw
+        // there, and "Editor: CompositeEditorPrimitives" lays them over the display image. Nothing else when there
+        // are none.
+        void AddFrameEditorPrimitives( RDG::Builder& graph, FrameTextures& textures,
+                                       const OverlayTargets& overlay );
         // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
         void EnsureTemporalUpscaler( TemporalMethod method );
         // The frame's temporal resolve, after the translucency: registers the view's histories and adds

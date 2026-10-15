@@ -6,6 +6,7 @@
 
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Assets/Common.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
@@ -225,6 +226,14 @@ namespace Desert::Core
         float AutoExposureSpeedUp = 3.0f;
         PROPERTY( DisplayName( "Speed Down" ), Category( "Exposure" ), Range( 0.02f, 20.0f ) )
         float AutoExposureSpeedDown = 1.0f;
+        // UE's AutoExposureMeterMask: a texture whose red channel weighs each screen position's vote in the
+        // exposure histogram (bilinear at the pixel's screen UV; black = ignored). None (the default) weighs every
+        // pixel alike, UE's white dummy - a file without the key meters exactly as before. The histogram has 256
+        // buckets over the same -10..20 EV100 window as UE's 64 (finer: four buckets per UE bucket).
+        PROPERTY( DisplayName( "Meter Mask" ), Category( "Exposure" ), Asset<TextureAsset>,
+                  Tooltip( "Weighs where the auto-exposure looks (UE Meter Mask): white counts, black is "
+                           "ignored. None: the whole screen counts alike." ) )
+        Assets::AssetHandle AutoExposureMeterMask;
 
         PROPERTY( DisplayName( "Enable Bloom" ), Category( "Bloom" ) )
         bool EnableBloom = false; // off by default -> no glow out of the box

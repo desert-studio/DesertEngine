@@ -610,6 +610,7 @@ namespace
          { "AutoExposureMaxEV100", kAutoExposureRenderer },
          { "AutoExposureSpeedUp", kAutoExposureRenderer },
          { "AutoExposureSpeedDown", kAutoExposureRenderer },
+         { "AutoExposureMeterMask", kAutoExposureRenderer },
          { "EnableBloom", kSceneRenderer },
          { "BloomThreshold", kSceneRenderer },
          { "BloomIntensity", kSceneRenderer },

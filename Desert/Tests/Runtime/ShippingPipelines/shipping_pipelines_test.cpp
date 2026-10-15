@@ -551,7 +551,12 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp", "kResolveShaderName",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp",
-               "\"PopulateSceneDepth\"", Verdict::Shipped, "" },
+               "m_DebugName", Verdict::Shipped,
+               "one per target layout: the overlay depth and the editor primitives' depth" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/"
+               "EditorPrimitivesCompositeRenderer.hpp",
+               "\"CompositeEditorPrimitives\"", Verdict::Shipped,
+               "the editor primitives' composite: any build that draws one (debug lines, an editor pass)" },
 
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp", "\"BakeProceduralSky\"", Verdict::Shipped,

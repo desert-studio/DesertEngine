@@ -24,6 +24,13 @@ namespace Desert::Graphic::RDG
                            // draws into the render-extent scene target, jittered like the scene under it
         Overlay,           // after the temporal resolve and the engine's debug lines: unjittered, output extent
         UI,                // after the overlays and the backdrop blur the UI samples, before the post chain
+        // AFTER THE TONEMAP AND THE SPATIAL AA (UE: the EditorPrimitives composite, PostProcessing.cpp
+        // EPass::EditorPrimitive): the editor-only primitives (grid, colliders, tool previews, debug lines) draw
+        // into the view's editor-primitives target (EditorPrimitivesLayout: display-linear colour cleared
+        // transparent, the scene depth populated into a multisampled depth), which one node then composites onto
+        // the display image. Nothing drawn here reaches the exposure histogram, the bloom, a temporal history or
+        // any other HDR pass; a pass registered here builds its pipeline against EditorPrimitivesLayout().
+        EditorPrimitives,
     };
 
     [[nodiscard]] constexpr std::string_view ToString( const ExtensionPoint point )
@@ -38,6 +45,8 @@ namespace Desert::Graphic::RDG
                 return "Overlay";
             case ExtensionPoint::UI:
                 return "UI";
+            case ExtensionPoint::EditorPrimitives:
+                return "EditorPrimitives";
         }
         return "<invalid ExtensionPoint>";
     }

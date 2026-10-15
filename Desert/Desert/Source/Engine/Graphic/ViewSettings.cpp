@@ -62,6 +62,8 @@ namespace Desert::Graphic
         target.DistanceFieldShadows     = volume.DistanceFieldShadows;
         target.Tonemapper          = volume.Tonemapper;
         target.AutoExposure        = volume.AutoExposure;
+        // A texture has no value between two (UE IF_PP: the volume's mask replaces the one under it).
+        target.AutoExposureMeterMask = volume.AutoExposureMeterMask;
         target.EnableBloom         = volume.EnableBloom;
         target.EnableLensFlare     = volume.EnableLensFlare;
         target.LensFlareGhostCount = volume.LensFlareGhostCount;

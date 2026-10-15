@@ -35,8 +35,9 @@ namespace Desert::Editor::Render
         [[nodiscard]] static const ToolPreviewMesh* Current( const ::Desert::Core::Scene& scene );
     };
 
-    // Draws ToolPreview's mesh of its scene in the Debug phase into the scene HDR target, depth-tested against
-    // the scene's geometry without writing depth: alpha-blended faces, then their edges. Hidden in Play mode.
+    // Draws ToolPreview's mesh of its scene as an editor primitive (after the tonemap, into the editor primitives'
+    // target), depth-tested against the scene's geometry without writing depth: alpha-blended faces, then their
+    // edges. Hidden in Play mode.
     class EditorToolPreviewPass
     {
     public:

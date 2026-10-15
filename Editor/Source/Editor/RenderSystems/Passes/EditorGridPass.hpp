@@ -7,8 +7,9 @@
 namespace Desert::Editor::Render
 {
     // The infinite ground-plane grid — an AUTHORING aid, so it lives in the editor and reaches the
-    // scene through the Editor Pass API (Scene::RegisterExtensionPass): an AfterTranslucency extension pass into
-    // the scene HDR target, depth-occluded by geometry, alpha-blended before the post chain. Hidden in
+    // scene through the Editor Pass API (Scene::RegisterExtensionPass): an EditorPrimitives extension pass: drawn
+    // after the tonemap into the editor primitives' target, depth-occluded by the scene, composited over the
+    // display image (UE's editor primitives) - never in the HDR scene the exposure, TAA and bloom read. Hidden in
     // Play mode and via the VIEW's own Graphic::DebugViewState::ShowGrid (SceneRenderer::GetDebugView),
     // which is where the flag lives since К2 took it out of the level file.
     class EditorGridPass
