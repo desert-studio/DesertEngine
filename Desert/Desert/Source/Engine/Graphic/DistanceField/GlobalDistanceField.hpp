@@ -53,12 +53,25 @@ namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
 
+    // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap
+    // a toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance
+    // field surface lies within the card interpolation range of the cell, nearest first - what a software hit
+    // reads to find its cards (Common/GITraceDistanceField.glslh GIHitInstanceRows). Written by the composite with
+    // the distances, brick by brick. One R32_UINT 3D image: x = cell x * 4 + slot, y = cell y, z = level * cells +
+    // cell z; a slot packs the row (24 bits) under the quantised distance (8 bits) so that sorting the words sorts
+    // the distances, kNoObjectGridRow ends the list. The constants are DistanceFieldShared.glslh's
+    // GDF_OBJECT_GRID_*.
+    inline constexpr uint32_t kNoObjectGridRow = 0xFFFFFFFFu;
+
     // One object the field is composited from: one volume of a mesh's field placed in the world (a mesh whose
     // field has several volumes - Assets::MeshDistanceFieldData::Volumes - is that many objects).
     struct GlobalDistanceFieldObject
     {
         std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
         glm::mat4                                            World = glm::mat4( 1.0f );
+        // The instance-table row (SurfaceCache.hpp, contract B3) of the mesh instance this volume belongs to, or
+        // kNoObjectGridRow when the surface cache holds none (no cards): what the object grid lists.
+        uint32_t Row = kNoObjectGridRow;
     };
 
     // The parameters of a clipmap level (pure, shared by the update and every reader): its voxel in centimetres,
@@ -92,6 +105,7 @@ namespace Desert::Graphic::DistanceField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
+            RDG::TextureRef                                           ObjectGrid; // the object grid (above)
         };
 
         // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
@@ -126,6 +140,7 @@ namespace Desert::Graphic::DistanceField
 
         DistanceFieldSceneData                                              m_SceneData;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
+        std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
         // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
         std::unordered_map<uint64_t, TrackedObject> m_Tracked;
@@ -144,5 +159,6 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectRowBuffer;
     };
 } // namespace Desert::Graphic::DistanceField
