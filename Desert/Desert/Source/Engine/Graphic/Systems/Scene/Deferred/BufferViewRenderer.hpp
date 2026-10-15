@@ -63,8 +63,8 @@ namespace Desert::Graphic::System
             m_Current          = nullptr;
             m_CurrentView      = view;
             if ( !m_Shaders[index] )
-                return Common::MakeError( std::format( "{}: the {} shader is not loaded", kViews[index].PassName,
-                                                       kViews[index].Shader ) );
+                return Common::MakeError( std::format( "Debug: {}: the {} shader is not loaded",
+                                                       kViews[index].Name, kViews[index].Shader ) );
             const auto key = std::make_tuple( static_cast<int>( view ), static_cast<int>( format ), samples );
             if ( const auto it = m_Pipelines.find( key ); it != m_Pipelines.end() )
             {
@@ -85,10 +85,10 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // The pass name of @p view ("Debug: Velocity" / "Debug: Indirect").
-        [[nodiscard]] static const char* PassName( const View view )
+        // The name of @p view ("Velocity" / "Indirect"); its pass is "Debug: <name>".
+        [[nodiscard]] static const char* Name( const View view )
         {
-            return kViews[static_cast<size_t>( view )].PassName;
+            return kViews[static_cast<size_t>( view )].Name;
         }
 
         // SETUP of the prepared view's pass: block 0 - the view's one input (u_Velocity / u_Indirect).
@@ -115,11 +115,11 @@ namespace Desert::Graphic::System
         {
             const char* Shader;
             const char* Input;
-            const char* PassName;
+            const char* Name; // the pass is "Debug: <Name>"
         };
         static constexpr std::array<ViewDesc, 2> kViews{ {
-             { "VelocityView", "u_Velocity", "Debug: Velocity" },
-             { "IndirectView", "u_Indirect", "Debug: Indirect" },
+             { "VelocityView", "u_Velocity", "Velocity" },
+             { "IndirectView", "u_Indirect", "Indirect" },
         } };
 
         std::array<std::shared_ptr<Shader>, 2>          m_Shaders;

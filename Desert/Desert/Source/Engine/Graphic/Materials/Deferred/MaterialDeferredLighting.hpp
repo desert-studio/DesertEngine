@@ -94,9 +94,9 @@ namespace Desert::Graphic
             // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
-            // u_Params: x = debug mode, z = 1 when u_SSAO holds this frame's GTAO (else the shader takes AO = 1
-            // and the surface normal); y, w unused. The indirect light needs no switch: u_GI is the denoised SSGI
-            // or RSM-GI with its intensity applied by its producer, System.Black when GI is off.
+            // u_Params: x = debug mode, z = 1 when the AO input holds this frame's GTAO (else the shader takes AO
+            // = 1 and the surface normal); y, w unused. The indirect light needs no switch: u_GI is the denoised
+            // SSGI or RSM-GI with its intensity applied by its producer, System.Black when GI is off.
             SetParams( glm::vec4( static_cast<float>( debugMode ), 0.0f, aoEnabled ? 1.0f : 0.0f, 0.0f ) );
 
             UploadShadow( shadow );

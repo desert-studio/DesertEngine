@@ -467,30 +467,30 @@ namespace Desert::Graphic
             return;
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return;
-        const char* const passName = System::BufferViewRenderer::PassName( view );
+        const char* const viewName = System::BufferViewRenderer::Name( view );
         const auto        it       = m_RenderSystems.find( "BufferViewSystem" );
         auto* const       renderer =
              it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::BufferViewRenderer, it->second ) : nullptr;
         if ( renderer == nullptr || !target.IsValid() || !input.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] {} not drawn: {}", passName,
+            LOG_ERROR( "[SceneRenderer] Debug: {} not drawn: {}", viewName,
                        renderer == nullptr ? "no BufferViewSystem" : "the frame has no input or no post input" );
             return;
         }
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}", passName, desc.GetError() );
+            LOG_ERROR( "[SceneRenderer] Debug: {}: {}", viewName, desc.GetError() );
             return;
         }
         if ( const auto prepared = renderer->Prepare( view, desc.GetValue().Format, desc.GetValue().Samples );
              !prepared )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}", passName, prepared.GetError() );
+            LOG_ERROR( "[SceneRenderer] Debug: {}: {}", viewName, prepared.GetError() );
             return;
         }
         graph.AddPass(
-             passName, RDG::PassFlags::Raster,
+             std::format( "Debug: {}", viewName ), RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  renderer->DeclareBindings( pass, input );
