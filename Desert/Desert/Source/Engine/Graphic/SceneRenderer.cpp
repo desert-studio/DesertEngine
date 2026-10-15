@@ -1175,6 +1175,8 @@ namespace Desert::Graphic
         AddFrameLightGrid( graph, textures, frame );
         if ( WorldLightGridRead() )
             AddFrameLightGridWorld( graph, textures, frame );
+        if ( GlobalDistanceFieldRead() )
+            AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1197,6 +1199,7 @@ namespace Desert::Graphic
                 lightColor = dl[0].ColorIntensity;
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameRadianceCache( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             RDG::TextureRef giAccum;
 

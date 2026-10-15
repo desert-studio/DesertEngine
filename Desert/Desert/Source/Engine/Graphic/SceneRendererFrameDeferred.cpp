@@ -1,5 +1,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -391,8 +392,97 @@ namespace Desert::Graphic
              { return deferred->RecordGrid( context, cells ); } );
     }
 
+    bool SceneRenderer::RadianceCacheRuns() const
+    {
+        return m_RenderPath == Core::RenderPath::Deferred &&
+               m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::SoftwareTraced;
+    }
+
+    void SceneRenderer::AddFrameRadianceCache( RDG::Builder& graph, FrameTextures& textures,
+                                               const std::vector<RDG::TextureRef>& gbuffer,
+                                               const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                               const ViewFrame& frame )
+    {
+        if ( !RadianceCacheRuns() )
+            return;
+        FrameTransients& t = textures.Transients;
+        if ( gbuffer.size() < 4 || !m_GBuffer || !t.GlobalDistanceField[0].IsValid() ||
+             !t.Lights.WorldGridCells.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: not updated: {}",
+                       gbuffer.size() < 4                    ? "the G-buffer has fewer than 4 colours"
+                       : !t.GlobalDistanceField[0].IsValid() ? "the global distance field was not brought up"
+                                                             : "the world light grid was not built" );
+            return;
+        }
+        if ( !m_RadianceCache )
+        {
+            auto cache = std::make_unique<GlobalIllumination::WorldRadianceCache>();
+            if ( const auto initialized = cache->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] RadianceCache: {}", initialized.GetError() );
+                return;
+            }
+            m_RadianceCache = std::move( cache );
+        }
+        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            desc  = graph.GetTextureDesc( depth );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", desc.GetError() );
+            return;
+        }
+        const FrameGraphRefs                          refs = textures.GraphRefs();
+        GlobalIllumination::RadianceCacheUpdateInputs inputs;
+        inputs.GBufferDepth        = depth;
+        inputs.GBufferA            = gbuffer[0];
+        inputs.GBufferB            = gbuffer[1];
+        inputs.GBufferEmissive     = gbuffer[3];
+        inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
+        inputs.GlobalDistanceField = t.GlobalDistanceField;
+        inputs.PointLights         = t.Lights.Point;
+        inputs.SpotLights          = t.Lights.Spot;
+        inputs.WorldGridParams     = t.Lights.WorldGridParams;
+        inputs.WorldGridCells      = t.Lights.WorldGridCells;
+        inputs.CameraPosition      = frame.CameraPosition;
+        inputs.Extent              = glm::uvec2( desc.GetValue().Width, desc.GetValue().Height );
+
+        GlobalIllumination::GIFramePayload& payload = inputs.Frame;
+        payload.InvViewProjection                   = frame.InvJitteredViewProjection;
+        payload.ViewProjection                      = glm::inverse( frame.InvJitteredViewProjection );
+        payload.Camera                              = glm::vec4( frame.CameraPosition, 1.0f );
+        const bool hasSun                           = !m_DirectionLights.DirectionLights.empty();
+        payload.SunTravel   = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        if ( const auto& env = GetEnvironment(); env.has_value() )
+        {
+            const SkyLookGPU look = ToGPU( env->Look );
+            payload.SkyYawCosSin  = look.YawCosSin;
+            payload.SkyGain       = look.Gain;
+        }
+        for ( uint32_t level = 0; level < 4; ++level )
+            payload.GdfLevels[level] = t.GlobalDistanceFieldLevels[level];
+        payload.Screen = glm::vec4( glm::vec2( inputs.Extent ), 1.0f / glm::vec2( inputs.Extent ) );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
+        if ( !cache )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
+            return;
+        }
+        t.RadianceCacheParams      = cache.GetValue().Params;
+        t.RadianceCacheIndirection = cache.GetValue().Indirection;
+        t.RadianceCacheProbes      = cache.GetValue().Probes;
+        t.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
+        t.RadianceCacheDepth       = cache.GetValue().Depth;
+    }
+
     bool SceneRenderer::WorldLightGridRead() const
     {
+        if ( RadianceCacheRuns() )
+            return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
                m_DebugView.DeferredDebug == DeferredDebugMode::LightGridWorld;
@@ -458,6 +548,33 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        // The world radiance cache this frame's update left (SoftwareTraced), or its neutral stand-in: a record of
+        // zero clipmaps (every point reads as uncovered), one empty entry and probe, black atlases.
+        if ( refs.Transients.RadianceCacheParams.IsValid() )
+        {
+            inputs.RadianceCacheParams      = refs.Transients.RadianceCacheParams;
+            inputs.RadianceCacheIndirection = refs.Transients.RadianceCacheIndirection;
+            inputs.RadianceCacheProbes      = refs.Transients.RadianceCacheProbes;
+            inputs.RadianceCacheIrradiance  = refs.Transients.RadianceCacheIrradiance;
+            inputs.RadianceCacheDepth       = refs.Transients.RadianceCacheDepth;
+        }
+        else
+        {
+            static const RadianceCache::RadianceCacheParamsPayload kNoCache{};
+            static const RadianceCache::RadianceCacheProbePayload  kNoProbe{};
+            static const uint32_t                                  kNoEntry = RadianceCache::kInvalidProbeIndex;
+            inputs.RadianceCacheParams =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoCache ) }, "RadianceCache.Params.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheParams, std::as_bytes( std::span( &kNoCache, 1 ) ) );
+            inputs.RadianceCacheIndirection =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoEntry ) }, "RadianceCache.Indirection.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheIndirection, std::as_bytes( std::span( &kNoEntry, 1 ) ) );
+            inputs.RadianceCacheProbes =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoProbe ) }, "RadianceCache.Probes.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheProbes, std::as_bytes( std::span( &kNoProbe, 1 ) ) );
+            inputs.RadianceCacheIrradiance = refs.System.Black;
+            inputs.RadianceCacheDepth      = refs.System.Black;
+        }
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -488,11 +605,15 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the RSM resolve's buffer. Spelled here, not cast from the enum, whose numbering is the
-        // method ladder's (Common/Settings/RenderMethods.hpp).
+        // this pass, 2 the RSM resolve's buffer, 3 the world radiance cache's irradiance in place of the sky's.
+        // Spelled here, not cast from the enum, whose numbering is the method ladder's
+        // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : gi == GIMethod::ReflectiveShadowMaps ? 2 : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace                     ? 1
+                                       : gi == GIMethod::ReflectiveShadowMaps          ? 2
+                                       : refs.Transients.RadianceCacheParams.IsValid() ? 3
+                                                                                       : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
@@ -520,6 +641,79 @@ namespace Desert::Graphic
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
+    }
+
+    bool SceneRenderer::GlobalDistanceFieldRead() const
+    {
+        if ( RadianceCacheRuns() )
+            return true;
+#if DESERT_DEV_INSTRUMENTS
+        return m_RenderPath == Core::RenderPath::Deferred &&
+               m_DebugView.DeferredDebug == DeferredDebugMode::GlobalDistanceField;
+#else
+        return false;
+#endif // DESERT_DEV_INSTRUMENTS
+    }
+
+    void SceneRenderer::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
+                                                     const ViewFrame& frame )
+    {
+        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        if ( meshRenderer == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
+            return;
+        }
+        if ( !m_GlobalDistanceField )
+        {
+            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
+            if ( const auto initialized = field->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceField = std::move( field );
+        }
+
+        // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
+        // off-screen too (a trace leaves the frustum).
+        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
+        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
+        // asynchronous queue) is not in it yet.
+        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                       const glm::mat4&                                            world )
+        {
+            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
+                objects.push_back(
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+        };
+        for ( const auto& draw : meshRenderer->GetStaticQueue() )
+            if ( draw.Mesh != nullptr )
+                if ( const auto field = draw.Mesh->GetDistanceField() )
+                    place( field, draw.Transform );
+        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+            if ( ism.Mesh != nullptr && ism.Transforms )
+                if ( const auto field = ism.Mesh->GetDistanceField() )
+                    for ( const glm::mat4& world : *ism.Transforms )
+                        place( field, world );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        // The view's camera (ViewFrame; SceneRenderer.hpp: a pass that reads a camera position takes the
+        // ViewFrame)
+        // - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the frame's.
+        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
+                                                                   m_DistanceFieldPoolMiB );
+        if ( !field )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
+            return;
+        }
+        textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
+        textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -612,62 +806,20 @@ namespace Desert::Graphic
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
              m_RenderPath != Core::RenderPath::Deferred )
             return;
-        const auto  it           = m_RenderSystems.find( "MeshSystem" );
-        auto* const meshRenderer = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
-        if ( meshRenderer == nullptr || !target.IsValid() )
+        const FrameTransients& t = textures.Transients;
+        if ( !m_GlobalDistanceField || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
-                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
+                       !target.IsValid() ? "the frame has no post input"
+                                         : "the field was not brought up this frame" );
             return;
         }
-        if ( !m_GlobalDistanceField )
-        {
-            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
-            if ( const auto initialized = field->Initialize(); !initialized )
-            {
-                LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", initialized.GetError() );
-                return;
-            }
-            m_GlobalDistanceField = std::move( field );
-        }
-
-        // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
-        // off-screen too (a trace leaves the frustum).
-        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
-        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
-        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
-        // asynchronous queue) is not in it yet.
-        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                       const glm::mat4&                                            world )
-        {
-            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
-        };
-        for ( const auto& draw : meshRenderer->GetStaticQueue() )
-            if ( draw.Mesh != nullptr )
-                if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( field, draw.Transform );
-        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
-            if ( ism.Mesh != nullptr && ism.Transforms )
-                if ( const auto field = ism.Mesh->GetDistanceField() )
-                    for ( const glm::mat4& world : *ism.Transforms )
-                        place( field, world );
-
-        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
-        { return textures.Import( image, name ); };
-        // The view's matrices, unjittered (ViewFrame, as every overlay reads them; SceneRenderer.hpp: a pass that
-        // reads a matrix or a camera position takes the ViewFrame) - not m_SceneInfo.ActiveCamera's, which framed
-        // the field from a different camera than the frame it is drawn over.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
-                                                                   m_DistanceFieldPoolMiB );
-        if ( !field )
-        {
-            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", field.GetError() );
-            return;
-        }
-        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass(
-                  graph, field.GetValue(), target, EngineClearColor(), frame.InvViewProjection );
+        DistanceField::GlobalDistanceField::FrameField field;
+        field.Clipmaps = t.GlobalDistanceField;
+        field.Levels   = t.GlobalDistanceFieldLevels;
+        // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
+        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, field, target, EngineClearColor(),
+                                                                         frame.InvViewProjection );
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
     }

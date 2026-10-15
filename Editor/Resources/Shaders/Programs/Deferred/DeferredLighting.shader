@@ -75,6 +75,28 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
+        // THE WORLD RADIANCE CACHE (GI SoftwareTraced, u_Params.w == 3; Graphic/GlobalIllumination/WorldRadianceCache):
+        // the irradiance its probes traced replaces the sky's diffuse irradiance — the traces saw the sky only where
+        // it is visible. A zero-clipmap stand-in in the other GI modes.
+        #include <Common/RadianceCache.glslh>
+        ReadBuffer(30) RadianceCacheParamsUB
+        {
+        	RadianceCacheParams radianceCache;
+        };
+        ReadBuffer(31) RadianceCacheIndirectionUB
+        {
+        	uint radianceCacheIndirection[];
+        };
+        ReadBuffer(32) RadianceCacheProbesUB
+        {
+        	RadianceCacheProbe radianceCacheProbes[];
+        };
+        Uniform(33) sampler2D u_RadianceCacheIrradiance;
+        Uniform(34) sampler2D u_RadianceCacheDepth;
+        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+        #define RADIANCE_CACHE_PROBES radianceCacheProbes
+        #include <Common/RadianceCache.glslh>
+
         Out(0) vec4 oColor;
 
         const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
@@ -409,8 +431,18 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, DesertSampleAmbient(surface, indirect, ao),
-        	                                                 surface, payload);
+        	DesertAmbient ambientInput = DesertSampleAmbient(surface, indirect, ao);
+        	if (giMode == 3)
+        	{
+        		// The cache's irradiance at this point, through the eight probes around it (visibility-weighted). Past
+        		// the coarsest clipmap (.a < 0) nothing traced it: the sky's irradiance stays. Covered but not traced yet
+        		// (.a == 0, the first frames of a cell): no light rather than the sky leaking into a closed room.
+        		const vec4 cached = RadianceCacheIrradianceAt(worldPos, N, normalize(u_CameraPos.xyz - worldPos),
+        		                                              ssgiHash(gl_FragCoord.xy));
+        		if (cached.a >= 0.0)
+        			ambientInput.Irradiance = cached.rgb;
+        	}
+        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, ambientInput, surface, payload);
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.

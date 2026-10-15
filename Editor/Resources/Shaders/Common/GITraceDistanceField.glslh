@@ -1,0 +1,64 @@
+#ifndef GI_TRACE_DISTANCE_FIELD_GLSLH
+#define GI_TRACE_DISTANCE_FIELD_GLSLH
+
+// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as a march of the global
+// distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF). Port of UE's global-SDF leg of Lumen software
+// tracing (LumenTraceGlobalSDF / RayTraceGlobalDistanceField in GlobalDistanceFieldUtils.ush): the hit is the
+// expanded surface's entry, its normal the field's gradient. UE first marches the mesh SDFs near the ray origin
+// (r.Lumen.TraceMeshSDFs); here every ray marches the global field, so a probe's first two metres are as coarse as
+// the rest (GI-RADIANCE-CACHE REMAINDER).
+//
+// The includer declares u_GlobalDistanceField0..3, includes Common/GlobalDistanceField.glslh, and defines
+// GI_TRACE_GDF_LEVELS as the expression of this frame's vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
+
+#ifndef DESERT_GI_TRACER_SOFTWARE
+#error "GITraceDistanceField.glslh is the software tracer: define DESERT_GI_TRACER_SOFTWARE"
+#endif
+
+// Sphere-trace steps per ray (UE r.Lumen.TraceGlobalSDF... MaxSteps scale; the GDF debug view's count).
+#define GI_GDF_MAX_STEPS 128
+
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    GITraceResult result;
+    result.hit = false;
+    const vec3 start = ray.origin + ray.direction * ray.tMin;
+    const GlobalDistanceFieldHit march =
+         TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS );
+    if ( !march.Hit )
+        return result;
+
+    result.hit                   = true;
+    result.surface.distance      = ray.tMin + march.T;
+    result.surface.position      = start + ray.direction * march.T;
+    result.surface.meshCards     = GI_NO_MESH_CARDS;
+    result.surface.instance      = GI_NO_INSTANCE;
+    result.surface.primitive     = 0u;
+    result.surface.barycentrics  = vec2( 0.0 );
+    result.surface.frontFace     = true;
+    result.surface.normal        = -ray.direction;
+    const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
+    if ( level >= 0 )
+    {
+        const vec3 gradient = GlobalDistanceFieldGradient( level, result.surface.position, GI_TRACE_GDF_LEVELS[level].w );
+        if ( dot( gradient, gradient ) > 1e-12 )
+            result.surface.normal = normalize( gradient );
+    }
+    result.surface.frontFace = dot( result.surface.normal, ray.direction ) < 0.0;
+    return result;
+}
+
+// Visibility only: 1 when nothing of the field lies between @p origin and @p distance along @p direction.
+float GITraceVisibility( vec3 origin, vec3 direction, float distance )
+{
+    GITraceInput ray;
+    ray.origin    = origin;
+    ray.tMin      = 0.0;
+    ray.direction = direction;
+    ray.tMax      = distance;
+    ray.coneAngle = 0.0;
+    ray.flags     = GI_TRACE_SHADOW_RAY;
+    return GITraceRay( ray ).hit ? 0.0 : 1.0;
+}
+
+#endif // GI_TRACE_DISTANCE_FIELD_GLSLH

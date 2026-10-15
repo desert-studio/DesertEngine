@@ -67,4 +67,12 @@ vec3 GIRayRadiance( GITraceInput ray )
     return result.hit ? GIHitRadiance( result.surface, ray.direction ) : GIMissRadiance( ray.direction );
 }
 
+// The same, with how far the ray went (@p ray.tMax on a miss): the radiance cache keeps it for its probes' visibility.
+vec3 GIRayRadiance( GITraceInput ray, out float hitDistance )
+{
+    const GITraceResult result = GITraceRay( ray );
+    hitDistance = result.hit ? result.surface.distance : ray.tMax;
+    return result.hit ? GIHitRadiance( result.surface, ray.direction ) : GIMissRadiance( ray.direction );
+}
+
 #endif // GI_TRACING_GLSLH

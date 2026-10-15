@@ -5,6 +5,8 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <array>
 #include <string_view>
@@ -83,6 +85,21 @@ namespace Desert::Graphic
         RDG::TextureRef SkyViewLut;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
+        // The global distance field brought up to this frame (SceneRenderer::AddFrameGlobalDistanceField,
+        // imported: DistanceField::GlobalDistanceField owns the clipmaps) and its clipmap parameters (centre.xyz
+        // cm, voxel cm); invalid refs when nothing of the frame reads it   -> the radiance cache's trace, "Debug:
+        // Global Distance Field"
+        std::array<RDG::TextureRef, 4> GlobalDistanceField;
+        std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
+        // The world radiance cache after this frame's update (SceneRenderer::AddFrameRadianceCache; the buffers
+        // and atlases are GlobalIllumination::WorldRadianceCache's, imported); invalid when the GI method traces
+        // nothing
+        //   -> Deferred: Composite
+        RDG::BufferRef  RadianceCacheParams;
+        RDG::BufferRef  RadianceCacheIndirection;
+        RDG::BufferRef  RadianceCacheProbes;
+        RDG::TextureRef RadianceCacheIrradiance;
+        RDG::TextureRef RadianceCacheDepth;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

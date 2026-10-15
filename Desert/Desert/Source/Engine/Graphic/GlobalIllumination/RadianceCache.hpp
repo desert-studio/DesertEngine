@@ -142,10 +142,73 @@ namespace Desert::Graphic::RadianceCache
         glm::vec4 ClipmapProbeTMin[2]{};
         // x = clipmaps, y = grid resolution, z = traced probe resolution, w = final probe resolution (with border)
         glm::uvec4 Shape{ 0u };
-        // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame, w = 0
+        // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame,
+        // w = distance-moment probe resolution
         glm::uvec4 Atlas{ 0u };
         // x = reprojection radius scale, y = 1 / clipmap fade size (cells), z = 1 / final radiance atlas texels
         glm::vec4 Sampling{ 0.0f };
     };
     static_assert( sizeof( RadianceCacheParamsPayload ) == 176 );
+
+    // ---- The update's own shape (GI-RADIANCE-CACHE) -----------------------------------------------------------
+    // Probe slots in the atlases: one per atlas cell.
+    [[nodiscard]] constexpr uint32_t MaxProbes( const RadianceCacheInputs& inputs )
+    {
+        return inputs.ProbeAtlasResolutionInProbes * inputs.ProbeAtlasResolutionInProbes;
+    }
+    // Indirection entries: GridResolution^3 cells per clipmap, clipmaps side by side along x (UE's 3D texture,
+    // here a buffer so a frame without the cache binds an uploaded stand-in instead of a 3D integer texture).
+    [[nodiscard]] constexpr uint32_t IndirectionEntries( const RadianceCacheInputs& inputs )
+    {
+        return inputs.GridResolution * inputs.GridResolution * inputs.GridResolution * inputs.Clipmaps;
+    }
+    // Octahedral texels per side of a probe's DISTANCE MOMENTS (mean and mean square of the probe rays' hit
+    // distance, DDGI's visibility term; not in UE — see WorldRadianceCache.hpp, "where this differs").
+    inline constexpr uint32_t                   kDepthProbeResolution = 8;
+    inline constexpr Core::Formats::ImageFormat kDepthAtlasFormat     = Core::Formats::ImageFormat::RG16F;
+    // Frames a probe keeps its slot after the last frame a pixel read it (UE frees a probe the frame it is not
+    // marked; a camera turning back would then re-trace what it saw a moment ago).
+    inline constexpr uint32_t kProbeUnusedFramesBeforeFree = 8;
+    // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram).
+    inline constexpr uint32_t kPriorityBuckets = 32;
+    // Edge fade band of a clipmap, cells (UE GRadianceCacheClipmapFadeSize...: the dithered clipmap pick).
+    inline constexpr float kClipmapFadeCells = 4.0f;
+    // Temporal accumulation of a re-traced probe's radiance: the share of history kept (UE
+    // r.Lumen.RadianceCache... temporal update), lower where the lights of the probe's cell changed.
+    inline constexpr float kHistoryWeight      = 0.9f;
+    inline constexpr float kDirtyHistoryWeight = 0.3f;
+
+    // One probe slot's state (std430; Common/RadianceCache.glslh RadianceCacheProbe). 64 bytes.
+    struct RadianceCacheProbePayload
+    {
+        glm::ivec4 Cell{ 0 }; // xyz = world cell (cells of its clipmap from the world origin), w = clipmap
+        glm::uvec4 Frames{
+             0u }; // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
+        glm::vec4  Offset{ 0.0f }; // xyz = the probe's relocation out of geometry (cm), w = 0
+        glm::uvec4 Priority{ 0u }; // x = priority bucket this frame
+    };
+    static_assert( sizeof( RadianceCacheProbePayload ) == 64 );
+
+    // PURE. The GPU record of this frame's cache.
+    [[nodiscard]] inline RadianceCacheParamsPayload
+    MakeRadianceCacheParams( const std::array<Clipmap, kMaxClipmaps>& clipmaps, const RadianceCacheInputs& inputs )
+    {
+        RadianceCacheParamsPayload params;
+        const uint32_t             count = std::min( inputs.Clipmaps, kMaxClipmaps );
+        for ( uint32_t i = 0; i < count; ++i )
+            params.ClipmapCornerAndCellSize[i] = glm::vec4( clipmaps[i].Corner, clipmaps[i].CellSize );
+        // The probes are moved out of geometry before they trace (WorldRadianceCache.hpp), so their rays start
+        // in free space and skip nothing.
+        params.ClipmapProbeTMin[0] = glm::vec4( 0.0f );
+        params.ClipmapProbeTMin[1] = glm::vec4( 0.0f );
+        params.Shape =
+             glm::uvec4( count, inputs.GridResolution, inputs.ProbeResolution, inputs.FinalProbeResolution() );
+        params.Atlas    = glm::uvec4( inputs.ProbeAtlasResolutionInProbes, inputs.IrradianceProbeResolution,
+                                      inputs.ProbesPerFrame, kDepthProbeResolution );
+        params.Sampling = glm::vec4(
+             inputs.ReprojectionRadiusScale, 1.0f / kClipmapFadeCells,
+             1.0f / static_cast<float>( inputs.ProbeAtlasResolutionInProbes * inputs.FinalProbeResolution() ),
+             0.0f );
+        return params;
+    }
 } // namespace Desert::Graphic::RadianceCache
