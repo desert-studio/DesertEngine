@@ -1,5 +1,6 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Core/Constants.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -100,4 +101,20 @@ namespace Desert::Assets
         return guid ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 
+    std::string StatePrefabPath( const std::filesystem::path& file )
+    {
+        const std::filesystem::path full = Common::Constants::Path::FullPath( file );
+        const std::filesystem::path relative =
+             full.lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() );
+        if ( relative.empty() || *relative.begin() == ".." )
+            return full.generic_string();
+        return relative.generic_string();
+    }
+
+    std::filesystem::path ResolvePrefabPath( std::string_view stated )
+    {
+        const std::filesystem::path named( stated );
+        return named.is_absolute() ? named.lexically_normal()
+                                   : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+    }
 } // namespace Desert::Assets

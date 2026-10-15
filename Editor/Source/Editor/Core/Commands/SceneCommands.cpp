@@ -41,9 +41,30 @@ namespace Desert::Editor::Commands
         ::Desert::Core::Scene*                s_Scene        = nullptr;
         ::Desert::Assets::AssetManager*       s_AssetManager = nullptr;
 
+        // A captured subtree: one record per entity, pre-order, root first — and, per record, the prefab
+        // record path the entity was instantiated from (ECS::PrefabInstanceComponent).
+        //
+        // THE PATH IS CARRIED BESIDE THE RECORD because it is runtime-only and the serializer rightly does not
+        // write it. Restoring without it rebuilt a prefab instance whose every entity had lost its link to the
+        // prefab: the scene saver then counted them as "added inside the instance" and DROPPED them from the
+        // file — an undone delete, a redone Replace with Prefab or a pasted instance lost its lights on save.
+        struct SubtreeSnapshot
+        {
+            std::vector<Assets::EntityData> Records;
+            std::vector<std::vector<Common::UUID>>
+                 SourcePaths; // index-matched to Records; empty = not from a prefab
+
+            // The root alone (its children stay where they are).
+            void KeepRootOnly()
+            {
+                Records.resize( 1 );
+                SourcePaths.resize( 1 );
+            }
+        };
+
         // Editor clipboard: serialized subtree snapshots (NOT entity references), so pasting works even
         // after the originals were deleted or the scene changed.
-        std::vector<std::vector<Assets::EntityData>> s_Clipboard;
+        std::vector<SubtreeSnapshot> s_Clipboard;
 
         bool Ready()
         {
@@ -77,15 +98,19 @@ namespace Desert::Editor::Commands
 
         // Pre-order subtree snapshot through the prefab serialization path: full component fidelity,
         // root first. The root's own `parent` field records where the subtree hung in the scene.
-        std::vector<Assets::EntityData> CaptureSubtree( ECS::Entity root )
+        SubtreeSnapshot CaptureSubtree( ECS::Entity root )
         {
-            std::vector<Assets::EntityData> data;
+            SubtreeSnapshot data;
 
             std::function<void( ECS::Entity )> traverse = [&]( ECS::Entity e )
             {
                 if ( !e )
                     return;
-                data.push_back( ::Desert::Core::Serialize::EntitySerializer::SerializeEntity( e, *s_AssetManager ) );
+                data.Records.push_back(
+                     ::Desert::Core::Serialize::EntitySerializer::SerializeEntity( e, *s_AssetManager ) );
+                data.SourcePaths.push_back( e.HasComponent<ECS::PrefabInstanceComponent>()
+                                                 ? e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath
+                                                 : std::vector<Common::UUID>{} );
                 if ( e.HasComponent<ECS::RelationshipComponent>() )
                 {
                     for ( auto childHandle : e.GetComponent<ECS::RelationshipComponent>().Children )
@@ -113,8 +138,9 @@ namespace Desert::Editor::Commands
         // their own, because CaptureSubtree walks the LIVE subtree. So a record carrying a PrefabPath has
         // to be rebuilt from the snapshot like any other — instantiating its file again would duplicate
         // every child the snapshot already holds.
-        ECS::Entity RestoreSnapshot( const std::vector<Assets::EntityData>& data, bool preserveIds )
+        ECS::Entity RestoreSnapshot( const SubtreeSnapshot& snapshot, bool preserveIds )
         {
+            const std::vector<Assets::EntityData>& data = snapshot.Records;
             using ::Desert::Core::Rules::kNoSlot;
             using ::Desert::Core::Rules::PlanSceneStitch;
             using ::Desert::Core::Rules::PrefabRecordPolicy;
@@ -166,6 +192,15 @@ namespace Desert::Editor::Commands
                 const Assets::EntityData& ed = data[load.Record];
                 ECS::Entity               e  = created[load.Target];
                 ::Desert::Core::Serialize::EntitySerializer::DeserializeEntity( ed, e, *s_AssetManager );
+                if ( load.Record < snapshot.SourcePaths.size() && !snapshot.SourcePaths[load.Record].empty() )
+                {
+                    if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
+                        e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath =
+                             snapshot.SourcePaths[load.Record];
+                    else
+                        e.AddComponent<ECS::PrefabInstanceComponent>().SourcePath =
+                             snapshot.SourcePaths[load.Record];
+                }
 
                 if ( load.Parent != kNoSlot )
                 {
@@ -407,8 +442,7 @@ namespace Desert::Editor::Commands
         class DeleteCommand final : public ICommand
         {
         public:
-            explicit DeleteCommand( std::vector<Assets::EntityData>&& snapshot )
-                 : m_Snapshot( std::move( snapshot ) )
+            explicit DeleteCommand( SubtreeSnapshot&& snapshot ) : m_Snapshot( std::move( snapshot ) )
             {
             }
 
@@ -419,7 +453,7 @@ namespace Desert::Editor::Commands
 
             bool Undo() override
             {
-                if ( m_Snapshot.empty() )
+                if ( m_Snapshot.Records.empty() )
                     return false;
                 ECS::Entity root = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
                 OnStructuralChange();
@@ -431,8 +465,9 @@ namespace Desert::Editor::Commands
 
             bool Redo() override
             {
-                const Common::UUID root =
-                     m_Snapshot.empty() ? Common::UUID::Null() : m_Snapshot.front().id.value_or( Common::UUID::Null() );
+                const Common::UUID root = m_Snapshot.Records.empty()
+                                               ? Common::UUID::Null()
+                                               : m_Snapshot.Records.front().id.value_or( Common::UUID::Null() );
                 if ( !FindEntity( root ) )
                     return false;
                 DestroyByUUID( root );
@@ -441,7 +476,7 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            std::vector<Assets::EntityData> m_Snapshot;
+            SubtreeSnapshot m_Snapshot;
         };
 
         // Groups sub-commands into ONE history entry (multi-selection operations). Undo runs the
@@ -500,7 +535,7 @@ namespace Desert::Editor::Commands
             Common::UUID                              m_Copy;
             std::shared_ptr<const Geometry::DynamicMesh3> m_Mesh;
             std::unique_ptr<ICommand>                 m_Alongside;
-            std::vector<Assets::EntityData>           m_Snapshot;
+            SubtreeSnapshot                               m_Snapshot;
         };
 
         // XForm: the state an entity is put in, and the command that walks a whole XForm edit back and forth.
@@ -575,13 +610,13 @@ namespace Desert::Editor::Commands
             {
                 Common::UUID                    Id;
                 XformEntityState                State;
-                std::vector<Assets::EntityData> Snapshot;
+                SubtreeSnapshot                 Snapshot;
             };
             struct Gone
             {
                 Common::UUID                                   Id;
                 std::shared_ptr<const Geometry::DynamicMesh3>  Mesh;
-                std::vector<Assets::EntityData>                Snapshot;
+                SubtreeSnapshot                                Snapshot;
             };
 
             XformCommand( std::string label, std::vector<Changed> changed, std::vector<Made> made,
@@ -800,8 +835,7 @@ namespace Desert::Editor::Commands
         class EntityStateCommand final : public ICommand
         {
         public:
-            EntityStateCommand( std::vector<Assets::EntityData>&& before,
-                                std::vector<Assets::EntityData>&& after )
+            EntityStateCommand( SubtreeSnapshot&& before, SubtreeSnapshot&& after )
                  : m_Before( std::move( before ) ), m_After( std::move( after ) )
             {
             }
@@ -821,11 +855,11 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            bool Apply( const std::vector<Assets::EntityData>& state )
+            bool Apply( const SubtreeSnapshot& state )
             {
-                if ( state.empty() )
+                if ( state.Records.empty() )
                     return false;
-                const Common::UUID root = state.front().id.value_or( Common::UUID::Null() );
+                const Common::UUID root = state.Records.front().id.value_or( Common::UUID::Null() );
                 if ( root.IsNull() )
                     return false;
                 DestroyByUUID( root );
@@ -834,7 +868,7 @@ namespace Desert::Editor::Commands
                 return ok;
             }
 
-            std::vector<Assets::EntityData> m_Before, m_After;
+            SubtreeSnapshot m_Before, m_After;
         };
 
         // Records ALREADY-created entities. The snapshot is taken lazily on the first Undo — so it also
@@ -888,7 +922,7 @@ namespace Desert::Editor::Commands
 
         private:
             std::vector<Common::UUID>                    m_Roots;
-            std::vector<std::vector<Assets::EntityData>> m_Snapshots;
+            std::vector<SubtreeSnapshot>                 m_Snapshots;
         };
 
         // The file written and loaded, and the handle the component will hold; the component itself is not
@@ -1166,8 +1200,8 @@ namespace Desert::Editor::Commands
                                                              static_cast<uint64_t>( uuid ) );
         // The entity alone: its children stay with the original (a child's record names its parent, so a
         // root-only snapshot re-parents nothing).
-        std::vector<Assets::EntityData> record = CaptureSubtree( *source );
-        record.resize( 1 );
+        SubtreeSnapshot record = CaptureSubtree( *source );
+        record.KeepRootOnly();
         const ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
         if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
             return Common::MakeFormattedError<Common::UUID>( "{}: the copy of entity {} could not be made", label,
@@ -1228,8 +1262,8 @@ namespace Desert::Editor::Commands
             if ( !source )
                 return rollback(
                      fmt::format( "entity {} to copy is gone", static_cast<uint64_t>( create.CopyOf ) ) );
-            std::vector<Assets::EntityData> record = CaptureSubtree( *source );
-            record.resize( 1 );
+            SubtreeSnapshot record = CaptureSubtree( *source );
+            record.KeepRootOnly();
             ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
             if ( !copy )
                 return rollback( fmt::format( "the copy of entity {} could not be made",
@@ -1322,7 +1356,7 @@ namespace Desert::Editor::Commands
         if ( !Ready() )
             return;
 
-        std::vector<std::vector<Assets::EntityData>> snapshots;
+        std::vector<SubtreeSnapshot> snapshots;
         for ( const auto& uuid : FilterTopLevel( uuids ) )
             if ( auto e = FindEntity( uuid ) )
                 snapshots.push_back( CaptureSubtree( *e ) );
@@ -1777,7 +1811,7 @@ namespace Desert::Editor::Commands
     struct EntityStateSnapshot
     {
         Common::UUID                    Root;
-        std::vector<Assets::EntityData> State;
+        SubtreeSnapshot                 State;
     };
 
     std::shared_ptr<const EntityStateSnapshot> CaptureEntityState( const Common::UUID& uuid )
@@ -1804,7 +1838,7 @@ namespace Desert::Editor::Commands
 
     void RevertEntityState( const std::shared_ptr<const EntityStateSnapshot>& before )
     {
-        if ( !Ready() || !before || before->State.empty() )
+        if ( !Ready() || !before || before->State.Records.empty() )
             return;
         DestroyByUUID( before->Root );
         (void)RestoreSnapshot( before->State, /*preserveIds=*/true );

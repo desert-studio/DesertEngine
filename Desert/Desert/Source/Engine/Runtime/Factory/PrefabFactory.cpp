@@ -1,4 +1,5 @@
 #include "PrefabFactory.hpp"
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -214,9 +215,10 @@ namespace Desert::Runtime::Factory
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         auto& mutableAssets = const_cast<Assets::AssetManager&>( assetManager );
 
-        auto nested = assetManager.FindByPath<Assets::PrefabAsset>( path );
+        const std::filesystem::path file   = Assets::ResolvePrefabPath( path );
+        auto                        nested = assetManager.FindByPath<Assets::PrefabAsset>( file );
         if ( !nested )
-            nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( path );
+            nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( file.string() );
         if ( !nested )
             return Common::MakeError<Assets::Asset<Assets::PrefabAsset>>( "no asset could be made for that path" );
         if ( !nested->IsReadyForUse() )
