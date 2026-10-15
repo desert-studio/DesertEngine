@@ -3,14 +3,14 @@
 
 // THE PERMUTATION'S TRACER — the one include a GI consumer names for the walk (Common/GITracing.glslh is the
 // contract; GlobalIllumination::TracerVariant picks the define, DeclareTracerReads binds what is declared here).
-// The tracer declares its own resources at descriptor bindings GI_TRACER_BINDING .. GI_TRACER_BINDING + 3, which
+// The tracer declares its own resources at descriptor bindings GI_TRACER_BINDING .. GI_TRACER_BINDING + 4, which
 // the includer reserves and defines before including this file, after the GI frame record `giFrame`
 // (Common/GIFrame.glslh).
 
 #include <Common/GITracing.glslh>
 
 #ifndef GI_TRACER_BINDING
-#error "GITracer.glslh: define GI_TRACER_BINDING (the first of the tracer's four descriptor bindings)"
+#error "GITracer.glslh: define GI_TRACER_BINDING (the first of the tracer's five descriptor bindings)"
 #endif
 
 #if defined( DESERT_GI_TRACER_SOFTWARE )
@@ -18,8 +18,14 @@ layout( binding = GI_TRACER_BINDING + 0 ) uniform sampler3D u_GlobalDistanceFiel
 layout( binding = GI_TRACER_BINDING + 1 ) uniform sampler3D u_GlobalDistanceField1;
 layout( binding = GI_TRACER_BINDING + 2 ) uniform sampler3D u_GlobalDistanceField2;
 layout( binding = GI_TRACER_BINDING + 3 ) uniform sampler3D u_GlobalDistanceField3;
+// The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels): the
+// software walk's own record, not the neutral GI frame's (GlobalIllumination::TracerFrame).
+layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwareUB
+{
+    vec4 giTracerGdfLevels[4];
+};
 #include <Common/GlobalDistanceField.glslh>
-#define GI_TRACE_GDF_LEVELS giFrame.gdfLevels
+#define GI_TRACE_GDF_LEVELS giTracerGdfLevels
 #include <Common/GITraceDistanceField.glslh>
 #elif defined( DESERT_GI_TRACER_HARDWARE )
 #error "GITracer.glslh: the ray-query tracer is not in this build (GI-HWRT defines it here)"

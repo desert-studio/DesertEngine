@@ -75,27 +75,11 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
-        // THE WORLD RADIANCE CACHE (GI SoftwareTraced, u_Params.w == 3; Graphic/GlobalIllumination/WorldRadianceCache):
-        // the irradiance its probes traced replaces the sky's diffuse irradiance — the traces saw the sky only where
-        // it is visible. A zero-clipmap stand-in in the other GI modes.
-        #include <Common/RadianceCache.glslh>
-        ReadBuffer(30) RadianceCacheParamsUB
-        {
-        	RadianceCacheParams radianceCache;
-        };
-        ReadBuffer(31) RadianceCacheIndirectionUB
-        {
-        	uint radianceCacheIndirection[];
-        };
-        ReadBuffer(32) RadianceCacheProbesUB
-        {
-        	RadianceCacheProbe radianceCacheProbes[];
-        };
-        Uniform(33) sampler2D u_RadianceCacheIrradiance;
-        Uniform(34) sampler2D u_RadianceCacheDepth;
-        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
-        #define RADIANCE_CACHE_PROBES radianceCacheProbes
-        #include <Common/RadianceCache.glslh>
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 3; Graphic/GlobalIllumination/ScreenProbeGather): per pixel,
+        // the irradiance (/ pi) and the specular radiance the screen probes integrated, in place of the sky's two
+        // cubes — the probes' rays saw the sky only where it is visible. Black in the other GI modes (unread).
+        Uniform(30) sampler2D u_ScreenProbeDiffuse;
+        Uniform(31) sampler2D u_ScreenProbeSpecular;
 
         Out(0) vec4 oColor;
 
@@ -434,13 +418,10 @@ Shader "DeferredLighting"
         	DesertAmbient ambientInput = DesertSampleAmbient(surface, indirect, ao);
         	if (giMode == 3)
         	{
-        		// The cache's irradiance at this point, through the eight probes around it (visibility-weighted). Past
-        		// the coarsest clipmap (.a < 0) nothing traced it: the sky's irradiance stays. Covered but not traced yet
-        		// (.a == 0, the first frames of a cell): no light rather than the sky leaking into a closed room.
-        		const vec4 cached = RadianceCacheIrradianceAt(worldPos, N, normalize(u_CameraPos.xyz - worldPos),
-        		                                              ssgiHash(gl_FragCoord.xy));
-        		if (cached.a >= 0.0)
-        			ambientInput.Irradiance = cached.rgb;
+        		// The screen probe gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
+        		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
+        		ambientInput.Irradiance  = texelFetch(u_ScreenProbeDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
+        		ambientInput.Prefiltered = texelFetch(u_ScreenProbeSpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         	}
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, ambientInput, surface, payload);
 

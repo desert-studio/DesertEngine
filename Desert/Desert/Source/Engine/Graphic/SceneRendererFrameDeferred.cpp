@@ -397,10 +397,9 @@ namespace Desert::Graphic
         return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache;
     }
 
-    void SceneRenderer::AddFrameRadianceCache( RDG::Builder& graph, FrameTextures& textures,
-                                               const std::vector<RDG::TextureRef>& gbuffer,
-                                               const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                               const ViewFrame& frame )
+    void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
+                                          const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                                          const glm::vec4& lightColor, const ViewFrame& frame )
     {
         if ( !RadianceCacheRuns() )
             return;
@@ -422,6 +421,16 @@ namespace Desert::Graphic
             }
             m_RadianceCache = std::move( cache );
         }
+        if ( !m_ScreenProbeGather )
+        {
+            auto gather = std::make_unique<GlobalIllumination::ScreenProbeGather>();
+            if ( const auto initialized = gather->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", initialized.GetError() );
+                return;
+            }
+            m_ScreenProbeGather = std::move( gather );
+        }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
@@ -436,8 +445,17 @@ namespace Desert::Graphic
         inputs.GBufferB            = gbuffer[1];
         inputs.GBufferEmissive     = gbuffer[3];
         inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        inputs.Tracer              = GlobalIllumination::TracerFrame{ .Pipeline            = m_GIPipeline,
-                                                                      .GlobalDistanceField = t.GlobalDistanceField };
+        // The tracer's frame: the software walk's clipmap placement is its own record ("GITracerSoftwareUB").
+        GlobalIllumination::TracerFrame tracer{ .Pipeline            = m_GIPipeline,
+                                                .GlobalDistanceField = t.GlobalDistanceField };
+        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
+        {
+            tracer.GlobalDistanceFieldLevels = graph.CreateBuffer(
+                 RDG::BufferDesc{ sizeof( t.GlobalDistanceFieldLevels ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
+            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels,
+                                     std::as_bytes( std::span( t.GlobalDistanceFieldLevels ) ) );
+        }
+        inputs.Tracer              = tracer;
         inputs.PointLights         = t.Lights.Point;
         inputs.SpotLights          = t.Lights.Spot;
         inputs.WorldGridParams     = t.Lights.WorldGridParams;
@@ -445,7 +463,7 @@ namespace Desert::Graphic
         inputs.CameraPosition      = frame.CameraPosition;
         inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
-        GlobalIllumination::GIFramePayload& payload = inputs.Frame;
+        GlobalIllumination::GIFramePayload payload;
         payload.InvViewProjection                   = frame.InvJitteredViewProjection;
         payload.ViewProjection                      = glm::inverse( frame.InvJitteredViewProjection );
         payload.Camera                              = glm::vec4( frame.CameraPosition, 1.0f );
@@ -458,9 +476,9 @@ namespace Desert::Graphic
             payload.SkyYawCosSin  = look.YawCosSin;
             payload.SkyGain       = look.Gain;
         }
-        for ( uint32_t level = 0; level < 4; ++level )
-            payload.GdfLevels[level] = t.GlobalDistanceFieldLevels[level];
         payload.Screen = glm::vec4( glm::vec2( inputs.Extent ), 1.0f / glm::vec2( inputs.Extent ) );
+        inputs.GIFrame = graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Frame" );
+        graph.QueueBufferUpload( inputs.GIFrame, std::as_bytes( std::span( &payload, 1 ) ) );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -470,11 +488,31 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
             return;
         }
-        t.RadianceCacheParams      = cache.GetValue().Params;
-        t.RadianceCacheIndirection = cache.GetValue().Indirection;
-        t.RadianceCacheProbes      = cache.GetValue().Probes;
-        t.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
-        t.RadianceCacheDepth       = cache.GetValue().Depth;
+
+        GlobalIllumination::ScreenProbeGatherInputs gather;
+        gather.GBufferDepth       = inputs.GBufferDepth;
+        gather.GBufferA           = inputs.GBufferA;
+        gather.GBufferB           = inputs.GBufferB;
+        gather.GBufferEmissive    = inputs.GBufferEmissive;
+        gather.EnvSpecular        = inputs.EnvSpecular;
+        gather.Tracer             = inputs.Tracer;
+        gather.PointLights        = inputs.PointLights;
+        gather.SpotLights         = inputs.SpotLights;
+        gather.WorldGridParams    = inputs.WorldGridParams;
+        gather.WorldGridCells     = inputs.WorldGridCells;
+        gather.GIFrame            = inputs.GIFrame;
+        gather.RadianceCache      = cache.GetValue();
+        gather.Extent             = inputs.Extent;
+        gather.PrevViewProjection = frame.PrevViewProjection;
+        gather.PrevCameraPosition = frame.PrevCameraPosition;
+        const auto gathered       = m_ScreenProbeGather->AddPasses( graph, import, gather );
+        if ( !gathered )
+        {
+            LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
+            return;
+        }
+        t.ScreenProbeDiffuse  = gathered.GetValue().Diffuse;
+        t.ScreenProbeSpecular = gathered.GetValue().Specular;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -546,33 +584,11 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
-        // The world radiance cache this frame's update left (a traced GI method), or its neutral stand-in: a
-        // record of zero clipmaps (every point reads as uncovered), one empty entry and probe, black atlases.
-        if ( refs.Transients.RadianceCacheParams.IsValid() )
-        {
-            inputs.RadianceCacheParams      = refs.Transients.RadianceCacheParams;
-            inputs.RadianceCacheIndirection = refs.Transients.RadianceCacheIndirection;
-            inputs.RadianceCacheProbes      = refs.Transients.RadianceCacheProbes;
-            inputs.RadianceCacheIrradiance  = refs.Transients.RadianceCacheIrradiance;
-            inputs.RadianceCacheDepth       = refs.Transients.RadianceCacheDepth;
-        }
-        else
-        {
-            static const RadianceCache::RadianceCacheParamsPayload kNoCache{};
-            static const RadianceCache::RadianceCacheProbePayload  kNoProbe{};
-            static const uint32_t                                  kNoEntry = RadianceCache::kInvalidProbeIndex;
-            inputs.RadianceCacheParams =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoCache ) }, "RadianceCache.Params.None" );
-            graph.QueueBufferUpload( inputs.RadianceCacheParams, std::as_bytes( std::span( &kNoCache, 1 ) ) );
-            inputs.RadianceCacheIndirection =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoEntry ) }, "RadianceCache.Indirection.None" );
-            graph.QueueBufferUpload( inputs.RadianceCacheIndirection, std::as_bytes( std::span( &kNoEntry, 1 ) ) );
-            inputs.RadianceCacheProbes =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoProbe ) }, "RadianceCache.Probes.None" );
-            graph.QueueBufferUpload( inputs.RadianceCacheProbes, std::as_bytes( std::span( &kNoProbe, 1 ) ) );
-            inputs.RadianceCacheIrradiance = refs.System.Black;
-            inputs.RadianceCacheDepth      = refs.System.Black;
-        }
+        // The screen probe gather's diffuse and specular (a traced GI method), or black (unread in the other
+        // modes).
+        const bool traced          = refs.Transients.ScreenProbeDiffuse.IsValid();
+        inputs.ScreenProbeDiffuse  = traced ? refs.Transients.ScreenProbeDiffuse : refs.System.Black;
+        inputs.ScreenProbeSpecular = traced ? refs.Transients.ScreenProbeSpecular : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -603,15 +619,16 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the RSM resolve's buffer, 3 the world radiance cache's irradiance in place of the sky's.
+        // this pass, 2 the RSM resolve's buffer, 3 the screen probe gather's diffuse and specular in place of the
+        // sky's.
         // Spelled here, not cast from the enum, whose numbering is the method ladder's
         // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace                     ? 1
-                                       : gi == GIMethod::ReflectiveShadowMaps          ? 2
-                                       : refs.Transients.RadianceCacheParams.IsValid() ? 3
-                                                                                       : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace            ? 1
+                                       : gi == GIMethod::ReflectiveShadowMaps ? 2
+                                       : traced                               ? 3
+                                                                              : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =

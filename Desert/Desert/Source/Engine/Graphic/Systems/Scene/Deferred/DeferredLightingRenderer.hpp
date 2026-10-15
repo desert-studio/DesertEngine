@@ -38,12 +38,10 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
-        // The world radiance cache (SceneRenderer::AddFrameRadianceCache) or its neutral stand-in.
-        RDG::BufferRef  RadianceCacheParams;
-        RDG::BufferRef  RadianceCacheIndirection;
-        RDG::BufferRef  RadianceCacheProbes;
-        RDG::TextureRef RadianceCacheIrradiance;
-        RDG::TextureRef RadianceCacheDepth;
+        // The screen probe gather's per-pixel diffuse irradiance and specular radiance (a traced GI method,
+        // SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI modes).
+        RDG::TextureRef ScreenProbeDiffuse;
+        RDG::TextureRef ScreenProbeSpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -287,15 +285,11 @@ namespace Desert::Graphic::System
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
                  .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
-                 .Storage( "RadianceCacheParamsUB", inputs.RadianceCacheParams, RDG::Access::StorageRead )
-                 .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCacheIndirection,
-                           RDG::Access::StorageRead )
-                 .Storage( "RadianceCacheProbesUB", inputs.RadianceCacheProbes, RDG::Access::StorageRead )
-                 .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCacheIrradiance,
-                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() )
-                 .Sampled( "u_RadianceCacheDepth", inputs.RadianceCacheDepth, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                 // One texel per pixel, at the G-buffer's extent: point-sampled.
+                 .Sampled( "u_ScreenProbeDiffuse", inputs.ScreenProbeDiffuse, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_ScreenProbeSpecular", inputs.ScreenProbeSpecular, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }

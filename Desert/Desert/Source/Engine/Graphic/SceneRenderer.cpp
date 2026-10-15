@@ -1201,7 +1201,7 @@ namespace Desert::Graphic
                 lightColor = dl[0].ColorIntensity;
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
-            AddFrameRadianceCache( graph, textures, gbuffer, lightDir, lightColor, frame );
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             RDG::TextureRef giAccum;
 

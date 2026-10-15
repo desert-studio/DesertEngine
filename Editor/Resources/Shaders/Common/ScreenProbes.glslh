@@ -1,0 +1,199 @@
+#ifndef SCREEN_PROBES_GLSLH
+#define SCREEN_PROBES_GLSLH
+
+// THE SCREEN PROBE GATHER, GPU side (UE LumenScreenProbeCommon.ush / LumenScreenProbeGather.usf). The C++ side and
+// the design notes are Graphic/GlobalIllumination/ScreenProbeGather.hpp; the records here must match it byte for
+// byte. Binding-free, in two sections like Common/RadianceCache.glslh: the includer includes the file once for the
+// records, declares `ScreenProbeParams screenProbeParams`, the index array `screenProbeIndex[]` and the probe array
+// `screenProbes[]`, defines SCREEN_PROBES_DECLARED and includes it again for the readers.
+//
+// THE PROBES. A uniform probe sits at the centre pixel of every SP_DOWNSAMPLE tile (UE
+// r.Lumen.ScreenProbeGather.DownsampleFactor 16); where the uniform probes cannot interpolate a pixel (their planes
+// miss it: a depth edge, a thin object, a sky pixel at a tile centre) adaptive probes are placed at the centres of
+// the 8 and 4 pixel tiles (UE ScreenProbeAdaptivePlacementCS, two levels for a downsample of 16), up to the
+// adaptive budget. screenProbeIndex: [0] = adaptive probes placed, then one grid per level (probe index or
+// SP_INVALID). Uniform probe i is cell i of level 0; adaptive probes follow the uniform ones.
+//
+// A probe's radiance is a HEMI-octahedron (Cigolle et al.) around its G-buffer normal, SP_RES texels a side: every
+// one of its rays leaves the surface. UE traces a world-space full octahedron and spends the texels below the
+// surface on importance sampling; here no texel is below it, so all SP_RES² rays carry light.
+
+#define SP_DOWNSAMPLE 16u
+#define SP_LEVELS 3u
+#define SP_RES 8u
+#define SP_TILE ( SP_RES + 2u ) // a filtered probe with its one-texel border
+#define SP_INVALID 0xFFFFFFFFu
+// Below this summed interpolation weight of the coarser probes a finer tile gets an adaptive probe.
+#define SP_ADAPTIVE_WEIGHT_THRESHOLD 0.25
+
+// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (112 bytes).
+struct ScreenProbeParams {
+    mat4  prevViewProjection; // last frame's (unjittered) view-projection: the integrate's history
+    vec4  prevCamera;         // xyz = last frame's camera (cm)
+    uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
+    uvec4 atlas;              // x = probes per atlas row, y = frame index, z = 1 when the history is this view's
+};
+
+// std430 — must match GlobalIllumination::ScreenProbePayload (32 bytes).
+struct ScreenProbe {
+    vec4 position; // xyz = world (cm), w = distance to the camera (cm); 0 = no probe
+    vec4 normal;   // xyz = the G-buffer normal at the probe's pixel, w = that pixel (SPPackPixel)
+};
+
+// A pixel in one float, exactly (both coordinates below 4096: 24 bits).
+float SPPackPixel( ivec2 pixel )
+{
+    return float( pixel.y * 4096 + pixel.x );
+}
+
+ivec2 SPProbePixelOf( ScreenProbe probe )
+{
+    const int packed = int( probe.normal.w );
+    return ivec2( packed % 4096, packed / 4096 );
+}
+
+float SPSpacing( uint level )
+{
+    return float( SP_DOWNSAMPLE >> level );
+}
+
+uvec2 SPGridSize( uint level, vec2 extent )
+{
+    const uint s = SP_DOWNSAMPLE >> level;
+    return ( uvec2( extent ) + s - 1u ) / s;
+}
+
+uint SPGridOffset( uint level, vec2 extent )
+{
+    uint offset = 1u;
+    for ( uint l = 0u; l < level; ++l )
+    {
+        const uvec2 g = SPGridSize( l, extent );
+        offset += g.x * g.y;
+    }
+    return offset;
+}
+
+uint SPIndexEntries( vec2 extent )
+{
+    return SPGridOffset( SP_LEVELS, extent );
+}
+
+// The pixel a probe of @p cell at @p level sits on (its tile's centre, inside the extent).
+ivec2 SPProbePixel( uint level, ivec2 cell, vec2 extent )
+{
+    const int s = int( SP_DOWNSAMPLE >> level );
+    return min( cell * s + s / 2, ivec2( extent ) - 1 );
+}
+
+// The orthonormal frame of a probe's hemisphere around @p n (Duff et al. 2017, branchless).
+mat3 SPProbeFrame( vec3 n )
+{
+    const float s = n.z >= 0.0 ? 1.0 : -1.0;
+    const float a = -1.0 / ( s + n.z );
+    const float b = n.x * n.y * a;
+    return mat3( vec3( 1.0 + s * n.x * n.x * a, s * b, -s * n.x ), vec3( b, s + n.y * n.y * a, -n.y ), n );
+}
+
+// Hemi-octahedral mapping (Cigolle et al. 2014): [-1,1]^2 <-> the hemisphere z >= 0.
+vec3 SPHemiOctDecode( vec2 o )
+{
+    const vec2 t = vec2( o.x + o.y, o.x - o.y ) * 0.5;
+    return normalize( vec3( t, 1.0 - abs( t.x ) - abs( t.y ) ) );
+}
+
+vec2 SPHemiOctEncode( vec3 v )
+{
+    v /= abs( v.x ) + abs( v.y ) + max( v.z, 0.0 );
+    return vec2( v.x + v.y, v.x - v.y );
+}
+
+// A world direction in the probe's frame, pushed onto the hemisphere when it points under it.
+vec2 SPProbeOct( mat3 frame, vec3 direction )
+{
+    vec3 local = transpose( frame ) * direction;
+    if ( local.z < 0.0 )
+        local = normalize( vec3( local.xy, 0.0 ) + vec3( 0.0, 0.0, 1e-4 ) );
+    return SPHemiOctEncode( local );
+}
+
+// The texel of the probe's traced texels a world direction falls in.
+ivec2 SPProbeTexel( mat3 frame, vec3 direction )
+{
+    return clamp( ivec2( ( SPProbeOct( frame, direction ) * 0.5 + 0.5 ) * float( SP_RES ) ), ivec2( 0 ),
+                  ivec2( SP_RES - 1u ) );
+}
+
+// ---- Irradiance: second-order spherical harmonics, already convolved with the clamped cosine and / pi (the
+// baked irradiance cube's convention: a white sky reads 1). Nine vec4 per probe (rgb used).
+float SPSHBasis( uint k, vec3 d )
+{
+    switch ( k )
+    {
+        case 0u: return 0.282095;
+        case 1u: return 0.488603 * d.y;
+        case 2u: return 0.488603 * d.z;
+        case 3u: return 0.488603 * d.x;
+        case 4u: return 1.092548 * d.x * d.y;
+        case 5u: return 1.092548 * d.y * d.z;
+        case 6u: return 0.315392 * ( 3.0 * d.z * d.z - 1.0 );
+        case 7u: return 1.092548 * d.x * d.z;
+        default: return 0.546274 * ( d.x * d.x - d.y * d.y );
+    }
+}
+
+// Ramamoorthi & Hanrahan's cosine-lobe band factors A_l / pi.
+float SPSHCosineBand( uint k )
+{
+    return k == 0u ? 1.0 : ( k < 4u ? 2.0 / 3.0 : 0.25 );
+}
+
+#endif // SCREEN_PROBES_GLSLH
+
+#if defined( SCREEN_PROBES_DECLARED ) && !defined( SCREEN_PROBES_READ_GLSLH )
+#define SCREEN_PROBES_READ_GLSLH
+
+ivec2 SPAtlasOrigin( uint probe, uint texelsPerProbe )
+{
+    const uint row = screenProbeParams.atlas.x;
+    return ivec2( probe % row, probe / row ) * int( texelsPerProbe );
+}
+
+uint SPProbeAt( uint level, ivec2 cell, vec2 extent )
+{
+    const uvec2 g = SPGridSize( level, extent );
+    if ( any( lessThan( cell, ivec2( 0 ) ) ) || any( greaterThanEqual( uvec2( cell ), g ) ) )
+        return SP_INVALID;
+    return screenProbeIndex[SPGridOffset( level, extent ) + uint( cell.y ) * g.x + uint( cell.x )];
+}
+
+// UE's upsample weight (LumenScreenProbeGather.usf CalculateUpsampleInterpolationWeights): how well probe @p id
+// stands for the surface point @p p (normal @p n, @p viewDistance from the camera) — its plane through the point
+// relative to the depth, and its hemisphere facing the point's normal.
+float SPProbeWeight( uint id, vec3 p, vec3 n, float viewDistance )
+{
+    const ScreenProbe probe = screenProbes[id];
+    if ( probe.position.w <= 0.0 )
+        return 0.0;
+    const float plane = abs( dot( p - probe.position.xyz, probe.normal.xyz ) ) / max( viewDistance, 1.0 );
+    return exp2( -10000.0 * plane * plane ) * max( dot( n, probe.normal.xyz ), 0.0 );
+}
+
+// The four probes of @p level around pixel @p pixel (float pixel coordinates) and their bilinear x probe weights.
+void SPLevelWeights( uint level, vec2 pixel, vec3 p, vec3 n, float viewDistance, vec2 extent, out uvec4 ids,
+                     out vec4 weights )
+{
+    const vec2  c = pixel / SPSpacing( level ) - 0.5;
+    const ivec2 b = ivec2( floor( c ) );
+    const vec2  f = c - vec2( b );
+    for ( int i = 0; i < 4; ++i )
+    {
+        const ivec2 o        = ivec2( i & 1, i >> 1 );
+        const vec2  bilinear = mix( 1.0 - f, f, vec2( o ) );
+        const uint  id       = SPProbeAt( level, b + o, extent );
+        ids[i]               = id;
+        weights[i] = id == SP_INVALID ? 0.0 : bilinear.x * bilinear.y * SPProbeWeight( id, p, n, viewDistance );
+    }
+}
+
+#endif // SCREEN_PROBES_DECLARED

@@ -14,6 +14,8 @@ namespace Desert::Graphic::GlobalIllumination
                 for ( const RDG::TextureRef& level : frame.GlobalDistanceField )
                     if ( !level.IsValid() )
                         return "the global distance field was not brought up";
+                if ( !frame.GlobalDistanceFieldLevels.IsValid() )
+                    return "the global distance field's clipmap placement was not uploaded";
                 return {};
             case Tracer::HardwareRayQuery:
                 return "the ray-query tracer is not in this build (GI-HWRT)";
@@ -30,6 +32,7 @@ namespace Desert::Graphic::GlobalIllumination
                     block.Sampled( std::format( "u_GlobalDistanceField{}", level ),
                                    frame.GlobalDistanceField[level], RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
                 return;
             case Tracer::HardwareRayQuery:
                 return; // GI-HWRT declares the TLAS here; TracerFrameMissing refuses the frame until then
