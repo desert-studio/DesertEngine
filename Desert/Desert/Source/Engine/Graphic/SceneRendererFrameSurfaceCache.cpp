@@ -21,6 +21,12 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
+        // A profile without traced GI (ViewMemory.hpp: a preview, a thumbnail, a reflection capture's face view)
+        // never runs the surface cache either, as RadianceCacheRuns: without this gate each of a capture's six
+        // face views built its own surface cache, global distance field and mesh-field brick pool (384 MiB at
+        // Epic) whenever the level asked for SoftwareTraced, and Bistro's one capture took the editor past 6 GB.
+        if ( !m_ViewProfile.GlobalIllumination )
+            return false;
         if ( m_GIPipeline.SurfaceCache )
             return true;
 #if DESERT_DEV_INSTRUMENTS
