@@ -77,6 +77,12 @@ namespace Desert::Graphic::SurfaceCache
         std::shared_ptr<const Assets::MeshCardsBuildData> Cards;
         glm::mat4                                         World{ 1.0f };
         uint32_t                                          Source = 0;
+        // The surface's identity (its runtime materials): another value recaptures every card of the instance -
+        // a material swap, or a material rebuilt because its texture landed (UE: a primitive's material change
+        // invalidates its cards). CaptureReady: its material can draw this frame; a card of an instance that
+        // cannot waits uncaptured instead of keeping a stand-in surface.
+        uint64_t SurfaceKey   = 0;
+        bool     CaptureReady = true;
     };
 
     // One card capture of the frame: the instance's mesh drawn through the card's orthographic camera into
@@ -142,6 +148,7 @@ namespace Desert::Graphic::SurfaceCache
             uint32_t               PagesX = 0, PagesY = 0;
             std::vector<AtlasRect> Pages; // PagesX * PagesY, row-major
             bool                   Captured = false;
+            bool                   Ready    = true; // the owning instance's CaptureReady this frame
             float                  Distance = 0.0f;
             uint32_t               WantX = 0, WantY = 0;
         };
@@ -151,8 +158,9 @@ namespace Desert::Graphic::SurfaceCache
             std::shared_ptr<const Assets::MeshCardsBuildData> Build;
             glm::mat4                                         World{ 1.0f };
             std::vector<Card>                                 Cards;
-            uint32_t                                          Source    = 0;
-            uint64_t                                          SeenFrame = 0;
+            uint32_t                                          Source     = 0;
+            uint64_t                                          SeenFrame  = 0;
+            uint64_t                                          SurfaceKey = 0;
         };
 
         void                   PlaceCards( Instance& instance ) const;

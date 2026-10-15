@@ -243,7 +243,8 @@ namespace Desert::Graphic::SurfaceCache
                 Instance fresh;
                 fresh.Mesh  = in.Mesh;
                 fresh.Build = in.Cards;
-                fresh.World = in.World;
+                fresh.World      = in.World;
+                fresh.SurfaceKey = in.SurfaceKey;
                 PlaceCards( fresh );
                 it = m_Instances.emplace( in.Key, std::move( fresh ) ).first;
             }
@@ -253,6 +254,15 @@ namespace Desert::Graphic::SurfaceCache
                 it->second.World = in.World;
                 PlaceCards( it->second );
             }
+            if ( it->second.SurfaceKey != in.SurfaceKey )
+            {
+                // Another surface: the texels hold the old material; the pages stay, the cards are recaptured.
+                it->second.SurfaceKey = in.SurfaceKey;
+                for ( Card& card : it->second.Cards )
+                    card.Captured = false;
+            }
+            for ( Card& card : it->second.Cards )
+                card.Ready = in.CaptureReady;
             it->second.Source    = in.Source;
             it->second.SeenFrame = m_Frame;
         }
@@ -341,7 +351,7 @@ namespace Desert::Graphic::SurfaceCache
         {
             if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
                 break;
-            if ( card->ResX == 0 || card->Captured )
+            if ( card->ResX == 0 || card->Captured || !card->Ready )
                 continue;
             if ( shelfX + card->ResX > m_CaptureAtlasSize )
             {

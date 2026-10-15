@@ -62,7 +62,8 @@ namespace Desert::Graphic
         { return textures.Import( image, name ); };
 
         // THE CAPTURE: the cards picked this frame, each drawn by MeshRenderer into its rectangle of the capture
-        // atlas (G-buffer light-view permutation: albedo, normal, emissive, standard-Z depth cleared to far).
+        // atlas through its surface's own view-pass G-buffer cell (albedo, normal, emissive; reversed-Z depth
+        // cleared to 0).
         if ( !scene.Captures.empty() )
         {
             const std::string passName =

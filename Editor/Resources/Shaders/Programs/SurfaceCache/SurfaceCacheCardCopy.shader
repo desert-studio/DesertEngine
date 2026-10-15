@@ -1,7 +1,7 @@
 // DesertAsset {"Kind":"Shader","Guid":"de9aada61774470181ec163efd173d00","Versions":{"SHDR":1},"Dependencies":[]}
 // THE CARD COPY (UE LumenSceneCardCapture.cpp CopyCardsToSurfaceCache + LumenSurfaceCache.usf
-// CopyCardCaptureLightingToAtlas): the frame's card captures - the G-buffer light-view permutation drawn through
-// each card's orthographic camera into the capture atlas (SurfaceCacheRenderer) - moved page by page into the
+// CopyCardCaptureLightingToAtlas): the frame's card captures - each surface's own view-pass G-buffer cell drawn
+// through each card's orthographic camera into the capture atlas (SurfaceCacheRenderer) - moved page by page into the
 // surface-cache layers. One 8 x 8 group per tile of a 128² page; z = the page copy. The capture's depth is
 // reversed-Z of the card box (1 = the card plane), cleared to 0: a texel at 0 saw no surface (opacity 0).
 Shader "SurfaceCacheCardCopy"

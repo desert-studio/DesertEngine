@@ -407,14 +407,15 @@ namespace Desert::Graphic::System
         void                                DeclareRSMDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
 
-        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2, UE LumenSceneCardCapture). Gather: this frame's
-        // static and instanced mesh instances that carry cards, keyed stably (entity + part; batch + index), each
-        // naming its row of this renderer's capture sources. Declare: the G-buffer light-view permutation (the
-        // RSM pipeline: world from the push transform, standard-Z, the RSM's slots) draws each capture's mesh
-        // through its card camera into its rectangle of the capture atlas (viewport + scissor per draw, as a
-        // local shadow tile is drawn). A DEDICATED material whose instances each hold one card camera (the RSM's
-        // reason: one per-frame camera block written once per frame); the surface's effective parameter row is
-        // what it shades - the material's textures are not captured (REMAINDER, GI-SURFACE-CACHE-2).
+        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3, UE LumenSceneCardCapture). Gather: this frame's
+        // static and instanced (ISM / foliage) mesh instances that carry cards, keyed stably (entity + part; mesh
+        // + material + instance index), each naming its row of this renderer's capture sources, with its surface's
+        // identity (a new material recaptures) and whether its G-buffer cell can draw yet (a card waits for its
+        // own material rather than being captured in the default surface). Declare: the view-pass G-buffer cell
+        // of the surface's OWN material (MaterialService::GetViewVariant - its textures, parameters and program,
+        // as the scene's G-buffer draws it) draws each capture's mesh through its card camera into its rectangle
+        // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
+        // frame: the camera block is the material's, so one card camera needs one material.
         void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
         void DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
                                       const std::vector<SurfaceCache::CardCapture>& captures );
@@ -727,15 +728,17 @@ namespace Desert::Graphic::System
             const Desert::Mesh* Mesh     = nullptr;
             glm::mat4           World    = glm::mat4( 1.0f );
             MaterialInstance*   Instance = nullptr;
-            DataDrivenMaterial* Surface  = nullptr;
+            DataDrivenMaterial* Surface   = nullptr; // the slot's (Static x Forward) material
             uint64_t            Hidden   = 0;
-            uint32_t            MotionRow = 0; // the view's ObjectMotions row (the world the view-pass cell reads)
+            uint32_t            MotionRow = 0; // static: the view's ObjectMotions row (the view-pass cell's world)
+            bool Instanced = false;            // an ISM instance: the instanced cell, World as its one transform
         };
-        std::vector<CardCaptureSource>      m_CardCaptureSources;
-        // One material per capture of the frame: the camera block is the MATERIAL's (SceneFrameBinding::ApplyTo
-        // writes the parent), so one card camera needs one material - as m_ShadowMaterial[view] per light view.
-        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials;
-        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances;
+        std::vector<CardCaptureSource> m_CardCaptureSources;
+        // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
+        // material per capture of it in the frame, its camera in its block.
+        // [0] the static cell, [1] the instanced one.
+        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials[2];
+        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances[2];
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
