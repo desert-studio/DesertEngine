@@ -32,7 +32,9 @@ Shader "SSR"
     // vignette dither decides at the edge) continues from where the screen was certain: the mesh SDFs of the objects
     // near this tile out to the near field's distance (Common/GITraceMeshSDF.glslh, the tile's own list in shared
     // memory, nearest first, as ScreenProbeTrace.shader per probe), then the global field (Common/GITracer.glslh)
-    // to the trace distance; a hit returns its surface cache cards' lighting, or is lit in place where no card
+    // to the trace distance - ONE such world ray per texel, drawn among the rays the screen left in proportion to
+    // their weight, answering for all of them (UE: one traced ray per texel); a hit returns its surface cache
+    // cards' lighting, or is lit in place where no card
     // holds it (GIHitRadiance). A ray that meets nothing is NOT answered: the captures, then the sky, answer it in
     // the composite, as they answer a ScreenSpace miss (UE: the sky light of a Lumen miss; here the captures sit in
     // between). Past kTracedMaxRoughness (UE r.Lumen.Reflections.MaxRoughnessToTrace, faded over
@@ -411,6 +413,14 @@ Shader "SSR"
         	float weightSum = 0.0;       // sum of w over every ray
         	vec3  hitPoint  = vec3(0.0); // sum of w * conf * surface: the texel's hit point (world)
         	vec3  rayDir    = vec3(0.0); // sum of w * Lt over every ray: the texel's direction when nothing hit
+        #if defined( DESERT_REFLECTIONS_TRACED )
+        	// The rays the screen left to the world share ONE world ray (UE Lumen reflections: one traced ray per
+        	// texel): drawn among them in proportion to their weight (a reservoir), its answer stands for all of them,
+        	// and the temporal accumulation averages the draw over frames.
+        	float worldWeight = 0.0;      // sum of w of the rays left to the world
+        	vec3  worldL      = vec3(0.0); // the drawn ray's direction
+        	float worldStart  = 0.0;       // and where its world legs start
+        #endif
         	for (int r = 0; r < rays; ++r)
         	{
         		const vec2 u = RayRandom(rotation, seed * uint(rays) + uint(r));
@@ -481,13 +491,13 @@ Shader "SSR"
         		const float dither = hash12(vec2(gPix) + vec2(float(seed), float(r)) * 7.31);
         		if (worldShare > dither && confidence <= dither)
         		{
-        			vec3 worldRadiance;
-        			vec3 worldHit;
-        			confidence = TraceWorld(worldPos, N, L, start, nearField, u_SSRParams2.z, worldRadiance, worldHit)
-        			                  ? 1.0
-        			                  : 0.0;
-        			L_i     = worldRadiance;
-        			surface = worldHit;
+        			worldWeight += w;
+        			if (hash12(vec2(gPix) * 1.37 + vec2(float(r), float(seed)) * 3.11) * worldWeight < w)
+        			{
+        				worldL     = L;
+        				worldStart = start;
+        			}
+        			continue;
         		}
         #endif
         		if (confidence <= 0.0)
@@ -501,6 +511,21 @@ Shader "SSR"
         		coverage  += w * confidence;
         		hitPoint  += (w * confidence) * surface;
         	}
+        #if defined( DESERT_REFLECTIONS_TRACED )
+        	if (worldWeight > 0.0)
+        	{
+        		vec3 L_i;
+        		vec3 surface;
+        		if (TraceWorld(worldPos, N, worldL, worldStart, nearField, u_SSRParams2.z, L_i, surface))
+        		{
+        			const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
+        			radiance  += L_i * (worldWeight * karis);
+        			hitWeight += worldWeight * karis;
+        			coverage  += worldWeight;
+        			hitPoint  += worldWeight * surface;
+        		}
+        	}
+        #endif
         	if (weightSum <= 0.0)
         		return vec4(0.0);
         	if (hitWeight <= 0.0)

@@ -934,7 +934,7 @@ namespace Desert::Graphic
 
     RDG::BufferRef SceneRenderer::AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                     const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                                    const glm::uvec2 extent ) const
+                                                    const glm::uvec2 extent )
     {
         GlobalIllumination::GIFramePayload payload;
         payload.InvViewProjection = frame.InvJitteredViewProjection;
@@ -959,7 +959,8 @@ namespace Desert::Graphic
     SceneRenderer::AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         if ( m_TracedFrameShared.MeshSDFs )
-            return *m_TracedFrameShared.MeshSDFs;
+            return Common::MakeSuccess(
+                 DistanceField::GlobalDistanceField::MeshSDFScene( *m_TracedFrameShared.MeshSDFs ) );
         if ( !m_GlobalDistanceField )
             return Common::MakeError<DistanceField::GlobalDistanceField::MeshSDFScene>(
                  "the mesh SDFs: the view has no global distance field" );

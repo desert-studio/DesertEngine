@@ -842,7 +842,7 @@ namespace Desert::Graphic
         // This frame's GI record (GlobalIllumination::GIFramePayload, "GIFrameUB") for a G-buffer of @p extent.
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                                       glm::uvec2 extent ) const;
+                                                       glm::uvec2 extent );
         // The mesh SDF near field's reads of this frame (UE LumenMeshSDFCulling over the view, the screen probes'
         // distances), made by the first reader and kept in m_TracedFrameShared for the next.
         [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
