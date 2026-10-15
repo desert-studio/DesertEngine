@@ -3,16 +3,24 @@
 // The view's thin-geometry coverage (Graphic::ViewTargetFormats::kThinGeometryCoverage): what the base pass that
 // writes a pixel's depth says about its material, for TSR's thin-geometry detection (TSR.DetectThinGeometry).
 // Ported from UE 5.8 Engine/Shaders/Private/TemporalSuperResolution/TSRMeasureCoverage.usf GetThinGeometry :25-37
-// and TSRThinGeometryCommon.ush EncodeThinGeometryMaterial, adapted: written by the base passes themselves (the
-// G-buffer pass and the forward opaque pass) instead of a compute pass over the G-buffer, so forward-shaded
-// surfaces carry it too. 0: unlit or nothing drawn (the target's clear); 0.5: any other model; 1: two-sided
-// foliage. UE's ShadingRange (Foliage / VaryingRange) is the detection's reading of these values, not the encoding.
+// and TSRThinGeometryCommon.ush EncodeThinGeometryMaterial, adapted: written by every pass that writes the view's
+// depth (the surface cells' G-buffer and forward passes, the terrain's two programs, the water surface) instead of
+// a compute pass over the G-buffer, so forward-shaded surfaces carry it too. UE's ShadingRange (Foliage /
+// VaryingRange) is the detection's reading of these values, not the encoding.
 #include <Generated/ShadingModels.glslh>
 
-float DesertThinGeometryCoverage( const uint shadingModel )
+// Unlit, or nothing drawn (the target's clear).
+const float kThinGeometryCoverageNone = 0.0;
+// Any lit surface that is not two-sided foliage, whichever program shades it (UE: every shading model but unlit
+// and foliage, water included).
+const float kThinGeometryCoverageSurface = 0.5;
+const float kThinGeometryCoverageFoliage = 1.0;
+
+float DesertThinGeometryCoverage( const int shadingModel )
 {
     if ( shadingModel == SHADING_MODEL_INDEX_UNLIT )
-        return 0.0;
-    return shadingModel == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE ? 1.0 : 0.5;
+        return kThinGeometryCoverageNone;
+    return shadingModel == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE ? kThinGeometryCoverageFoliage
+                                                                  : kThinGeometryCoverageSurface;
 }
 #endif
