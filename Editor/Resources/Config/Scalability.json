@@ -183,6 +183,7 @@
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.Samples": 8,
+                "GlobalIllumination.DistanceFieldPoolMiB": 64,
                 "GlobalIllumination.Method": "ScreenSpace",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
@@ -198,6 +199,7 @@
             },
             "Medium": {
                 "GlobalIllumination.Samples": 16,
+                "GlobalIllumination.DistanceFieldPoolMiB": 128,
                 "GlobalIllumination.Method": "ReflectiveShadowMaps",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
@@ -213,6 +215,7 @@
             },
             "High": {
                 "GlobalIllumination.Samples": 32,
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 3584,
                 "GlobalIllumination.CardTexelDensityScale": 100,
@@ -228,6 +231,7 @@
             },
             "Epic": {
                 "GlobalIllumination.Samples": 48,
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,
@@ -243,6 +247,7 @@
             },
             "Cinematic": {
                 "GlobalIllumination.Samples": 64,
+                "GlobalIllumination.DistanceFieldPoolMiB": 512,
                 "GlobalIllumination.Method": "PathTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,

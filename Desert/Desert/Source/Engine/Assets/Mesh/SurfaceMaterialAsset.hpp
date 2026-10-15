@@ -114,6 +114,12 @@ namespace Desert::Assets
             return m_MaterialUUID;
         }
 
+        // Whether the resolved template declares `TwoSided` (false while no template is resolved).
+        [[nodiscard]] bool IsTemplateTwoSided() const
+        {
+            return m_ShaderIsTwoSided;
+        }
+
     private:
         // Upgrades the path-derived handle AssetBase installed to the in-file MaterialId when the file has
         // one — asset-database identity that survives renames as well as restarts.
@@ -130,10 +136,19 @@ namespace Desert::Assets
         std::string         m_ShaderName;                 // display only
         Common::AssetHandle m_ShaderHandle;               // THE identity of the template; null = none resolved
         bool m_ShaderIsStandardSurface = false;           // the resolved template declares `Role StandardSurface`
+        bool m_ShaderIsTwoSided        = false;           // the resolved template declares `TwoSided`
 
         // TRUE only for the detached copy CreateWorkingCopy makes. It exists so eviction can ask rather
         // than guess: nothing else distinguishes a working copy from a loaded material, and the two must
         // never be treated alike (Unload says what happens if they are).
         bool m_IsWorkingCopy = false;
     };
+
+    // THE MATERIAL'S SIDEDNESS WITHOUT THE GPU, by the rule MaterialService builds the runtime material with: the
+    // childmost asset of the instance chain that states TwoSided wins, else the base material's template default
+    // (its `TwoSided` Surface setting). Loads the chain and the template as the dependencies they are. Refuses
+    // by name a material or parent this project does not have, one that does not load, a chain deeper than 16
+    // or a cycle, and a base material with no resolved template - a guess here would be a wrong distance field.
+    [[nodiscard]] Common::ResultStr<bool> ResolveMaterialTwoSided( AssetManager&                     manager,
+                                                                   const Common::Content::AssetGuid& material );
 } // namespace Desert::Assets

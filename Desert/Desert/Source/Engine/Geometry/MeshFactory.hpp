@@ -59,6 +59,7 @@ namespace Desert::Graphic
             {
                 DESERT_VERIFY( false );
             }
+            staticMesh->SetDistanceField( asset->GetDistanceField() );
 
             return staticMesh;
         }

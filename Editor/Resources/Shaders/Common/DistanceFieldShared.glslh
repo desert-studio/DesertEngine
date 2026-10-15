@@ -1,0 +1,32 @@
+// THE DISTANCE-FIELD LAYOUT CONSTANTS - the one statement of them, compiled twice from this text: as GLSL by
+// every shader that reads a mesh distance field or the global distance field (MeshDistanceField.glslh,
+// GlobalDistanceField.glslh), and as C++ by Engine/Graphic/DistanceField, which packs the buffers those shaders
+// read. The C++ side also pins the brick numbers against Assets/MeshDistanceField.hpp (UE DistanceField::).
+// Dialect as LandscapeHeight.glslh: plain `const int` / `const float` with `f` suffixes, nothing else.
+#ifndef DISTANCE_FIELD_SHARED_GLSLH
+#define DISTANCE_FIELD_SHARED_GLSLH
+
+// Mesh distance fields (UE DistanceFieldAtlas.h:39-50).
+const int DF_BRICK_SIZE        = 8; // samples per brick side, one of them the shared border
+const int DF_UNIQUE_BRICK_SIZE = 7;
+const int DF_NUM_MIPS          = 3;
+// The brick atlas, in bricks per side along x and y (it grows along z).
+const int DF_ATLAS_BRICKS_X = 64;
+const int DF_ATLAS_BRICKS_Y = 64;
+// Per asset in the asset buffer (vec4s): a header, then three per mip (UE DF_ASSET_DATA_MIP_STRIDE).
+const int DF_ASSET_MIP_STRIDE = 3;
+const int DF_ASSET_STRIDE     = 1 + DF_ASSET_MIP_STRIDE * DF_NUM_MIPS;
+// Per object in the object buffer (vec4s): world -> volume (three affine rows), the volume extent with the
+// volume -> world distance scale (the smallest axis'), the asset index with each volume axis' own volume -> world
+// scale (the box distance, exact under a non-uniform scale).
+const int DF_OBJECT_STRIDE = 5;
+
+// The global distance field (UE GlobalDistanceField.cpp: four clipmaps of 128^3, Lumen's 25 m first extent
+// doubling per level, an influence range of four voxels).
+const int   GDF_NUM_CLIPMAPS                = 4;
+const int   GDF_RESOLUTION                  = 128;
+const int   GDF_UPDATE_BRICK                = 8;   // the update granularity, voxels per side
+const float GDF_CLIPMAP0_EXTENT             = 2500.0f; // half-size of clipmap 0, centimetres
+const float GDF_INFLUENCE_RANGE_IN_VOXELS   = 4.0f;
+
+#endif

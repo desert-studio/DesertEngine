@@ -131,6 +131,14 @@ namespace Common::DDC
     Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, uint64_t key,
                                                const std::function<Common::ResultStr<std::string>()>& build );
 
+    // BACKGROUND WRITERS AND A MOVING ROOT. A deriver whose builds run on worker threads (the mesh distance-field
+    // queue) registers a hook here; RetireRoot() runs every hook, and each returns only when none of its work
+    // can still write - waiting work dropped, running work finished. Whoever moves the root (a test's
+    // DerivedDataSandbox, set up and torn down) calls RetireRoot() FIRST, so no entry lands in a root that is
+    // being deleted or in the root that replaces it. GetOrBuild also checks: a build that finishes after the
+    // root moved without a retire returns its bytes and writes nothing.
+    void AddRootRetireHook( std::function<void()> hook );
+    void RetireRoot();
     // Root() / "Buckets" / bucket — for derivers whose entries are not addressed by MakeKey (thumbnails, see
     // there).
     std::filesystem::path BucketDir( std::string_view bucket );

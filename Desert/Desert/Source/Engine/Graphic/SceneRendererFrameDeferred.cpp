@@ -524,6 +524,73 @@ namespace Desert::Graphic
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
     }
+
+    void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
+                                                         const ViewFrame& frame, const RDG::TextureRef target )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const auto  it           = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer = it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        if ( meshRenderer == nullptr || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
+                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
+            return;
+        }
+        if ( !m_GlobalDistanceField )
+        {
+            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
+            if ( const auto initialized = field->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceField = std::move( field );
+        }
+
+        // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
+        // off-screen too (a trace leaves the frustum).
+        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
+        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
+        // asynchronous queue) is not in it yet.
+        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                       const glm::mat4&                                            world )
+        {
+            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
+                objects.push_back(
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+        };
+        for ( const auto& draw : meshRenderer->GetStaticQueue() )
+            if ( draw.Mesh != nullptr )
+                if ( const auto field = draw.Mesh->GetDistanceField() )
+                    place( field, draw.Transform );
+        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+            if ( ism.Mesh != nullptr && ism.Transforms )
+                if ( const auto field = ism.Mesh->GetDistanceField() )
+                    for ( const glm::mat4& world : *ism.Transforms )
+                        place( field, world );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        // The view's matrices, unjittered (ViewFrame, as every overlay reads them; SceneRenderer.hpp: a pass that
+        // reads a matrix or a camera position takes the ViewFrame) - not m_SceneInfo.ActiveCamera's, which framed
+        // the field from a different camera than the frame it is drawn over.
+        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
+                                                                   m_DistanceFieldPoolMiB );
+        if ( !field )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", field.GetError() );
+            return;
+        }
+        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass(
+                  graph, field.GetValue(), target, EngineClearColor(), frame.InvViewProjection );
+             !drawn )
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
+    }
 #endif // DESERT_DEV_INSTRUMENTS
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
