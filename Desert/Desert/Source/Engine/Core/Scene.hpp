@@ -38,6 +38,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Desert::Graphic::RayTracing
+{
+    class RayTracingSceneCache;
+}
+
 namespace Desert::Graphic
 {
     class SceneRenderer;
@@ -549,6 +554,14 @@ namespace Desert::Core
             return *m_ReflectionCaptures;
         }
 
+        // THE SCENE'S RAY-TRACING GEOMETRY (UE: FScene's GPU skin cache and cached RT geometry): skinned BLASes
+        // skinned once per frame and hidden-submesh BLAS variants, shared by every view's TLAS. Renderer state
+        // cached on the scene, like the reflection captures.
+        [[nodiscard]] Graphic::RayTracing::RayTracingSceneCache& GetRayTracingCache() const
+        {
+            return *m_RayTracingCache;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -665,6 +678,8 @@ namespace Desert::Core
 
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
+        // See GetRayTracingCache. Never null: made by both constructors.
+        std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

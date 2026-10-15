@@ -828,6 +828,9 @@ namespace Desert::Graphic
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
+        // The ray-tracing geometry of the scene BeginScene was handed (Core::Scene owns it, shared by its views):
+        // read by this view's TLAS gather in OnUpdate, cleared by EndScene.
+        RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

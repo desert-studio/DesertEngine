@@ -15,23 +15,6 @@ namespace Desert::Graphic::API::Vulkan
     {
         using Prepared = RayTracing::SkinnedBlasPrepared;
 
-        VkDeviceAddress BufferAddress( const RayTracingDeviceFunctions& functions, VkDevice device,
-                                       VkBuffer buffer )
-        {
-            VkBufferDeviceAddressInfo info{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            info.buffer = buffer;
-            return functions.GetBufferDeviceAddress( device, &info );
-        }
-
-        VkBufferCreateInfo DeviceAddressBufferInfo( VkDeviceSize size, VkBufferUsageFlags usage )
-        {
-            VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            info.size        = size;
-            info.usage       = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-            info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            return info;
-        }
-
         // A deformed BLAS is rebuilt or refit every frame and traced for one: fast build over fast trace, and
         // ALLOW_UPDATE so the frames after the first refit instead of rebuilding (UE dynamic geometry flags).
         constexpr VkBuildAccelerationStructureFlagsKHR kSkinnedBlasFlags =
@@ -102,9 +85,9 @@ namespace Desert::Graphic::API::Vulkan
         m_PositionsLedger = ResourceOwnership::Take( ResourceKind::StorageBuffer,
                                                      VulkanAllocator::AllocationSize( m_PositionsMemory ) );
 
-        m_IndexAddress = BufferAddress( functions, device, indexBuffer->GetVulkanBuffer() );
+        m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
         const VulkanBlasBuildInput input =
-             TranslateBlasGeometry( m_Segments, BufferAddress( functions, device, m_Positions ), m_IndexAddress );
+             TranslateBlasGeometry( m_Segments, functions.BufferAddress( device, m_Positions ), m_IndexAddress );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
         build.flags                                       = kSkinnedBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -203,7 +186,7 @@ namespace Desert::Graphic::API::Vulkan
         const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
         const VulkanBlasBuildInput input = TranslateBlasGeometry(
-             m_Segments, BufferAddress( functions, device, positionBuffer.GetValue()->GetBuffer() ),
+             m_Segments, functions.BufferAddress( device, positionBuffer.GetValue()->GetBuffer() ),
              m_IndexAddress );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
         build.flags                                       = kSkinnedBlasFlags;
@@ -212,7 +195,7 @@ namespace Desert::Graphic::API::Vulkan
         build.srcAccelerationStructure  = m_Built ? m_Handle : VK_NULL_HANDLE;
         build.dstAccelerationStructure  = m_Handle;
         build.scratchData.deviceAddress = AlignScratchAddress(
-             BufferAddress( functions, device, scratchBuffer.GetValue()->GetBuffer() ) + scratchOffset );
+             functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) + scratchOffset );
 
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = input.Ranges.data();
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );

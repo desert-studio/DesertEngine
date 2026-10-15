@@ -719,6 +719,8 @@ namespace Desert::Graphic
         m_FrameExtensions = &scene.GetExtensionPasses();
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
+        m_FrameRayTracingCache = &scene.GetRayTracingCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1180,8 +1182,13 @@ namespace Desert::Graphic
                  camera != nullptr
                           ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } )
                           : 1.0f;
-            const Common::BoolResultStr tlas = m_RayTracingScene.AddPasses(
-                 graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ), *meshes, viewOrigin, lensScale );
+            Common::BoolResultStr tlas = BOOLSUCCESS;
+            if ( m_FrameRayTracingCache == nullptr )
+                tlas = Common::MakeError(
+                     std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
+            else
+                tlas = m_RayTracingScene.AddPasses( graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ),
+                                                    *meshes, *m_FrameRayTracingCache, viewOrigin, lensScale );
             for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
             {
                 LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}", m_ViewResources.GetName(),
@@ -1371,6 +1378,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
+        m_FrameRayTracingCache    = nullptr;
 
         return BOOLSUCCESS;
     }

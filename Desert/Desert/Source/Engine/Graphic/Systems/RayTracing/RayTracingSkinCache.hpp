@@ -83,8 +83,10 @@ namespace Desert::Graphic::RayTracing
     // The API's skin-cache entry (VulkanSkinnedRayTracingGeometry).
     [[nodiscard]] std::unique_ptr<SkinnedRayTracingGeometry> CreateSkinnedRayTracingGeometry();
 
-    // One view's skin cache (RayTracingSceneRenderer owns one: the palette it skins from is the view's
-    // ObjectBones).
+    // The scene's skin cache (RayTracingSceneCache owns one, shared by every view of the scene, UE FGPUSkinCache
+    // per FScene): each skinned primitive is skinned and its BLAS built / refit ONCE per frame, by the first view
+    // that asks, from that view's ObjectBones (the pose is the entity's, not the view's); the next views of the
+    // frame instance the same BLAS.
     class RayTracingSkinCache
     {
     public:
@@ -94,11 +96,19 @@ namespace Desert::Graphic::RayTracing
         // primitive's Geometry at its BLAS. @p primitives[firstSkinned + i] is MeshRenderer's skinned record i.
         // Every BLAS storage the pass writes is appended to @p blasOut for the TLAS pass to read. A primitive
         // whose entry cannot be prepared keeps Geometry null (counted RayTracingSkip::Skinned) and is logged once
-        // per entry, never silently. Entries no primitive asked for this frame are released.
+        // per entry, never silently. An entry another view already skinned in @p frame is not skinned again: its
+        // primitive points at the same BLAS. @p viewBones is the calling view's import slot for its ObjectBones.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
+                                                       RDG::ExternalBuffer&           viewBones,
                                                        std::span<RayTracingPrimitive> primitives,
-                                                       uint32_t                       firstSkinned,
-                                                       std::vector<RDG::BufferRef>&   blasOut );
+                                                       uint32_t firstSkinned, uint64_t frame,
+                                                       std::vector<RDG::BufferRef>& blasOut );
+
+        // Releases the entries no view asked for in @p frame (RayTracingSceneCache::BeginViewFrame).
+        void EndFrame( const uint64_t frame )
+        {
+            std::erase_if( m_Entries, [frame]( const auto& entry ) { return entry.second.LastFrame != frame; } );
+        }
 
         // Live entries (one per skinned primitive the TLAS instanced last frame).
         [[nodiscard]] std::size_t GetEntryCount() const
@@ -112,15 +122,14 @@ namespace Desert::Graphic::RayTracing
             std::unique_ptr<SkinnedRayTracingGeometry> Geometry;
             RDG::ExternalBuffer VerticesImport; // the mesh's vertex buffer as a graph external
             uint64_t            LastFrame     = 0;
+            bool                Ready         = false; // prepared and skinned in LastFrame: views may trace it
             bool                RefusalLogged = false;
         };
 
         std::unordered_map<uint64_t, Entry>    m_Entries;
         std::unordered_map<uint32_t, uint32_t> m_RecordsPerEntity; // CPU scratch: skinned records seen per entity
-        RDG::ExternalBuffer                    m_BonesImport;      // the view's ObjectBones
         std::shared_ptr<ComputePipeline>       m_Pipeline;
         ShaderBindingLayoutCache               m_Layout;
-        uint64_t                               m_Frame                 = 0;
         bool                                   m_PipelineRefusalLogged = false;
     };
 } // namespace Desert::Graphic::RayTracing

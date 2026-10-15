@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
@@ -27,6 +28,7 @@ namespace Desert::Graphic::RayTracing
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses( RDG::Builder& graph, bool required,
                                                               const System::MeshRenderer& meshes,
+                                                              RayTracingSceneCache&       cache,
                                                               const glm::vec3&            viewOrigin,
                                                               const float                 drawDistanceScale )
     {
@@ -35,8 +37,10 @@ namespace Desert::Graphic::RayTracing
         if ( !required )
             return BOOLSUCCESS;
 
-        // Everything the raster queued, frustum-independent (RayTracingGather.hpp); variants no row asked for this
-        // frame are dropped after the gather (their API objects retire on the frame ring).
+        // The scene's shared geometry ends its previous frame on the first view of this one (RayTracingSceneCache).
+        cache.BeginViewFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+
+        // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
         GatherRayTracingPrimitives( { .Static              = meshes.GetStaticQueue(),
                                       .Generic             = meshes.GetGenericQueue(),
                                       .Instanced           = meshes.GetInstancedQueue(),
@@ -44,15 +48,15 @@ namespace Desert::Graphic::RayTracing
                                       .Skinned             = meshes.GetSkinnedQueue(),
                                       .ViewOrigin          = viewOrigin,
                                       .DrawDistanceScale   = drawDistanceScale },
-                                    m_Variants, m_Gather );
-        m_Variants.EndFrame();
-        // Skinned primitives trace their per-frame BLAS: the skin cache skins and builds them below. The gather
-        // appends one skinned primitive per skinned record, last.
+                                    cache.GetVariants(), m_Gather );
+        // Skinned primitives trace their per-frame BLAS: the scene's skin cache skins and builds each once per frame
+        // (an earlier view's build is reused). The gather appends one skinned primitive per skinned record, last.
         m_DynamicBlas.clear();
         const auto firstSkinned =
              static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
         if ( const Common::BoolResultStr skinned =
-                  m_SkinCache.AddPasses( graph, meshes, m_Gather.Primitives, firstSkinned, m_DynamicBlas );
+                  cache.GetSkinCache().AddPasses( graph, meshes, m_BonesImport, m_Gather.Primitives, firstSkinned,
+                                                  cache.GetFrame(), m_DynamicBlas );
              !skinned )
             return skinned;
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );

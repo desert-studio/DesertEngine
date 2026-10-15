@@ -11,25 +11,6 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
-    namespace
-    {
-        VkDeviceAddress BufferAddress( const RayTracingDeviceFunctions& functions, VkDevice device,
-                                       VkBuffer buffer )
-        {
-            VkBufferDeviceAddressInfo info{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            info.buffer = buffer;
-            return functions.GetBufferDeviceAddress( device, &info );
-        }
-
-        VkBufferCreateInfo DeviceAddressBufferInfo( VkDeviceSize size, VkBufferUsageFlags usage )
-        {
-            VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-            info.size        = size;
-            info.usage       = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-            info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            return info;
-        }
-    } // namespace
 
     Common::ResultStr<std::shared_ptr<VulkanRayTracingGeometry>>
     VulkanRayTracingGeometry::BuildStatic( Mesh& mesh, const uint64_t hiddenSubmeshes )
@@ -54,8 +35,8 @@ namespace Desert::Graphic::API::Vulkan
 
         const VkDevice             device = logical->GetVulkanLogicalDevice();
         const VulkanBlasBuildInput input =
-             TranslateBlasGeometry( segments, BufferAddress( functions, device, vertexBuffer->GetVulkanBuffer() ),
-                                    BufferAddress( functions, device, indexBuffer->GetVulkanBuffer() ) );
+             TranslateBlasGeometry( segments, functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ),
+                                    functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
 
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -103,7 +84,7 @@ namespace Desert::Graphic::API::Vulkan
                  "BLAS scratch: {}", scratchMemory.GetError() );
 
         build.dstAccelerationStructure  = geometry->m_Handle;
-        build.scratchData.deviceAddress = AlignScratchAddress( BufferAddress( functions, device, scratch ) );
+        build.scratchData.deviceAddress = AlignScratchAddress( functions.BufferAddress( device, scratch ) );
 
         auto command = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !command.IsSuccess() )

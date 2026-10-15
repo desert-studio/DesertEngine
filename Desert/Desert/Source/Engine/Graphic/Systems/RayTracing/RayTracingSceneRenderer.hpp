@@ -4,9 +4,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -168,9 +167,10 @@ namespace Desert::Graphic::RayTracing
         // custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
+        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its views.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
-                                                       const System::MeshRenderer& meshes, const glm::vec3& viewOrigin,
-                                                       float drawDistanceScale );
+                                                       const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
+                                                       const glm::vec3& viewOrigin, float drawDistanceScale );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
@@ -187,17 +187,11 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Gather.Errors;
         }
-        // (mesh, hidden mask) BLAS variants alive (RayTracingGeometryVariants).
-        [[nodiscard]] std::size_t GetLiveVariants() const
-        {
-            return m_Variants.LiveVariants();
-        }
 
     private:
         std::unique_ptr<RayTracingSceneTarget> m_Target;
         RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
-        RayTracingGeometryVariants             m_Variants{ MakeVariantBuild() };
-        RayTracingSkinCache                    m_SkinCache;   // skinned primitives' per-frame BLASes
+        RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
         std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;

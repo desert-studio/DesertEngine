@@ -1,0 +1,64 @@
+#pragma once
+
+#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+
+#include <cstdint>
+
+// THE SCENE'S RAY-TRACING GEOMETRY (UE FScene's FGPUSkinCache and its cached ray-tracing geometry): what every
+// view of one Core::Scene traces identically, made ONCE per frame and shared. Each view keeps its own TLAS (its
+// instances are its own GPU-scene rows and its ISM distance cull is its own), but
+//   * a skinned primitive is skinned and its BLAS built / refit once per frame, by the first view that asks; the
+//     next views of the frame instance that same BLAS (RayTracingSkinCache);
+//   * a (mesh, hidden mask) BLAS variant is built once for every view (RayTracingGeometryVariants).
+// Main thread. Core::Scene owns one (GetRayTracingCache); a SceneRenderer reaches it between BeginScene and
+// EndScene, the way it reaches the scene's reflection captures.
+namespace Desert::Graphic::RayTracing
+{
+    class RayTracingSceneCache
+    {
+    public:
+        // Every view calls this before it gathers, with the engine's absolute frame number. A new number ends the
+        // previous frame: the variants and skin-cache entries no view asked for during it are released (their
+        // API objects retire on the frame ring, so a frame in flight still traces them safely).
+        void BeginViewFrame( const uint64_t frame )
+        {
+            if ( m_HasFrame && frame == m_Frame )
+                return;
+            if ( m_HasFrame )
+            {
+                m_Variants.EndFrame();
+                m_SkinCache.EndFrame( m_Frame );
+            }
+            m_Frame    = frame;
+            m_HasFrame = true;
+        }
+
+        [[nodiscard]] uint64_t GetFrame() const
+        {
+            return m_Frame;
+        }
+        [[nodiscard]] RayTracingGeometryVariants& GetVariants()
+        {
+            return m_Variants;
+        }
+        [[nodiscard]] const RayTracingGeometryVariants& GetVariants() const
+        {
+            return m_Variants;
+        }
+        [[nodiscard]] RayTracingSkinCache& GetSkinCache()
+        {
+            return m_SkinCache;
+        }
+        [[nodiscard]] const RayTracingSkinCache& GetSkinCache() const
+        {
+            return m_SkinCache;
+        }
+
+    private:
+        RayTracingGeometryVariants m_Variants{ MakeVariantBuild() };
+        RayTracingSkinCache        m_SkinCache;
+        uint64_t                   m_Frame    = 0;
+        bool                       m_HasFrame = false;
+    };
+} // namespace Desert::Graphic::RayTracing

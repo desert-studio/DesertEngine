@@ -35,20 +35,15 @@ namespace Desert::Graphic::RayTracing
     } // namespace
 
     Common::BoolResultStr RayTracingSkinCache::AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
+                                                          RDG::ExternalBuffer&           viewBones,
                                                           std::span<RayTracingPrimitive> primitives,
-                                                          const uint32_t                 firstSkinned,
-                                                          std::vector<RDG::BufferRef>&   blasOut )
+                                                          const uint32_t firstSkinned, const uint64_t frame,
+                                                          std::vector<RDG::BufferRef>& blasOut )
     {
-        ++m_Frame;
-        const auto releaseUnused = [this]
-        { std::erase_if( m_Entries, [this]( const auto& entry ) { return entry.second.LastFrame != m_Frame; } ); };
 
         const std::vector<RayTracingDynamicGeometryRequest> requests = SelectDynamicGeometry( primitives );
         if ( requests.empty() )
-        {
-            releaseUnused();
             return BOOLSUCCESS;
-        }
 
         if ( !m_Pipeline )
         {
@@ -80,15 +75,14 @@ namespace Desert::Graphic::RayTracing
             }
             if ( !m_Pipeline )
             {
-                releaseUnused();
                 return BOOLSUCCESS; // every skinned primitive keeps Geometry null: counted RayTracingSkip::Skinned
             }
         }
 
-        if ( const auto imported = Renderer::ImportBuffer( meshes.GetObjectBones(), m_BonesImport ); !imported )
+        if ( const auto imported = Renderer::ImportBuffer( meshes.GetObjectBones(), viewBones ); !imported )
             return Common::MakeError( std::format( "{}: the view's ObjectBones could not be imported: {}",
                                                kSkinCachePassName, imported.GetError() ) );
-        const RDG::BufferRef bones = graph.RegisterExternal( m_BonesImport, "SkinCache.Bones" );
+        const RDG::BufferRef bones = graph.RegisterExternal( viewBones, "SkinCache.Bones" );
 
         const std::shared_ptr<ComputePipeline> pipeline = m_Pipeline;
         const auto&                            layout   = m_Layout.Get( pipeline->GetSpecification().Shader );
@@ -111,8 +105,21 @@ namespace Desert::Graphic::RayTracing
             const System::MeshRenderer::SkinnedMeshRenderData& record = records[recordIndex];
             const uint64_t                                     key =
                  ( static_cast<uint64_t>( record.Entity ) << 32u ) | m_RecordsPerEntity[record.Entity]++;
-            Entry& entry    = m_Entries[key];
-            entry.LastFrame = m_Frame;
+            Entry& entry = m_Entries[key];
+            if ( entry.LastFrame == frame && entry.Geometry )
+            {
+                // An earlier view of this frame skinned and built it (or was refused, already logged): one
+                // skinning per frame, every view instances the same BLAS. Read by this view's TLAS pass too.
+                if ( entry.Ready )
+                {
+                    const RayTracingGeometryResource* shared = entry.Geometry.get();
+                    primitives[request.Primitive].Geometry   = shared;
+                    blasOut.push_back( graph.RegisterExternal( entry.Geometry->GetStorage(), "SkinCache.BLAS" ) );
+                }
+                continue;
+            }
+            entry.LastFrame = frame;
+            entry.Ready     = false;
             if ( !entry.Geometry )
                 entry.Geometry = CreateSkinnedRayTracingGeometry();
 
@@ -142,6 +149,7 @@ namespace Desert::Graphic::RayTracing
                 continue;
             }
             entry.RefusalLogged = false;
+            entry.Ready         = true;
 
             // The shader's SkinCacheDispatch: x = vertex count, y = the first bone of this frame's palette.
             const uint32_t                vertexCount = record.Mesh->GetVertexCount();
@@ -181,7 +189,6 @@ namespace Desert::Graphic::RayTracing
             const RayTracingGeometryResource* blas = entry.Geometry.get();
             primitives[request.Primitive].Geometry = blas;
         }
-        releaseUnused();
         if ( builds.empty() )
             return BOOLSUCCESS;
 
