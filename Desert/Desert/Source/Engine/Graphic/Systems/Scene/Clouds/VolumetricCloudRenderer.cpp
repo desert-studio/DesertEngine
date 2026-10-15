@@ -1410,8 +1410,7 @@ namespace Desert::Graphic::System
         {
             block.Texture( m_MediumTextureNames[slot],
                            m_MediumImages[slot] ? std::shared_ptr<Image>( m_MediumImages[slot] ) : fallback,
-                           RDG::Access::SampledCompute,
-                           std::format( "Clouds.Medium{}", slot ) )
+                           RDG::Access::SampledCompute, std::format( "Clouds.Medium{}", slot ) )
                  .Sampler( "u_CloudMediumSampler", GlobalTextureFilterSampler() );
         }
         return block;
@@ -1975,8 +1974,7 @@ namespace Desert::Graphic::System
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
              .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
              .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
              .Texture( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute,
                        skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" )
@@ -2068,11 +2066,9 @@ namespace Desert::Graphic::System
              .Texture( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              // The march's depth image again: the resolve gives every half-res pixel its OWN scene distance rather
              // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, u_SceneDepth).
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
              .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-             .Texture( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute,
-                       historyName )
+             .Texture( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute, historyName )
              .Texture( "u_CloudHistoryGuide", historyGuide, RDG::Access::SampledCompute, historyGuideName )
              .Storage( "u_ReconstructedScatter", m_HistoryImage[writeIndex], RDG::Access::StorageWrite,
                        std::format( "Clouds.History{}", writeIndex ) )
@@ -2134,8 +2130,7 @@ namespace Desert::Graphic::System
         // The clipmap's one image (three toroidal levels), the world weather map and the painted layout's two
         // textures: always present once EnsureInputs has run, each LINEAR and REPEAT -- the weather and the
         // layout tile over their own periods, and a "Nearest" read would cut the sky along texel edges.
-        block.Texture( "u_CloudModelling", m_Clipmap.GetImage(), RDG::Access::SampledCompute,
-                       "Clouds.Modelling" )
+        block.Texture( "u_CloudModelling", m_Clipmap.GetImage(), RDG::Access::SampledCompute, "Clouds.Modelling" )
              .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
              .Texture( "u_CloudFarWeather", m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" )
              .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )

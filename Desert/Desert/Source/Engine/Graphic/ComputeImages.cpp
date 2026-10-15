@@ -226,7 +226,8 @@ namespace Desert::Graphic
         // The medium's shared state sits right after its textures (ShaderGraph's Volume-domain emitter), in the
         // state the screen march binds it with (VolumetricCloudRenderer, u_CloudMediumSampler).
         if ( !clouds.MediumImages.empty() )
-            pipeline->SetSampler( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( clouds.MediumImages.size() ),
+            pipeline->SetSampler( Core::kCloudMediumTextureFirst +
+                                       static_cast<uint32_t>( clouds.MediumImages.size() ),
                                   GlobalTextureFilterSampler() );
 
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies

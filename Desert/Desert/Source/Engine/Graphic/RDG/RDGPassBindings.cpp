@@ -321,18 +321,17 @@ namespace Desert::Graphic::RDG
     {
         // No resource and no access: nothing for the graph to declare, only the slot to fill. The same shared
         // state named again by another input of the block is the entry already there.
-        std::vector<DeclaredBindingEntry>& entries = m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries;
+        std::vector<DeclaredBindingEntry>& entries =
+             m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries;
         const bool already = std::any_of( entries.begin(), entries.end(),
-                                          [&]( const DeclaredBindingEntry& e )
-                                          {
+                                          [&]( const DeclaredBindingEntry& e ) {
                                               return e.Kind == ShaderResourceKind::Sampler &&
                                                      e.ShaderName == shaderName && e.Sampler == sampler;
                                           } );
         if ( already )
             return *this;
-        entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
-               Access::None, SubresourceRange::All(), sampler } );
+        entries.push_back( { std::string( shaderName ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+                             kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
         return *this;
     }
 

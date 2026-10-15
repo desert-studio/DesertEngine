@@ -408,7 +408,7 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
          [&]( PassBuilder& pass )
          {
              pass.Bindings( ShaderBindingLayout{ .ShaderName = "ReadsBlack",
-                                                 .Slots = { { "u_Source", ShaderResourceKind::Texture } } },
+                                                 .Slots      = { { "u_Source", ShaderResourceKind::Texture } } },
                             OtherRouteFill{} )
                   .Texture( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
                   .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );

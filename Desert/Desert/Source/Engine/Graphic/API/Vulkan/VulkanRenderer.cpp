@@ -511,9 +511,9 @@ namespace Desert::Graphic::API::Vulkan
                              "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
                              "texture is read through a Sampler slot of the pass",
                              pass, name, static_cast<int>( binding->descriptorType ) );
-                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout,
-                                                        entry.Slot.Element );
+                    written =
+                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
                 }
                 else
                 {

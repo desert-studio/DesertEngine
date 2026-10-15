@@ -73,8 +73,10 @@ namespace Desert::Graphic
         using Kind = RDG::ShaderResourceKind;
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
-                  .ShaderName = kSpatialUpscaleShaderName,
-                  .Slots = { { "u_Source", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_Destination", Kind::StorageTexture } },
+                  .ShaderName        = kSpatialUpscaleShaderName,
+                  .Slots             = { { "u_Source", Kind::Texture },
+                                         { "u_PointClampSampler", Kind::Sampler },
+                                         { "u_Destination", Kind::StorageTexture } },
                   .PushConstantBytes = static_cast<uint32_t>( sizeof( SpatialUpscalePush ) ) } );
         return layout;
     }
@@ -84,8 +86,10 @@ namespace Desert::Graphic
         using Kind = RDG::ShaderResourceKind;
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
-                  .ShaderName = kSharpenShaderName,
-                  .Slots = { { "u_Source", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_Destination", Kind::StorageTexture } },
+                  .ShaderName        = kSharpenShaderName,
+                  .Slots             = { { "u_Source", Kind::Texture },
+                                         { "u_PointClampSampler", Kind::Sampler },
+                                         { "u_Destination", Kind::StorageTexture } },
                   .PushConstantBytes = static_cast<uint32_t>( sizeof( SharpenPush ) ) } );
         return layout;
     }

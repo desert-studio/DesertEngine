@@ -220,8 +220,7 @@ namespace Desert::Graphic::System
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
         block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
              .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
              .Texture( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )

@@ -293,10 +293,11 @@ namespace Desert::Graphic::API::Vulkan
     namespace
     {
         // The material-route texture models: every single separate texture of @p dimension, each paired with its
-        // own sampler state `<name>Sampler` in the same set when the shader declares one. A pass's inputs are among
-        // them too; MaterialExecutor makes a property only for the ones the template's Properties block names.
+        // own sampler state `<name>Sampler` in the same set when the shader declares one. A pass's inputs are
+        // among them too; MaterialExecutor makes a property only for the ones the template's Properties block
+        // names.
         template <typename Model>
-        std::vector<Model> TextureModels( const ShaderResource::ReflectionData&               data,
+        std::vector<Model> TextureModels( const ShaderResource::ReflectionData&                data,
                                           ShaderResources::ShaderLayout::SampledImageDimension dimension )
         {
             std::vector<Model> models;
@@ -321,7 +322,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> VulkanShader::GetUniformImageCubeModels() const
+    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler>
+    VulkanShader::GetUniformImageCubeModels() const
     {
         return TextureModels<ShaderResources::ShaderLayout::ImageCubeSampler>(
              m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Cube );

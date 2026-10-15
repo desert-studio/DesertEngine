@@ -27,23 +27,23 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
 
     namespace
     {
-    ShaderResources::ShaderLayout::SampledImageDimension SampledDimensionOf( ImageKind kind, bool arrayed )
-    {
-        using Dimension = ShaderResources::ShaderLayout::SampledImageDimension;
-        switch ( kind )
+        ShaderResources::ShaderLayout::SampledImageDimension SampledDimensionOf( ImageKind kind, bool arrayed )
         {
-            case ImageKind::Image2DMultisample:
-                return Dimension::Texture2DMultisample;
-            case ImageKind::Image3D:
-                return Dimension::Texture3D;
-            case ImageKind::ImageCube:
-                return arrayed ? Dimension::CubeArray : Dimension::Cube;
-            case ImageKind::Image2D:
-            case ImageKind::Unsupported:
-                break;
+            using Dimension = ShaderResources::ShaderLayout::SampledImageDimension;
+            switch ( kind )
+            {
+                case ImageKind::Image2DMultisample:
+                    return Dimension::Texture2DMultisample;
+                case ImageKind::Image3D:
+                    return Dimension::Texture3D;
+                case ImageKind::ImageCube:
+                    return arrayed ? Dimension::CubeArray : Dimension::Cube;
+                case ImageKind::Image2D:
+                case ImageKind::Unsupported:
+                    break;
+            }
+            return Dimension::Texture2D;
         }
-        return Dimension::Texture2D;
-    }
     } // namespace
 
     ImageKind ClassifyImage( const spirv_cross::SPIRType& type )
@@ -879,8 +879,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 out.RowMembers = membersOf( row, rowId );
         }
 
-        // The stage's bound textures (separate textures outside the bindless table's set): where a generated texture
-        // property landed, held against the template's layout by ReconcileMaterialLayout.
+        // The stage's bound textures (separate textures outside the bindless table's set): where a generated
+        // texture property landed, held against the template's layout by ReconcileMaterialLayout.
         for ( const auto& resource : resources.separate_images )
             if ( compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ) != kBindlessSetIndex )
                 out.Samplers.push_back(

@@ -42,8 +42,10 @@ namespace Desert::Graphic
         using Kind = RDG::ShaderResourceKind;
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
-                  .ShaderName = kResolveShaderName,
-                  .Slots = { { "u_Source", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_Destination", Kind::StorageTexture } },
+                  .ShaderName        = kResolveShaderName,
+                  .Slots             = { { "u_Source", Kind::Texture },
+                                         { "u_PointClampSampler", Kind::Sampler },
+                                         { "u_Destination", Kind::StorageTexture } },
                   .PushConstantBytes = static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) } );
         return layout;
     }

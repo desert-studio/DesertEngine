@@ -149,8 +149,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[1],
-                             { { "u_Flat", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_TileMax", Kind::StorageTexture } } );
+             MakeBlurLayout( kBlurKernelShaders[1], { { "u_Flat", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
+                                                      { "u_TileMax", Kind::StorageTexture } } );
         return layout;
     }
 

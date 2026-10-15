@@ -313,9 +313,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     bool VulkanMaterialBackend::WriteTextureWithSampler( IViewDescriptorSetCopy& sets, uint32_t frameIndex,
-                                                          uint32_t binding, std::optional<uint32_t> samplerBinding,
-                                                          const VkDescriptorImageInfo& info, uint64_t handle,
-                                                          uint64_t version )
+                                                         uint32_t binding, std::optional<uint32_t> samplerBinding,
+                                                         const VkDescriptorImageInfo& info, uint64_t handle,
+                                                         uint64_t version )
     {
         // A bound texture property is a separate texture plus its own sampler state (`<name>Sampler`): the view at
         // its binding, the state at the paired one. Both are recorded as written, so a pass's set takes both.
@@ -323,9 +323,9 @@ namespace Desert::Graphic::API::Vulkan
             return false;
         const VkDescriptorImageInfo texture{ VK_NULL_HANDLE, info.imageView, info.imageLayout };
         const VkDescriptorImageInfo sampler{ info.sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
-        UpdateDescriptorSets( { DescriptorSetBuilder::GetSampledImageWDS( this, frameIndex, 0, binding, &texture ),
-                                DescriptorSetBuilder::GetSamplerStateWDS( this, frameIndex, 0, *samplerBinding,
-                                                                          &sampler ) } );
+        UpdateDescriptorSets(
+             { DescriptorSetBuilder::GetSampledImageWDS( this, frameIndex, 0, binding, &texture ),
+               DescriptorSetBuilder::GetSamplerStateWDS( this, frameIndex, 0, *samplerBinding, &sampler ) } );
         NoteDescriptorWrite( sets, binding, handle );
         NoteDescriptorWrite( sets, *samplerBinding, handle );
         sets.BoundCopies.NoteWritten( binding, handle, version );
@@ -391,8 +391,8 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(), descriptorImageInfo,
-                                       handle, textureProp->GetVersion() ) )
+        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(),
+                                       descriptorImageInfo, handle, textureProp->GetVersion() ) )
             ReportMissingSamplerState( binding );
     }
 
@@ -431,14 +431,14 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        // A cube property with no image (TextureCubeProperty::RestoreDefault clears it) reads the fallback cube, the
-        // documented "no cubemap set" state of a skybox or preview material.
+        // A cube property with no image (TextureCubeProperty::RestoreDefault clears it) reads the fallback cube,
+        // the documented "no cubemap set" state of a skybox or preview material.
         if ( descriptorImageInfo.imageView == VK_NULL_HANDLE || descriptorImageInfo.sampler == VK_NULL_HANDLE )
             if ( auto fallback = sp_cast<VulkanImageCube>(
                       FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F ) ) )
                 descriptorImageInfo = fallback->GetResource().GetDescriptorInfo();
-        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(), descriptorImageInfo,
-                                       handle, textureProp->GetVersion() ) )
+        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(),
+                                       descriptorImageInfo, handle, textureProp->GetVersion() ) )
             ReportMissingSamplerState( binding );
     }
 

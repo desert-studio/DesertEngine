@@ -816,11 +816,9 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
          .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
     Desert::Graphic::RenderPassDeclaration reader;
     reader
-         .Bindings(
-              ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::Texture } } },
-              {} )
-         .Texture( "u_TransmittanceLut", lut, Access::SampledGraphics,
-                   "Sky.TransmittanceLut" )
+         .Bindings( ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::Texture } } },
+                    {} )
+         .Texture( "u_TransmittanceLut", lut, Access::SampledGraphics, "Sky.TransmittanceLut" )
          .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
     EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
@@ -868,11 +866,9 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
                                          { { "u_CloudHistory", ShaderResourceKind::Texture },
                                            { "u_CloudHistoryGuide", ShaderResourceKind::Texture } } },
                     {} )
-         .Texture( "u_CloudHistory", fallback, Access::SampledCompute,
-                   "Clouds.HistoryFallback" )
+         .Texture( "u_CloudHistory", fallback, Access::SampledCompute, "Clouds.HistoryFallback" )
          .Sampler( "u_LinearRepeatSampler", SamplerDesc::LinearRepeat() )
-         .Texture( "u_CloudHistoryGuide", fallback, Access::SampledCompute,
-                   "Clouds.HistoryFallback" );
+         .Texture( "u_CloudHistoryGuide", fallback, Access::SampledCompute, "Clouds.HistoryFallback" );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( resolve ).size(), 2u );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( resolve ), nullptr );
 
@@ -936,8 +932,7 @@ TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 // System.White (AO = 1); a ref that is neither faults the composite before its exec, so no null view is bound.
 TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefFaultsThePass )
 {
-    const ShaderBindingLayout layout{
-         "DeferredLighting", { { "u_SSAO", ShaderResourceKind::Texture } }, 0 };
+    const ShaderBindingLayout layout{ "DeferredLighting", { { "u_SSAO", ShaderResourceKind::Texture } }, 0 };
 
     // SSAO did not run this frame: the composite reads System.White, compiled with no fault and not culled.
     {
@@ -5185,9 +5180,9 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     ASSERT_EQ( litBlock.Block.Entries.size(), 10u ); // 4 cascades + 4 inputs + 2 shared states
     for ( uint32_t c = 0; c < Desert::Graphic::kSceneViewShadowCascades; ++c )
     {
-        const auto it = std::find_if( litBlock.Block.Entries.begin(), litBlock.Block.Entries.end(),
-                                      [c]( const DeclaredBindingEntry& e )
-                                      { return e.ShaderName == Desert::Graphic::kSceneViewShadowMapElementNames[c]; } );
+        const auto it = std::find_if(
+             litBlock.Block.Entries.begin(), litBlock.Block.Entries.end(), [c]( const DeclaredBindingEntry& e )
+             { return e.ShaderName == Desert::Graphic::kSceneViewShadowMapElementNames[c]; } );
         ASSERT_NE( it, litBlock.Block.Entries.end() );
         EXPECT_EQ( it->Index, 10 + c );
     }

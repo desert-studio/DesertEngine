@@ -356,8 +356,9 @@ namespace Desert::Graphic
                  auto bindings = pass.Bindings( m_AssembleLayout.Get( m_Assemble->GetSpecification().Shader ),
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
-                     bindings.Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All() )
+                     bindings
+                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
                  bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
                       .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );

@@ -181,20 +181,21 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofSetupLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::Texture },
-                                                                          { "u_SceneDepth", Kind::Texture },
-                                                                          { "u_LinearClampSampler", Kind::Sampler },
-                                                                          { "u_PointClampSampler", Kind::Sampler },
-                                                                          { "u_Half", Kind::StorageTexture } } );
+        static const auto layout =
+             MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::Texture },
+                                                    { "u_SceneDepth", Kind::Texture },
+                                                    { "u_LinearClampSampler", Kind::Sampler },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Half", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofTileFlattenLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout(
-             kDofKernelShaders[1],
-             { { "u_Half", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_Tiles", Kind::StorageTexture } } );
+        static const auto layout = MakeDofLayout( kDofKernelShaders[1], { { "u_Half", Kind::Texture },
+                                                                          { "u_PointClampSampler", Kind::Sampler },
+                                                                          { "u_Tiles", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -202,8 +203,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeDofLayout( kDofKernelShaders[2],
-                            { { "u_Tiles", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_Dilated", Kind::StorageTexture } } );
+             MakeDofLayout( kDofKernelShaders[2], { { "u_Tiles", Kind::Texture },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Dilated", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -235,13 +237,14 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofRecombineLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::Texture },
-                                                                          { "u_SceneDepth", Kind::Texture },
-                                                                          { "u_Foreground", Kind::Texture },
-                                                                          { "u_Background", Kind::Texture },
-                                                                          { "u_LinearClampSampler", Kind::Sampler },
-                                                                          { "u_PointClampSampler", Kind::Sampler },
-                                                                          { "u_Output", Kind::StorageTexture } } );
+        static const auto layout =
+             MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::Texture },
+                                                    { "u_SceneDepth", Kind::Texture },
+                                                    { "u_Foreground", Kind::Texture },
+                                                    { "u_Background", Kind::Texture },
+                                                    { "u_LinearClampSampler", Kind::Sampler },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
 

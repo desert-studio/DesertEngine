@@ -86,7 +86,8 @@ namespace Desert::Graphic::API::Vulkan
                                                                    const uint32_t               dstBinding,
                                                                    const VkDescriptorImageInfo* pImageInfo )
     {
-        return ImageInfoWDS( materialBackend, frame, set, dstBinding, pImageInfo, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
+        return ImageInfoWDS( materialBackend, frame, set, dstBinding, pImageInfo,
+                             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
     }
 
     VkWriteDescriptorSet DescriptorSetBuilder::GetSamplerStateWDS( VulkanMaterialBackend* materialBackend,

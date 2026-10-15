@@ -101,9 +101,10 @@ namespace Desert::Graphic::API::Vulkan
             auto* img = dynamic_cast<IVulkanImage*>( input.Image );
             if ( !img )
             {
-                return Common::MakeFormattedError( "ComputePipeline '{}': input at binding {} is not a Vulkan image; "
-                                                   "dispatch skipped",
-                                                   m_Specification.DebugName, binding );
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': input at binding {} is not a Vulkan image; "
+                     "dispatch skipped",
+                     m_Specification.DebugName, binding );
             }
             const auto& r = img->GetResource();
 
@@ -143,11 +144,13 @@ namespace Desert::Graphic::API::Vulkan
         // Shared sampler states (VK_DESCRIPTOR_TYPE_SAMPLER), acquired from the engine sampler cache.
         for ( const auto& [binding, desc] : m_BoundSamplers )
         {
-            const Common::ResultStr<VkSampler> sampler = EngineSamplerCache().Acquire( RdgSamplerCreateInfo( desc ) );
+            const Common::ResultStr<VkSampler> sampler =
+                 EngineSamplerCache().Acquire( RdgSamplerCreateInfo( desc ) );
             if ( !sampler.IsSuccess() )
             {
-                return Common::MakeFormattedError( "ComputePipeline '{}': sampler at binding {}: {}; dispatch skipped",
-                                                   m_Specification.DebugName, binding, sampler.GetError() );
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': sampler at binding {}: {}; dispatch skipped",
+                     m_Specification.DebugName, binding, sampler.GetError() );
             }
             infos.push_back( { sampler.GetValue(), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } );
             writes.push_back( separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLER ) );

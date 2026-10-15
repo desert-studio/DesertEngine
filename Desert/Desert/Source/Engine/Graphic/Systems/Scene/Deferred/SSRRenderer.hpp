@@ -210,7 +210,8 @@ namespace Desert::Graphic::System
                  .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
                  .Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                  .Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )

@@ -166,8 +166,7 @@ namespace Desert::Graphic
         // Whether the layout a pass's SETUP declares against has a separate-texture slot of that name.
         [[nodiscard]] inline bool LayoutSamples( const RDG::ShaderBindingLayout& layout, std::string_view name )
         {
-            return std::any_of( layout.Slots.begin(), layout.Slots.end(),
-                                [name]( const RDG::ShaderSlot& slot )
+            return std::any_of( layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
                                 { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::Texture; } );
         }
 
@@ -199,7 +198,8 @@ namespace Desert::Graphic
             bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, kClamp, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLutName, inputs.BrdfLut, kClamp, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewCloudShadowMapName, inputs.CloudShadowMap, kRepeat, RDG::SamplerDesc::LinearRepeat() );
-            bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, kPoint, RDG::SamplerDesc::PointClamp() );
+            bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, kPoint,
+                  RDG::SamplerDesc::PointClamp() );
             if ( inputs.ReflectionCaptureCubes.IsValid() )
                 bind( kSceneViewReflectionCubesName, inputs.ReflectionCaptureCubes, kClamp,
                       RDG::SamplerDesc::LinearClamp() );
@@ -213,8 +213,9 @@ namespace Desert::Graphic
         for ( std::string_view name : kSceneViewShadowMapElementNames )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 return true;
-        for ( std::string_view name : { kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName, kSceneViewBrdfLutName,
-                                        kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName } )
+        for ( std::string_view name :
+              { kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName, kSceneViewBrdfLutName,
+                kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 return true;
         return false;

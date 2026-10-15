@@ -870,15 +870,17 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    Common::BoolResultStr
-    VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
-                                            const RDG::TextureBinding& texture, RDG::SubresourceRange range,
-                                            VkImageLayout layout, uint32_t element )
+    Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
+                                                                  VkDescriptorType           type,
+                                                                  const RDG::TextureBinding& texture,
+                                                                  RDG::SubresourceRange      range,
+                                                                  VkImageLayout layout, uint32_t element )
     {
         if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE )
-            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not a separate or storage image "
-                                               "type (a pass binds no combined sampler)",
-                                               texture.Name, static_cast<int>( type ) );
+            return Common::MakeFormattedError(
+                 "texture '{}': descriptor type {} is not a separate or storage image "
+                 "type (a pass binds no combined sampler)",
+                 texture.Name, static_cast<int>( type ) );
         const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
         if ( !physical )
             return Common::MakeError( physical.GetError() );

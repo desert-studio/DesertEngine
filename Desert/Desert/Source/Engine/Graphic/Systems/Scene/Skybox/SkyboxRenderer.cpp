@@ -439,7 +439,8 @@ namespace Desert::Graphic::System
             block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
                            "Sky.TransmittanceLut" )
                  .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
+                 .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
+                           "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -953,10 +954,10 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
                             executor->GetRouteFill() )
-                 .Texture(
-                      "u_TransmittanceLut",
-                      refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
-                      RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Texture( "u_TransmittanceLut",
+                           refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
+                                                                         : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                  .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                  .Texture( "u_SkyViewLut",
                            refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,

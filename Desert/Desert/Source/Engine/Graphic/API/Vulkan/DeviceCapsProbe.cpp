@@ -191,9 +191,9 @@ namespace Desert::Graphic::API::Vulkan
             DescriptorIndexingLimits limits;
             limits.MaxPerStageUpdateAfterBindSampledImages =
                  indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
-            limits.MaxSetUpdateAfterBindSampledImages = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
-            limits.MaxPerStageUpdateAfterBindSamplers = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
-            limits.MaxSetUpdateAfterBindSamplers      = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSampledImages  = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
+            limits.MaxPerStageUpdateAfterBindSamplers  = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSamplers       = indexing.maxDescriptorSetUpdateAfterBindSamplers;
             limits.MaxPerStageUpdateAfterBindResources = indexing.maxPerStageUpdateAfterBindResources;
             return limits;
         }

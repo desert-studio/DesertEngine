@@ -152,7 +152,8 @@ namespace Desert::Graphic::System
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             auto                       block    = pass.Bindings( m_GatherLayout.Get( m_Pipeline->GetShader() ),
                                                                  m_Material->GetMaterialExecutor()->GetRouteFill() );
-            const auto                 sampled  = [&]( std::string_view name, RDG::TextureRef texture ) {
+            const auto                 sampled  = [&]( std::string_view name, RDG::TextureRef texture )
+            {
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( "u_LinearRepeatSampler", kSampler );
             };

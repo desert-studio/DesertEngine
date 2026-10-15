@@ -399,8 +399,8 @@ namespace Desert::Graphic
                         bindings.Texture( entry.ShaderName, texture, entry.Access, entry.Range );
                         break;
                     case RDG::ShaderResourceKind::Sampler:
-                        // BlockDeclaration::Sampler always carries the state. An entry without one is not replayed,
-                        // and ValidatePassBindings names its slot as filled by neither route.
+                        // BlockDeclaration::Sampler always carries the state. An entry without one is not
+                        // replayed, and ValidatePassBindings names its slot as filled by neither route.
                         if ( entry.Sampler )
                             bindings.Sampler( entry.ShaderName, *entry.Sampler );
                         break;
