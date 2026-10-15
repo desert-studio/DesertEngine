@@ -49,6 +49,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_StorageBytes;
+        }
+        [[nodiscard]] uint64_t GetPositionsBytes() const override
+        {
+            return m_PositionsBytes;
+        }
 
     private:
         void Release();

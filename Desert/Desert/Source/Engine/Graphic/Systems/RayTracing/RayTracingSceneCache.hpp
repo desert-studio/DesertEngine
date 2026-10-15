@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProceduralGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 #include <cstdint>
@@ -29,6 +30,7 @@ namespace Desert::Graphic::RayTracing
             {
                 m_Variants.EndFrame();
                 m_SkinCache.EndFrame( m_Frame );
+                m_Procedural.EndFrame( m_Frame );
             }
             m_Frame    = frame;
             m_HasFrame = true;
@@ -54,10 +56,19 @@ namespace Desert::Graphic::RayTracing
         {
             return m_SkinCache;
         }
+        [[nodiscard]] RayTracingProceduralCache& GetProcedural()
+        {
+            return m_Procedural;
+        }
+        [[nodiscard]] const RayTracingProceduralCache& GetProcedural() const
+        {
+            return m_Procedural;
+        }
 
     private:
         RayTracingGeometryVariants m_Variants{ MakeVariantBuild() };
         RayTracingSkinCache        m_SkinCache;
+        RayTracingProceduralCache  m_Procedural; // BLASes of meshes the uploader built none for
         uint64_t                   m_Frame    = 0;
         bool                       m_HasFrame = false;
     };

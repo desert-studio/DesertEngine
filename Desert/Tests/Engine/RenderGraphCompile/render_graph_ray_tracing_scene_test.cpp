@@ -65,6 +65,10 @@ namespace
         {
             return 0xABCD0000ull;
         }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return 4096;
+        }
     };
 
     RayTracingInstanceList OneInstance( const FakeGeometry& geometry )

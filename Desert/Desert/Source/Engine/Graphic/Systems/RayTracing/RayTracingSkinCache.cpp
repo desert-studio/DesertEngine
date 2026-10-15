@@ -22,25 +22,13 @@ namespace Desert::Graphic::RayTracing
         return std::make_unique<API::Vulkan::VulkanSkinnedRayTracingGeometry>();
     }
 
-    namespace
-    {
-        // One primitive's build inside "RayTracingScene.DynamicGeometry".
-        struct DynamicBuild
-        {
-            SkinnedRayTracingGeometry* Geometry = nullptr;
-            RDG::BufferRef             Positions;
-            RDG::BufferRef             Storage;
-            uint64_t                   ScratchOffset = 0;
-        };
-    } // namespace
-
     Common::BoolResultStr RayTracingSkinCache::AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
                                                           RDG::ExternalBuffer&           viewBones,
                                                           std::span<RayTracingPrimitive> primitives,
                                                           const uint32_t firstSkinned, const uint64_t frame,
-                                                          std::vector<RDG::BufferRef>& blasOut )
+                                                          std::vector<RayTracingDynamicGeometryBuild>& buildsOut,
+                                                          std::vector<RDG::BufferRef>&                 blasOut )
     {
-
         const std::vector<RayTracingDynamicGeometryRequest> requests = SelectDynamicGeometry( primitives );
         if ( requests.empty() )
             return BOOLSUCCESS;
@@ -91,9 +79,6 @@ namespace Desert::Graphic::RayTracing
         const std::span<const GpuObjectMotion> rows = meshes.GetObjectMotionRows().Rows;
 
         m_RecordsPerEntity.clear();
-        std::vector<DynamicBuild> builds;
-        builds.reserve( requests.size() );
-        uint64_t scratchBytes = 0;
         for ( const RayTracingDynamicGeometryRequest& request : requests )
         {
             const std::size_t recordIndex = request.Primitive - firstSkinned;
@@ -178,56 +163,16 @@ namespace Desert::Graphic::RayTracing
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1, 1 );
                  } );
 
-            DynamicBuild& build = builds.emplace_back();
-            build.Geometry      = entry.Geometry.get();
-            build.Positions     = positions;
-            build.Storage       = graph.RegisterExternal( entry.Geometry->GetStorage(), "SkinCache.BLAS" );
-            build.ScratchOffset = scratchBytes;
-            scratchBytes += prepared.GetValue().ScratchBytes;
+            buildsOut.push_back( { .Target       = entry.Geometry.get(),
+                                   .Vertices     = positions,
+                                   .Storage =
+                                        graph.RegisterExternal( entry.Geometry->GetStorage(), "SkinCache.BLAS" ),
+                                   .ScratchBytes = prepared.GetValue().ScratchBytes } );
 
             // Through the base: EncodeInstanceRows reads Geometry back as a RayTracingGeometryResource.
             const RayTracingGeometryResource* blas = entry.Geometry.get();
             primitives[request.Primitive].Geometry = blas;
         }
-        if ( builds.empty() )
-            return BOOLSUCCESS;
-
-        const RDG::BufferRef scratch = graph.CreateBuffer( RDG::BufferDesc{ scratchBytes }, "SkinCache.Scratch" );
-        graph.AddPass(
-             kDynamicGeometryPassName, RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
-                 for ( const DynamicBuild& build : builds )
-                 {
-                     pass.Read( build.Positions, RDG::Access::AccelStructBuildInput );
-                     pass.Write( build.Storage, RDG::Access::AccelStructBuildWrite );
-                 }
-             },
-             [builds, scratch]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 const auto scratchBinding = context.GetBuffer( scratch, RDG::Access::AccelStructBuildWrite );
-                 if ( !scratchBinding )
-                     return Common::MakeError( scratchBinding.GetError() );
-                 for ( const DynamicBuild& build : builds )
-                 {
-                     const auto positions =
-                          context.GetBuffer( build.Positions, RDG::Access::AccelStructBuildInput );
-                     if ( !positions )
-                         return Common::MakeError( positions.GetError() );
-                     if ( const auto storage =
-                               context.GetBuffer( build.Storage, RDG::Access::AccelStructBuildWrite );
-                          !storage )
-                         return Common::MakeError( storage.GetError() );
-                     if ( const auto recorded = build.Geometry->RecordBuild(
-                               context, positions.GetValue(), scratchBinding.GetValue(), build.ScratchOffset );
-                          !recorded )
-                         return recorded;
-                 }
-                 return BOOLSUCCESS;
-             } );
-        for ( const DynamicBuild& build : builds )
-            blasOut.push_back( build.Storage );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::RayTracing

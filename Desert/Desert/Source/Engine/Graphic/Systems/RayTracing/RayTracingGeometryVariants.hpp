@@ -51,6 +51,15 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Variants.size();
         }
+        // Storage bytes of the live variants (stats overlay).
+        [[nodiscard]] uint64_t GetMemoryBytes() const
+        {
+            uint64_t bytes = 0;
+            for ( const auto& item : m_Variants )
+                if ( item.second.Geometry )
+                    bytes += item.second.Geometry->GetMemoryBytes();
+            return bytes;
+        }
 
     private:
         struct Key

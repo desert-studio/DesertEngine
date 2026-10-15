@@ -39,6 +39,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_StorageBytes;
+        }
         [[nodiscard]] VkAccelerationStructureKHR GetHandle() const
         {
             return m_Handle;
@@ -52,6 +56,7 @@ namespace Desert::Graphic::API::Vulkan
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;
         VmaAllocation                         m_StorageMemory = nullptr;
+        VkDeviceSize                          m_StorageBytes  = 0; // the allocation's size (stats overlay)
         VkDeviceAddress                       m_DeviceAddress = 0;
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
         ResourceOwnership                     m_Ledger; // the storage's row; released with this object

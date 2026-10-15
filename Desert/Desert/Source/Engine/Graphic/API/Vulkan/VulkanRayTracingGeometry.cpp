@@ -59,6 +59,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS storage: {}",
                                                                                           storage.GetError() );
         geometry->m_StorageMemory = storage.GetValue();
+        geometry->m_StorageBytes  = VulkanAllocator::AllocationSize( storage.GetValue() );
         geometry->m_Ledger        = RayTracing::RecordAccelerationStructureMemory(
              RayTracing::AccelerationStructureLevel::Bottom,
              VulkanAllocator::AllocationSize( storage.GetValue() ) );

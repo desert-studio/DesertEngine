@@ -149,5 +149,8 @@ namespace Desert::Graphic::RayTracing
 
         // VkAccelerationStructureInstanceKHR::accelerationStructureReference. Never 0 for a built resource.
         [[nodiscard]] virtual uint64_t GetDeviceAddress() const = 0;
+        // Bytes of the acceleration-structure storage this resource owns (the RT scene stats overlay; the
+        // ledger row of the same allocation is the census).
+        [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;
     };
 } // namespace Desert::Graphic::RayTracing

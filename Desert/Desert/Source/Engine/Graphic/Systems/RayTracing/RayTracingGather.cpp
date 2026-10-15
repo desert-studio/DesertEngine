@@ -42,6 +42,12 @@ namespace Desert::Graphic::RayTracing
             geometry = resolved.GetValue();
             return true;
         }
+        // A mesh without an uploader BLAS whose buffers are resident: the procedural cache builds its BLAS. A
+        // mesh still streaming in has neither and stays NoGeometry.
+        bool IsResident( const Mesh& mesh )
+        {
+            return mesh.GetVertexBuffer() != nullptr && mesh.GetIndexBuffer() != nullptr;
+        }
     } // namespace
 
     void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants& variants,
@@ -96,6 +102,11 @@ namespace Desert::Graphic::RayTracing
             primitive.CastShadows          = record.CastShadows;
             primitive.HiddenSubmeshes      = hidden;
             primitive.Kind                 = record.Kind;
+            if ( geometry == nullptr && IsResident( *record.MeshPtr ) )
+            {
+                primitive.ProceduralMesh = record.MeshPtr;
+                primitive.Kind           = RayTracingPrimitiveKind::Procedural;
+            }
         }
 
         // ISM / foliage: every instance its own row and TLAS instance, the mesh's one BLAS shared.
@@ -119,6 +130,8 @@ namespace Desert::Graphic::RayTracing
                 primitive.GpuSceneRow          = inputs.InstancedMotionRows[data.FirstMotionRow + instance];
                 primitive.CastShadows          = data.CastShadows;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;
+                if ( geometry == nullptr && IsResident( *data.Mesh ) )
+                    primitive.ProceduralMesh = data.Mesh;
             }
         }
 

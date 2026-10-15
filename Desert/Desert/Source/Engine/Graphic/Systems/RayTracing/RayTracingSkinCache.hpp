@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
@@ -46,8 +47,7 @@ namespace Desert::Graphic::System
 namespace Desert::Graphic::RayTracing
 {
     inline constexpr std::string_view kSkinCacheShader         = "SkinCache";
-    inline constexpr std::string_view kSkinCachePassName       = "SkinCache: Positions";
-    inline constexpr std::string_view kDynamicGeometryPassName = "RayTracingScene.DynamicGeometry";
+    inline constexpr std::string_view kSkinCachePassName = "SkinCache: Positions";
     inline constexpr uint32_t         kSkinCacheGroupSize = 64; // LocalSize of Programs/Compute/SkinCache.shader
 
     // What one primitive's build costs this frame: the scratch it needs (alignment slack included) and whether it
@@ -59,7 +59,7 @@ namespace Desert::Graphic::RayTracing
     };
 
     // The API side of one skinned primitive's cache entry: its cached positions and its BLAS, alive across frames.
-    class SkinnedRayTracingGeometry : public RayTracingGeometryResource
+    class SkinnedRayTracingGeometry : public RayTracingDynamicGeometryTarget
     {
     public:
         // Makes the positions buffer and the BLAS fit @p mesh with @p hiddenSubmeshes left out, recreating both
@@ -68,16 +68,11 @@ namespace Desert::Graphic::RayTracing
         // failed.
         [[nodiscard]] virtual Common::ResultStr<SkinnedBlasPrepared> Prepare( const SkinnedMesh& mesh,
                                                                               uint64_t hiddenSubmeshes ) = 0;
-        // Graph externals carrying their own state across graphs: the positions the skin pass writes and the BLAS
-        // storage the build writes.
+        // Graph external carrying its own state across graphs: the positions the skin pass writes (the BLAS
+        // storage and its build are the dynamic-geometry target's; the build reads these positions).
         [[nodiscard]] virtual RDG::ExternalBuffer& GetPositions() = 0;
-        [[nodiscard]] virtual RDG::ExternalBuffer& GetStorage()   = 0;
-        // Records the build (or refit, per the last Prepare) into the pass's command buffer, its scratch at
-        // @p scratchOffset bytes into @p scratch.
-        [[nodiscard]] virtual Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
-                                                                 const RDG::BufferBinding& positions,
-                                                                 const RDG::BufferBinding& scratch,
-                                                                 uint64_t                  scratchOffset ) = 0;
+        // Bytes of the cached positions buffer (stats overlay).
+        [[nodiscard]] virtual uint64_t GetPositionsBytes() const = 0;
     };
 
     // The API's skin-cache entry (VulkanSkinnedRayTracingGeometry).
@@ -91,10 +86,10 @@ namespace Desert::Graphic::RayTracing
     {
     public:
         // For every primitive SelectDynamicGeometry picks: prepares its entry (keyed {Entity, n-th skinned record
-        // of the entity this frame}, MotionKey's slot rule), declares its "SkinCache: Positions" dispatch, then
-        // ONE "RayTracingScene.DynamicGeometry" pass building/refitting every prepared BLAS, and points the
-        // primitive's Geometry at its BLAS. @p primitives[firstSkinned + i] is MeshRenderer's skinned record i.
-        // Every BLAS storage the pass writes is appended to @p blasOut for the TLAS pass to read. A primitive
+        // of the entity this frame}, MotionKey's slot rule), declares its "SkinCache: Positions" dispatch, appends
+        // its BLAS build/refit to @p buildsOut (the RT scene's one "RayTracingScene.DynamicGeometry" pass records
+        // it), and points the primitive's Geometry at its BLAS. @p primitives[firstSkinned + i] is MeshRenderer's skinned record i.
+        // A BLAS another view built is appended to @p blasOut for this view's TLAS pass to read. A primitive
         // whose entry cannot be prepared keeps Geometry null (counted RayTracingSkip::Skinned) and is logged once
         // per entry, never silently. An entry another view already skinned in @p frame is not skinned again: its
         // primitive points at the same BLAS. @p viewBones is the calling view's import slot for its ObjectBones.
@@ -102,12 +97,31 @@ namespace Desert::Graphic::RayTracing
                                                        RDG::ExternalBuffer&           viewBones,
                                                        std::span<RayTracingPrimitive> primitives,
                                                        uint32_t firstSkinned, uint64_t frame,
-                                                       std::vector<RDG::BufferRef>& blasOut );
+                                                       std::vector<RayTracingDynamicGeometryBuild>& buildsOut,
+                                                       std::vector<RDG::BufferRef>&                 blasOut );
 
         // Releases the entries no view asked for in @p frame (RayTracingSceneCache::BeginViewFrame).
         void EndFrame( const uint64_t frame )
         {
             std::erase_if( m_Entries, [frame]( const auto& entry ) { return entry.second.LastFrame != frame; } );
+        }
+
+        struct MemoryBytes
+        {
+            uint64_t Positions = 0; // cached skinned positions
+            uint64_t Blas      = 0; // the entries' BLAS storage
+        };
+        // What the live entries hold (stats overlay).
+        [[nodiscard]] MemoryBytes GetMemoryBytes() const
+        {
+            MemoryBytes bytes;
+            for ( const auto& item : m_Entries )
+                if ( item.second.Geometry )
+                {
+                    bytes.Positions += item.second.Geometry->GetPositionsBytes();
+                    bytes.Blas += item.second.Geometry->GetMemoryBytes();
+                }
+            return bytes;
         }
 
         // Live entries (one per skinned primitive the TLAS instanced last frame).

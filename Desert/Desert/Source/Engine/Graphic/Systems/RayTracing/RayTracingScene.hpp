@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // THE RAY-TRACING SCENE — what a view's TLAS holds this frame (UE FRayTracingScene, its instance list built from
@@ -22,6 +23,11 @@
 // GATED BY THE METHODS. A frame builds a TLAS only when one of its three resolved methods traces hardware rays
 // (Common::Scalability::NeedsRayQuery). ResolveRenderMethods already walked a method the device cannot run down to
 // one it can (MethodLimit::Device), so "a resolved method needs ray query" already implies the device has it.
+namespace Desert
+{
+    class Mesh;
+}
+
 namespace Desert::Graphic::RayTracing
 {
     // UE RAY_TRACING_MASK_*: the 8-bit instance mask a ray's cull mask is ANDed with.
@@ -41,6 +47,7 @@ namespace Desert::Graphic::RayTracing
         Instanced,  // ONE instance of an ISM / foliage field: every instance is its own GPU-scene row
         Landscape,  // one landscape tile at the view's LOD
         Skinned,    // a deformed mesh, traced through its per-frame BLAS
+        Procedural, // a static/generic row whose mesh has no uploader BLAS (DynamicMesh): built in the graph
         Count
     };
 
@@ -59,6 +66,10 @@ namespace Desert::Graphic::RayTracing
         uint64_t                HiddenSubmeshes = 0; // bit i = submesh i hidden; Geometry already leaves them out
         RayTracingPrimitiveKind Kind            = RayTracingPrimitiveKind::Static;
         const void*             DeformedMesh    = nullptr; // skinned only: the SkinnedMesh it skins
+        // A mesh with no uploader BLAS (Mesh::GetRayTracingGeometry null, e.g. a DynamicMesh): the RT scene's
+        // procedural cache builds its (mesh, HiddenSubmeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
+        // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
+        const Mesh* ProceduralMesh = nullptr;
     };
 
     // ONE PER-FRAME BLAS BUILD FOR A DEFORMED PRIMITIVE (UE FRayTracingDynamicGeometryUpdateParams): the skin pass
@@ -89,6 +100,34 @@ namespace Desert::Graphic::RayTracing
         RowOutOfRange,  // the GPU-scene row does not fit the 24-bit custom index
         Count
     };
+
+    // Overlay / log names.
+    [[nodiscard]] constexpr std::string_view RayTracingPrimitiveKindName( const RayTracingPrimitiveKind kind )
+    {
+        switch ( kind )
+        {
+            case RayTracingPrimitiveKind::Static: return "Static";
+            case RayTracingPrimitiveKind::Generic: return "Generic";
+            case RayTracingPrimitiveKind::Instanced: return "Instanced";
+            case RayTracingPrimitiveKind::Landscape: return "Landscape";
+            case RayTracingPrimitiveKind::Skinned: return "Skinned";
+            case RayTracingPrimitiveKind::Procedural: return "Procedural";
+            case RayTracingPrimitiveKind::Count: break;
+        }
+        return "?";
+    }
+    [[nodiscard]] constexpr std::string_view RayTracingSkipName( const RayTracingSkip reason )
+    {
+        switch ( reason )
+        {
+            case RayTracingSkip::NoGeometry: return "No geometry";
+            case RayTracingSkip::Skinned: return "Skin cache refused";
+            case RayTracingSkip::NothingVisible: return "Nothing visible";
+            case RayTracingSkip::RowOutOfRange: return "Row out of range";
+            case RayTracingSkip::Count: break;
+        }
+        return "?";
+    }
 
     struct RayTracingInstanceList
     {

@@ -160,6 +160,22 @@ namespace Desert::Graphic::RayTracing
     // One view's ray-tracing scene (SceneRenderer owns one per view): gathers the primitives MeshRenderer queued
     // and gave a GPU-scene row, builds the instance list and declares the TLAS pass. The API target is created on
     // the first frame that needs a TLAS and kept for the view's life.
+    // What one view's RT scene holds this frame (the viewport's RT scene overlay). Bytes are the storage
+    // allocations; the ledger rows of the same allocations are the census.
+    struct RayTracingSceneStats
+    {
+        bool Built = false; // the frame built a TLAS: the rest is meaningful
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          SkippedByReason{};
+        uint64_t TracedBlasBytes         = 0; // every distinct BLAS this view's TLAS instances, variants included
+        uint64_t VariantBlasBytes        = 0; // the scene's hidden-submesh variants
+        uint64_t ProceduralBlasBytes     = 0; // the scene's procedural BLASes
+        uint64_t SkinCacheBlasBytes      = 0; // the scene's skin-cache BLASes
+        uint64_t SkinCachePositionsBytes = 0; // the scene's skin-cache positions buffers
+        uint64_t TlasBytes               = 0; // this view's TLAS storage
+        uint64_t TlasInstanceBytes       = 0; // this frame's instance rows
+    };
+
     class RayTracingSceneRenderer
     {
     public:
@@ -183,6 +199,10 @@ namespace Desert::Graphic::RayTracing
             return m_Instances;
         }
         // The variant BLAS builds that failed this frame, one line each (the caller logs them).
+        [[nodiscard]] const RayTracingSceneStats& GetStats() const
+        {
+            return m_Stats;
+        }
         [[nodiscard]] const std::vector<std::string>& GetGatherErrors() const
         {
             return m_Gather.Errors;
@@ -193,6 +213,8 @@ namespace Desert::Graphic::RayTracing
         RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
         RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
         std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
+        std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
+        RayTracingSceneStats                        m_Stats;
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;
     };
