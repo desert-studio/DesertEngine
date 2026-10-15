@@ -13,6 +13,8 @@
 //                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
 //   VFX_CurveLUT( index )             float `index` of the SYSTEM's curve atlas (VFX-05, Engine/VFX/VFXCurveLUT;
 //                                     UE's StaticInputFloat): every Curve input's baked table at its offset
+//   VFX_ChannelSpawn( row )           row `row` of this tick's Spawn from Channel particles (VFX-10), the one
+//                                     engine:SpawnFromChannel reads for a newborn whose sim.Channel = row + 1
 
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
@@ -24,10 +26,8 @@
 // (plan 02 §3.3-6): a random value is a function of these and of the input slot, never of time or thread
 // order. Spawned = this step created the particle (its attributes start at zero and the spawn group runs);
 // a module sets Kill to retire it.
-// ChannelColor / ChannelScalars are the Spawn from Channel record of a newborn (VFX-10; UE: the Niagara Data Channel
-// read a spawn module makes): the Initialize modules take a bound colour, base-size scale and lifetime from them,
-// AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
-// engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
+// Channel is 1 + the Spawn from Channel row of a newborn (VFX-10; UE: the Niagara Data Channel read a spawn module
+// makes), 0 for every other particle; only engine:SpawnFromChannel (VFX/Modules/SpawnFromChannel.shader) reads it.
 struct VFXSim
 {
     float DeltaTime;
@@ -37,10 +37,17 @@ struct VFXSim
     uint  Step;
     bool  Spawned;
     bool  Kill;
-    vec4  ChannelDirection; // xyz start velocity direction, w = 1 when bound
-    vec4  ChannelColor;     // linear rgba, bound when ChannelScalars.z = 1
-    vec4  ChannelScalars;   // x = lifetime s (bound when w = 1), y = base-size scale (1 unbound), z / w = colour /
-                            // lifetime bound
+    uint  Channel;
+};
+
+// One Spawn from Channel particle (the C++ Graphic::System::ParticleChannelSpawnGpu, kParticleChannelSpawnStride
+// = 64): the entry's fields the emitter's engine:SpawnFromChannel binds. A w (or Scalars flag) of 1 = bound.
+struct VFXChannelSpawn
+{
+    vec4 Position;  // xyz cm, w = bound (the host hands it relative to the emitter, as the stack's Position is)
+    vec4 Direction; // xyz start velocity direction, w = bound
+    vec4 Color;     // linear rgba, bound when Scalars.z = 1
+    vec4 Scalars;   // x = lifetime s, y = base-size scale (1 unbound), z = colour bound, w = lifetime bound
 };
 
 vec4  VFX_Param( uint slot );
@@ -49,6 +56,7 @@ int   VFX_ReadInt( uint particle, uint component );
 void  VFX_WriteFloat( uint particle, uint component, float value );
 void  VFX_WriteInt( uint particle, uint component, int value );
 float VFX_CurveLUT( uint index );
+VFXChannelSpawn VFX_ChannelSpawn( uint row );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

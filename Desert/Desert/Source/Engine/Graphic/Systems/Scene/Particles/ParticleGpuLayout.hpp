@@ -14,7 +14,7 @@ namespace Desert::Graphic::System
     //
     // Neither may be written in terms of another: each restates its own shader declaration.
 
-    // The size of one slot of the scene's particle pool, in bytes: Common/ParticleState.glslh's `struct
+    // The size of one slot of the scene's particle pool, in bytes: Common/ParticlePool.glslh's `struct
     // ParticleSlot` (uint Id, uint Alive) in a std430 array - the pool's bookkeeping, none of the particle's data
     // (that is the emitter's attribute columns, the one store the simulation writes and the sprite draw and the
     // sort read). ParticleWorldGpu allocates the pool as capacity * this; a member appended to the GLSL and not

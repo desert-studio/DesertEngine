@@ -13,10 +13,9 @@ Shader "ParticleCompact"
         // the pool is never zeroed on the CPU.
         LocalSize(64, 1, 1);
 
-        #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
 
-        // The pool's bookkeeping (Common/ParticleState.glslh): id + alive flag, none of the particle's data.
+        // The pool's bookkeeping (Common/ParticlePool.glslh ParticleSlot): id + alive flag, none of the particle's data.
         Buffer(0) PoolSlots
         {
             ParticleSlot u_PoolSlots[];
