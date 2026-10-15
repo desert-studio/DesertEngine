@@ -1557,7 +1557,11 @@ namespace Desert::Migration
              Use( "SizeOverLife", { CurveInput( "Scale", T::Vec2, { size, size } ) } ),
              Use( "ColorOverLife", { CurveInput( "Scale", T::Vec4, colour ) } ),
         };
-        emitter.Renderers.push_back( S::VFXRendererData{ S::VFXRendererKind::Sprite, true } );
+        // The component's sprite material moves onto the sprite renderer row (VFXS 2); an empty one stays absent.
+        S::VFXRendererData sprite{ S::VFXRendererKind::Sprite, true };
+        if ( !d.Material.Guid.empty() )
+            sprite.Material = Assets::AssetGuidRef{ d.Material.Guid, d.Material.Path };
+        emitter.Renderers.push_back( std::move( sprite ) );
 
         S::VFXSystemData system;
         system.Category = kVFXConvertedCategory;

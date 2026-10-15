@@ -303,7 +303,7 @@ namespace
             {
                 // No system ships with the corpus yet; the least `.dfx` header the scan reads.
                 const std::string text = std::format(
-                     R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":1}},"Dependencies":[]}}}})"
+                     R"({{"Header":{{"Kind":"VFXSystem","Guid":"{}","Versions":{{"VFXS":2}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };

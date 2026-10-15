@@ -151,6 +151,16 @@ namespace Desert::Graphic::System
                                          const Assets::Serialization::VFXSystemData& system,
                                          const std::size_t index, const uint32_t entityId )
     {
+        // VFXS 2: the emitter's renderer rows. Validation leaves at most one enabled Sprite row (CheckRenderers).
+        gpu.DrawsSprite    = false;
+        gpu.SpriteMaterial = Common::AssetHandle::Null();
+        for ( const Assets::Serialization::VFXRendererData& r : system.Emitters[index].Renderers )
+            if ( r.Enabled && r.Kind == Assets::Serialization::VFXRendererKind::Sprite )
+            {
+                gpu.DrawsSprite    = true;
+                gpu.SpriteMaterial = Assets::Serialization::VFXRendererMaterialHandle( r );
+            }
+
         const auto& emitter = system.Emitters[index];
         gpu.Capacity        = emitter.Enabled ? emitter.Capacity : 0u;
         gpu.Local           = emitter.Space == Assets::Serialization::VFXSimulationSpace::Local;
@@ -411,6 +421,8 @@ namespace Desert::Graphic::System
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
+        fe.Material        = gpu.SpriteMaterial;
+        fe.DrawsSprite     = gpu.DrawsSprite;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );

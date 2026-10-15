@@ -128,6 +128,10 @@ namespace Desert::Graphic::System
         uint32_t                                        FloatColumns = 0;
         uint32_t                                        IntColumns   = 0;
         bool                                            Local        = false;
+        // VFXS 2: the emitter's enabled Sprite renderer row (UE UNiagaraSpriteRendererProperties) - whether its
+        // particles are drawn at all and the material they draw with (Null = the default sprite template).
+        bool                DrawsSprite = false;
+        Common::AssetHandle SpriteMaterial;
 
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
@@ -143,9 +147,11 @@ namespace Desert::Graphic::System
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
         ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
-        // The sprite renderer's material (null = the default sprite template; a `.dfx` sprite row names none yet,
-        // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
+        // The sprite renderer row's material (null = the default sprite template; ParticleEmitterGpu::SpriteMaterial);
+        // the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
         Common::AssetHandle Material;
+        // The emitter has an enabled Sprite renderer row: without one it is simulated and not drawn.
+        bool DrawsSprite = false;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 

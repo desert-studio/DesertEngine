@@ -8,9 +8,11 @@
 // drawing — belongs to later cards (VFX-04..08); this file states what an author made and nothing else.
 
 #include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -34,6 +36,10 @@ namespace Desert::Assets::Serialization
      *
      *   1 - VFX-02: system (Category, Tags, Duration, Loop, Seed, Bounds, UserParams, LocalModules, Emitters),
      *       emitters with lifecycle, the three-group module stack and renderer rows.
+     *   2 - VFX-RENDER: a renderer row names its Material ({Guid, Path}, UE UNiagaraSpriteRendererProperties::
+     *       Material); absent = the engine's default sprite template. The header's Dependencies are exactly the
+     *       materials the rows name (VFXSystemDependencies). A v1 file differs only by its version: the repository's
+     *       files were raised in place; a v1 file is refused with its number.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -179,10 +185,16 @@ namespace Desert::Assets::Serialization
         Mesh,
     };
 
+    /// One renderer of an emitter (UE UNiagaraRendererProperties): what draws the emitter's particles and with
+    /// which material. The particles are the emitter's; a renderer only reads them.
     struct VFXRendererData
     {
         VFXRendererKind Kind    = VFXRendererKind::Sprite;
         bool            Enabled = true;
+        /// The `.demat` the particles draw with, by its header GUID (the reference; `Path`, relative to the
+        /// content root, is only a locator). Absent = the engine's ParticleSpriteDefault template. The material's
+        /// template must declare `Usage ParticleSprites`; one that does not is refused by the renderer, by name.
+        std::optional<AssetGuidRef> Material{};
 
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };
@@ -276,11 +288,19 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXSystemData& ) const = default;
     };
 
+    /// The GUIDs (AssetGuidToText) of every material the renderer rows name, sorted and unique: what the header's
+    /// Dependencies state, so a registry walk sees the edges without reading the body.
+    [[nodiscard]] std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data );
+
+    /// The runtime handle of a renderer's material (Common::Content::HandleForGuid of its GUID); Null when the row
+    /// names none. The GUID was validated on load (ValidateVFXSystemData).
+    [[nodiscard]] Common::AssetHandle VFXRendererMaterialHandle( const VFXRendererData& renderer );
+
     /// Rejects what no later stage could honour, naming the emitter, group, module and input.
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data );
 
-    /// Parses a `.dfx`. A file without a header, of another version or kind, that states any Dependencies
-    /// (a v1 system references no other asset), or that fails validation is an error naming why.
+    /// Parses a `.dfx`. A file without a header, of another version or kind, whose Dependencies are not exactly
+    /// VFXSystemDependencies, or that fails validation is an error naming why.
     /// The Category must be an id of @p categories (no fallback: an unknown id is an error naming it).
     Common::ResultStr<VFXSystemData> ParseVFXSystem( const std::string&         text,
                                                      const VFXCategoryRegister& categories );

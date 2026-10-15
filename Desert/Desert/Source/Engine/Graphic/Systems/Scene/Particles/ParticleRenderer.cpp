@@ -436,7 +436,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && ve.Sprite != nullptr;
+        return ve.Declared && ve.Sprite != nullptr && ve.Frame->DrawsSprite;
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )

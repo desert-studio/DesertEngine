@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "a0f8d89f476e4abfb22847b902230cb7",
         "Versions": {
-            "VFXS": 1
+            "VFXS": 2
         },
         "Dependencies": []
     },

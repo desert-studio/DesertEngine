@@ -162,7 +162,58 @@ namespace Desert::Assets::Serialization
             }
             return BOOLSUCCESS;
         }
+
+        /// A renderer row: a kind the particle renderer draws, a well-formed material reference, and at most one
+        /// enabled Sprite row per emitter (ParticleRenderer draws one sprite per emitter; REMAINDER VFX-RENDER).
+        Common::BoolResultStr CheckRenderers( const VFXEmitterData& e )
+        {
+            uint32_t sprites = 0;
+            for ( std::size_t i = 0; i < e.Renderers.size(); ++i )
+            {
+                const VFXRendererData& r = e.Renderers[i];
+                if ( r.Kind != VFXRendererKind::Sprite )
+                    return Common::MakeFormattedError<bool>(
+                         "emitter '{}' renderer {} is a {} renderer; the particle renderer draws Sprite rows only",
+                         e.Name, i, r.Kind == VFXRendererKind::Mesh ? "Mesh" : "Ribbon" );
+                if ( r.Enabled && ++sprites > 1 )
+                    return Common::MakeFormattedError<bool>(
+                         "emitter '{}' renderer {} is a second enabled Sprite row; an emitter draws one sprite",
+                         e.Name, i );
+                if ( !r.Material )
+                    continue;
+                const auto guid = Common::Content::AssetGuidFromText( r.Material->Guid );
+                if ( !guid || guid.GetValue().IsNull() )
+                    return Common::MakeFormattedError<bool>(
+                         "emitter '{}' renderer {} names Material '{}', not a well-formed GUID", e.Name, i,
+                         r.Material->Guid );
+                if ( r.Material->Path.empty() )
+                    return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names Material {} without a "
+                                                             "Path",
+                                                             e.Name, i, r.Material->Guid );
+            }
+            return BOOLSUCCESS;
+        }
     } // namespace
+
+    std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
+    {
+        std::set<std::string> guids;
+        for ( const VFXEmitterData& e : data.Emitters )
+            for ( const VFXRendererData& r : e.Renderers )
+                if ( r.Material )
+                    guids.insert( r.Material->Guid );
+        return { guids.begin(), guids.end() };
+    }
+
+    Common::AssetHandle VFXRendererMaterialHandle( const VFXRendererData& renderer )
+    {
+        if ( !renderer.Material )
+            return Common::AssetHandle::Null();
+        const auto guid = Common::Content::AssetGuidFromText( renderer.Material->Guid );
+        if ( !guid )
+            return Common::AssetHandle::Null();
+        return Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+    }
 
     uint32_t ComponentCount( const VFXValueType type )
     {
@@ -236,6 +287,8 @@ namespace Desert::Assets::Serialization
             if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) );
                  !ok )
                 return ok;
+            if ( auto ok = CheckRenderers( e ); !ok )
+                return ok;
         }
         return BOOLSUCCESS;
     }
@@ -292,11 +345,13 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // A v1 system references no other asset, so a stated Dependency is an edge to nothing it names.
-        if ( data.Header && !data.Header->Dependencies.empty() )
-            return Common::MakeFormattedError<VFXSystemData>( "the header states {} Dependencies; a VFX system "
-                                                              "references no asset",
-                                                              data.Header->Dependencies.size() );
+        // The header's edges are the materials the renderer rows name, no more and no fewer.
+        if ( const std::vector<std::string> named = VFXSystemDependencies( data );
+             data.Header && data.Header->Dependencies != named )
+            return Common::MakeFormattedError<VFXSystemData>(
+                 "the header states {} Dependencies, the renderer rows name {} material(s); they must be the same "
+                 "sorted GUIDs",
+                 data.Header->Dependencies.size(), named.size() );
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -305,7 +360,7 @@ namespace Desert::Assets::Serialization
         VFXSystemData out = data;
         out.Header        = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::VFXSystem,
                                                      VFXSystemTextSubsystems() );
-        out.Header->Dependencies.clear();
+        out.Header->Dependencies = VFXSystemDependencies( out );
         return Common::Json::Write( out );
     }
 
