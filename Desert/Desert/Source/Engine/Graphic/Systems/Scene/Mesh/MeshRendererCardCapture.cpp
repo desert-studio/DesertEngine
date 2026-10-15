@@ -358,7 +358,11 @@ namespace Desert::Graphic::System
                                               material->SetInstancedWind( InstanceWindPush{} ); // a still card
                                           else
                                               material->SetPrimitiveIndex( row );
-                                          material->Bind( instance );
+                                          // A Shader Override draw has no instance: ApplyGenericOverrides wrote
+                                          // its values into the pooled material, and the scene's generic pass
+                                          // draws it without a Bind (Material::Bind reads the instance).
+                                          if ( instance != nullptr )
+                                              material->Bind( instance );
                                       } } );
         }
         m_CardCaptureDraws.Declare( pass, std::nullopt );
