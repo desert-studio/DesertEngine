@@ -99,7 +99,8 @@ namespace Desert::Graphic
      */
     [[nodiscard]] inline std::optional<Common::Math::AABB>
     IsmInstanceReach( const InstanceCullDistance& lensCull, uint32_t index, const glm::mat4& instanceTransform,
-                      const Common::Math::AABB& localBounds, const InstanceWind& wind, const glm::vec3& cullOrigin )
+                      const Common::Math::AABB& localBounds, const InstanceWind& wind,
+                      const glm::vec3& cullOrigin )
     {
         if ( !KeepsInstanceAtDistance( lensCull, index, glm::vec3( instanceTransform[3] ), cullOrigin ) )
             return std::nullopt;
@@ -127,9 +128,8 @@ namespace Desert::Graphic
         for ( std::size_t i = 0; i < transforms.size(); ++i )
         {
             const glm::mat4& instanceTransform = transforms[i];
-            const std::optional<Common::Math::AABB> reach =
-                 IsmInstanceReach( lensCull, static_cast<uint32_t>( i ), instanceTransform, localBounds, wind,
-                                   cullView.Origin );
+            const std::optional<Common::Math::AABB> reach             = IsmInstanceReach(
+                 lensCull, static_cast<uint32_t>( i ), instanceTransform, localBounds, wind, cullView.Origin );
             if ( !reach || ( !Geometry::IsEmpty( *reach ) && !frustum.Intersects( *reach ) ) )
                 continue;
             visible.push_back( instanceTransform );

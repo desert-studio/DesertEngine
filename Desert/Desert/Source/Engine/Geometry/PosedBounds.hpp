@@ -107,7 +107,7 @@ namespace Desert::Geometry
         using PosedBoundsDetail::Grow;
         SkinnedBoneBounds bounds;
         bounds.MorphTargetCount = static_cast<uint32_t>( std::size( morphs ) );
-        std::vector<uint32_t> slotOf; // bone -> slot + 1 (0: no slot yet)
+        std::vector<uint32_t> slotOf;            // bone -> slot + 1 (0: no slot yet)
         uint32_t              unskinnedSlot = 0; // slot + 1
         const auto            slotFor       = [&]( const uint32_t bone ) -> uint32_t
         {
@@ -182,10 +182,10 @@ namespace Desert::Geometry
                 local.Min += glm::min( w * delta.Min, w * delta.Max );
                 local.Max += glm::max( w * delta.Min, w * delta.Max );
             }
-            const glm::mat4 toWorld = bone == SkinnedBoneBounds::kUnskinned ? world : world * skin[bone];
+            const glm::mat4          toWorld = bone == SkinnedBoneBounds::kUnskinned ? world : world * skin[bone];
             const Common::Math::AABB carried = TransformBounds( toWorld, local );
-            out.Min = glm::min( out.Min, carried.Min );
-            out.Max = glm::max( out.Max, carried.Max );
+            out.Min                          = glm::min( out.Min, carried.Min );
+            out.Max                          = glm::max( out.Max, carried.Max );
         }
         return out;
     }

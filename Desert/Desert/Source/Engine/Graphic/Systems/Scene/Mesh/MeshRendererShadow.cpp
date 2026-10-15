@@ -447,16 +447,15 @@ namespace Desert::Graphic::System
             const StaticMeshRenderData& rd = m_StaticQueue[i];
             if ( rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
-            const SurfaceSlot slot = rd.MaterialSlots != nullptr
-                                          ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                          : SurfaceSlot{};
-            const ShadowCasterRef ref{
-                 .Index    = i,
-                 .LodLevel = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias ),
-                 .WorldBounds =
-                      Geometry::TransformBounds( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ),
-                 .Surface  = slot.Surface,
-                 .Instance = slot.Instance };
+            const SurfaceSlot     slot = rd.MaterialSlots != nullptr
+                                              ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                              : SurfaceSlot{};
+            const ShadowCasterRef ref{ .Index    = i,
+                                       .LodLevel = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias ),
+                                       .WorldBounds = Geometry::TransformBounds(
+                                            rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ),
+                                       .Surface  = slot.Surface,
+                                       .Instance = slot.Instance };
             if ( IsMaskedCaster( slot.Surface ) )
             {
                 setup.MaskedStatics.push_back( ref );
@@ -484,11 +483,10 @@ namespace Desert::Graphic::System
             const GenericMeshRenderData& g = m_GenericQueue[i];
             if ( g.Mesh == nullptr || !g.CastShadows )
                 continue;
-            setup.Generics.push_back(
-                 { .Index    = i,
-                   .LodLevel = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                   .WorldBounds =
-                        Geometry::TransformBounds( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) } );
+            setup.Generics.push_back( { .Index       = i,
+                                        .LodLevel    = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
+                                        .WorldBounds = Geometry::TransformBounds(
+                                             g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) } );
         }
 
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_SkinnedQueue.size() ); ++i )
@@ -522,11 +520,11 @@ namespace Desert::Graphic::System
                      IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
                 if ( !reach )
                     continue;
-                setup.Instances.push_back( { .Index       = k,
-                                             .LodLevel    = Geometry::SelectLODFromBounds(
-                                                  transforms[k], localBounds, lodView, ism.Mesh->GetLODScreenSizes(),
-                                                  -1, 0 ),
-                                             .WorldBounds = *reach } );
+                setup.Instances.push_back(
+                     { .Index       = k,
+                       .LodLevel    = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
+                                                                     ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                       .WorldBounds = *reach } );
             }
             caster.InstanceCount = static_cast<uint32_t>( setup.Instances.size() ) - caster.FirstInstance;
             if ( caster.InstanceCount > 0 )

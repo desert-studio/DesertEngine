@@ -32,7 +32,8 @@ namespace Desert::Graphic
 
     // The same rule for a box already in world space (a posed skinned mesh, SkinnedMeshRenderData::WorldBounds):
     // no extent is drawn.
-    [[nodiscard]] inline bool IsWorldBoxInView( const Core::Frustum& frustum, const Common::Math::AABB& worldBounds )
+    [[nodiscard]] inline bool IsWorldBoxInView( const Core::Frustum&      frustum,
+                                                const Common::Math::AABB& worldBounds )
     {
         return Geometry::IsEmpty( worldBounds ) || frustum.Intersects( worldBounds );
     }

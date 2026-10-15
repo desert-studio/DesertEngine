@@ -214,7 +214,7 @@ namespace Desert::Graphic::System
             std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
             // The world box of the mesh in this pose and morph (Geometry::PosedWorldBounds), set at submit: what
             // every view culls it by, the main one and each shadow view. Empty: no known extent, in every view.
-            Common::Math::AABB WorldBounds;
+            Common::Math::AABB          WorldBounds;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -587,12 +587,12 @@ namespace Desert::Graphic::System
         uint32_t ComputeLOD( const glm::mat4& transform, const class Desert::Mesh* mesh, int forcedLOD,
                              int lodBias = 0 ) const;
 
-        // THIS FRAME'S SHADOW CASTERS, gathered ONCE from the queues before any shadow view is fitted (SceneRenderer,
-        // "Shadow: GatherCasters", before UpdateCascades): each caster's world box, its LOD level (asked of the main
-        // camera, so the same for every view) and its caster material are found here, once. The views then only
-        // mark which casters their caster box reaches (MarkShadowCasterViews) and record from the list — UE's
-        // GatherShadowPrimitives: one walk of the scene's primitives against every whole-scene shadow, not one walk
-        // per cascade.
+        // THIS FRAME'S SHADOW CASTERS, gathered ONCE from the queues before any shadow view is fitted
+        // (SceneRenderer, "Shadow: GatherCasters", before UpdateCascades): each caster's world box, its LOD level
+        // (asked of the main camera, so the same for every view) and its caster material are found here, once. The
+        // views then only mark which casters their caster box reaches (MarkShadowCasterViews) and record from the
+        // list — UE's GatherShadowPrimitives: one walk of the scene's primitives against every whole-scene shadow,
+        // not one walk per cascade.
         void GatherShadowCasters();
         // Cascaded shadow maps (R32F light-space depth, one framebuffer per cascade). Recompute the
         // per-cascade light matrices once per frame BEFORE the render graph records (intra-phase order is
@@ -1241,7 +1241,7 @@ namespace Desert::Graphic::System
         std::size_t                                     m_ScratchInstSetCount = 0;
         std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
-        std::vector<ShadowBatch>    m_ScratchShadowBatches;
+        std::vector<ShadowBatch>                 m_ScratchShadowBatches;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet
@@ -1267,10 +1267,10 @@ namespace Desert::Graphic::System
         // does not depend on the view, and a bit per shadow view whose caster box reaches it.
         struct ShadowCasterRef
         {
-            uint32_t                  Index    = 0; // into its queue
-            uint32_t                  LodLevel = 0; // ComputeLOD, from the main camera
-            uint64_t                  Views    = 0; // ShadowViewBit of each view that reaches it
-            Common::Math::AABB        WorldBounds;  // empty: no extent, in every view (IsVisibleInView)
+            uint32_t                  Index    = 0;       // into its queue
+            uint32_t                  LodLevel = 0;       // ComputeLOD, from the main camera
+            uint64_t                  Views    = 0;       // ShadowViewBit of each view that reaches it
+            Common::Math::AABB        WorldBounds;        // empty: no extent, in every view (IsVisibleInView)
             const DataDrivenMaterial* Surface  = nullptr; // static: the first surface slot's; skinned: Material
             MaterialInstance*         Instance = nullptr; // ... and its instance
         };
@@ -1294,14 +1294,14 @@ namespace Desert::Graphic::System
             // instance's index in its ISM's transforms.
             std::vector<ShadowCasterRef> Instances;
         };
-        ShadowCasterSetup                                    m_ShadowCasterSetup;
+        ShadowCasterSetup                                       m_ShadowCasterSetup;
         std::unordered_map<const Desert::StaticMesh*, uint32_t> m_ScratchShadowMeshGroups;
         // The gather's grouping of the static casters by mesh (GatherShadowCasters), and one view's run of a mesh
         // and its per-object casters (BuildShadowCascadeDraws); members so their capacity persists.
-        std::vector<uint32_t>                                m_ScratchShadowGroupOf;
-        std::vector<ShadowCasterRef>                         m_ScratchShadowGrouped;
-        std::vector<const ShadowCasterRef*>                  m_ScratchShadowBucket;
-        std::vector<const ShadowCasterRef*>                  m_ScratchShadowSingles;
+        std::vector<uint32_t>                         m_ScratchShadowGroupOf;
+        std::vector<ShadowCasterRef>                  m_ScratchShadowGrouped;
+        std::vector<const ShadowCasterRef*>           m_ScratchShadowBucket;
+        std::vector<const ShadowCasterRef*>           m_ScratchShadowSingles;
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
