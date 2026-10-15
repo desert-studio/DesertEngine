@@ -55,56 +55,6 @@ namespace Desert::Graphic::System
         }
         m_StaticGBufferPipeline = gbufferPipeline.GetValue();
 
-        // The RSM renders the same shader, layout and attachment set from the sun's POV, with a DEDICATED
-        // material — but NOT the same pipeline, because it is drawn through a CASCADE matrix, and the
-        // cascades are standard-Z (SetupShadowPass says why). Sharing the G-buffer pipeline would test
-        // reversed-Z depth against standard-Z fragments, which is not "slightly wrong": it keeps the
-        // FARTHEST surface per texel, so every VPL would be a back face and the bounce light would come
-        // out of the wrong geometry. One extra pipeline is the price of the two conventions coexisting,
-        // and the cache hands back a shared object anyway if some other pass ever asks for the same state.
-        //
-        // And not the same PROGRAM: the RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation, which writes
-        // no shading word (Pass_GBuffer.glslh) — GI takes VPL positions from the RSM depth. The define lives in
-        // this variant only; the pipeline references the program compiled under it and carries no define list.
-        // Its descriptor layout is the G-buffer cell's (the macro gates an output, never a binding), so the
-        // RSM material below, allocated from the cell by name, binds against this pipeline unchanged.
-        m_RSMShader = DefaultSurfaceProgramVariant( MeshVertexPath::Static, MeshPass::GBuffer,
-                                                    ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } );
-        if ( !m_RSMShader )
-        {
-            LOG_ERROR( "[MeshRenderer] the deferred path is off, the forward one still draws: the G-buffer cell "
-                       "did not compile under DESERT_GBUFFER_RSM." );
-            return false;
-        }
-        GraphicsPipelineSpecification rsmSpec = spec;
-        rsmSpec.DebugName                     = "StaticMeshRSM";
-        rsmSpec.Shader                        = m_RSMShader;
-        // Built against the RSM's own colour slots, not the G-buffer framebuffer: its slot 2 is an UNUSED slot
-        // (VK_ATTACHMENT_UNUSED), which no render pass with an image in that slot is compatible with.
-        rsmSpec.Framebuffer.reset();
-        rsmSpec.TargetLayout = RenderTargetLayout{
-             .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>(
-                  ViewTargetFormats::kRSMColourSlots.begin(), ViewTargetFormats::kRSMColourSlots.end() ),
-             .DepthFormat = ViewTargetFormats::kRSMDepth };
-        rsmSpec.DepthCompareOp                = CompareOp::LessOrEqual;
-        const auto rsmPipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( rsmSpec );
-        if ( !rsmPipeline )
-        {
-            LOG_ERROR( "[MeshRenderer] the deferred path is off, the forward one still draws: {}",
-                       rsmPipeline.GetError() );
-            return false;
-        }
-        m_RSMPipeline = rsmPipeline.GetValue();
-
-        // (Static x GBuffer): the RSM reuses the G-buffer shader and its pipeline, rasterized from the
-        // sun. A DEDICATED material (rather than the objects' own) because this pass writes a camera UB
-        // holding the SUN's matrices, and two writes to one per-frame UB in a frame is the hazard the
-        // glass pass was split out to avoid.
-        m_RSMMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
-        if ( !m_RSMMaterial )
-            return false;
-        m_RSMInstance = m_RSMMaterial->CreateInstance();
-
         // (Static x GBuffer) for the meshes whose FORWARD material is not service-owned. There is exactly
         // one such material in the engine — MeshECSSystem::m_DefaultMaterial, which stands in for every
         // mesh whose slot does not resolve — and it has no `.demat`, so MaterialService has no sibling of

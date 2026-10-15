@@ -53,7 +53,6 @@ namespace Desert::Graphic
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
-        RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
@@ -92,11 +91,11 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
-        // update, then GlobalIllumination::ScreenProbeGather; the images are the gather's, imported): per pixel,
-        // the diffuse irradiance and the specular radiance. Invalid when the GI method traces nothing
-        //   -> Deferred: Composite
-        RDG::TextureRef ScreenProbeDiffuse;
-        RDG::TextureRef ScreenProbeSpecular;
+        // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
+        // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the
+        // specular radiance. Invalid when the GI method traces nothing   -> Deferred: Composite
+        RDG::TextureRef GIDiffuse;
+        RDG::TextureRef GISpecular;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

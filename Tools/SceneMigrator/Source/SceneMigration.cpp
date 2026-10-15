@@ -1007,9 +1007,11 @@ namespace Desert::Migration
         using Common::Scalability::ReflectionMethod;
         RenderMethodsReport report;
 
-        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name.
+        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name. The
+        // reflective shadow maps are gone (GI-PROBE-SW): ProbeVolume, which took their number (3) on the ladder,
+        // is what a view that asked for them gets — the off-screen bounce, now of every light and the sky.
         constexpr std::array<GIMethod, 3> kFromGIMode{ GIMethod::Off, GIMethod::ScreenSpace,
-                                                       GIMethod::ReflectiveShadowMaps };
+                                                       GIMethod::ProbeVolume };
 
         const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
         {

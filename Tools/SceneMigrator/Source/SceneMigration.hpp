@@ -268,8 +268,9 @@ namespace Desert::Migration
 
     //  52 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
-    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
-    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
+    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — since GI-PROBE-SW ProbeVolume 3, which
+    //       took the removed method's number, so a v52 file that states 3 needs no step of its own) and EnableSSR
+    //       (bool) is ReflectionsMethod (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
     //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV51ToV52). Both the record's
     //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
     //       outside the old type is refused, naming the entity. Scenes and prefabs alike.

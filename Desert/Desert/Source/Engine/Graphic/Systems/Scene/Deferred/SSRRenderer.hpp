@@ -104,8 +104,7 @@ namespace Desert::Graphic::System
         }
 
         // The accumulated reflection is a reprojection of the previous frame, and the previous frame is now
-        // a different world — see IRenderSystem::OnSceneReplaced, kind 1. Same argument as GIResolveRenderer
-        // next door, at a blend weight of 0.88.
+        // a different world — see IRenderSystem::OnSceneReplaced, kind 1 (blend weight 0.88).
         void OnSceneReplaced() override
         {
             m_History.Invalidate();

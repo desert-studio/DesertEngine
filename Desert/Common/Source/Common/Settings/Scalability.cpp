@@ -51,8 +51,6 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 64, CL::None,
                "SSRRenderer trace push constant maxSteps (SceneRenderer SSR pass)" },
-             { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,
-               "GIResolve.shader RSM gather taps (GIResolveUB Params.z)" },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
                CL::None,
                "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },

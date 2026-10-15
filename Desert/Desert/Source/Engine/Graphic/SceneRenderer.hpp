@@ -60,11 +60,11 @@
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/IrradianceFieldGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
-#include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
@@ -135,7 +135,7 @@ namespace Desert::Graphic
         // the difference between 335 MB of shadow attachments per open window and 21 MB.
         //
         // @p profile widens that budget to the whole view (Graphic/ViewMemory.hpp): a preview also never
-        // builds the volumetric-cloud, SSR or RSM-GI targets, whatever its scene asks for.
+        // builds the volumetric-cloud or SSR targets, whatever its scene asks for.
         //
         // @p extent is the size of the surface this view renders into — the viewport panel, the preview
         // widget, the thumbnail, the runtime window — and the build allocates at exactly that; Resize()
@@ -452,13 +452,6 @@ namespace Desert::Graphic
             return m_GBuffer;
         }
 
-        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMethod::ReflectiveShadowMaps.
-        // Same attachment layout as the G-buffer, at a fixed light-space resolution.
-        const std::shared_ptr<Framebuffer>& GetRSMBuffer() const
-        {
-            return m_RSMBuffer;
-        }
-
         // Active rendering path, refreshed from SceneSettings each BeginScene.
         Core::RenderPath GetRenderPath() const
         {
@@ -538,6 +531,9 @@ namespace Desert::Graphic
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
         // The view's screen probe gather (a traced GI method; its history follows this view), made on first use.
         std::unique_ptr<GlobalIllumination::ScreenProbeGather> m_ScreenProbeGather;
+        // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
+        // probes), made on first use.
+        std::unique_ptr<GlobalIllumination::IrradianceFieldGather> m_IrradianceFieldGather;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -714,8 +710,6 @@ namespace Desert::Graphic
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameRSM( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-                          const glm::vec3& sunDir );
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
@@ -748,12 +742,6 @@ namespace Desert::Graphic
         void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
-        // The GI accumulation ref the composite samples (u_GI), invalid when GI did not run this frame.
-        RDG::TextureRef AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer,
-                                           const std::vector<RDG::TextureRef>& rsm,
-                                           System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                           const glm::vec4& lightColor );
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
         void            AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
@@ -774,13 +762,14 @@ namespace Desert::Graphic
         void AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The traced GI of this frame — only when RadianceCacheRuns(), after the G-buffer: the GI frame record and
         // the tracer's frame (GlobalIllumination::TracerFrame), the world radiance cache's update
-        // (GlobalIllumination::WorldRadianceCache), then the screen probe gather that reads it
-        // (GlobalIllumination::ScreenProbeGather), into FrameTransients::ScreenProbe*.
+        // (GlobalIllumination::WorldRadianceCache), then the final gather that reads it — the screen probe gather
+        // (GlobalIllumination::ScreenProbeGather) or, under ProbeVolume, the irradiance field gather
+        // (GlobalIllumination::IrradianceFieldGather) — into FrameTransients::GIDiffuse / GISpecular.
         void            AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                           const glm::vec4& lightColor, const ViewFrame& frame );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                           const std::vector<RDG::TextureRef>& gbuffer,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
@@ -868,7 +857,6 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
-        std::shared_ptr<Framebuffer> m_RSMBuffer;                  // reflective shadow map (G-buffer from the sun)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene
         // The volumetric cloud layer's cost ceiling, taken from m_Quality each BeginScene and handed to
         // the cloud renderer with the layer itself. HIGH is the calibrated reference, so a renderer
@@ -905,11 +893,10 @@ namespace Desert::Graphic
         // SceneSettings every frame, so this value only matters before the first Update.
         float m_SSRMaxDistance = Common::Units::Metres( 40.0f );
         // Cost knobs taken from m_Quality each BeginScene (Scalability: Reflections.MaxSteps,
-        // GlobalIllumination.Samples, PostProcess.AmbientOcclusionSamples). They reach their shaders as uniform
+        // PostProcess.AmbientOcclusionSamples). They reach their shaders as uniform
         // values, so one pipeline serves every level. The initialisers are the High column, only read before
         // the first BeginScene.
         int m_SSRMaxSteps = 32;
-        int m_GISamples   = 32;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
@@ -923,24 +910,13 @@ namespace Desert::Graphic
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 
-        // The RSM is a LOW-FREQUENCY input to a temporally-accumulated resolve, so it does not need to be
-        // re-rendered every frame — refreshing it every 4th frame (and immediately when the sun moves) keeps
-        // the GI stable while cutting the extra geometry pass to a quarter of its cost.
-        static constexpr uint32_t kRSMResolution   = 512;
-        static constexpr uint32_t kRSMRefreshEvery = 4;
-        glm::vec3                 m_RSMLastSunDir{ 0.0f };
-        uint32_t                  m_RSMFrameCounter = 0;
-
-        // Allocate the SSR / RSM-GI targets + their systems on FIRST USE, not in the constructor: each
-        // PreviewViewport (thumbnails, the Details mesh preview) owns a SceneRenderer, and a preview never
-        // enables either feature — building them up front multiplied a lot of VRAM by the preview count.
-        // Return false when the feature is unavailable; the failure is latched so it is not retried each frame.
-        bool EnsureGIResources();
+        // Allocate the SSR targets + their system on FIRST USE, not in the constructor: each PreviewViewport
+        // (thumbnails, the Details mesh preview) owns a SceneRenderer, and a preview never enables SSR —
+        // building them up front multiplied a lot of VRAM by the preview count. Return false when the feature is
+        // unavailable; the failure is latched so it is not retried each frame.
         bool EnsureSSRResources();
-        // Device can sample+blend RGBA32F colour attachments — the precondition both features share.
+        // Device can sample+blend RGBA32F colour attachments — SSR's precondition.
         bool HasFloatRenderTargetSupport() const;
-        bool m_GIResourcesReady   = false;
-        bool m_GIResourcesFailed  = false;
         bool m_SSRResourcesReady  = false;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;

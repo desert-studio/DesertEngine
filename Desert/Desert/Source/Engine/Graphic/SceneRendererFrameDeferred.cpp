@@ -285,81 +285,6 @@ namespace Desert::Graphic
              } );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
-                                                      const std::vector<RDG::TextureRef>& gbuffer,
-                                                      const std::vector<RDG::TextureRef>& rsm,
-                                                      System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                                      const glm::vec4& lightColor )
-    {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
-        if ( gi == nullptr || !gi->Prepare() )
-            return {};
-        if ( gbuffer.size() < 3 || rsm.size() < 3 )
-        {
-            LOG_ERROR(
-                 "[SceneRenderer] Deferred: GIResolve needs 3 G-buffer and 3 RSM colours, the graph has {} and {}",
-                 gbuffer.size(), rsm.size() );
-            return {};
-        }
-        // The raw gather lives within this graph (UE: a transient from the scene textures' desc); the
-        // accumulation pair is history and stays external.
-        auto desc = graph.GetTextureDesc( gbuffer[0] );
-        if ( !desc )
-        {
-            LOG_ERROR( "[SceneRenderer] Deferred: GIResolve: {}", desc.GetError() );
-            return {};
-        }
-        RDG::TextureDesc gatherDesc   = desc.GetValue();
-        gatherDesc.Format             = ViewTargetFormats::kGIResolve;
-        gatherDesc.Mips               = 1;
-        gatherDesc.Layers             = 1;
-        gatherDesc.Samples            = 1;
-        const RDG::TextureRef gather  = graph.CreateTexture( gatherDesc, "GI.Gather" );
-        // A lost GI gather adds no bounce light (RDG-FAULT1).
-        graph.SetFaultDefault( gather, RDG::FaultDefault::Black );
-        const RDG::TextureRef accum   = textures.Import( gi->GetAccumImage(), "GI" );
-        const RDG::TextureRef history = textures.Import( gi->GetHistoryImage(), "GI.History" );
-        textures.Transients.GIResolve = gather;
-        const RDG::TextureRef        gbufferDepth = textures.Depth( m_GBuffer, "GBuffer" );
-        const System::GIGatherInputs inputs{ .GBufferNormal = gbuffer[1],
-                                             .GBufferDepth  = gbufferDepth,
-                                             .RSMAlbedo     = rsm[0],
-                                             .RSMNormal     = rsm[1],
-                                             .RSMDepth      = textures.Depth( m_RSMBuffer, "RSM" ) };
-        const float                  giIntensity = m_GIIntensity;
-        const int                    giSamples   = m_GISamples;
-        graph.AddPass(
-             "Deferred: GIResolve", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 gi->DeclareGatherBindings( pass, inputs );
-                 pass.ColorTarget( 0, gather, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-             },
-             [gi, meshRenderer, lightColor, giIntensity, giSamples,
-              invViewProj = frame.InvJitteredViewProjection]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 // Read when the node runs: the RSM node before it is what sets this frame's light matrix.
-                 return gi->RecordGather( context, meshRenderer->GetRSMViewProj(), invViewProj, lightColor,
-                                          giIntensity, giSamples );
-             } );
-        // Decided now, at build time, after Prepare (which invalidates the stamp when it recreated the images):
-        // the exec runs after the frame was built and must not consult a stamp a later frame may have written.
-        const bool giHistoryReadable = gi->HistoryReadableIn( frame );
-        graph.AddPass(
-             "Deferred: GITemporal", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 gi->DeclareTemporalBindings( pass, gather, history, gbufferDepth );
-                 pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-             },
-             [gi, prevViewProj = frame.PrevViewProjection, invViewProj = frame.InvJitteredViewProjection,
-              readable = giHistoryReadable,
-              index    = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return gi->RecordTemporal( context, prevViewProj, invViewProj, readable, index ); } );
-        return accum;
-    }
-
     void SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         auto* const deferred =
@@ -394,7 +319,9 @@ namespace Desert::Graphic
 
     bool SceneRenderer::RadianceCacheRuns() const
     {
-        return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache;
+        // A preview profile (ViewMemory.hpp) never runs the traced GI, whatever its scene asks for.
+        return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache &&
+               m_ViewProfile.GlobalIllumination;
     }
 
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
@@ -421,7 +348,7 @@ namespace Desert::Graphic
             }
             m_RadianceCache = std::move( cache );
         }
-        if ( !m_ScreenProbeGather )
+        if ( m_GIPipeline.ScreenProbes && !m_ScreenProbeGather )
         {
             auto gather = std::make_unique<GlobalIllumination::ScreenProbeGather>();
             if ( const auto initialized = gather->Initialize(); !initialized )
@@ -430,6 +357,16 @@ namespace Desert::Graphic
                 return;
             }
             m_ScreenProbeGather = std::move( gather );
+        }
+        if ( !m_GIPipeline.ScreenProbes && !m_IrradianceFieldGather )
+        {
+            auto gather = std::make_unique<GlobalIllumination::IrradianceFieldGather>();
+            if ( const auto initialized = gather->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", initialized.GetError() );
+                return;
+            }
+            m_IrradianceFieldGather = std::move( gather );
         }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
         const auto            desc  = graph.GetTextureDesc( depth );
@@ -489,6 +426,25 @@ namespace Desert::Graphic
             return;
         }
 
+        // ProbeVolume (UE Lumen's irradiance field gather): the cache IS the final gather, read per pixel.
+        if ( !m_GIPipeline.ScreenProbes )
+        {
+            GlobalIllumination::IrradianceFieldGatherInputs field{ .GBufferDepth  = inputs.GBufferDepth,
+                                                                   .GBufferB      = inputs.GBufferB,
+                                                                   .GIFrame       = inputs.GIFrame,
+                                                                   .RadianceCache = cache.GetValue(),
+                                                                   .Extent        = inputs.Extent };
+            const auto gathered = m_IrradianceFieldGather->AddPasses( graph, import, field );
+            if ( !gathered )
+            {
+                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", gathered.GetError() );
+                return;
+            }
+            t.GIDiffuse  = gathered.GetValue().Diffuse;
+            t.GISpecular = gathered.GetValue().Specular;
+            return;
+        }
+
         GlobalIllumination::ScreenProbeGatherInputs gather;
         gather.GBufferDepth       = inputs.GBufferDepth;
         gather.GBufferA           = inputs.GBufferA;
@@ -511,8 +467,8 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
             return;
         }
-        t.ScreenProbeDiffuse  = gathered.GetValue().Diffuse;
-        t.ScreenProbeSpecular = gathered.GetValue().Specular;
+        t.GIDiffuse  = gathered.GetValue().Diffuse;
+        t.GISpecular = gathered.GetValue().Specular;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -553,7 +509,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
+                                           const std::vector<RDG::TextureRef>& gbuffer,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
     {
@@ -574,7 +530,7 @@ namespace Desert::Graphic
         const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
-        // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not RSM, fewer cascades).
+        // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not traced, fewer cascades).
         const FrameGraphRefs            refs = textures.GraphRefs();
         System::DeferredCompositeInputs inputs;
         inputs.GBufferA        = gbuffer[0];
@@ -583,12 +539,11 @@ namespace Desert::Graphic
         inputs.GBufferDepth       = textures.Depth( m_GBuffer, "GBuffer" );
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
-        inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
-        // The screen probe gather's diffuse and specular (a traced GI method), or black (unread in the other
+        // The traced GI's final gather (screen probes or the irradiance field), or black (unread in the other
         // modes).
-        const bool traced          = refs.Transients.ScreenProbeDiffuse.IsValid();
-        inputs.ScreenProbeDiffuse  = traced ? refs.Transients.ScreenProbeDiffuse : refs.System.Black;
-        inputs.ScreenProbeSpecular = traced ? refs.Transients.ScreenProbeSpecular : refs.System.Black;
+        const bool traced = refs.Transients.GIDiffuse.IsValid();
+        inputs.GIDiffuse  = traced ? refs.Transients.GIDiffuse : refs.System.Black;
+        inputs.GISpecular = traced ? refs.Transients.GISpecular : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -619,16 +574,12 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the RSM resolve's buffer, 3 the screen probe gather's diffuse and specular in place of the
-        // sky's.
+        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's.
         // Spelled here, not cast from the enum, whose numbering is the method ladder's
         // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace            ? 1
-                                       : gi == GIMethod::ReflectiveShadowMaps ? 2
-                                       : traced                               ? 3
-                                                                              : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =

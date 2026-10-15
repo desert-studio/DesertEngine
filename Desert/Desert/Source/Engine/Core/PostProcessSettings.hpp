@@ -45,14 +45,15 @@ namespace Desert::Core
         //
         //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
         //                         on screen bounces, no denoiser.
-        //  ReflectiveShadowMaps — bounces the sun off everything it sees (off screen too) through a reflective
-        //                         shadow map, resolved into its own buffer and temporally accumulated.
+        //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
+        //                         the sky, off screen too) read per pixel: the cheap traced path.
+        //  SoftwareTraced       — the same cache behind screen probes traced per frame: contact detail and
+        //                         rough reflections.
         PROPERTY( DisplayName( "Method" ), Category( "Global Illumination" ),
                   Refuse( "Common::Scalability::RefuseGIMethod" ),
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
         Common::Scalability::GIMethod GlobalIlluminationMethod = Common::Scalability::GIMethod::ScreenSpace;
-        // ONE knob for both GI methods, but they are not on the same scale: the screen-space gather is bright
-        // at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor) and wants ~6.
+        // The screen-space gather's strength (ScreenSpace only: the traced methods carry the lights' own energy).
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 

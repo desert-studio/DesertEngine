@@ -58,27 +58,16 @@ namespace Desert::Graphic::ViewTargetFormats
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
 
-    // Screen-space reflections and RSM global illumination.
+    // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
-    inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
-    inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
-    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
-    // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
-    // them.
-    inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
-    inline constexpr ImageFormat kRSMNormal   = kGBufferB;
-    inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
-    inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
-    // The RSM's colour slots, by location — read by the framebuffer (SceneRenderer::EnsureGIResources) AND by the
-    // RSM pipeline's target layout (MeshRenderer::SetupGBufferPass). Slot 2 is an UNUSED colour slot
-    // (std::nullopt; FramebufferAttachment::UnusedColourSlot): the permutation writes no shading word and GI reads
-    // VPL positions from kRSMDepth, so it has no image.
-    inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
-                                                                                   std::nullopt, kRSMEmissive };
+    // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (rgb), written by the
+    // screen probe gather (GlobalIllumination::ScreenProbeGather, a history pair each) or the irradiance field
+    // gather (GlobalIllumination::IrradianceFieldGather, graph transients), read by the deferred composite.
+    inline constexpr ImageFormat kGIFinalGather = ImageFormat::RGBA16F;
 
     // MeshRenderer::SetupShadowPass, one of each per cascade.
     inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;

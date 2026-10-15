@@ -1,90 +1,10 @@
-// MeshRenderer's light-view passes: the cascaded shadow map (setup, cascade fit, graph pass) and the
-// Reflective Shadow Map drawn from the sun.
+// MeshRenderer's light-view passes: the cascaded shadow map (setup, cascade fit, graph pass).
 #include "MeshRendererInternal.hpp"
 
 #include <format>
 
 namespace Desert::Graphic::System
 {
-    void MeshRenderer::DeclareRSMDraws( RDG::PassBuilder& pass )
-    {
-        // The G-buffer program under DESERT_GBUFFER_RSM (no shading-word output) into the RSM framebuffer, whose
-        // colour slots are ViewTargetFormats::kRSMColourSlots (slot 2 unused). The pipeline is its own
-        // (standard-Z, see SetupGBufferPass) and so is the camera. Only static meshes are bounce sources: no other
-        // renderer (terrain, foliage, skinned) draws into the RSM — census
-        // ShaderVariantDefines.OnlyTheMeshRendererDrawsTheRSM.
-        m_RSMDraws.Clear();
-        if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
-            return;
-        const auto& rsm = m_SceneRenderer != nullptr ? m_SceneRenderer->GetRSMBuffer() : nullptr;
-        if ( !rsm )
-            return;
-
-        // All OPAQUE static objects are bounce sources (glass transmits rather than bouncing diffusely).
-        // Their effective materials go into the DEDICATED RSM material's Materials SSBO, so each texel's
-        // albedo is the real per-object one — that albedo IS the flux colour, i.e. the colour bleeding.
-        std::vector<const StaticMeshRenderData*> objs;
-        std::vector<glm::vec4>                   gpuMats;
-        for ( const auto& data : m_StaticQueue )
-        {
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
-            {
-                continue;
-            }
-            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( surfaceInst == nullptr || IsTranslucent( mat ) )
-            {
-                continue;
-            }
-            objs.push_back( &data );
-            AppendRow( gpuMats, EffectiveRow( mat, surfaceInst ) );
-        }
-        if ( objs.empty() )
-            return;
-
-        // Written ONCE, before the block is declared, so its route fill is what the draws will read.
-        if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( glm::vec4 ) ) );
-
-        // Render from the SUN. A DEDICATED material+instance (like the glass pass) keeps this camera write
-        // off the opaque passes' per-frame UBs — two writes to the same UB in one frame is the hazard that
-        // previously hung the GPU.
-        // The sun is not a view (MakeStillViewFrame: no jitter, no previous frame). The cascade fitter produces a
-        // COMBINED light view-projection, so (exactly like the shadow pass does with SetLightMatrix) it goes in as
-        // the projection against an identity view: the vertex shader forms Projection * View * Transform, so the
-        // product is unchanged.
-        const ViewFrame sunView =
-             MakeStillViewFrame( glm::mat4( 1.0f ), m_RSMViewProj, m_RSMEye, m_WorldTimeSeconds );
-        MaterialInstance* ri = m_RSMInstance.get();
-        CaptureFrameState( &sunView ).ApplyTo( ri );
-
-        // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
-        // per-object transform, material row and instance bind are each draw's state, written right before it.
-        DataDrivenMaterial* const rsmMaterial = m_RSMMaterial.get();
-        for ( uint32_t i = 0; i < static_cast<uint32_t>( objs.size() ); ++i )
-        {
-            const auto* obj = objs[i];
-            m_RSMDraws.Add( { .Pipeline          = m_RSMPipeline.get(),
-                              .Mesh              = obj->Mesh,
-                              .Transform         = obj->Transform,
-                              .Material          = rsmMaterial->GetMaterialExecutor(),
-                              .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                              .BindState         = [rsmMaterial, ri, transform = obj->Transform, i]
-                              {
-                                  rsmMaterial->SetPushMatrix( transform );
-                                  rsmMaterial->SetMaterialIndex( i );
-                                  rsmMaterial->Bind( ri );
-                              } } );
-        }
-        // The G-buffer shader's textures are the material's own (Properties): it samples no scene/view input.
-        m_RSMDraws.Declare( pass, std::nullopt );
-    }
-
-    Common::BoolResultStr MeshRenderer::RenderRSMManual( const RDG::PassContext& context ) const
-    {
-        return m_RSMDraws.Record( context );
-    }
-
     void MeshRenderer::LogShadowBudget( double allocMs ) const
     {
         // WHAT THIS RENDERER JUST SPENT AND WHAT THE PROCESS NOW HOLDS. The per-renderer figure alone was
@@ -327,17 +247,6 @@ namespace Desert::Graphic::System
         // that has fallen behind the camera's near plane.
         m_FittedCascades = n;
 
-        // Cascade 1 (near-mid) doubles as the Reflective Shadow Map camera. NOT the widest cascade:
-        // one-bounce GI only matters within ~tens of metres of the camera, and the widest cascade
-        // squeezed the whole neighbourhood into a couple of RSM texels — the VPL gather then found
-        // almost no lit surface and the GI read as zero everywhere.
-        //
-        // DERIVED FROM THE COUNT rather than written as 1. A one-cascade budget has no cascade 1, and a
-        // literal here would have left m_RSMViewProj at identity for ever: the GI pass would have gathered
-        // against a light camera looking down the world axes from the origin, which is not an error
-        // anything reports — it is a frame with plausible-looking, wrong bounce light.
-        const uint32_t rsmCascade = ( n > 1u ) ? 1u : 0u;
-
         for ( uint32_t c = 0; c < n; ++c )
         {
             m_CascadeVP[c]                                          = fits[c].ViewProj;
@@ -346,17 +255,6 @@ namespace Desert::Graphic::System
             // matrix the casters draw with and the slope term their depth cell adds.
             m_CascadeCasterBias[c] = ComputeCascadeCasterBias( m_ShadowBias, fits[c], fits[0].WorldPerTexel );
             m_CascadeCasterVP[c]   = CasterViewProj( fits[c].ViewProj, m_CascadeCasterBias[c].DepthBias );
-
-            if ( c == rsmCascade )
-            {
-                m_RSMViewProj = fits[c].ViewProj;
-                // Approximate light eye: back off from the fitted sphere's centre against the sun's travel
-                // direction. Only feeds cameraUB.CameraPos, which the RSM's albedo/normal/position outputs
-                // do not depend on — but a sane value keeps the shared G-buffer shader well-defined.
-                const float dirLen = glm::length( setup.LightDirection );
-                m_RSMEye = dirLen > 1e-6f ? fits[c].Center - ( setup.LightDirection / dirLen ) * fits[c].Radius
-                                          : fits[c].Center;
-            }
         }
     }
 
