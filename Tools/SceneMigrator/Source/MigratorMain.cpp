@@ -508,6 +508,10 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.LightUnitsRaised && ( report.LightUnits.Lights > 0 || report.LightUnits.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionScriptDefaults << "->v"
+                << Desert::Migration::kSceneVersionLightUnits << " (" << report.LightUnits.Lights
+                << " light(s) state Unitless, " << report.LightUnits.Volumes << " exposure range(s) in EV100)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

@@ -43,6 +43,7 @@
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 namespace Desert::Graphic
 {
@@ -939,7 +940,8 @@ namespace Desert::Graphic
                   DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
 
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetParams( post.AutoExposureSpeed, post.AutoExposureMin, post.AutoExposureMax );
+             ->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
+                          EV100ToLuminance( post.AutoExposureMaxEV100 ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 

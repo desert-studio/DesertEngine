@@ -290,7 +290,18 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionScriptDefaults = 54;
 
-    static_assert( kSceneVersionScriptDefaults == kSceneVersion,
+    //  56 - LIGHTS STATE THEIR UNITS; THE EXPOSURE RANGE IS EV100 (LIGHT-UNITS, UE ELightUnits). PointLight /
+    //       SpotLight gained IntensityUnits (Unitless 0, Candelas 1, Lumens 2, EV100 3) and their defaults became
+    //       UE's (8 cd, InverseSquare): every block states IntensityUnits Unitless - the meaning every older value
+    //       had - and a record that stated no Falloff / Intensity states the old defaults (Quadratic, 1). The
+    //       volume's AutoExposureMin / Max (luminance clamps, default 0.02 / 8) are AutoExposureMinEV100 /
+    //       MaxEV100 = log2(L) + 3, the same clamp (defaults now UE's -10 / 20). A DirectionLight's Intensity was
+    //       always the illuminance the BRDF integrates: it is lux now by name, the number is kept. An override
+    //       (a delta) only gains the units and has its stated exposure keys renamed (MigrateLightUnitsV55ToV56).
+    //       v55 is SourceAngle (Windows); scenes and prefabs alike.
+    inline constexpr int kSceneVersionLightUnits = 56;
+
+    static_assert( kSceneVersionLightUnits == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -566,6 +577,18 @@ namespace Desert::Migration
     ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
                                                         const std::filesystem::path&     assetsRoot );
 
+    // What MigrateLightUnitsV55ToV56 did to one file.
+    struct LightUnitsReport
+    {
+        std::size_t              Lights  = 0; // PointLight / SpotLight blocks that now state IntensityUnits
+        std::size_t              Volumes = 0; // PostProcessVolume Settings re-stated in EV100
+        std::vector<std::string> Refused;     // a Settings / exposure value that is not the old shape
+    };
+
+    // Raises PointLight / SpotLight and PostProcessVolume blocks to the rule kSceneVersionLightUnits states, in
+    // the record and in every prefab override. PURE.
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -836,6 +859,9 @@ namespace Desert::Migration
         bool                 ScriptDefaultsRaised = false; // below kSceneVersionScriptDefaults
         ScriptDefaultsReport ScriptDefaults;
 
+        bool             LightUnitsRaised = false; // below kSceneVersionLightUnits
+        LightUnitsReport LightUnits;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -849,7 +875,7 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised;
         }
     };
 

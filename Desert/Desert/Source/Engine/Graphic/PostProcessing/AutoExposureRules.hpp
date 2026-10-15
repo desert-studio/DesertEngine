@@ -43,6 +43,18 @@ namespace Desert::Graphic
         }
     };
 
+    // EV100 <-> luminance (cd/m^2), the reflected-light meter law with K = 12.5: L = 2^(EV100 - 3). One law for
+    // the exposure range (PostProcessSettings::AutoExposureMin/MaxEV100) and for a light's EV100 units
+    // (ECS::LightPhotometry), so an EV means the same brightness wherever it is written.
+    inline float EV100ToLuminance( float ev100 )
+    {
+        return std::exp2( ev100 - 3.0f );
+    }
+    inline float LuminanceToEV100( float luminance )
+    {
+        return std::log2( std::max( luminance, 1e-30f ) ) + 3.0f;
+    }
+
     // The luminance ceiling the procedural sky clamps its output to — mirrored from
     // Editor/Resources/Shaders/Programs/ProceduralSky/ProceduralSky.shader's kSkyLuminanceClamp. The
     // mirror is the point: the test that pins it fails the moment either side moves alone.

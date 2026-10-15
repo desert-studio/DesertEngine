@@ -21,8 +21,13 @@ namespace Desert::Graphic::System
         // Widening the window costs bin resolution: 20 stops over 256 bins is 0.078 EV per bin against
         // the old 0.047. The metered average is reconstructed from each bin's own log-luminance, not from
         // the window, so ordinary scenes move by at most that quantisation — measured at under 0.02 EV.
-        constexpr float kMinLogLum = -10.0f;
-        constexpr float kMaxLogLum = 10.0f;
+        //
+        // PHYSICAL UNITS (LIGHT-UNITS). With lights in lux / candelas a sunlit scene meters ~2^12.5 cd/m^2 and a
+        // street at night ~2^-2: the window is UE's histogram range (Histogram Log Min/Max -10 .. 20 EV100), i.e.
+        // log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops = 0.118 EV per bin; an ordinary scene's
+        // average moves by at most half a bin against the former 20-stop window.
+        constexpr float kMinLogLum = -13.0f;
+        constexpr float kMaxLogLum = 17.0f;
 
         // Outlier rejection, UNCHANGED. It was the obvious suspect for "the sun does not move the
         // exposure" and it is not the cause, so it keeps its values — see AutoExposureRules.hpp for the

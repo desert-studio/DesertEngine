@@ -96,10 +96,18 @@ namespace Desert::Core
         float AutoExposureKey = 0.18f; // middle-grey target
         PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
         float AutoExposureSpeed = 1.5f; // higher = adapts faster
-        PROPERTY( DisplayName( "Auto Exposure Min" ), Category( "Exposure" ), Range( 0.0f, 5.0f ) )
-        float AutoExposureMin = 0.02f; // luminance clamp
-        PROPERTY( DisplayName( "Auto Exposure Max" ), Category( "Exposure" ), Range( 0.0f, 20.0f ) )
-        float AutoExposureMax = 8.0f;
+        // UE AutoExposureMinBrightness / MaxBrightness with "Extend default luminance range" (the only mode UE5
+        // ships): the range the metered average may adapt over, in EV100 - luminance = 2^(EV100 - 3) cd/m^2
+        // (Graphic::EV100ToLuminance). The UE defaults span night to a 100 000 lux sun, so physical light values
+        // (ECS::LightUnits, lux) expose correctly without retuning. Scenes before v56 stated luminance clamps
+        // (0.02 / 8 by default): the migration re-states them in EV100, the same clamp.
+        PROPERTY(
+             DisplayName( "Min EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+             Tooltip( "Darkest scene the eye adapts to (UE Min EV100): -10 starlight .. 20 beyond sunlit snow." ) )
+        float AutoExposureMinEV100 = -10.0f;
+        PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Brightest scene the eye adapts to (UE Max EV100); a 100 000 lux sun meters ~15." ) )
+        float AutoExposureMaxEV100 = 20.0f;
 
         PROPERTY( DisplayName( "Enable Bloom" ), Category( "Bloom" ) )
         bool EnableBloom = false; // off by default -> no glow out of the box

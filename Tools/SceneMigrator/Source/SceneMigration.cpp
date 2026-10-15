@@ -5,6 +5,8 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
+#include <cmath>
+#include <optional>
 #include <array>
 #include <format>
 #include <fstream>
@@ -1080,6 +1082,120 @@ namespace Desert::Migration
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities )
+    {
+        LightUnitsReport report;
+
+        // What the pre-v56 type defaulted to: a block that stated nothing kept these, so they are what it meant.
+        constexpr int   kOldFalloffQuadratic = static_cast<int>( ECS::LightFalloff::Quadratic );
+        constexpr float kOldIntensity        = 1.0f;
+        constexpr float kOldMinLuminance     = 0.02f;
+        constexpr float kOldMaxLuminance     = 8.0f;
+        static_assert( static_cast<int>( ECS::LightUnits::Unitless ) == 0,
+                       "LightUnits moved: the migration states Unitless as 0" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+
+        // A record states every key a pre-v56 build would have defaulted; an override is a delta against its
+        // prefab record (which its own migration raises), so it only gains the units every older light had.
+        const auto lights = [&]( rfl::ExtraFields<rfl::Generic>& components, bool record )
+        {
+            for ( const char* light : { "PointLight", "SpotLight" } )
+                EditBlock( components, light,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( block.get( "IntensityUnits" ).has_value() )
+                                   return false;
+                               block["IntensityUnits"] = rfl::Generic( 0 );
+                               if ( record && !block.get( "Falloff" ).has_value() )
+                                   block["Falloff"] = rfl::Generic( kOldFalloffQuadratic );
+                               if ( record && !block.get( "Intensity" ).has_value() )
+                                   block["Intensity"] = rfl::Generic( static_cast<double>( kOldIntensity ) );
+                               ++report.Lights;
+                               return true;
+                           } );
+        };
+
+        // AutoExposureMin / Max (luminance) -> AutoExposureMin / MaxEV100, the same clamp.
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 Describe( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           const auto           restate  = [&]( const char* oldKey, const char* newKey,
+                                                     float oldDefault ) -> bool
+                           {
+                               if ( settings.get( newKey ).has_value() )
+                                   return true;
+                               double luminance = oldDefault;
+                               if ( const auto value = settings.get( oldKey ); value.has_value() )
+                               {
+                                   const auto n = number( value.value() );
+                                   if ( !n.has_value() || !( n.value() > 0.0 ) )
+                                   {
+                                       report.Refused.push_back( std::format(
+                                            "{}: PostProcessVolume.Settings.{} {} is not a positive luminance",
+                                            who, oldKey, Describe( value.value() ) ) );
+                                       return false;
+                                   }
+                                   luminance = n.value();
+                                   DropKey( settings, oldKey );
+                               }
+                               else if ( !record )
+                                   return true; // a delta that does not state it inherits its prefab's
+                               settings[newKey] = rfl::Generic( std::log2( luminance ) + 3.0 );
+                               changed          = true;
+                               return true;
+                           };
+                           if ( !restate( "AutoExposureMin", "AutoExposureMinEV100", kOldMinLuminance ) ||
+                                !restate( "AutoExposureMax", "AutoExposureMaxEV100", kOldMaxLuminance ) )
+                               return false;
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            lights( entity.Components, true );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                {
+                    lights( override_.Components, false );
+                    exposure( override_.Components, false, who );
+                }
         }
         return report;
     }
@@ -3415,6 +3531,18 @@ namespace Desert::Migration
                 }
             }
 
+            // Lights state their units, the exposure range is EV100 (LIGHT-UNITS).
+            if ( statedSceneVersion < kSceneVersionLightUnits )
+            {
+                report.LightUnitsRaised = true;
+                report.LightUnits       = MigrateLightUnitsV55ToV56( entities );
+                if ( !report.LightUnits.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.LightUnits.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3830,6 +3958,18 @@ namespace Desert::Migration
             {
                 const RenderMethodsReport lifted = MigrateRenderMethodsV52ToV53( scene.Entities );
                 report.RenderMethods.Rewritten += lifted.Rewritten;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its luminance exposure clamps as EV100 (idempotent - a volume stating the EV100 keys is
+            // skipped).
+            if ( report.LightUnitsRaised )
+            {
+                const LightUnitsReport lifted = MigrateLightUnitsV55ToV56( scene.Entities );
+                report.LightUnits.Volumes += lifted.Volumes;
                 if ( !lifted.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );

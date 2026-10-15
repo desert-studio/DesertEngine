@@ -69,8 +69,9 @@ namespace Desert::Graphic
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
         target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );
-        target.AutoExposureMin   = Lerp( target.AutoExposureMin, volume.AutoExposureMin, weight );
-        target.AutoExposureMax   = Lerp( target.AutoExposureMax, volume.AutoExposureMax, weight );
+        // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.
+        target.AutoExposureMinEV100 = Lerp( target.AutoExposureMinEV100, volume.AutoExposureMinEV100, weight );
+        target.AutoExposureMaxEV100 = Lerp( target.AutoExposureMaxEV100, volume.AutoExposureMaxEV100, weight );
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );
