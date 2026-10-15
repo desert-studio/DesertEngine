@@ -54,8 +54,6 @@ namespace Common::Scalability
                "(u_ContactShadowView.x)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 128, CL::None,
                "SSRRenderer trace push constant: HZB traversal iterations per ray (SceneRenderer SSR pass)" },
-             { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,
-               "GIResolve.shader RSM gather taps (GIResolveUB Params.z)" },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
                CL::None,
                "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },

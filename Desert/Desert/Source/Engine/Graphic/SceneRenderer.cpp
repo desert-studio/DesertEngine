@@ -261,11 +261,11 @@ namespace Desert::Graphic
                 m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
                 m_GBuffer->Resize( width, height );
 
-                // NOTE: SSR and RSM-GI resources are deliberately NOT created here — see EnsureSSRResources() /
-                // EnsureGIResources(). Every PreviewViewport (asset thumbnails, the Details mesh preview) builds
-                // its OWN SceneRenderer, so anything allocated in this constructor is paid for once PER PREVIEW.
-                // Between them SSR and RSM-GI want six full-screen RGBA32F targets plus a five-attachment RSM, and
-                // a preview never turns either feature on. They are now allocated on first actual use instead.
+                // NOTE: SSR resources are deliberately NOT created here — see EnsureSSRResources(). Every
+                // PreviewViewport (asset thumbnails, the Details mesh preview) builds its OWN SceneRenderer, so
+                // anything allocated in this constructor is paid for once PER PREVIEW, and a preview never turns
+                // SSR on. They are allocated on first actual use instead (the traced GI's caches likewise, in
+                // AddFrameTracedGI).
 
                 // Scene systems render into the shared target framebuffer; post-process systems form an
                 // explicit chain (Mesh silhouette mask -> Jump Flood outline -> Tonemap).
@@ -794,7 +794,6 @@ namespace Desert::Graphic
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel                     = quality.As<int>( Parameter::ReflectionRaysPerPixel );
-        m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
@@ -806,7 +805,8 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
-        m_RadianceCacheInputs = RadianceCache::MakeRadianceCacheInputs( quality );
+        m_RadianceCacheInputs =
+             RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1138,7 +1138,7 @@ namespace Desert::Graphic
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
-        // kGBufferVelocitySlot) — never of a light view (RSM, cascades) or a debug target. Created before any node
+        // kGBufferVelocitySlot) — never of a light view (cascades) or a debug target. Created before any node
         // is added; its first writer (ClearMainFramebuffer, the first node on both paths) clears it to no motion.
         // A target at another extent than the view's is refused by name: the frame is not drawn.
         if ( m_TargetFramebuffer )
@@ -1240,23 +1240,10 @@ namespace Desert::Graphic
             const FrameSSR ssrFrame =
                  ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
 
-            RDG::TextureRef giAccum;
-
-            if ( m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::ReflectiveShadowMaps &&
-                 meshRenderer != nullptr && EnsureGIResources() )
-            {
-                const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
-                const glm::vec3                    sunDir( lightDir );
-                AddFrameRSM( graph, textures, meshRenderer, sunDir );
-                m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
-
-                giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, frame, lightColor );
-            }
-
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
-                               lightColor, frame );
+            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, meshRenderer, lightDir, lightColor,
+                               frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
@@ -1400,8 +1387,8 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    // Capability gate shared by the two Ensure* helpers. Both SSR and RSM-GI accumulate into RGBA32F
-    // targets that are sampled and blended, so a device that cannot do that cannot run either feature.
+    // Capability gate of EnsureSSRResources. SSR accumulates into RGBA32F targets that are sampled and blended,
+    // so a device that cannot do that cannot run it.
     //
     // IT ASKS ABOUT THE FORMAT IT ACTUALLY USES. This used to read the cached
     // `DeviceCapabilities::SupportsFloatRenderTargets` bool while the comment above it claimed to "read
@@ -1428,61 +1415,11 @@ namespace Desert::Graphic
                                                                             Engine::FormatUsage_Blendable ) );
     }
 
-    // Both Ensure* helpers below are LAZY on purpose: every PreviewViewport owns a SceneRenderer, so
-    // allocating these eagerly multiplied six full-screen RGBA32F targets (+ a 5-attachment RSM, + the
-    // systems' own ping-pong accumulation pairs) by the number of live previews — for features a preview
-    // never enables. They run outside any render pass, and go through WaitDeviceIdle before touching
-    // GPU resources, matching what Resize() below does. A failure is non-fatal and latched, so a broken
-    // shader cannot make this retry every frame.
-
-    bool SceneRenderer::EnsureGIResources()
-    {
-        if ( m_GIResourcesReady )
-            return true;
-        // A preview profile never builds GI targets; the scene's GI mode stays on the screen-space path.
-        if ( m_GIResourcesFailed || !m_ViewProfile.GlobalIllumination )
-            return false;
-
-        // ASK before allocating. The GI resolve and its temporal history are RGBA32F targets that get
-        // sampled and blended; on a device without blendable float attachments the framebuffers would be
-        // created and only fail later, deep in a pass.
-        if ( !HasFloatRenderTargetSupport() )
-        {
-            LOG_WARN( "[SceneRenderer] RSM GI needs blendable float render targets, which this device does "
-                      "not report — staying on the screen-space GI path." );
-            m_GIResourcesFailed = true;
-            return false;
-        }
-
-        Renderer::GetInstance().WaitDeviceIdle();
-
-        // Reflective Shadow Map: a G-buffer rendered from the sun by the G-buffer program's DESERT_GBUFFER_RSM
-        // permutation. Its colour slots are ViewTargetFormats::kRSMColourSlots — the one list the RSM pipeline's
-        // target layout is built from too (MeshRenderer::SetupGBufferPass) — albedo (flux colour), normal, an
-        // UNUSED slot 2 (no image: the permutation writes no shading word, VPL positions come from the depth) and
-        // emissive. Fixed light-space resolution, so it does NOT resize with the viewport.
-        FramebufferSpecification rsmSpec;
-        rsmSpec.DebugName = "RSM";
-        for ( const std::optional<Core::Formats::ImageFormat>& slot : ViewTargetFormats::kRSMColourSlots )
-            rsmSpec.Attachments.Attachments.push_back( slot ? FramebufferAttachment( *slot )
-                                                            : FramebufferAttachment::UnusedColourSlot() );
-        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
-        m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
-        m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
-
-        // The gather is a per-frame graph transient (AddFrameGIResolve); the system reads the scene target's size.
-        RegisterSystem<System::GIResolveRenderer>( "GISystem", this, m_TargetFramebuffer );
-        if ( !SP_CAST( System::GIResolveRenderer, m_RenderSystems["GISystem"] )->Initialize() )
-        {
-            LOG_WARN( "[SceneRenderer] GI resolve system unavailable — RSM GI produces no indirect light." );
-            m_GIResourcesFailed = true;
-            m_RSMBuffer.reset();
-            return false;
-        }
-
-        m_GIResourcesReady = true;
-        return true;
-    }
+    // EnsureSSRResources is LAZY on purpose: every PreviewViewport owns a SceneRenderer, so allocating its
+    // full-screen targets eagerly multiplied them (and the system's own ping-pong accumulation pair) by the number
+    // of live previews — for a feature a preview never enables. It runs outside any render pass, and goes through
+    // WaitDeviceIdle before touching GPU resources, matching what Resize() below does. A failure is non-fatal and
+    // latched, so a broken shader cannot make this retry every frame.
 
     bool SceneRenderer::EnsureSSRResources()
     {
@@ -1593,8 +1530,6 @@ namespace Desert::Graphic
         if ( auto resolve =
                   SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
             resolve->Resize( width, height );
-        // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated
-        // to the viewport. Its accumulation history is invalidated by the GI system's own size check.
 
         // The silhouette mask and the overdraw target are drawn with the scene's meshes: the scene's extent.
         if ( const auto& maskFb = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )

@@ -13,11 +13,8 @@
 //      format needs (uint for the integer slot, vec4 otherwise) and the slot's name, and declares no output past
 //      the colour slots. Mutations: `layout(location = 4) out vec4 oGBufferC` in a G-buffer writer, the shading
 //      word declared vec4 -> red.
-//  (4) ViewTargetFormats names no position target and RGBA32F only for the jump-flood seeds; the RSM's colour
-//  slots
-//      (kRSMColourSlots, pinned in PipelineBlendState.TheRSMSlotsAreOneListWithSlotTwoUnused) are the G-buffer's
-//      slots with slot 2 unused. Mutations: a kGBufferC / k*WorldPos constant re-added, an RSM slot 2 format ->
-//      red.
+//  (4) ViewTargetFormats names no position target and RGBA32F only for the jump-flood seeds. Mutations: a
+//      kGBufferC / k*WorldPos constant re-added -> red.
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
@@ -163,7 +160,7 @@ TEST( GBufferLayout, EveryGBufferWriterDeclaresTheSlotsTypeAtTheSlotsLocation )
     EXPECT_EQ( writers.count( "Programs/Terrain/TerrainGBuffer.shader" ), 1u );
 }
 
-TEST( GBufferLayout, NoViewTargetIsAPositionAndTheRSMIsTheGBufferWithSlotTwoUnused )
+TEST( GBufferLayout, NoViewTargetIsAPosition )
 {
     const std::string formats = ReadText( Desert::TestSupport::RepositoryRoot() / "Desert" / "Desert" / "Source" /
                                           "Engine" / "Graphic" / "ViewTargetFormats.hpp" );
@@ -180,13 +177,4 @@ TEST( GBufferLayout, NoViewTargetIsAPositionAndTheRSMIsTheGBufferWithSlotTwoUnus
             float4x32.insert( name );
     }
     EXPECT_EQ( float4x32, std::set<std::string>{ "kJFASeed" } ) << "an RGBA32F view target besides the JFA seeds";
-
-    ASSERT_EQ( F::kRSMColourSlots.size(), kColourSlots );
-    for ( size_t i = 0; i < kColourSlots; ++i )
-    {
-        if ( i == 2 )
-            EXPECT_FALSE( F::kRSMColourSlots[i].has_value() ) << "the RSM writes no shading word";
-        else
-            EXPECT_EQ( F::kRSMColourSlots[i], kGBuffer[i].Format ) << "RSM slot " << i;
-    }
 }

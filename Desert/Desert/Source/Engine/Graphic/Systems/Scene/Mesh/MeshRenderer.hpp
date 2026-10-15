@@ -433,14 +433,6 @@ namespace Desert::Graphic::System
         // otherwise). Forward path draws them inside MeshGeometryPass.
         void DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
-        // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
-        // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
-        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
-        // node "Deferred: RSM": builds its draw list (the bounce sources' Materials[] and the sun's frame state
-        // written here) and declares its binding block; the exec records that list.
-        void                                DeclareRSMDraws( RDG::PassBuilder& pass );
-        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
-
         // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3/5, UE LumenSceneCardCapture). Gather: this
         // frame's static, instanced (ISM / foliage), generic (another template's slot material, a Shader Override)
         // and skinned (bounds cards) mesh instances that carry cards, keyed stably (entity + part; mesh
@@ -457,12 +449,6 @@ namespace Desert::Graphic::System
         void                                DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
                                                                      const std::vector<SurfaceCache::CardCapture>& captures );
         [[nodiscard]] Common::BoolResultStr RenderCardCaptureManual( const RDG::PassContext& context ) const;
-        // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
-        // sun's view. Valid after UpdateCascades(); identity before the first frame.
-        glm::mat4 GetRSMViewProj() const
-        {
-            return m_RSMViewProj;
-        }
 
         const std::shared_ptr<Framebuffer>& GetSilhouetteMaskFramebuffer() const
         {
@@ -784,7 +770,6 @@ namespace Desert::Graphic::System
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
-        MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
         // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source.
         struct CardCaptureSource
@@ -886,19 +871,6 @@ namespace Desert::Graphic::System
         };
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
 
-        // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
-        // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with
-        // the opaque passes would write the same per-frame UB twice in a frame. m_RSMViewProj/m_RSMEye come
-        // from cascade 1 in UpdateCascades(), so the pass draws through a STANDARD-Z matrix and needs its
-        // own pipeline (m_RSMPipeline) rather than the reversed-Z G-buffer one — see SetupDeferredPass.
-        // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
-        std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
-        MaterialInstancePtr                m_RSMInstance;
-        std::shared_ptr<Shader>             m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
-        std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
-        glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
-        glm::vec3                          m_RSMEye      = glm::vec3( 0.0f );
-
         // (Static x GBuffer) for meshes whose FORWARD material is not one MaterialService owns — in
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
         // resolve. It has no `.demat`, so it has no sibling in any other pass, and the deferred pass
@@ -922,7 +894,7 @@ namespace Desert::Graphic::System
         MaterialInstancePtr                   m_StaticInstancedInstance;
         // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
         // so the pass that binds the (Instanced x GBuffer) pipeline has to bind sets allocated from that
-        // cell's own reflection -- the same reason m_RSMMaterial and m_GBufferUnownedMaterial exist for
+        // cell's own reflection -- the same reason m_GBufferUnownedMaterial exists for
         // the static path.
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferMaterial;
         MaterialInstancePtr                   m_InstancedGBufferInstance;

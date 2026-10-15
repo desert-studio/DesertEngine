@@ -26,12 +26,14 @@
 // include, not a pass), kept because it traces inline: no ray buffer is written and re-read between passes.
 //
 // WHAT GIMethod RUNS ON THIS (Common/Settings/RenderMethods.hpp, resolved by Graphic::ResolveRenderMethods):
+//   ProbeVolume     — global SDF + surface cache + world radiance cache, read per pixel without screen probes
+//                     (IrradianceFieldGather.hpp; UE Lumen's irradiance field gather), traced less often.
 //   SoftwareTraced  — global SDF + surface cache + world radiance cache + screen probes. The path of every GPU
 //                     without ray tracing and of Mac; the main path for most players (owner 10-15).
 //   HardwareTraced  — ray query + the same caches; a hit is read from the surface cache, or lit IN PLACE with
 //                     its full material when the machine allows hit lighting (Scalability
 //                     GlobalIllumination.HitLighting; UE r.Lumen.HardwareRayTracing.HitLighting.Allowed, Epic+).
-//   Off / Lightmaps / ScreenSpace / ReflectiveShadowMaps / ProbeVolume / PathTraced — none of this runs.
+//   Off / Lightmaps / ScreenSpace / PathTraced — none of this runs.
 //
 // THE CONTRACT IS NEUTRAL TO THE TRACER (GI-TRACER-CONTRACT, agreed with the Windows side 10-15). What differs
 // between the walks lives behind four names and nowhere else:
@@ -87,8 +89,8 @@ namespace Desert::Graphic::GlobalIllumination
         // THE one statement of which tracer walks the rays: TracerVariant and TracerFrame read it, nothing else.
         GlobalIllumination::Tracer Tracer = GlobalIllumination::Tracer::SoftwareDistanceField;
         HitLighting                Hits   = HitLighting::SurfaceCache;
-        // The caches and the gather the traced methods share. Both traced methods need all three today; they are
-        // separate flags because GI-FINAL-GATHER's first step runs without screen probes (decision 1, 10-15).
+        // The caches and the gather the traced methods share. ProbeVolume runs the two caches without screen
+        // probes: its final gather is the radiance cache read per pixel (IrradianceFieldGather).
         bool SurfaceCache  = false;
         bool RadianceCache = false;
         bool ScreenProbes  = false;
@@ -106,14 +108,15 @@ namespace Desert::Graphic::GlobalIllumination
                                                   bool deviceRayQuery )
     {
         using Common::Scalability::GIMethod;
-        if ( method != GIMethod::SoftwareTraced && method != GIMethod::HardwareTraced )
+        if ( method != GIMethod::ProbeVolume && method != GIMethod::SoftwareTraced &&
+             method != GIMethod::HardwareTraced )
             return Pipeline{};
 
         Pipeline pipeline;
         pipeline.Traced        = true;
         pipeline.SurfaceCache  = true;
         pipeline.RadianceCache = true;
-        pipeline.ScreenProbes  = true;
+        pipeline.ScreenProbes  = method != GIMethod::ProbeVolume;
         if ( method == GIMethod::HardwareTraced && deviceRayQuery )
         {
             pipeline.Tracer = Tracer::HardwareRayQuery;

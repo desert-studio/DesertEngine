@@ -37,12 +37,12 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferDepth;       // device depth: world position is reconstructed from it
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
-        RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
         RDG::TextureRef SSR; // SSR's resolved reflection (rgb, a = coverage), or System.Black (the environment's)
-        // The screen probe gather's per-pixel diffuse irradiance and specular radiance (a traced GI method,
-        // SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI modes).
-        RDG::TextureRef ScreenProbeDiffuse;
-        RDG::TextureRef ScreenProbeSpecular;
+        // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (FrameTransients::
+        // GIDiffuse / GISpecular, SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI
+        // modes).
+        RDG::TextureRef GIDiffuse;
+        RDG::TextureRef GISpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -257,8 +257,8 @@ namespace Desert::Graphic::System
                                     environment, jitteredViewProjection );
         }
 
-        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer, AO and
-        // GI with the sampler the material route sampled them with (the image's own: linear, REPEAT, all mips),
+        // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). The G-buffer and AO
+        // with the sampler the material route sampled them with (the image's own: linear, REPEAT, all mips),
         // the two light buffers as StorageRead entries, the scene/view inputs the shader samples.
         void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
                                        const ViewLightBuffers& lights ) const
@@ -281,17 +281,15 @@ namespace Desert::Graphic::System
                            RDG::SubresourceRange::All(), kSampler )
                  .Sampled( "u_SSAO", inputs.SSAO, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            kSampler )
-                 .Sampled( "u_GI", inputs.GI, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler )
                  .Sampled( "u_SSR", inputs.SSR, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::LinearClamp() )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
                  .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
                  // One texel per pixel, at the G-buffer's extent: point-sampled.
-                 .Sampled( "u_ScreenProbeDiffuse", inputs.ScreenProbeDiffuse, RDG::Access::SampledGraphics,
+                 .Sampled( "u_GIDiffuse", inputs.GIDiffuse, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_ScreenProbeSpecular", inputs.ScreenProbeSpecular, RDG::Access::SampledGraphics,
+                 .Sampled( "u_GISpecular", inputs.GISpecular, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );

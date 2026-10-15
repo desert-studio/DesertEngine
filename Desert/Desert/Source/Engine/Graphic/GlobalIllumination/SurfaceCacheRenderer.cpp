@@ -102,7 +102,7 @@ namespace Desert::Graphic::SurfaceCache
             m_IndirectPipeline = indirectPipeline.GetValue();
         }
 
-        // The capture atlas: the RSM's slots (the light-view permutation's outputs), its own fixed side.
+        // The capture atlas: the G-buffer's slots (the view-pass cells' outputs), its own fixed side.
         FramebufferSpecification spec;
         spec.DebugName = "SurfaceCacheCapture";
         // The G-buffer's own attachments (the view-pass cell's pipeline is built against GBufferLayout); the

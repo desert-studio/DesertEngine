@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <format>
@@ -28,14 +29,15 @@ namespace Desert::Graphic::GlobalIllumination
             return ( value + by - 1u ) / by;
         }
 
-        std::shared_ptr<Image2D> CreateTarget( const std::string_view tag, const uint32_t width,
-                                               const uint32_t height )
+        std::shared_ptr<Image2D>
+        CreateTarget( const std::string_view tag, const uint32_t width, const uint32_t height,
+                      const Core::Formats::ImageFormat format = Core::Formats::ImageFormat::RGBA16F )
         {
             const Core::Formats::Image2DSpecification spec{
                  .Tag        = std::string( tag ),
                  .Width      = width,
                  .Height     = height,
-                 .Format     = Core::Formats::ImageFormat::RGBA16F,
+                 .Format     = format,
                  .Mips       = 1,
                  .Samples    = 1,
                  .Data       = Core::Formats::EmptyPixelData{},
@@ -102,8 +104,10 @@ namespace Desert::Graphic::GlobalIllumination
         m_Filtered = CreateTarget( "ScreenProbes.Filtered", row * ( res + 2u ), layout.AtlasRows * ( res + 2u ) );
         for ( uint32_t i = 0; i < 2; ++i )
         {
-            m_Diffuse[i]  = CreateTarget( std::format( "ScreenProbes.Diffuse{}", i ), extent.x, extent.y );
-            m_Specular[i] = CreateTarget( std::format( "ScreenProbes.Specular{}", i ), extent.x, extent.y );
+            m_Diffuse[i]  = CreateTarget( std::format( "ScreenProbes.Diffuse{}", i ), extent.x, extent.y,
+                                          ViewTargetFormats::kGIFinalGather );
+            m_Specular[i] = CreateTarget( std::format( "ScreenProbes.Specular{}", i ), extent.x, extent.y,
+                                          ViewTargetFormats::kGIFinalGather );
         }
         if ( !m_Traced || !m_Filtered || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] || !m_Specular[1] )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );

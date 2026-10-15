@@ -34,11 +34,12 @@ namespace Common::Scalability
         Off = 0,     // sky light and ambient occlusion only
         Lightmaps,   // baked by the path tracer (LIGHTMAPS)                          — not implemented
         ScreenSpace, // gather from the lit G-buffer on screen
-        // A reflective shadow map from the sun: off-screen bounce of the sun only. It stays until probe volumes
-        // replace it (GI-DDGI deletes it, with a scene migration); it has no place in the 2026 set.
-        ReflectiveShadowMaps,
-        ProbeVolume,    // DDGI probe volumes (GI-DDGI)                                   — not implemented
-        SoftwareTraced, // global SDF + world radiance cache (GLOBAL-SDF, GI-RADIANCE-CACHE)
+        // The world radiance cache read per pixel, no screen probes (GI-PROBE-SW; UE Lumen's irradiance field
+        // gather): the cheap traced path, every light and the sky bounced off screen too. It took the number of
+        // the reflective shadow maps it replaced (3), so a scene that stated those now states this.
+        ProbeVolume,
+        SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
+                        // GI-FINAL-GATHER)
         HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not implemented
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
@@ -62,9 +63,8 @@ namespace Common::Scalability
     };
 
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
-    inline constexpr std::array<std::string_view, 8> kGIMethodNames{
-         "Off",         "Lightmaps",      "ScreenSpace",    "ReflectiveShadowMaps",
-         "ProbeVolume", "SoftwareTraced", "HardwareTraced", "PathTraced" };
+    inline constexpr std::array<std::string_view, 7> kGIMethodNames{
+         "Off", "Lightmaps", "ScreenSpace", "ProbeVolume", "SoftwareTraced", "HardwareTraced", "PathTraced" };
     inline constexpr std::array<std::string_view, 6> kReflectionMethodNames{
          "Off", "Captures", "ScreenSpace", "SoftwareTraced", "HardwareTraced", "PathTraced" };
     inline constexpr std::array<std::string_view, 4> kShadowMethodNames{ "CascadedMaps", "VirtualMaps",
@@ -76,8 +76,8 @@ namespace Common::Scalability
     // ---- What this build renders. The ONE table per enum; a method's task flips its row. ----------------------
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
-        return method == GIMethod::Off || method == GIMethod::ScreenSpace ||
-               method == GIMethod::ReflectiveShadowMaps || method == GIMethod::SoftwareTraced;
+        return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
+               method == GIMethod::SoftwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {

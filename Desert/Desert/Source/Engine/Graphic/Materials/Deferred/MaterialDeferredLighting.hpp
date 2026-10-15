@@ -119,8 +119,9 @@ namespace Desert::Graphic
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
             // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
-            // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
-            // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
+            // w = GI mode (0 = off, 1 = screen-space gather, 2 = the traced GI's final gather in place of the
+            // sky's two cubes). Mode picks WHERE the indirect light comes from; intensity scales the screen-space
+            // gather only.
             SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( giMode ) ) );
 

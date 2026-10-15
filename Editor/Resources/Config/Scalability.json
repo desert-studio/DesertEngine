@@ -187,7 +187,6 @@
         },
         "GlobalIllumination": {
             "Low": {
-                "GlobalIllumination.Samples": 8,
                 "GlobalIllumination.DistanceFieldPoolMiB": 64,
                 "GlobalIllumination.Method": "ScreenSpace",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
@@ -203,9 +202,8 @@
                 "GlobalIllumination.HitLighting": 0
             },
             "Medium": {
-                "GlobalIllumination.Samples": 16,
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
-                "GlobalIllumination.Method": "ReflectiveShadowMaps",
+                "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
                 "GlobalIllumination.CardMinResolution": 2,
@@ -219,7 +217,6 @@
                 "GlobalIllumination.HitLighting": 0
             },
             "High": {
-                "GlobalIllumination.Samples": 32,
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 3584,
@@ -235,7 +232,6 @@
                 "GlobalIllumination.HitLighting": 0
             },
             "Epic": {
-                "GlobalIllumination.Samples": 48,
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
                 "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
@@ -251,7 +247,6 @@
                 "GlobalIllumination.HitLighting": 1
             },
             "Cinematic": {
-                "GlobalIllumination.Samples": 64,
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
                 "GlobalIllumination.Method": "PathTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,

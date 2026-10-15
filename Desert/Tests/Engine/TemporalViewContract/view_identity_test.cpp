@@ -238,8 +238,7 @@ TEST( ViewIdentityCensus, TemporalPassesKeepAPassHistoryStamp )
 {
     const auto graphic = EngineSource() / "Graphic" / "Systems" / "Scene";
     for ( const auto& path :
-          { graphic / "Deferred" / "SSRRenderer.hpp", graphic / "Deferred" / "GIResolveRenderer.hpp",
-            graphic / "Clouds" / "VolumetricCloudRenderer.hpp" } )
+          { graphic / "Deferred" / "SSRRenderer.hpp", graphic / "Clouds" / "VolumetricCloudRenderer.hpp" } )
         EXPECT_NE( ReadText( path ).find( "PassHistoryStamp m_History;" ), std::string::npos ) << path.string();
 }
 

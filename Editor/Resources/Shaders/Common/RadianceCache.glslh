@@ -193,12 +193,33 @@ vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
     return textureLod( u_RadianceCacheDepth, texel / vec2( textureSize( u_RadianceCacheDepth, 0 ) ), 0.0 ).rg;
 }
 
+// Chebyshev visibility of @p point from a probe at @p probePos, from the probe's distance moments (DDGI): 1 where
+// the probe sees nothing nearer than the point in its direction, falling off where it sees a surface in front of
+// it - the point is behind a wall from the probe. Both reads weight their eight probes by it.
+float RadianceCacheProbeVisibility( uint probe, vec3 probePos, vec3 point )
+{
+    const vec3  probeToPoint = point - probePos;
+    const float distance     = length( probeToPoint );
+    const vec2  moments      = RadianceCacheSampleProbeDistance( probe, probeToPoint / max( distance, 1e-3 ) );
+    if ( distance <= moments.x )
+        return 1.0;
+    const float variance  = abs( moments.y - moments.x * moments.x );
+    const float d         = distance - moments.x;
+    const float chebyshev = variance / ( variance + d * d );
+    return max( chebyshev * chebyshev * chebyshev, 0.0 );
+}
+
 // The cosine-weighted irradiance (/ pi: the convention of the baked irradiance cube, so a white sky reads 1)
 // arriving at a surface point @p p with normal @p N seen from @p V (unit, toward the viewer), from the eight probes
 // around it in the clipmap the dither picks. .a = 1 when at least one traced probe answered, 0 when none did yet
 // (cells allocated this frame), -1 past the coarsest clipmap: the caller decides what the last two mean.
-vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+// With @p second, the same eight probes under the same weights are also read about @p R into @p irradianceR (the
+// irradiance field gather's rough specular lobe: one lookup, visibility and weight per probe for both reads);
+// every other caller passes false, a constant the compiler folds away.
+vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float ditherRandom, bool second,
+                                    out vec3 irradianceR )
 {
+    irradianceR = vec3( 0.0 );
     const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
     if ( clipmap >= radianceCache.shape.x )
         return vec4( 0.0, 0.0, 0.0, -1.0 );
@@ -231,33 +252,39 @@ vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
         const float toProbeLength = max( length( toProbe ), 1e-3 );
         const float wrap      = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
         w *= wrap * wrap + 0.2;
-        // Chebyshev visibility from the probe's distance moments (DDGI): a probe that sees a surface nearer than
-        // this point in its direction is behind a wall from it.
-        const vec3  probeToPoint = biased - probePos;
-        const float distance     = length( probeToPoint );
-        const vec2  moments      = RadianceCacheSampleProbeDistance( entry, probeToPoint / max( distance, 1e-3 ) );
-        if ( distance > moments.x )
-        {
-            const float variance  = abs( moments.y - moments.x * moments.x );
-            const float d         = distance - moments.x;
-            float       chebyshev = variance / ( variance + d * d );
-            w *= max( chebyshev * chebyshev * chebyshev, 0.0 );
-        }
+        w *= RadianceCacheProbeVisibility( entry, probePos, biased );
         w = max( w, 1e-6 );
         sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
+        if ( second )
+            irradianceR += w * RadianceCacheSampleProbeIrradiance( entry, R );
         weight += w;
     }
-    return weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
+    if ( weight <= 0.0 )
+        return vec4( 0.0 );
+    irradianceR /= weight;
+    return vec4( sum / weight, 1.0 );
+}
+
+vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+{
+    vec3 unused;
+    return RadianceCacheIrradianceAtImpl( p, N, V, N, ditherRandom, false, unused );
 }
 #endif // RADIANCE_CACHE_INDIRECTION
 
-// THE RADIANCE READ (UE SampleRadianceCacheInterpolated), for a reader that also declares the sampler2D
-// u_RadianceCacheRadianceAtlas (the traced radiance probes with their octahedral borders) and defines
-// RADIANCE_CACHE_RADIANCE_ATLAS before including the file a second time: the radiance arriving at @p p from
-// @p direction, trilinear over the eight probes around @p p in the clipmap the dither picks. It is the far field of
-// a ray that left @p p and travelled the coverage's minTraceDistanceBeforeCache without a hit, so, as in UE, no
-// visibility weight: the trace in front of the read is what keeps it from leaking. .a = the weight of traced
-// probes that answered (0: none yet, -1: past the coarsest clipmap).
+// THE RADIANCE READ (UE SampleRadianceCacheInterpolated + the DDGI visibility of the irradiance read), for a reader
+// that also declares the sampler2D u_RadianceCacheRadianceAtlas (the traced radiance probes with their octahedral
+// borders) and defines RADIANCE_CACHE_RADIANCE_ATLAS before including the file a second time: the radiance arriving
+// at @p p (a surface point with normal @p N) from @p direction, over the eight probes around @p p in the clipmap
+// the dither picks. It is the far field of a ray that left @p p and travelled the coverage's
+// minTraceDistanceBeforeCache without a hit. UE keeps such a read from leaking with the probes' TMin: a probe's own
+// rays skip the cell diagonal around it, so a probe on the far side of a thin wall looks past that wall. Our
+// probes trace from TMin 0 (they are moved out of geometry instead, and their distance moments must start at the
+// probe for the visibility-weighted irradiance read), so a probe behind the wall sees the wall's other face - a lit
+// room's interior seen from outside. The read therefore weights each probe by whether it sees the ray's start, the
+// same Chebyshev test as the irradiance read: a probe behind a wall from @p p does not speak for @p p's rays.
+// .a = the summed weight of the traced probes that answered (0: none yet or none sees @p p, -1: past the coarsest
+// clipmap).
 #if defined( RADIANCE_CACHE_INDIRECTION ) && defined( RADIANCE_CACHE_RADIANCE_ATLAS ) &&                          \
      !defined( RADIANCE_CACHE_RADIANCE_READ_GLSLH )
 #define RADIANCE_CACHE_RADIANCE_READ_GLSLH
@@ -271,11 +298,14 @@ vec3 RadianceCacheSampleProbeRadiance( uint probe, vec3 direction )
                        0.0 ).rgb;
 }
 
-vec4 RadianceCacheRadianceAt( vec3 p, vec3 direction, float ditherRandom )
+vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 direction, float ditherRandom )
 {
     const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
     if ( clipmap >= radianceCache.shape.x )
         return vec4( 0.0, 0.0, 0.0, -1.0 );
+    // The irradiance read's surface bias, toward the ray instead of the viewer: the point tested is where the
+    // ray's light comes in, just off the surface.
+    const vec3  biased = p + ( N * 0.2 + direction * 0.8 ) * ( 0.3 * RadianceCacheCellSize( radianceCache, clipmap ) );
     const vec3  coord  = RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5;
     const ivec3 base   = ivec3( floor( coord ) );
     const vec3  alpha  = coord - vec3( base );
@@ -291,8 +321,11 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 direction, float ditherRandom )
         const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
         if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
             continue;
+        const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
+                                RADIANCE_CACHE_PROBES[entry].offset.xyz;
         const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
-        const float w         = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 );
+        const float w = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 ) *
+                        RadianceCacheProbeVisibility( entry, probePos, biased );
         sum    += w * RadianceCacheSampleProbeRadiance( entry, direction );
         weight += w;
     }

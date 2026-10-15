@@ -34,10 +34,10 @@ namespace Desert::Graphic
 // CopyCardsToSurfaceCache) + the "Lumen Scene" / "Surface Cache" visualisations (LumenVisualize.cpp).
 //
 // THE CAPTURE IS THE G-BUFFER PASS, NOT A SHADER OF ITS OWN (UE LumenCardPixelShader writes the same material
-// outputs): MeshRenderer draws the card's mesh through the card's orthographic camera with the G-buffer program's
-// light-view permutation (DESERT_GBUFFER_RSM: world from the push transform, no shading word) into this
-// renderer's capture framebuffer, whose slots are ViewTargetFormats::kRSMColourSlots - the one list that pipeline
-// is built against. AddCopyPass then moves each captured card's pages out of it into the atlas layers.
+// outputs): MeshRenderer draws the card's mesh through the card's orthographic camera with the surface's own
+// view-pass G-buffer cell (MeshRenderer::CardCapturePassState) into this renderer's capture framebuffer, whose
+// slots are the G-buffer's formats - the layout that pipeline is built against. AddCopyPass then moves each
+// captured card's pages out of it into the atlas layers.
 namespace Desert::Graphic::SurfaceCache
 {
     class SurfaceCacheRenderer
