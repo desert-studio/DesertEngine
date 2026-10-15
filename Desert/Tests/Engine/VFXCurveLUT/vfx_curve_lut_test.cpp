@@ -154,14 +154,12 @@ TEST( VFXCurveLUT, TheAtlasHoldsEveryEnabledParticleCurveAtItsOwnOffset )
          { { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "assets:VFX/Modules/A.dfxmod" },
            true,
            { value, curve( "Size", S::VFXValueType::Float, { { Key( 0, 1 ), Key( 1, 2 ) } } ) } } );
-    a.Stack.ParticleUpdate.push_back(
-         { { "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "assets:VFX/Modules/B.dfxmod" },
-           false,
-           { curve( "Off", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
-    a.Stack.EmitterUpdate.push_back(
-         { { "cccccccccccccccccccccccccccccccc", "assets:VFX/Modules/C.dfxmod" },
-           true,
-           { curve( "Rate", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
+    a.Stack.ParticleUpdate.push_back( { { "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "assets:VFX/Modules/B.dfxmod" },
+                                        false,
+                                        { curve( "Off", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
+    a.Stack.EmitterUpdate.push_back( { { "cccccccccccccccccccccccccccccccc", "assets:VFX/Modules/C.dfxmod" },
+                                       true,
+                                       { curve( "Rate", S::VFXValueType::Float, { { Key( 0, 9 ) } } ) } } );
     b.Stack.ParticleUpdate.push_back(
          { { "dddddddddddddddddddddddddddddddd", "assets:VFX/Modules/D.dfxmod" },
            true,

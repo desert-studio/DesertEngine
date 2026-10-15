@@ -331,10 +331,10 @@ namespace Desert::Editor
         // UE's new module script is an empty graph between its input and output maps; ours is the least block the
         // stack compiler accepts: one input and a Module() that leaves the particle as it is.
         VFX::VFXModuleDefinition module;
-        module.Guid        = Common::Content::AssetGuid::Generate();
-        module.DisplayName = path.stem().string();
-        module.Category    = "Custom";
-        module.Stages      = static_cast<uint8_t>( VFX::VFXModuleStage::ParticleUpdate );
+        module.Guid         = Common::Content::AssetGuid::Generate();
+        module.DisplayName  = path.stem().string();
+        module.Category     = "Custom";
+        module.Stages       = static_cast<uint8_t>( VFX::VFXModuleStage::ParticleUpdate );
         module.Block.Inputs = { { "Scale", Assets::Serialization::VFXValueType::Float } };
         module.Block.Body   = "void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n{\n}\n";
         if ( const auto saved = Assets::VFXModuleAsset::Save( path, module ); !saved )

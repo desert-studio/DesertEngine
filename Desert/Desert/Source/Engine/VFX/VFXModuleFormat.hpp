@@ -49,7 +49,7 @@
 
 namespace Desert::VFX
 {
-    inline constexpr const char*      kVFXModuleExtension = ".dfxmod";
+    inline constexpr const char* kVFXModuleExtension = ".dfxmod";
     /// The header's Versions key and the layout generation it states.
     ///   1 - VFX-MODULE-ASSET: Module "<DisplayName>" block with Stage / Category / Description, the declarations
     ///       and the GLSL body.
@@ -140,8 +140,9 @@ namespace Desert::VFX
     public:
         /// Reads every `.dfxmod` under @p dir (recursively). @p pathOf turns a file into the Path a stack row
         /// states for it. A file that does not parse, or a GUID two modules state, is an error naming both.
-        Common::BoolResultStr AddDirectory( const std::filesystem::path&                                dir,
-                                            const std::function<std::string( const std::filesystem::path& )>& pathOf );
+        Common::BoolResultStr
+        AddDirectory( const std::filesystem::path&                                      dir,
+                      const std::function<std::string( const std::filesystem::path& )>& pathOf );
 
         /// Adds @p module, or replaces the one of the same GUID; @p path is the Path a row states for it.
         void Set( VFXModuleDefinition module, std::string path );

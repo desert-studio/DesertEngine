@@ -251,8 +251,8 @@ namespace Desert::VFX
             const S::VFXModuleUse& use = group[m];
             if ( !use.Enabled )
                 continue;
-            const std::string where = std::format( "emitter '{}' EmitterUpdate module {} '{}' ({})", emitter.Name, m,
-                                                   use.Module.Path, use.Module.Guid );
+            const std::string where = std::format( "emitter '{}' EmitterUpdate module {} '{}' ({})", emitter.Name,
+                                                   m, use.Module.Path, use.Module.Guid );
             if ( UsesModule( use, kVFXSpawnRateModule ) )
             {
                 auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );

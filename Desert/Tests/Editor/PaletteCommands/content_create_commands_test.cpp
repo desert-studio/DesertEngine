@@ -110,7 +110,8 @@ TEST( ContentCreateCommands, NewVFXDataChannelIsOfferedAndRunsItsOwnCreation )
          {
              ++channels;
              return Common::MakeSuccess( true );
-         }, NotCalled() );
+         },
+         NotCalled() );
     const PaletteCommand* command = nullptr;
     for ( const PaletteCommand& c : commands )
         if ( c.Group == "Assets" && c.Label == Desert::Editor::kNewVFXDataChannelLabel )

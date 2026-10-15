@@ -124,8 +124,8 @@ namespace
         static VFX::VFXModuleLibrary library = []
         {
             VFX::VFXModuleLibrary modules;
-            const auto            added = modules.AddDirectory(
-                 EngineModules(), []( const std::filesystem::path& file ) { return file.generic_string(); } );
+            const auto added = modules.AddDirectory( EngineModules(), []( const std::filesystem::path& file )
+                                                     { return file.generic_string(); } );
             EXPECT_TRUE( added.IsSuccess() ) << added.GetError();
             modules.Set( InitModule( kInitSource ), "test:Init.dfxmod" );
             return modules;
@@ -154,13 +154,12 @@ namespace
         emitter.Name                = "Sparks";
         emitter.Stack.ParticleSpawn = {
              Use( "Init", { RandomInput( "Life", S::VFXValueType::Float, glm::vec4( 1.25f, 0, 0, 0 ),
-                                               glm::vec4( 2.75f, 0, 0, 0 ) ),
-                                  BindingInput( "Origin", S::VFXValueType::Vec3, "Particles.Position" ),
-                                  RandomInput( "Turns", S::VFXValueType::Int, glm::vec4( 2, 0, 0, 0 ),
-                                               glm::vec4( 7, 0, 0, 0 ) ) } ) };
+                                         glm::vec4( 2.75f, 0, 0, 0 ) ),
+                            BindingInput( "Origin", S::VFXValueType::Vec3, "Particles.Position" ),
+                            RandomInput( "Turns", S::VFXValueType::Int, glm::vec4( 2, 0, 0, 0 ),
+                                         glm::vec4( 7, 0, 0, 0 ) ) } ) };
         emitter.Stack.ParticleUpdate = {
-             Use( "Gravity",
-                  { ValueInput( "Gravity", S::VFXValueType::Vec3, glm::vec4( 0, 0, -981.25f, 0 ) ) } ),
+             Use( "Gravity", { ValueInput( "Gravity", S::VFXValueType::Vec3, glm::vec4( 0, 0, -981.25f, 0 ) ) } ),
              Use( "SolveForcesAndVelocity",
                   { BindingInput( "SpeedLimit", S::VFXValueType::Float, "User.Limit" ) } ),
              Use( "UpdateAge", {} ) };
@@ -384,12 +383,12 @@ TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
     auto missing                                       = Sparks();
     missing.Emitters[0].Stack.ParticleUpdate[0].Module = { "00000000000000000000000000000bad",
                                                            "engine:Engine/VFX/Modules/NoSuchModule.dfxmod" };
-    const auto missingError                             = Refusal( missing );
+    const auto missingError                            = Refusal( missing );
     EXPECT_NE( missingError.find( "NoSuchModule.dfxmod" ), std::string::npos ) << missingError;
     EXPECT_NE( missingError.find( "00000000000000000000000000000bad" ), std::string::npos ) << missingError;
 
     // A module in a group its file does not state as a Stage.
-    auto misplaced                                     = Sparks();
+    auto misplaced = Sparks();
     misplaced.Emitters[0].Stack.ParticleSpawn.push_back( misplaced.Emitters[0].Stack.ParticleUpdate[0] );
     EXPECT_NE( Refusal( misplaced ).find( "does not state Stage ParticleSpawn" ), std::string::npos );
 
@@ -549,7 +548,7 @@ TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
     emitter.Name = "Two spheres";
     const auto sphere =
          Use( "ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
-                                      ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
+                               ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
     // ShapeSphere states ParticleSpawn only, so all three calls are in the spawn group.
     emitter.Stack.ParticleSpawn = { sphere, sphere, sphere };
     system.Emitters.push_back( emitter );
@@ -631,8 +630,7 @@ TEST( VFXStackCompile, OverLifeScalesAreCurvesOverTheNormalisedAge )
     S::VFXEmitterData emitter;
     emitter.Name                = "Puffs";
     emitter.Stack.ParticleSpawn = {
-         Use( "InitializeLifetime",
-              { ValueInput( "Lifetime", S::VFXValueType::Float, glm::vec4( 2.0f ) ) } ),
+         Use( "InitializeLifetime", { ValueInput( "Lifetime", S::VFXValueType::Float, glm::vec4( 2.0f ) ) } ),
          Use( "InitializeColor", { ValueInput( "Color", S::VFXValueType::Vec4, glm::vec4( 1.0f ) ) } ),
          Use( "InitializeSpriteSize", { ValueInput( "Size", S::VFXValueType::Vec2, glm::vec4( 20.0f ) ) } ),
          Use( "InitializeRotation",
@@ -642,7 +640,7 @@ TEST( VFXStackCompile, OverLifeScalesAreCurvesOverTheNormalisedAge )
          Use( "ColorOverLife", { curve( "Scale", S::VFXValueType::Vec4, 4 ) } ),
          Use( "SizeOverLife", { curve( "Scale", S::VFXValueType::Vec2, 2 ) } ),
          Use( "Drag", { ValueInput( "Drag", S::VFXValueType::Float, glm::vec4( 0.5f ) ),
-                               ValueInput( "RotationalDrag", S::VFXValueType::Float, glm::vec4( 0.25f ) ) } ),
+                        ValueInput( "RotationalDrag", S::VFXValueType::Float, glm::vec4( 0.25f ) ) } ),
          Use( "UpdateRotation", { curve( "RateScale", S::VFXValueType::Float, 1 ) } ),
          Use( "SolveForcesAndVelocity",
               { ValueInput( "SpeedLimit", S::VFXValueType::Float, glm::vec4( 0.0f ) ) } ),

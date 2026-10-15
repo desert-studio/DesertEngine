@@ -12,8 +12,8 @@
 // (Amount = floor(LoopDuration * Rate), :887); our simulation is stateful, so the rate goes through the per-step
 // SpawnAccumulator instead (the fraction carries to the next step) — over N steps the same floor(N * dt * Rate).
 //
-// Engine CPU modules (EmitterUpdate group), each a `.dfxmod` of the engine module library that a row names by GUID;
-// a row whose module has no behaviour here is refused naming its GUID and path:
+// Engine CPU modules (EmitterUpdate group), each a `.dfxmod` of the engine module library that a row names by
+// GUID; a row whose module has no behaviour here is refused naming its GUID and path:
 //   SpawnRate          Input SpawnRate float  — particles per second while a loop is active
 //   SpawnBurst         Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
@@ -67,7 +67,8 @@ namespace Desert::VFX
     [[nodiscard]] bool HasCpuBehaviour( const Common::Content::AssetGuid& guid );
 
     /// Whether @p use names @p module (by GUID; the Path is not compared).
-    [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
+    [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use,
+                                   const VFXEngineCpuModule&                  module );
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst

@@ -1437,8 +1437,8 @@ namespace Desert::Migration
         }
 
         // One channel per component, Linear keys at the given times.
-        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack row
-        // or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
+        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack
+        // row or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
         // Modules). Frozen, as a step is: the files may move or be renamed later, and a reference written by this
         // step follows them through the GUID.
         struct EngineVFXModuleV3
@@ -3715,8 +3715,9 @@ namespace Desert::Migration
         const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
                                        : rfl::Result<int>( rfl::Error( "no versions" ) );
         if ( !stated || stated.value() != 1 )
-            return Common::MakeFormattedError<Result>( "the header states VFXS {}, and this step raises VFXS 1 only",
-                                                       stated ? std::to_string( stated.value() ) : "nothing" );
+            return Common::MakeFormattedError<Result>(
+                 "the header states VFXS {}, and this step raises VFXS 1 only",
+                 stated ? std::to_string( stated.value() ) : "nothing" );
 
         rfl::Generic::Object raised;
         for ( const auto& [key, field] : old )
@@ -3765,8 +3766,8 @@ namespace Desert::Migration
                                 return Common::MakeFormattedError<Result>(
                                      "a {} row's Module '{}' is not engine:<Name>", group,
                                      module ? module.value() : std::string( "?" ) );
-                            const auto ref =
-                                 EngineVFXModuleRefV3( std::string_view( module.value() ).substr( kEngine.size() ) );
+                            const auto ref = EngineVFXModuleRefV3(
+                                 std::string_view( module.value() ).substr( kEngine.size() ) );
                             if ( !ref )
                                 return Common::MakeFormattedError<Result>(
                                      "a {} row names '{}', which the engine module library never had", group,

@@ -62,10 +62,9 @@ namespace Desert::VFX
         if ( !header )
             return Common::MakeFormattedError<Result>( "{}: {}", where, header.GetError() );
         const Common::Content::TextAssetHeaderSerialized& stated = header.GetValue();
-        if ( auto checked = Assets::CheckStatedHeader( stated, Common::Content::ContentKind::VFXModule,
-                                                      Assets::kVFXModuleSchemaTag,
-                                                      static_cast<int>( Assets::kVFXModuleSchemaVersion ),
-                                                      VFXModuleTextSubsystems() );
+        if ( auto checked = Assets::CheckStatedHeader(
+                  stated, Common::Content::ContentKind::VFXModule, Assets::kVFXModuleSchemaTag,
+                  static_cast<int>( Assets::kVFXModuleSchemaVersion ), VFXModuleTextSubsystems() );
              !checked )
             return Common::MakeFormattedError<Result>( "{}: VFX module {}", where, checked.GetError() );
         if ( !stated.Dependencies.empty() )
@@ -162,10 +161,11 @@ namespace Desert::VFX
         module.Block = block.ExtractValue();
         if ( !module.HasParticleStage() &&
              ( !module.Block.Attributes.empty() || !Trim( module.Block.Body ).empty() ) )
-            return Common::MakeFormattedError<Result>( "{}: module '{}' states no particle stage (ParticleSpawn or "
-                                                       "ParticleUpdate), so it has no GLSL to run: it declares "
-                                                       "Inputs only - no Attribute, no GLSL",
-                                                       where, module.DisplayName );
+            return Common::MakeFormattedError<Result>(
+                 "{}: module '{}' states no particle stage (ParticleSpawn or "
+                 "ParticleUpdate), so it has no GLSL to run: it declares "
+                 "Inputs only - no Attribute, no GLSL",
+                 where, module.DisplayName );
         return Common::MakeSuccess( std::move( module ) );
     }
 
@@ -199,9 +199,10 @@ namespace Desert::VFX
         if ( !parsed )
             return Common::MakeError<bool>( parsed.GetError() );
         if ( parsed.GetValue() != module )
-            return Common::MakeFormattedError<bool>( "{}: its text does not read back as the same module (a name or "
-                                                     "description with a quote or a line break?)",
-                                                     where );
+            return Common::MakeFormattedError<bool>(
+                 "{}: its text does not read back as the same module (a name or "
+                 "description with a quote or a line break?)",
+                 where );
         return BOOLSUCCESS;
     }
 
@@ -213,9 +214,9 @@ namespace Desert::VFX
         return {};
     }
 
-    Common::BoolResultStr VFXModuleLibrary::AddDirectory(
-         const std::filesystem::path&                                      dir,
-         const std::function<std::string( const std::filesystem::path& )>& pathOf )
+    Common::BoolResultStr
+    VFXModuleLibrary::AddDirectory( const std::filesystem::path&                                      dir,
+                                    const std::function<std::string( const std::filesystem::path& )>& pathOf )
     {
         std::error_code ec;
         if ( !std::filesystem::is_directory( dir, ec ) )
@@ -240,9 +241,9 @@ namespace Desert::VFX
                 return Common::MakeError<bool>( parsed.GetError() );
             const auto key = std::make_pair( parsed.GetValue().Guid.Hi, parsed.GetValue().Guid.Lo );
             if ( const auto it = m_Modules.find( key ); it != m_Modules.end() )
-                return Common::MakeFormattedError<bool>( "VFX modules '{}' and '{}' state the same GUID {}",
-                                                         it->second.Path, file.string(),
-                                                         Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
+                return Common::MakeFormattedError<bool>(
+                     "VFX modules '{}' and '{}' state the same GUID {}", it->second.Path, file.string(),
+                     Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
             Set( parsed.ExtractValue(), pathOf( file ) );
         }
         return BOOLSUCCESS;
@@ -250,11 +251,12 @@ namespace Desert::VFX
 
     void VFXModuleLibrary::Set( VFXModuleDefinition module, std::string path )
     {
-        const auto key  = std::make_pair( module.Guid.Hi, module.Guid.Lo );
+        const auto key = std::make_pair( module.Guid.Hi, module.Guid.Lo );
         m_Modules[key] = Entry{ std::move( module ), std::move( path ) };
     }
 
-    Common::ResultStr<VFXModuleDefinition> VFXModuleLibrary::Resolve( const Common::Content::AssetGuid& guid ) const
+    Common::ResultStr<VFXModuleDefinition>
+    VFXModuleLibrary::Resolve( const Common::Content::AssetGuid& guid ) const
     {
         const auto it = m_Modules.find( std::make_pair( guid.Hi, guid.Lo ) );
         if ( it == m_Modules.end() )

@@ -102,7 +102,7 @@ namespace Desert::Editor
         VFX::VFXModuleDefinition m_Saved;    // what the file holds
         VFX::VFXModuleDefinition m_DraftsOf; // the working copy the drafts were read from
         Drafts                   m_Drafts;
-        std::string              m_Refusal; // the last refused edit or save, shown inline
+        std::string              m_Refusal;   // the last refused edit or save, shown inline
         VFX::VFXModuleDefinition m_CheckedOf; // the working copy m_Check was computed for
         std::string              m_Check;     // the stack check's outcome, recomputed when m_Working changes
         std::vector<std::string> m_UsedBy;    // the registry keys of the assets naming this module

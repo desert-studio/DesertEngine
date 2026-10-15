@@ -9,9 +9,9 @@ namespace Desert::Assets
      * @brief A VFX module on disk (`.dfxmod`) - UE's UNiagaraScript of Usage Module (VFX-MODULE-ASSET).
      *
      * ITS HANDLE IS HandleForGuid OF ITS HEADER GUID (the first-line comment header, as a `.shader`'s), adopted in
-     * the constructor, so a stack row's {Guid, Path} survives a rename. The stack compiler does not go through this
-     * object - it reads the file of the GUID's registry row (VFX::RegistryModuleResolver) - so the asset is what the
-     * module document edits and what the registry and the handle census see.
+     * the constructor, so a stack row's {Guid, Path} survives a rename. The stack compiler does not go through
+     * this object - it reads the file of the GUID's registry row (VFX::RegistryModuleResolver) - so the asset is
+     * what the module document edits and what the registry and the handle census see.
      */
     class VFXModuleAsset final : public AssetBase
     {
@@ -46,7 +46,8 @@ namespace Desert::Assets
         static Common::ResultStr<std::string> ReadText( const std::filesystem::path& file );
 
         /// Validates @p module (it must parse back) and writes its canonical text.
-        static Common::BoolResultStr Save( const Common::Filepath& filepath, const VFX::VFXModuleDefinition& module );
+        static Common::BoolResultStr Save( const Common::Filepath&         filepath,
+                                           const VFX::VFXModuleDefinition& module );
 
     private:
         Common::Content::AssetGuid m_Guid;

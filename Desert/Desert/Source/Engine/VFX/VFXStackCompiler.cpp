@@ -192,8 +192,8 @@ namespace Desert::VFX
         {
             const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
             if ( !guid || guid.GetValue().IsNull() )
-                return Common::MakeFormattedError<ResolvedModule>( "{}: module GUID '{}' is not well-formed", where,
-                                                                   use.Module.Guid );
+                return Common::MakeFormattedError<ResolvedModule>( "{}: module GUID '{}' is not well-formed",
+                                                                   where, use.Module.Guid );
             auto definition = resolver.Resolve( guid.GetValue() );
             if ( !definition.IsSuccess() )
                 return Common::MakeFormattedError<ResolvedModule>( "{}: module {} ('{}') does not resolve - {}",
@@ -207,8 +207,8 @@ namespace Desert::VFX
             resolved.Inputs   = std::format( "VFXIn_{}", hex );
             resolved.Stages   = module.Stages;
             resolved.Module   = std::move( module.Block );
-            // A module with a CPU stage (SpawnFromChannel) owns the row's inputs on the CPU; its GLSL reads what the
-            // CPU half hands the newborn (sim.*), never i.*.
+            // A module with a CPU stage (SpawnFromChannel) owns the row's inputs on the CPU; its GLSL reads what
+            // the CPU half hands the newborn (sim.*), never i.*.
             if ( module.HasCpuStage() )
                 resolved.Module.Inputs.clear();
             return Common::MakeSuccess( std::move( resolved ) );
@@ -338,9 +338,9 @@ namespace Desert::VFX
         return layout;
     }
 
-    Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const S::VFXSystemData&      authored,
-                                                               std::size_t                  emitterIndex,
-                                                               const VFXModuleResolver&     moduleResolver )
+    Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const S::VFXSystemData&  authored,
+                                                               std::size_t              emitterIndex,
+                                                               const VFXModuleResolver& moduleResolver )
     {
         using Result = VFXCompiledEmitter;
         if ( emitterIndex >= authored.Emitters.size() )

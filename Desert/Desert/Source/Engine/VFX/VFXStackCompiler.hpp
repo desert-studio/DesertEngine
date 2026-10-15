@@ -153,8 +153,8 @@ namespace Desert::VFX
      * two types are errors naming the emitter, group, module and input.
      */
     Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const Assets::Serialization::VFXSystemData& system,
-                                                               std::size_t                  emitterIndex,
-                                                               const VFXModuleResolver&     modules );
+                                                               std::size_t              emitterIndex,
+                                                               const VFXModuleResolver& modules );
 
     struct VFXCurveAtlas;
 

@@ -1,9 +1,9 @@
 #pragma once
 
-// VFX-MODULE-ASSET. THE EDITS A `.dfxmod` WINDOW MAKES (VFXModuleDocument): one command layer, so the window owns no
-// rule about what a module may hold - every edit is applied to a copy, the copy must pass the format's own rules
-// (VFX::ValidateVFXModule: its canonical text reads back as the same module), and only then becomes the working
-// copy and one CommandHistory entry. A refused edit changes nothing and its refusal is the reader's.
+// VFX-MODULE-ASSET. THE EDITS A `.dfxmod` WINDOW MAKES (VFXModuleDocument): one command layer, so the window owns
+// no rule about what a module may hold - every edit is applied to a copy, the copy must pass the format's own
+// rules (VFX::ValidateVFXModule: its canonical text reads back as the same module), and only then becomes the
+// working copy and one CommandHistory entry. A refused edit changes nothing and its refusal is the reader's.
 
 #include <Editor/Core/CommandHistory.hpp>
 
@@ -69,7 +69,8 @@ namespace Desert::Editor
         if ( auto done = edit( next ); !done )
             return Common::MakeFormattedError<bool>( "{}: {}", label, done.GetError() );
         if ( next.Guid != working.Guid )
-            return Common::MakeFormattedError<bool>( "{}: a module's GUID is its identity and is not edited", label );
+            return Common::MakeFormattedError<bool>( "{}: a module's GUID is its identity and is not edited",
+                                                     label );
         if ( auto valid = VFX::ValidateVFXModule( next ); !valid )
             return Common::MakeFormattedError<bool>( "{}: {}", label, valid.GetError() );
         if ( next == working )

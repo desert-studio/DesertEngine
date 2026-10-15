@@ -11,7 +11,8 @@ namespace Desert::Assets
     VFXModuleAsset::VFXModuleAsset( const Common::Filepath& filepath )
          : AssetBase( filepath, AssetTypeID::VFXModule )
     {
-        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath, &ReadShaderHeaderGuid );
+        if ( const TextAssetIdentity identity =
+                  ReadTextAssetIdentity( m_Metadata.Filepath, &ReadShaderHeaderGuid );
              !identity.Guid.IsNull() )
         {
             m_Guid = identity.Guid;
@@ -69,7 +70,7 @@ namespace Desert::Assets
             return Common::MakeFormattedError<bool>( "refusing to write VFX module '{}': {}", filepath.string(),
                                                      valid.GetError() );
         const std::string text = VFX::WriteVFXModule( module );
-        std::error_code ec;
+        std::error_code   ec;
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
         if ( ec )
@@ -87,13 +88,14 @@ namespace Desert::Assets
     Common::ResultStr<VFX::VFXModuleDefinition>
     RegistryVFXModuleResolver::Resolve( const Common::Content::AssetGuid& guid ) const
     {
-        using Result         = VFX::VFXModuleDefinition;
-        const uint64_t handle = static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) );
-        const std::string key = ContentRegistry::KeyForHandle( handle );
-        const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+        using Result                       = VFX::VFXModuleDefinition;
+        const uint64_t              handle = static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) );
+        const std::string           key    = ContentRegistry::KeyForHandle( handle );
+        const std::filesystem::path file   = Common::AssetHandle::PathForStableKey( key );
         if ( ContentRegistry::KindForFile( file ) != Common::Content::ContentKind::VFXModule )
-            return Common::MakeFormattedError<Result>( "GUID {} names no VFX module in the content registry ('{}')",
-                                                       Common::Content::AssetGuidToText( guid ), key );
+            return Common::MakeFormattedError<Result>(
+                 "GUID {} names no VFX module in the content registry ('{}')",
+                 Common::Content::AssetGuidToText( guid ), key );
         auto text = VFXModuleAsset::ReadText( ContentRegistry::FileToOpen( file ) );
         if ( !text )
             return Common::MakeError<Result>( text.GetError() );
@@ -101,9 +103,10 @@ namespace Desert::Assets
         if ( !parsed )
             return Common::MakeError<Result>( parsed.GetError() );
         if ( parsed.GetValue().Guid != guid )
-            return Common::MakeFormattedError<Result>( "'{}' is registered under GUID {} but states {}", file.string(),
-                                                       Common::Content::AssetGuidToText( guid ),
-                                                       Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
+            return Common::MakeFormattedError<Result>(
+                 "'{}' is registered under GUID {} but states {}", file.string(),
+                 Common::Content::AssetGuidToText( guid ),
+                 Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
         return parsed;
     }
 } // namespace Desert::Assets
