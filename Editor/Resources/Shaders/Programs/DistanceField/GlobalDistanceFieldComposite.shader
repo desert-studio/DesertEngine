@@ -7,7 +7,7 @@
 // THE OBJECT GRID in the same pass (UE CompositeObjectsIntoObjectGridPagesCS, GlobalDistanceFieldObjectGrid.ush):
 // every cell of two voxels lists the four instance-table rows whose mesh surface lies nearest its centre, within the
 // card interpolation range, sorted nearest first (GlobalDistanceField.hpp, THE OBJECT GRID). The brick's object list
-// already holds them: it is culled with the four-voxel influence radius, the grid asks for at most three.
+// already holds them: it is culled with the four-voxel influence radius, a cell asks for less than that.
 Shader "GlobalDistanceFieldComposite"
 {
     Compute

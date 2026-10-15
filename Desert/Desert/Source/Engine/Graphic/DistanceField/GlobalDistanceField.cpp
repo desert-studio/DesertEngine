@@ -219,9 +219,10 @@ namespace Desert::Graphic::DistanceField
             };
             m_ObjectGrid = Image3D::Create( spec );
             if ( !m_ObjectGrid )
-                return Common::MakeFormattedError<bool>( "global distance field: the object grid ({}x{}x{} R32_UINT) "
-                                                         "was not created",
-                                                         spec.Width, spec.Height, spec.Depth );
+                return Common::MakeFormattedError<bool>(
+                     "global distance field: the object grid ({}x{}x{} R32_UINT) "
+                     "was not created",
+                     spec.Width, spec.Height, spec.Depth );
         }
         // Per-frame buffers (persistent = false): each frame in flight writes its own copy, and only a frame that
         // dispatches a composite writes at all.

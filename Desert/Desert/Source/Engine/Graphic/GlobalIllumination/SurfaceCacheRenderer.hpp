@@ -65,7 +65,7 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef Cards;
             RDG::BufferRef Pages;
             RDG::BufferRef MeshCards;
-            RDG::BufferRef InstanceRows; // contract B3: the instance table
+            RDG::BufferRef InstanceRows;  // contract B3: the instance table
             RDG::BufferRef LightingPages; // the pages relit this frame (SceneFrame::LightingPages)
         };
         // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene

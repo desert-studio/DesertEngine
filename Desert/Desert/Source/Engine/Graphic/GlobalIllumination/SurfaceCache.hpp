@@ -148,8 +148,9 @@ namespace Desert::Graphic::SurfaceCache
     // by the next add): the number a traced hit carries to find its cards. The hardware tracer writes the row as
     // the TLAS instance custom index (GIHit::instance); the software tracer, whose global distance field has no
     // object identity, finds the rows around its hit in the field's object grid (DistanceField::
-    // GlobalDistanceField, THE OBJECT GRID; Common/GITracing.glslh GIHitInstanceRows). A row whose instance has no cards
-    // this frame (none built, none resident: small and far meshes) holds kNoMeshCards - the hit is lit in place.
+    // GlobalDistanceField, THE OBJECT GRID; Common/GITracing.glslh GIHitInstanceRows). A row whose instance has no
+    // cards this frame (none built, none resident: small and far meshes) holds kNoMeshCards - the hit is lit in
+    // place.
     inline constexpr uint32_t kNoMeshCards = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_MESH_CARDS
     inline constexpr uint32_t kNoInstance  = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_INSTANCE
 

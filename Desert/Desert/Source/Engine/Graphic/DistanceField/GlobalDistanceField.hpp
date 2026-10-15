@@ -53,13 +53,14 @@ namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
 
-    // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap a
-    // toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance field
-    // surface lies within the card interpolation range of the cell, nearest first - what a software hit reads to
-    // find its cards (Common/GITraceDistanceField.glslh GIHitInstanceRows). Written by the composite with the
-    // distances, brick by brick. One R32_UINT 3D image: x = cell x * 4 + slot, y = cell y, z = level * cells + cell
-    // z; a slot packs the row (24 bits) under the quantised distance (8 bits) so that sorting the words sorts the
-    // distances, kNoObjectGridRow ends the list. The constants are DistanceFieldShared.glslh's GDF_OBJECT_GRID_*.
+    // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap
+    // a toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance
+    // field surface lies within the card interpolation range of the cell, nearest first - what a software hit
+    // reads to find its cards (Common/GITraceDistanceField.glslh GIHitInstanceRows). Written by the composite with
+    // the distances, brick by brick. One R32_UINT 3D image: x = cell x * 4 + slot, y = cell y, z = level * cells +
+    // cell z; a slot packs the row (24 bits) under the quantised distance (8 bits) so that sorting the words sorts
+    // the distances, kNoObjectGridRow ends the list. The constants are DistanceFieldShared.glslh's
+    // GDF_OBJECT_GRID_*.
     inline constexpr uint32_t kNoObjectGridRow = 0xFFFFFFFFu;
 
     // One object the field is composited from: one volume of a mesh's field placed in the world (a mesh whose

@@ -666,8 +666,9 @@ namespace Desert::Graphic::SurfaceCache
             m_FreeRows.push_back( row );
     }
 
-    void SurfaceCacheScene::BuildInstanceTable( SceneFrame&                                       frame,
-                                                const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const
+    void
+    SurfaceCacheScene::BuildInstanceTable( SceneFrame&                                       frame,
+                                           const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const
     {
         // THE TABLE: every row ever handed out; a freed row reads "no cards" until it is reused.
         frame.InstanceRows.assign( m_RowCount, InstanceRowPayload{} );
@@ -700,7 +701,6 @@ namespace Desert::Graphic::SurfaceCache
             out.BoundsMin = glm::vec4( lo, 0.0f );
             out.BoundsMax = glm::vec4( hi, 0.0f );
         }
-
     }
 
     uint64_t SurfaceCacheScene::PlacementKey( const void* mesh, const glm::mat4& world )

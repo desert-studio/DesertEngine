@@ -717,8 +717,9 @@ namespace Desert::Graphic
         // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
         // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
         // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
-        const std::unordered_map<uint64_t, uint32_t> rows =
-             m_SurfaceCache ? m_SurfaceCache->GetScene().RowsByPlacement() : std::unordered_map<uint64_t, uint32_t>{};
+        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache
+                                                                 ? m_SurfaceCache->GetScene().RowsByPlacement()
+                                                                 : std::unordered_map<uint64_t, uint32_t>{};
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
