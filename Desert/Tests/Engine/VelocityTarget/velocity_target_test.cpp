@@ -283,7 +283,20 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const bool        sceneReadHeader =
                  entry.path().filename() == "ObjectMotion.glslh" ||
                  ( entry.path().filename() == "SurfaceTypes.glslh" && name == "u_SceneDepth" );
-            if ( sceneReadHeader )
+            // The view's light grid: the forward cell and the deferred composite declare its two blocks at the
+            // same two numbers of the range.
+            if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
+            {
+                // (The build shader's own compute layout numbers them from 0, outside the range.)
+                if ( Desert::Core::IsSceneReadBinding( binding ) )
+                {
+                    EXPECT_EQ( binding, name == "LightGridParamsUB" ? Desert::Core::kLightGridParamsBinding
+                                                                    : Desert::Core::kLightGridCellsBinding )
+                         << entry.path().string() << " declares '" << name << "' at binding " << binding;
+                    sceneRead[name] = binding;
+                }
+            }
+            else if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else
                 EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
@@ -293,7 +306,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 3u );
+    ASSERT_EQ( sceneRead.size(), 5u );
+    EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
+    EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );

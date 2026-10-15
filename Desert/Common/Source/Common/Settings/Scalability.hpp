@@ -105,17 +105,24 @@ namespace Common::Scalability
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
         ReflectionMaxSteps,        // SSR trace march steps (SSRRenderer push constant). 8..64
         GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
+        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,   // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         ReflectionCaptureSize, // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
                                // 2^n
+        // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
+        // costs against what building the grid costs. The image is the same at every value (a cell whose list is
+        // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
+        LightGridPixelSize,        // tile edge in render pixels. 16..256
+        LightGridSlices,           // logarithmic depth slices. 8..128
+        LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
-        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
-        // applies the device (no device narrowing here: the device's limit and this one are reported together, as
-        // one downgrade line, in that one place). A ceiling may name a method not implemented yet: it is a limit,
-        // not a request, and the resolution never lands on an unimplemented method.
+        // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
+        // also applies the device (no device narrowing here: the device's limit and this one are reported
+        // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
+        // is a limit, not a request, and the resolution never lands on an unimplemented method.
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
@@ -123,8 +130,34 @@ namespace Common::Scalability
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                      // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
-        UpscalerSharpness,            // ResolutionScale: percent
+                                 // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        UpscalerSharpness,       // ResolutionScale: percent
+        // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
+        // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
+        // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
+        // GlobalIlluminationQuality.
+        SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
+                                                // r.LumenScene.SurfaceCache.AtlasSize)
+        SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
+                                                // r.LumenScene.SurfaceCache.CardTexelDensityScale)
+        SurfaceCacheCardMinResolution,          // smallest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMinResolution)
+        SurfaceCacheCardMaxResolution,          // largest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMaxResolution)
+        SurfaceCacheDirectLightingUpdateFactor, // 1/N of the card texels relit per frame (UE
+                                                // r.LumenScene.DirectLighting.UpdateFactor)
+        SurfaceCacheRadiosityUpdateFactor,      // 1/N of the card texels re-gathered per frame (UE
+                                                // r.LumenScene.Radiosity.UpdateFactor)
+        SurfaceCacheRadiosityProbeSpacing,      // card texels between radiosity probes (UE
+                                                // r.LumenScene.Radiosity.ProbeSpacing)
+        SurfaceCacheRadiosityProbeResolution,   // radiosity hemisphere probe side (UE
+                                                // r.LumenScene.Radiosity.HemisphereProbeResolution)
+        RadianceCacheProbeResolution,           // octahedral radiance texels per probe side (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution)
+        RadianceCacheProbesPerFrame,            // probes traced per frame (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
+        HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
+                                                // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

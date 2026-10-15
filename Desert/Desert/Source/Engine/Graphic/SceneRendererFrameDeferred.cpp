@@ -1,5 +1,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -32,6 +33,7 @@
 #include <format>
 #include <cmath>
 #include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
@@ -358,6 +360,160 @@ namespace Desert::Graphic
         return accum;
     }
 
+    void SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        if ( deferred == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGrid: no DeferredLightingSystem, the view has no light grid" );
+            return;
+        }
+        // The grid is cut over the view's render extent (the scene target and the G-buffer are both drawn at it),
+        // with the matrices the geometry is rasterised with (the jittered projection: a pixel's cell is the one
+        // its depth sample fell in), on BOTH paths: the forward meshes read it as the deferred composite does.
+        const LightGridParamsPayload grid = MakeLightGridParams(
+             frame.View, frame.JitteredProjection, frame.NearPlane, frame.Split.Render.Width,
+             frame.Split.Render.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
+        // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.ShadowViews" /
+        // "Upload: Lights.GridParams", ordered before the nodes that read them.
+        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
+             graph, GetPointLights(), GetSpotLights(),
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
+        textures.Transients.Lights = lights;
+
+        // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
+        // it, before any lit node reads the lists.
+        graph.AddPass(
+             "LightGrid", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
+             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordGrid( context, cells ); } );
+    }
+
+    bool SceneRenderer::RadianceCacheRuns() const
+    {
+        return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache;
+    }
+
+    void SceneRenderer::AddFrameRadianceCache( RDG::Builder& graph, FrameTextures& textures,
+                                               const std::vector<RDG::TextureRef>& gbuffer,
+                                               const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                               const ViewFrame& frame )
+    {
+        if ( !RadianceCacheRuns() )
+            return;
+        FrameTransients& t = textures.Transients;
+        if ( gbuffer.size() < 4 || !m_GBuffer || !t.Lights.WorldGridCells.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: not updated: {}",
+                       gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
+                                          : "the world light grid was not built" );
+            return;
+        }
+        if ( !m_RadianceCache )
+        {
+            auto cache = std::make_unique<GlobalIllumination::WorldRadianceCache>();
+            if ( const auto initialized = cache->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] RadianceCache: {}", initialized.GetError() );
+                return;
+            }
+            m_RadianceCache = std::move( cache );
+        }
+        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            desc  = graph.GetTextureDesc( depth );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", desc.GetError() );
+            return;
+        }
+        const FrameGraphRefs                          refs = textures.GraphRefs();
+        GlobalIllumination::RadianceCacheUpdateInputs inputs;
+        inputs.GBufferDepth        = depth;
+        inputs.GBufferA            = gbuffer[0];
+        inputs.GBufferB            = gbuffer[1];
+        inputs.GBufferEmissive     = gbuffer[3];
+        inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
+        inputs.Tracer              = GlobalIllumination::TracerFrame{ .Pipeline            = m_GIPipeline,
+                                                                      .GlobalDistanceField = t.GlobalDistanceField };
+        inputs.PointLights         = t.Lights.Point;
+        inputs.SpotLights          = t.Lights.Spot;
+        inputs.WorldGridParams     = t.Lights.WorldGridParams;
+        inputs.WorldGridCells      = t.Lights.WorldGridCells;
+        inputs.CameraPosition      = frame.CameraPosition;
+        inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+
+        GlobalIllumination::GIFramePayload& payload = inputs.Frame;
+        payload.InvViewProjection                   = frame.InvJitteredViewProjection;
+        payload.ViewProjection                      = glm::inverse( frame.InvJitteredViewProjection );
+        payload.Camera                              = glm::vec4( frame.CameraPosition, 1.0f );
+        const bool hasSun                           = !m_DirectionLights.DirectionLights.empty();
+        payload.SunTravel   = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        if ( const auto& env = GetEnvironment(); env.has_value() )
+        {
+            const SkyLookGPU look = ToGPU( env->Look );
+            payload.SkyYawCosSin  = look.YawCosSin;
+            payload.SkyGain       = look.Gain;
+        }
+        for ( uint32_t level = 0; level < 4; ++level )
+            payload.GdfLevels[level] = t.GlobalDistanceFieldLevels[level];
+        payload.Screen = glm::vec4( glm::vec2( inputs.Extent ), 1.0f / glm::vec2( inputs.Extent ) );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
+        if ( !cache )
+        {
+            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
+            return;
+        }
+        t.RadianceCacheParams      = cache.GetValue().Params;
+        t.RadianceCacheIndirection = cache.GetValue().Indirection;
+        t.RadianceCacheProbes      = cache.GetValue().Probes;
+        t.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
+        t.RadianceCacheDepth       = cache.GetValue().Depth;
+    }
+
+    bool SceneRenderer::WorldLightGridRead() const
+    {
+        if ( RadianceCacheRuns() )
+            return true;
+#if DESERT_DEV_INSTRUMENTS
+        return m_RenderPath == Core::RenderPath::Deferred &&
+               m_DebugView.DeferredDebug == DeferredDebugMode::LightGridWorld;
+#else
+        return false;
+#endif // DESERT_DEV_INSTRUMENTS
+    }
+
+    void SceneRenderer::AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures,
+                                                const ViewFrame& frame )
+    {
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        ViewLightBuffers& lights = textures.Transients.Lights;
+        if ( deferred == nullptr || !lights.Point.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGridWorld: {}",
+                       deferred == nullptr ? "no DeferredLightingSystem"
+                                           : "the view's lights were not uploaded this frame" );
+            return;
+        }
+        // The radiance cache's clipmaps around the camera (snapped to whole cells, so they move with it), and the
+        // SAME point/spot buffers the frustum grid listed — one light list, two layouts.
+        const LightGridParamsPayload grid = MakeLightGridWorldParams( frame.CameraPosition, m_RadianceCacheInputs,
+                                                                      GetPointLights(), GetSpotLights() );
+        System::DeferredLightingRenderer::UploadWorldGrid( graph, grid, lights );
+        graph.AddPass(
+             "LightGridWorld", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
+             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordGrid( context, cells ); } );
+    }
+
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
@@ -390,6 +546,33 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
+        // The world radiance cache this frame's update left (a traced GI method), or its neutral stand-in: a
+        // record of zero clipmaps (every point reads as uncovered), one empty entry and probe, black atlases.
+        if ( refs.Transients.RadianceCacheParams.IsValid() )
+        {
+            inputs.RadianceCacheParams      = refs.Transients.RadianceCacheParams;
+            inputs.RadianceCacheIndirection = refs.Transients.RadianceCacheIndirection;
+            inputs.RadianceCacheProbes      = refs.Transients.RadianceCacheProbes;
+            inputs.RadianceCacheIrradiance  = refs.Transients.RadianceCacheIrradiance;
+            inputs.RadianceCacheDepth       = refs.Transients.RadianceCacheDepth;
+        }
+        else
+        {
+            static const RadianceCache::RadianceCacheParamsPayload kNoCache{};
+            static const RadianceCache::RadianceCacheProbePayload  kNoProbe{};
+            static const uint32_t                                  kNoEntry = RadianceCache::kInvalidProbeIndex;
+            inputs.RadianceCacheParams =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoCache ) }, "RadianceCache.Params.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheParams, std::as_bytes( std::span( &kNoCache, 1 ) ) );
+            inputs.RadianceCacheIndirection =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoEntry ) }, "RadianceCache.Indirection.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheIndirection, std::as_bytes( std::span( &kNoEntry, 1 ) ) );
+            inputs.RadianceCacheProbes =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoProbe ) }, "RadianceCache.Probes.None" );
+            graph.QueueBufferUpload( inputs.RadianceCacheProbes, std::as_bytes( std::span( &kNoProbe, 1 ) ) );
+            inputs.RadianceCacheIrradiance = refs.System.Black;
+            inputs.RadianceCacheDepth      = refs.System.Black;
+        }
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -420,20 +603,26 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the RSM resolve's buffer. Spelled here, not cast from the enum, whose numbering is the
-        // method ladder's (Common/Settings/RenderMethods.hpp).
+        // this pass, 2 the RSM resolve's buffer, 3 the world radiance cache's irradiance in place of the sky's.
+        // Spelled here, not cast from the enum, whose numbering is the method ladder's
+        // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : gi == GIMethod::ReflectiveShadowMaps ? 2 : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace                     ? 1
+                                       : gi == GIMethod::ReflectiveShadowMaps          ? 2
+                                       : refs.Transients.RadianceCacheParams.IsValid() ? 3
+                                                                                       : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
-        // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
-        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
-             graph, GetPointLights(), GetSpotLights(),
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows() );
+        // The lights and the light grid were made by AddFrameLightGrid, before any lit node.
+        const ViewLightBuffers& lights = refs.Transients.Lights;
+        if ( !lights.GridCells.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: Composite: the view's light grid was not built this frame" );
+            return;
+        }
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 
@@ -450,6 +639,79 @@ namespace Desert::Graphic
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
+    }
+
+    bool SceneRenderer::GlobalDistanceFieldRead() const
+    {
+        if ( RadianceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
+            return true;
+#if DESERT_DEV_INSTRUMENTS
+        return m_RenderPath == Core::RenderPath::Deferred &&
+               m_DebugView.DeferredDebug == DeferredDebugMode::GlobalDistanceField;
+#else
+        return false;
+#endif // DESERT_DEV_INSTRUMENTS
+    }
+
+    void SceneRenderer::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
+                                                     const ViewFrame& frame )
+    {
+        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        if ( meshRenderer == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
+            return;
+        }
+        if ( !m_GlobalDistanceField )
+        {
+            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
+            if ( const auto initialized = field->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceField = std::move( field );
+        }
+
+        // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
+        // off-screen too (a trace leaves the frustum).
+        std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
+        // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
+        // asynchronous queue) is not in it yet.
+        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                       const glm::mat4&                                            world )
+        {
+            for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
+                objects.push_back(
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+        };
+        for ( const auto& draw : meshRenderer->GetStaticQueue() )
+            if ( draw.Mesh != nullptr )
+                if ( const auto field = draw.Mesh->GetDistanceField() )
+                    place( field, draw.Transform );
+        for ( const auto& ism : meshRenderer->GetInstancedQueue() )
+            if ( ism.Mesh != nullptr && ism.Transforms )
+                if ( const auto field = ism.Mesh->GetDistanceField() )
+                    for ( const glm::mat4& world : *ism.Transforms )
+                        place( field, world );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        // The view's camera (ViewFrame; SceneRenderer.hpp: a pass that reads a camera position takes the
+        // ViewFrame)
+        // - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the frame's.
+        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
+                                                                   m_DistanceFieldPoolMiB );
+        if ( !field )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
+            return;
+        }
+        textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
+        textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -489,6 +751,75 @@ namespace Desert::Graphic
                  pass.ColorTarget( 0, target, EngineClearColor() );
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
+    }
+
+    void SceneRenderer::AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures,
+                                                    const RDG::TextureRef target, const ViewFrame& frame )
+    {
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::LightGridWorld ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        const ViewLightBuffers& lights = textures.Transients.Lights;
+        if ( deferred == nullptr || !target.IsValid() || !lights.WorldGridCells.IsValid() || !m_GBuffer )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld not drawn: {}",
+                       deferred == nullptr ? "no DeferredLightingSystem"
+                                           : "the frame has no post input, no G-buffer or no world light grid" );
+            return;
+        }
+        const auto desc = graph.GetTextureDesc( target );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld: {}", desc.GetError() );
+            return;
+        }
+        if ( const auto prepared = deferred->PrepareWorldView( desc.GetValue().Format, desc.GetValue().Samples );
+             !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld: {}", prepared.GetError() );
+            return;
+        }
+        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        const RDG::BufferRef  view =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( glm::mat4 ) }, "Debug.LightGridWorldView" );
+        graph.QueueBufferUpload(
+             view, std::as_bytes( std::span<const glm::mat4>( &frame.InvJitteredViewProjection, 1 ) ) );
+        graph.AddPass(
+             "Debug: LightGridWorld", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 deferred->DeclareWorldViewBindings( pass, depth, view, lights );
+                 pass.ColorTarget( 0, target, EngineClearColor() );
+             },
+             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordWorldView( context ); } );
+    }
+
+    void SceneRenderer::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
+                                                         const ViewFrame& frame, const RDG::TextureRef target )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const FrameTransients& t = textures.Transients;
+        if ( !m_GlobalDistanceField || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
+                       !target.IsValid() ? "the frame has no post input"
+                                         : "the field was not brought up this frame" );
+            return;
+        }
+        DistanceField::GlobalDistanceField::FrameField field;
+        field.Clipmaps = t.GlobalDistanceField;
+        field.Levels   = t.GlobalDistanceFieldLevels;
+        // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
+        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, field, target, EngineClearColor(),
+                                                                         frame.InvViewProjection );
+             !drawn )
+            LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 

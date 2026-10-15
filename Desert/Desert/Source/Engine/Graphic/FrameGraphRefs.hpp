@@ -5,6 +5,8 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <array>
 #include <string_view>
@@ -26,6 +28,24 @@ namespace Desert::Graphic
     // The shadow cascades a lit pass samples (u_ShadowMap0..3); SceneResources::kMaxCascades is asserted equal
     // where both are visible (MeshRendererInternal.hpp).
     inline constexpr uint32_t kSceneViewShadowCascades = 4;
+
+    // The view's dynamic lights as buffers of THIS frame's graph (SceneRenderer::AddFrameLightGrid, before any lit
+    // node): the point and spot rows, the local shadow views their ShadowView indices name, and the view's light
+    // grid (Graphic/LightGrid.hpp, UE's ForwardLightData) — its parameters (uploaded) and its cells (written by
+    // the "LightGrid" compute node). Every lit pass reads the grid: the deferred composite, the forward meshes.
+    struct ViewLightBuffers
+    {
+        RDG::BufferRef Point;       // "Upload: Lights.Point"
+        RDG::BufferRef Spot;        // "Upload: Lights.Spot"
+        RDG::BufferRef ShadowViews; // "Upload: Lights.ShadowViews"
+        RDG::BufferRef GridParams;  // "Upload: Lights.GridParams"
+        RDG::BufferRef GridCells;   // written by "LightGrid"
+        // The world layout of the same lights (LightGridLayout::WorldClipmaps: the radiance cache's clipmap cells,
+        // for GI hits off screen). Invalid unless the frame has a reader of it
+        // (SceneRenderer::WorldLightGridRead).
+        RDG::BufferRef WorldGridParams; // "Upload: Lights.WorldGridParams"
+        RDG::BufferRef WorldGridCells;  // written by "LightGridWorld"
+    };
 
     struct FrameTransients
     {
@@ -70,6 +90,23 @@ namespace Desert::Graphic
         // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
         RDG::TextureRef SkyTransmittanceLut;
         RDG::TextureRef SkyViewLut;
+        // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
+        ViewLightBuffers Lights;
+        // The global distance field brought up to this frame (SceneRenderer::AddFrameGlobalDistanceField,
+        // imported: DistanceField::GlobalDistanceField owns the clipmaps) and its clipmap parameters (centre.xyz
+        // cm, voxel cm); invalid refs when nothing of the frame reads it   -> the radiance cache's trace, "Debug:
+        // Global Distance Field"
+        std::array<RDG::TextureRef, 4> GlobalDistanceField;
+        std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
+        // The world radiance cache after this frame's update (SceneRenderer::AddFrameRadianceCache; the buffers
+        // and atlases are GlobalIllumination::WorldRadianceCache's, imported); invalid when the GI method traces
+        // nothing
+        //   -> Deferred: Composite
+        RDG::BufferRef  RadianceCacheParams;
+        RDG::BufferRef  RadianceCacheIndirection;
+        RDG::BufferRef  RadianceCacheProbes;
+        RDG::TextureRef RadianceCacheIrradiance;
+        RDG::TextureRef RadianceCacheDepth;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
@@ -112,6 +149,10 @@ namespace Desert::Graphic
         // publishes its own, a one-cube black array when it has no captures) and their list.
         RDG::TextureRef ReflectionCaptureCubes;
         RDG::BufferRef  ReflectionCaptures;
+        // The view's light grid (ViewLightBuffers::GridParams / GridCells): a lit pass shades a pixel with the
+        // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
+        RDG::BufferRef LightGridParams;
+        RDG::BufferRef LightGridCells;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -142,6 +183,12 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
     inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
+    // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
+    inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
+    inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
+    // either layout through kLightGridCellsBlockName.
+    inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -156,6 +203,8 @@ namespace Desert::Graphic
         inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         inputs.ReflectionCaptureCubes = t.ReflectionCaptureCubes;
         inputs.ReflectionCaptures     = t.ReflectionCaptures;
+        inputs.LightGridParams  = t.Lights.GridParams;
+        inputs.LightGridCells   = t.Lights.GridCells;
         return inputs;
     }
 
@@ -180,6 +229,13 @@ namespace Desert::Graphic
             return std::any_of(
                  layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
                  { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::SampledTexture; } );
+        }
+        [[nodiscard]] inline bool LayoutReadsBuffer( const RDG::ShaderBindingLayout& layout,
+                                                     std::string_view                name )
+        {
+            return std::any_of(
+                 layout.Slots.begin(), layout.Slots.end(), [name]( const RDG::ShaderSlot& slot )
+                 { return slot.Name == name && slot.Kind == RDG::ShaderResourceKind::StorageBuffer; } );
         }
 
         // THE one list of scene/view inputs with their samplers: binds each one @p samples( name ) admits. The
@@ -253,5 +309,11 @@ namespace Desert::Graphic
                                      slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
                           } ) )
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
+        // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
+        // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
+        for ( const auto& [name, buffer] : { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
+                                             std::pair{ kLightGridCellsBlockName, inputs.LightGridCells } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
+                block.Storage( name, buffer, RDG::Access::StorageRead );
     }
 } // namespace Desert::Graphic

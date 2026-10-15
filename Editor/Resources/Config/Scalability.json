@@ -138,53 +138,128 @@
                 "Shadows.Cascades": 2,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 8000,
-                "Shadows.Method": "CascadedMaps"
+                "Shadows.Method": "CascadedMaps",
+                "Shadows.LightGridPixelSize": 64,
+                "Shadows.LightGridSlices": 16,
+                "Shadows.LightGridMaxLightsPerCell": 32
             },
             "Medium": {
                 "Shadows.Cascades": 3,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 10000,
-                "Shadows.Method": "CascadedMaps"
+                "Shadows.Method": "CascadedMaps",
+                "Shadows.LightGridPixelSize": 64,
+                "Shadows.LightGridSlices": 24,
+                "Shadows.LightGridMaxLightsPerCell": 32
             },
             "High": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
-                "Shadows.Method": "VirtualMaps"
+                "Shadows.Method": "VirtualMaps",
+                "Shadows.LightGridPixelSize": 64,
+                "Shadows.LightGridSlices": 32,
+                "Shadows.LightGridMaxLightsPerCell": 32
             },
             "Epic": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 20000,
-                "Shadows.Method": "HardwareTraced"
+                "Shadows.Method": "HardwareTraced",
+                "Shadows.LightGridPixelSize": 32,
+                "Shadows.LightGridSlices": 32,
+                "Shadows.LightGridMaxLightsPerCell": 64
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 30000,
-                "Shadows.Method": "Stochastic"
+                "Shadows.Method": "Stochastic",
+                "Shadows.LightGridPixelSize": 32,
+                "Shadows.LightGridSlices": 64,
+                "Shadows.LightGridMaxLightsPerCell": 64
             }
         },
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.Samples": 8,
-                "GlobalIllumination.Method": "ScreenSpace"
+                "GlobalIllumination.DistanceFieldPoolMiB": 64,
+                "GlobalIllumination.Method": "ScreenSpace",
+                "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
+                "GlobalIllumination.CardTexelDensityScale": 50,
+                "GlobalIllumination.CardMinResolution": 2,
+                "GlobalIllumination.CardMaxResolution": 256,
+                "GlobalIllumination.DirectLightingUpdateFactor": 128,
+                "GlobalIllumination.RadiosityUpdateFactor": 128,
+                "GlobalIllumination.RadiosityProbeSpacing": 4,
+                "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
+                "GlobalIllumination.RadianceCacheProbeResolution": 16,
+                "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
+                "GlobalIllumination.HitLighting": 0
             },
             "Medium": {
                 "GlobalIllumination.Samples": 16,
-                "GlobalIllumination.Method": "ReflectiveShadowMaps"
+                "GlobalIllumination.DistanceFieldPoolMiB": 128,
+                "GlobalIllumination.Method": "ReflectiveShadowMaps",
+                "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
+                "GlobalIllumination.CardTexelDensityScale": 50,
+                "GlobalIllumination.CardMinResolution": 2,
+                "GlobalIllumination.CardMaxResolution": 256,
+                "GlobalIllumination.DirectLightingUpdateFactor": 128,
+                "GlobalIllumination.RadiosityUpdateFactor": 128,
+                "GlobalIllumination.RadiosityProbeSpacing": 4,
+                "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
+                "GlobalIllumination.RadianceCacheProbeResolution": 16,
+                "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
+                "GlobalIllumination.HitLighting": 0
             },
             "High": {
                 "GlobalIllumination.Samples": 32,
-                "GlobalIllumination.Method": "HardwareTraced"
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
+                "GlobalIllumination.Method": "HardwareTraced",
+                "GlobalIllumination.SurfaceCacheAtlasSize": 3584,
+                "GlobalIllumination.CardTexelDensityScale": 100,
+                "GlobalIllumination.CardMinResolution": 4,
+                "GlobalIllumination.CardMaxResolution": 512,
+                "GlobalIllumination.DirectLightingUpdateFactor": 64,
+                "GlobalIllumination.RadiosityUpdateFactor": 128,
+                "GlobalIllumination.RadiosityProbeSpacing": 8,
+                "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
+                "GlobalIllumination.RadianceCacheProbeResolution": 16,
+                "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
+                "GlobalIllumination.HitLighting": 0
             },
             "Epic": {
                 "GlobalIllumination.Samples": 48,
-                "GlobalIllumination.Method": "HardwareTraced"
+                "GlobalIllumination.DistanceFieldPoolMiB": 384,
+                "GlobalIllumination.Method": "HardwareTraced",
+                "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
+                "GlobalIllumination.CardTexelDensityScale": 100,
+                "GlobalIllumination.CardMinResolution": 2,
+                "GlobalIllumination.CardMaxResolution": 512,
+                "GlobalIllumination.DirectLightingUpdateFactor": 32,
+                "GlobalIllumination.RadiosityUpdateFactor": 64,
+                "GlobalIllumination.RadiosityProbeSpacing": 4,
+                "GlobalIllumination.RadiosityHemisphereProbeResolution": 4,
+                "GlobalIllumination.RadianceCacheProbeResolution": 32,
+                "GlobalIllumination.RadianceCacheProbesPerFrame": 150,
+                "GlobalIllumination.HitLighting": 1
             },
             "Cinematic": {
                 "GlobalIllumination.Samples": 64,
-                "GlobalIllumination.Method": "PathTraced"
+                "GlobalIllumination.DistanceFieldPoolMiB": 512,
+                "GlobalIllumination.Method": "PathTraced",
+                "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
+                "GlobalIllumination.CardTexelDensityScale": 100,
+                "GlobalIllumination.CardMinResolution": 2,
+                "GlobalIllumination.CardMaxResolution": 512,
+                "GlobalIllumination.DirectLightingUpdateFactor": 32,
+                "GlobalIllumination.RadiosityUpdateFactor": 64,
+                "GlobalIllumination.RadiosityProbeSpacing": 4,
+                "GlobalIllumination.RadiosityHemisphereProbeResolution": 4,
+                "GlobalIllumination.RadianceCacheProbeResolution": 32,
+                "GlobalIllumination.RadianceCacheProbesPerFrame": 350,
+                "GlobalIllumination.HitLighting": 1
             }
         },
         "Reflections": {

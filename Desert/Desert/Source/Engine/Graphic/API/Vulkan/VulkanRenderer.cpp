@@ -1138,6 +1138,9 @@ namespace Desert::Graphic::API::Vulkan
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
+#endif
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
@@ -1158,6 +1161,9 @@ namespace Desert::Graphic::API::Vulkan
             return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
+#if DESERT_DEV_INSTRUMENTS
+        m_GpuProfiler.SetCommandBuffer( m_CurrentCommandBuffer );
+#endif
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
@@ -1175,9 +1181,17 @@ namespace Desert::Graphic::API::Vulkan
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+            m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
+#endif
             return;
         }
         m_CurrentCommandBuffer = commandBuffer;
+#if DESERT_DEV_INSTRUMENTS
+        // The graph's passes are timed by the backend through the profiler sink: their scopes go into the
+        // segment buffer the pass records into, not the frame buffer ended before the graph.
+        m_GpuProfiler.SetCommandBuffer( commandBuffer );
+#endif
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()

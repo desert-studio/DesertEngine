@@ -1,0 +1,252 @@
+#ifndef RADIANCE_CACHE_GLSLH
+#define RADIANCE_CACHE_GLSLH
+
+// THE WORLD RADIANCE CACHE, GPU side (UE LumenRadianceCacheInterpolation.ush). The C++ side and the design notes are
+// Graphic/GlobalIllumination/RadianceCache.hpp; the record here must match it byte for byte. Binding-free: the
+// includer passes the parameters (`RadianceCacheParams`) and declares the indirection and atlas images.
+//
+// Positions are WORLD space, cm. UE works in translated world space (camera-relative, for Large World
+// Coordinates); this engine's frame is float world space everywhere, so the corner is a world position.
+
+#define RADIANCE_CACHE_MAX_CLIPMAPS 6u
+#define RADIANCE_CACHE_INVALID_PROBE 0xFFFFFFFFu
+
+// std430 — must match RadianceCache::RadianceCacheParamsPayload (176 bytes).
+struct RadianceCacheParams {
+    vec4  clipmapCornerAndCellSize[RADIANCE_CACHE_MAX_CLIPMAPS]; // xyz = min corner (world, cm), w = cell size (cm)
+    vec4  clipmapProbeTMin[2];                                    // per clipmap: [0].xyzw = 0..3, [1].xy = 4..5
+    uvec4 shape;    // x = clipmaps, y = grid resolution, z = traced probe resolution, w = final probe resolution
+    uvec4 atlas;    // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame,
+                    // w = distance-moment probe resolution
+    vec4  sampling; // x = reprojection radius scale, y = 1 / clipmap fade size (cells), z = 1 / final atlas texels
+};
+
+// Which cache covers a ray origin (UE FRadianceCacheCoverage).
+struct RadianceCacheCoverage {
+    uint  clipmap;                     // == shape.x when no clipmap covers it
+    float minTraceDistanceBeforeCache; // trace at least this far before reading the cache (no leaking through walls)
+    bool  valid;
+};
+
+float RadianceCacheCellSize( RadianceCacheParams cache, uint clipmap )
+{
+    return cache.clipmapCornerAndCellSize[clipmap].w;
+}
+
+float RadianceCacheProbeTMin( RadianceCacheParams cache, uint clipmap )
+{
+    return clipmap < 4u ? cache.clipmapProbeTMin[0][clipmap] : cache.clipmapProbeTMin[1][clipmap - 4u];
+}
+
+// UE GetRadianceProbeCoordFloat: @p worldPosition in cells of @p clipmap, from its min corner.
+vec3 RadianceCacheCoordFloat( RadianceCacheParams cache, vec3 worldPosition, uint clipmap )
+{
+    return ( worldPosition - cache.clipmapCornerAndCellSize[clipmap].xyz ) / RadianceCacheCellSize( cache, clipmap );
+}
+
+// UE GetRadianceProbeCoord: the cell holding @p worldPosition (floor, so negatives round down).
+ivec3 RadianceCacheProbeCoord( RadianceCacheParams cache, vec3 worldPosition, uint clipmap )
+{
+    return ivec3( floor( RadianceCacheCoordFloat( cache, worldPosition, clipmap ) ) );
+}
+
+// UE GetProbeTranslatedWorldPositionNoOffset: the centre of cell @p coord of @p clipmap.
+vec3 RadianceCacheProbePosition( RadianceCacheParams cache, uvec3 coord, uint clipmap )
+{
+    return cache.clipmapCornerAndCellSize[clipmap].xyz + ( vec3( coord ) + 0.5 ) * RadianceCacheCellSize( cache, clipmap );
+}
+
+// UE GetRadianceProbeClipmap: the finest clipmap whose edge fade at @p worldPosition exceeds @p ditherRandom (0..1),
+// so neighbouring pixels pick the two clipmaps of a fade band in proportion and the seam dissolves.
+uint RadianceCacheClipmapAt( RadianceCacheParams cache, vec3 worldPosition, float ditherRandom )
+{
+    const float grid = float( cache.shape.y );
+    for ( uint clipmap = 0u; clipmap < cache.shape.x; ++clipmap )
+    {
+        const vec3  coord    = RadianceCacheCoordFloat( cache, worldPosition, clipmap );
+        const vec3  bottom   = clamp( ( coord - 0.5 ) * cache.sampling.y, 0.0, 1.0 );
+        const vec3  top      = clamp( ( grid - 0.5 - coord ) * cache.sampling.y, 0.0, 1.0 );
+        const float edgeFade = min( min( min( bottom.x, bottom.y ), bottom.z ), min( min( top.x, top.y ), top.z ) );
+        if ( edgeFade > ditherRandom )
+            return clipmap;
+    }
+    return cache.shape.x;
+}
+
+// UE GetRadianceCacheCoverage.
+RadianceCacheCoverage RadianceCacheCoverageAt( RadianceCacheParams cache, vec3 rayOrigin, float ditherRandom )
+{
+    RadianceCacheCoverage coverage;
+    coverage.clipmap                     = RadianceCacheClipmapAt( cache, rayOrigin, ditherRandom );
+    coverage.valid                       = coverage.clipmap < cache.shape.x;
+    coverage.minTraceDistanceBeforeCache = 1.0e7;
+    if ( coverage.valid )
+    {
+        const float cellOcclusionDistance = RadianceCacheCellSize( cache, coverage.clipmap ) * sqrt( 3.0 );
+        coverage.minTraceDistanceBeforeCache = RadianceCacheProbeTMin( cache, coverage.clipmap ) + cellOcclusionDistance;
+    }
+    return coverage;
+}
+
+// ---- The update's addressing (GI-RADIANCE-CACHE) ------------------------------------------------------------------
+// std430 — must match RadianceCache::RadianceCacheProbePayload (64 bytes).
+struct RadianceCacheProbe {
+    ivec4 cell;     // xyz = world cell (cells of its clipmap from the world origin), w = clipmap
+    uvec4 frames;   // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
+    vec4  offset;   // xyz = relocation out of geometry (cm)
+    uvec4 priority; // x = priority bucket this frame
+};
+
+// An indirection entry: a probe index, RADIANCE_CACHE_INVALID_PROBE, or a probe index with this bit set while the
+// probe holds no traced radiance yet (allocated this frame, traced by a later one) — readers skip it.
+#define RADIANCE_CACHE_PROBE_UNTRACED 0x80000000u
+
+// THE INDIRECTION IS TOROIDAL: world cell w of clipmap c lives at (w mod G) — a cell keeps its entry while the
+// clipmap scrolls, and an entry whose probe records another world cell is stale (the window moved past it).
+uint RadianceCacheIndirectionIndex( RadianceCacheParams cache, ivec3 worldCell, uint clipmap )
+{
+    const int  grid = int( cache.shape.y );
+    const ivec3 m   = ( ( worldCell % grid ) + grid ) % grid;
+    const uint width = cache.shape.y * cache.shape.x;
+    return uint( m.x ) + clipmap * cache.shape.y + width * ( uint( m.y ) + cache.shape.y * uint( m.z ) );
+}
+
+// The clipmap's min corner in whole cells (MakeClipmaps snaps it to them).
+ivec3 RadianceCacheCornerCell( RadianceCacheParams cache, uint clipmap )
+{
+    return ivec3( round( cache.clipmapCornerAndCellSize[clipmap].xyz / RadianceCacheCellSize( cache, clipmap ) ) );
+}
+
+// The world cell an indirection entry (x within its clipmap, y, z) stands for this frame.
+ivec3 RadianceCacheWorldCellOfEntry( RadianceCacheParams cache, ivec3 entry, uint clipmap )
+{
+    const int   grid   = int( cache.shape.y );
+    const ivec3 corner = RadianceCacheCornerCell( cache, clipmap );
+    return corner + ( ( ( entry - corner ) % grid ) + grid ) % grid;
+}
+
+vec3 RadianceCacheWorldCellCentre( RadianceCacheParams cache, ivec3 worldCell, uint clipmap )
+{
+    return ( vec3( worldCell ) + 0.5 ) * RadianceCacheCellSize( cache, clipmap );
+}
+
+// Octahedral mapping (UE OctahedronToUnitVector / UnitVectorToOctahedron), [-1,1]^2 <-> the unit sphere.
+vec3 RadianceCacheOctDecode( vec2 o )
+{
+    vec3 n = vec3( o, 1.0 - abs( o.x ) - abs( o.y ) );
+    if ( n.z < 0.0 )
+        n.xy = ( 1.0 - abs( n.yx ) ) * vec2( n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0 );
+    return normalize( n );
+}
+
+vec2 RadianceCacheOctEncode( vec3 n )
+{
+    n /= abs( n.x ) + abs( n.y ) + abs( n.z );
+    if ( n.z < 0.0 )
+        n.xy = ( 1.0 - abs( n.yx ) ) * vec2( n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0 );
+    return n.xy;
+}
+
+// The interior texel of an octahedral border texel @p b (-1..res): the octahedron folds at its edges, so the
+// border repeats the mirrored edge (and a corner the opposite corner) — bilinear reads never leave the probe.
+ivec2 RadianceCacheOctBorderSource( ivec2 b, int res )
+{
+    const bool outX = b.x < 0 || b.x >= res;
+    const bool outY = b.y < 0 || b.y >= res;
+    if ( outX && outY )
+        return ivec2( b.x < 0 ? res - 1 : 0, b.y < 0 ? res - 1 : 0 );
+    if ( outX )
+        return ivec2( b.x < 0 ? 0 : res - 1, res - 1 - b.y );
+    if ( outY )
+        return ivec2( res - 1 - b.x, b.y < 0 ? 0 : res - 1 );
+    return b;
+}
+
+// A probe's first texel (its border included) in an atlas of @p probeTexels per probe side.
+ivec2 RadianceCacheProbeAtlasOrigin( RadianceCacheParams cache, uint probe, uint probeTexels )
+{
+    return ivec2( probe % cache.atlas.x, probe / cache.atlas.x ) * int( probeTexels );
+}
+
+#endif // RADIANCE_CACHE_GLSLH
+
+// THE INTERPOLATED READ (UE SampleRadianceCacheInterpolated + DDGI's visibility), outside the guard: a reader
+// includes this file once for the structs, declares `RadianceCacheParams radianceCache`, its indirection array, its
+// probe array and the sampler2Ds u_RadianceCacheIrradiance / u_RadianceCacheDepth, defines
+// RADIANCE_CACHE_INDIRECTION and RADIANCE_CACHE_PROBES as the two arrays' names and includes the file again.
+#if defined( RADIANCE_CACHE_INDIRECTION ) && !defined( RADIANCE_CACHE_READ_GLSLH )
+#define RADIANCE_CACHE_READ_GLSLH
+
+vec3 RadianceCacheSampleProbeIrradiance( uint probe, vec3 direction )
+{
+    const uint  res    = radianceCache.atlas.y;
+    const vec2  origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, res + 2u ) ) + 1.0;
+    const vec2  texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
+    return textureLod( u_RadianceCacheIrradiance, texel / vec2( textureSize( u_RadianceCacheIrradiance, 0 ) ), 0.0 ).rgb;
+}
+
+vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
+{
+    const uint  res    = radianceCache.atlas.w;
+    const vec2  origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, res + 2u ) ) + 1.0;
+    const vec2  texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
+    return textureLod( u_RadianceCacheDepth, texel / vec2( textureSize( u_RadianceCacheDepth, 0 ) ), 0.0 ).rg;
+}
+
+// The cosine-weighted irradiance (/ pi: the convention of the baked irradiance cube, so a white sky reads 1)
+// arriving at a surface point @p p with normal @p N seen from @p V (unit, toward the viewer), from the eight probes
+// around it in the clipmap the dither picks. .a = 1 when at least one traced probe answered, 0 when none did yet
+// (cells allocated this frame), -1 past the coarsest clipmap: the caller decides what the last two mean.
+vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+{
+    const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
+    if ( clipmap >= radianceCache.shape.x )
+        return vec4( 0.0, 0.0, 0.0, -1.0 );
+    const float cell = RadianceCacheCellSize( radianceCache, clipmap );
+    // DDGI's surface bias: off the surface, mostly toward the viewer, so the visibility test does not shadow the
+    // surface by itself.
+    const vec3  biased = p + ( N * 0.2 + V * 0.8 ) * ( 0.3 * cell );
+    const vec3  coord  = RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5;
+    const ivec3 base   = ivec3( floor( coord ) );
+    const vec3  alpha  = coord - vec3( base );
+    const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
+    const int   grid   = int( radianceCache.shape.y );
+
+    vec3  sum    = vec3( 0.0 );
+    float weight = 0.0;
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 local  = clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        const ivec3 world  = corner + local;
+        const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
+        if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
+            continue;
+        const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
+                                RADIANCE_CACHE_PROBES[entry].offset.xyz;
+        const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
+        float       w         = trilinear.x * trilinear.y * trilinear.z;
+        // Probes behind the surface count less (DDGI's smooth backface weight).
+        const vec3  toProbe   = probePos - p;
+        const float toProbeLength = max( length( toProbe ), 1e-3 );
+        const float wrap      = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
+        w *= wrap * wrap + 0.2;
+        // Chebyshev visibility from the probe's distance moments (DDGI): a probe that sees a surface nearer than
+        // this point in its direction is behind a wall from it.
+        const vec3  probeToPoint = biased - probePos;
+        const float distance     = length( probeToPoint );
+        const vec2  moments      = RadianceCacheSampleProbeDistance( entry, probeToPoint / max( distance, 1e-3 ) );
+        if ( distance > moments.x )
+        {
+            const float variance  = abs( moments.y - moments.x * moments.x );
+            const float d         = distance - moments.x;
+            float       chebyshev = variance / ( variance + d * d );
+            w *= max( chebyshev * chebyshev * chebyshev, 0.0 );
+        }
+        w = max( w, 1e-6 );
+        sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
+        weight += w;
+    }
+    return weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
+}
+#endif // RADIANCE_CACHE_INDIRECTION

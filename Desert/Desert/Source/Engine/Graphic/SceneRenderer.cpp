@@ -785,13 +785,21 @@ namespace Desert::Graphic
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // device, each lowered axis logged once.
         m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
+                                                           Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
+        m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+        m_LightGridQuality =
+             LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
+                               .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
+                               .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        m_RadianceCacheInputs = RadianceCache::MakeRadianceCacheInputs( quality );
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1189,6 +1197,13 @@ namespace Desert::Graphic
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
         AddFrameShadowDepths( graph, textures );
+        // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
+        // deferred composite, the glass).
+        AddFrameLightGrid( graph, textures, frame );
+        if ( WorldLightGridRead() )
+            AddFrameLightGridWorld( graph, textures, frame );
+        if ( GlobalDistanceFieldRead() )
+            AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1211,6 +1226,7 @@ namespace Desert::Graphic
                 lightColor = dl[0].ColorIntensity;
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameRadianceCache( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             RDG::TextureRef giAccum;
 
@@ -1283,6 +1299,10 @@ namespace Desert::Graphic
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                    frame );
+        AddFrameGlobalDistanceFieldView( graph, textures, frame,
+                                         postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS

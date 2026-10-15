@@ -58,6 +58,10 @@ namespace Common::Content
     {
         std::string                  Role;
         bool                         DefaultSurface = false;
+        // The template's Surface setting `TwoSided` (DShaderParser: SurfaceTemplateInfo::TwoSided): the default
+        // sidedness of every material drawing with it, read where the GPU schema is not at hand (a mesh's
+        // distance field build resolves its materials' sidedness on the loader thread).
+        bool                         TwoSided       = false;
         bool                         DeclaresImport = false; // an `Import` block is present (even an empty one)
         std::vector<std::string>     ImportRequires;
         std::vector<ShaderImportRow> Import;

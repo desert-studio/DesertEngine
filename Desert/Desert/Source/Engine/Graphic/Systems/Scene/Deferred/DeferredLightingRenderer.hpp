@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -12,10 +13,13 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/LightGrid.hpp>
 
 #include <glm/glm.hpp>
 
 #include <array>
+#include <map>
+#include <utility>
 #include <span>
 #include <type_traits>
 #include <string_view>
@@ -34,18 +38,21 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
+        // The world radiance cache (SceneRenderer::AddFrameRadianceCache) or its neutral stand-in.
+        RDG::BufferRef  RadianceCacheParams;
+        RDG::BufferRef  RadianceCacheIndirection;
+        RDG::BufferRef  RadianceCacheProbes;
+        RDG::TextureRef RadianceCacheIrradiance;
+        RDG::TextureRef RadianceCacheDepth;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
 
-    // The frame's dynamic lights as graph buffers of THIS frame's graph, uploaded by "Upload: Lights.Point" /
-    // "Upload: Lights.Spot" (Builder::QueueBufferUpload) before the Composite node that reads them.
-    struct DeferredCompositeLights
+    // The view's lights as graph buffers (ViewLightBuffers, uploaded by the graph's upload command before the
+    // nodes that read them) plus the CPU copy of the grid's parameters: the dispatch size of "LightGrid".
+    struct DeferredCompositeLights : ViewLightBuffers
     {
-        RDG::BufferRef Point;
-        RDG::BufferRef Spot;
-        // The local shadow views the lights' ShadowView indices name ("Upload: Lights.ShadowViews").
-        RDG::BufferRef ShadowViews;
+        LightGridParamsPayload Grid;
     };
 
     // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
@@ -84,18 +91,83 @@ namespace Desert::Graphic::System
             m_Pipeline = pipeline.GetValue();
 
             m_Material = std::make_unique<MaterialDeferredLighting>();
+
+            m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
+            if ( !m_GridShader )
+                return Common::MakeError( "LightGridBuild shader not found" );
+            const auto gridPipeline =
+                 ComputePipeline::Create( { .Shader = m_GridShader, .DebugName = "LightGridBuild" } );
+            if ( !gridPipeline )
+                return Common::MakeError( gridPipeline.GetError() );
+            m_GridPipeline = gridPipeline.GetValue();
+
+            m_WorldViewShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridWorldView" );
+            if ( !m_WorldViewShader )
+                return Common::MakeError( "LightGridWorldView shader not found" );
             return BOOLSUCCESS;
+        }
+
+        // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
+        // input), made the first time it is asked for.
+        [[nodiscard]] Common::BoolResultStr PrepareWorldView( const Core::Formats::ImageFormat format,
+                                                              const uint32_t                   samples )
+        {
+            if ( !m_WorldViewShader )
+                return Common::MakeError( "Debug: LightGridWorld: the LightGridWorldView shader is not loaded" );
+            const auto key = std::make_pair( static_cast<int>( format ), samples );
+            if ( const auto it = m_WorldViewPipelines.find( key ); it != m_WorldViewPipelines.end() )
+            {
+                m_WorldView = it->second;
+                return BOOLSUCCESS;
+            }
+            GraphicsPipelineSpecification spec;
+            spec.DebugName = "LightGridWorldView";
+            spec.TargetLayout =
+                 RenderTargetLayout{ .ColorFormats = { format }, .DepthFormat = std::nullopt, .Samples = samples };
+            spec.Shader            = m_WorldViewShader;
+            spec.DepthTestEnabled  = false;
+            spec.DepthWriteEnabled = false;
+            const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError( pipeline.GetError() );
+            m_WorldView = m_WorldViewPipelines.emplace( key, pipeline.GetValue() ).first->second;
+            return BOOLSUCCESS;
+        }
+
+        // SETUP of "Debug: LightGridWorld": the G-buffer depth, the inverse view-projection it was rasterised with
+        // (@p view, an uploaded mat4), the world grid's parameters and cells.
+        void DeclareWorldViewBindings( RDG::PassBuilder& pass, RDG::TextureRef depth, RDG::BufferRef view,
+                                       const ViewLightBuffers& lights ) const
+        {
+            if ( !m_WorldView )
+                return;
+            pass.Bindings( m_WorldViewLayout.Get( m_WorldViewShader ), RDG::OtherRouteFill{} )
+                 .Sampled( "u_Depth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Storage( "LightGridWorldViewUB", view, RDG::Access::StorageRead )
+                 .Storage( kLightGridParamsBlockName, lights.WorldGridParams, RDG::Access::StorageRead )
+                 .Storage( kLightGridWorldCellsBlockName, lights.WorldGridCells, RDG::Access::StorageRead );
+        }
+
+        [[nodiscard]] Common::BoolResultStr RecordWorldView( const RDG::PassContext& context ) const
+        {
+            if ( !m_WorldView )
+                return Common::MakeError( "Debug: LightGridWorld: no pipeline was prepared for the target" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_WorldView, nullptr );
         }
 
         // Not a render-graph pass — driven from SceneRenderer's manual chain after the geometry graph.
 
-        // GRAPH BUILD (before the Composite node): the lights as two graph buffers, each uploaded by the graph's
-        // upload command. No light is one zeroed entry (a storage buffer is never empty); the shader loops
-        // 0..count, the counts being the material's LightsMetadata.
+        // GRAPH BUILD (before the Composite node): the lights as graph buffers, each uploaded by the graph's
+        // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
+        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its parameters are uploaded too
+        // and its cell buffer created, which "LightGrid" fills.
         static DeferredCompositeLights UploadLights( RDG::Builder&                              graph,
                                                      const ShaderProtocols::PointLight&         points,
                                                      const ShaderProtocols::SpotLight&          spots,
-                                                     const std::vector<LocalShadowViewPayload>& shadowViews )
+                                                     const std::vector<LocalShadowViewPayload>& shadowViews,
+                                                     const LightGridParamsPayload&              grid )
         {
             const auto upload = [&graph]( const auto& lights, std::string_view name )
             {
@@ -104,8 +176,67 @@ namespace Desert::Graphic::System
                 graph.QueueBufferUpload( buffer, bytes );
                 return buffer;
             };
-            return { upload( points.PointLights, "Lights.Point" ), upload( spots.SpotLights, "Lights.Spot" ),
-                     upload( shadowViews, "Lights.ShadowViews" ) };
+            const RDG::BufferRef gridParams =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( LightGridParamsPayload ) }, "Lights.GridParams" );
+            graph.QueueBufferUpload( gridParams,
+                                     std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ) );
+            const RDG::BufferRef gridCells =
+                 graph.CreateBuffer( RDG::BufferDesc{ LightGridCellBufferBytes( grid ) }, "Lights.GridCells" );
+            DeferredCompositeLights lights;
+            lights.Point       = upload( points.PointLights, "Lights.Point" );
+            lights.Spot        = upload( spots.SpotLights, "Lights.Spot" );
+            lights.ShadowViews = upload( shadowViews, "Lights.ShadowViews" );
+            lights.GridParams  = gridParams;
+            lights.GridCells   = gridCells;
+            lights.Grid        = grid;
+            return lights;
+        }
+
+        // GRAPH BUILD (before "LightGridWorld"): the world layout's parameters uploaded and its cell buffer
+        // created, its pool allocator (the buffer's first uint) zeroed by an upload, into @p lights' World* refs.
+        // @p grid = MakeLightGridWorldParams of this view. The point and spot buffers are the ones UploadLights
+        // made: the world layout lists the SAME lights, there is no second light list.
+        static void UploadWorldGrid( RDG::Builder& graph, const LightGridParamsPayload& grid,
+                                     ViewLightBuffers& lights )
+        {
+            lights.WorldGridParams = graph.CreateBuffer( RDG::BufferDesc{ sizeof( LightGridParamsPayload ) },
+                                                         "Lights.WorldGridParams" );
+            graph.QueueBufferUpload( lights.WorldGridParams,
+                                     std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ) );
+            lights.WorldGridCells    = graph.CreateBuffer( RDG::BufferDesc{ LightGridCellBufferBytes( grid ) },
+                                                           "Lights.WorldGridCells" );
+            constexpr uint32_t kZero = 0u;
+            graph.QueueBufferUpload( lights.WorldGridCells,
+                                     std::as_bytes( std::span<const uint32_t>( &kZero, 1 ) ) );
+        }
+
+        // SETUP of a light-grid compute node ("LightGrid" for the frustum layout, "LightGridWorld" for the world
+        // one): its one block — the layout's grid parameters and both light buffers read, its cell buffer written.
+        void DeclareGridBindings( RDG::PassBuilder& pass, const ViewLightBuffers& lights,
+                                  LightGridLayout layout ) const
+        {
+            if ( !m_GridPipeline )
+                return;
+            const bool world = layout == LightGridLayout::WorldClipmaps;
+            pass.Bindings( m_GridLayout.Get( m_GridShader ), Renderer::GetPipelineRouteFill( *m_GridPipeline ) )
+                 .Storage( kLightGridParamsBlockName, world ? lights.WorldGridParams : lights.GridParams,
+                           RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
+                 .Storage( kLightGridCellsBlockName, world ? lights.WorldGridCells : lights.GridCells,
+                           RDG::Access::StorageWrite );
+        }
+
+        // EXEC of the same node: one thread per cell (LightGridBuild.shader's LocalSize 4 x 4 x 4).
+        [[nodiscard]] Common::BoolResultStr RecordGrid( const RDG::PassContext& context, const glm::uvec3& cells )
+        {
+            if ( !m_GridPipeline )
+                return Common::MakeError( "LightGrid: the light-grid pipeline is not initialised" );
+            constexpr uint32_t      kGroup = 4u;
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_GridPipeline, ( cells.x + kGroup - 1u ) / kGroup, ( cells.y + kGroup - 1u ) / kGroup,
+                 ( cells.z + kGroup - 1u ) / kGroup );
         }
 
         // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
@@ -131,7 +262,7 @@ namespace Desert::Graphic::System
         // GI with the sampler the material route sampled them with (the image's own: linear, REPEAT, all mips),
         // the two light buffers as StorageRead entries, the scene/view inputs the shader samples.
         void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
-                                       const DeferredCompositeLights& lights ) const
+                                       const ViewLightBuffers& lights ) const
         {
             if ( !m_Pipeline || !m_Material )
                 return;
@@ -155,7 +286,16 @@ namespace Desert::Graphic::System
                            kSampler )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
+                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
+                 .Storage( "RadianceCacheParamsUB", inputs.RadianceCacheParams, RDG::Access::StorageRead )
+                 .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCacheIndirection,
+                           RDG::Access::StorageRead )
+                 .Storage( "RadianceCacheProbesUB", inputs.RadianceCacheProbes, RDG::Access::StorageRead )
+                 .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCacheIrradiance,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_RadianceCacheDepth", inputs.RadianceCacheDepth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }
@@ -212,6 +352,17 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>                   m_Shader;
         std::shared_ptr<GraphicsPipeline>         m_Pipeline;
         std::unique_ptr<MaterialDeferredLighting> m_Material;
+
+        // "LightGrid": the froxel light lists the composite reads.
+        mutable ShaderBindingLayoutCache m_GridLayout;
+        std::shared_ptr<Shader>          m_GridShader;
+        std::shared_ptr<ComputePipeline> m_GridPipeline;
+
+        // "Debug: LightGridWorld" (DeferredDebugMode::LightGridWorld): one pipeline per post-input format.
+        mutable ShaderBindingLayoutCache                                      m_WorldViewLayout;
+        std::shared_ptr<Shader>                                               m_WorldViewShader;
+        std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_WorldViewPipelines;
+        std::shared_ptr<GraphicsPipeline>                                     m_WorldView;
 
         // Starts true so the first INCOMPLETE frame is the edge that logs; a renderer that never loses
         // its environment says nothing at all.

@@ -5,6 +5,19 @@
 #include <Mesh/PointLight.glslh>
 #include <Mesh/Spotlight.glslh>
 #include <Mesh/LightsMetadata.glslh>
+// THE VIEW'S LIGHT GRID ("LightGrid" compute node, Programs/Deferred/LightGridBuild.shader): a pixel is shaded by the
+// point and spot lights of its froxel only, exactly as the deferred composite shades one. Its two blocks sit in the
+// reserved scene-read range (Core::kLightGridParamsBinding / kLightGridCellsBinding, ShaderGraphBindings.hpp) and
+// are bound by name from the frame graph (BindSceneViewInputs).
+#include <Mesh/LightGrid.glslh>
+layout( std430, binding = 28 ) readonly buffer LightGridParamsUB
+{
+    LightGridParams lightGrid;
+};
+layout( std430, binding = 29 ) readonly buffer LightGridCellsUB
+{
+    uint lightGridCells[];
+};
 // THE direct-light BRDF, shared with the deferred composite and the point/spot headers above.
 #include <Mesh/DirectLighting.glslh>
 
@@ -116,12 +129,27 @@ void main()
                                                                   directionLights.directionLights.ColorIntensity.a,
                                                              shadow ),
                                              surface, payload );
-    for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
-        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
-                                             DesertPointLightAt( pointLights[p], i.WorldPosition ), surface, payload );
-    for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
-        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
-                                             DesertSpotLightAt( spotLights[p], i.WorldPosition ), surface, payload );
+    // Point and spot lights: those of this pixel's froxel, in the order the full loop summed them (points, then
+    // spots). An overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
+    const uint cell       = LightGridCellAt( lightGrid, gl_FragCoord.xy, i.WorldPosition );
+    const uint cellCount  = lightGridCells[cell];
+    const bool overflowed = LightGridCellOverflowed( lightGrid, cellCount );
+    const uint listOffset = LightGridListOffset( lightGrid, cell );
+    const uint lightCount =
+         overflowed ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount : cellCount;
+    for ( uint j = 0u; j < lightCount; j++ )
+    {
+        const uint index = overflowed ? j : lightGridCells[listOffset + j];
+        if ( index < lightsMetadata.PointLightCount )
+            light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
+                                                 DesertPointLightAt( pointLights[index], i.WorldPosition ), surface,
+                                                 payload );
+        else
+            light += DesertEvaluateShadingModel(
+                 DESERT_SHADING_MODEL_INDEX,
+                 DesertSpotLightAt( spotLights[index - lightsMetadata.PointLightCount], i.WorldPosition ), surface,
+                 payload );
+    }
 
     // Lighting debug (viewport View Mode -> Lighting): each source a distinct colour, weighted by
     // attenuation * NdotL, mapped through an exposure-like curve so any light reaching the surface shows.

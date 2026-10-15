@@ -2555,12 +2555,12 @@ TEST_F( ShaderCacheKeyShaderRoot, TheBrokenShaderFixtureStillDoesNotCompile )
 
 // ─── The window a shader graph's own resources live in is EMPTY in the shipped tree ──────────────
 //
-// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 28 (24 before TAA1, 27 before the scene depth
-// joined the scene-read range) upward for what a SHADER GRAPH declares — the textures a Surface graph's Properties
-// block takes today, and whatever an authored cloud medium declares tomorrow. A reservation is worth exactly what
-// enforces it, and nothing enforced this one: the claim lived in a comment listing the engine's slots by hand, and
-// the check beside it was `EXPECT_GT( kGraphTextureBinding, 23u )` — a number that can be satisfied by editing the
-// number.
+// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 30 (24 before TAA1, 27 before the scene depth,
+// 28 before the light grid joined the scene-read range) upward for what a SHADER GRAPH declares — the textures a
+// Surface graph's Properties block takes today, and whatever an authored cloud medium declares tomorrow. A
+// reservation is worth exactly what enforces it, and nothing enforced this one: the claim lived in a comment
+// listing the engine's slots by hand, and the check beside it was `EXPECT_GT( kGraphTextureBinding, 23u )` — a
+// number that can be satisfied by editing the number.
 //
 // The claim asserted here is the one that matters and it names no engine binding: over the whole shipped
 // tree, compiled by shaderc and reflected by the engine's own reflection, NOTHING declares a set-0
