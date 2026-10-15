@@ -100,16 +100,7 @@ namespace Desert::Core
 
         const char* PropertyKindName( Scripting::PropertyType type )
         {
-            switch ( type )
-            {
-                case Scripting::PropertyType::Number:
-                    return "Number";
-                case Scripting::PropertyType::Bool:
-                    return "Bool";
-                case Scripting::PropertyType::String:
-                    return "String";
-            }
-            return "Number";
+            return Scripting::PropertyTypeName( type );
         }
 
         // {"<script record key>": {"<property>": {"Type": "Number|Bool|String", "Value": v}}} - the slot's values
@@ -144,17 +135,26 @@ namespace Desert::Core
                         continue;
                     Json::ObjectBuilder record;
                     record.Set( "Type", std::string( PropertyKindName( held->Type ) ) );
+                    // The kinds a script may mark SaveGame (Scripting::ReadScriptSaveGameProperties refuses the
+                    // rest).
                     switch ( held->Type )
                     {
                         case Scripting::PropertyType::Number:
+                        case Scripting::PropertyType::Int:
                             record.Set( "Value", held->Number );
                             break;
                         case Scripting::PropertyType::Bool:
                             record.Set( "Value", held->Bool );
                             break;
                         case Scripting::PropertyType::String:
+                        case Scripting::PropertyType::Enum:
                             record.Set( "Value", held->Str );
                             break;
+                        default:
+                            LOG_ERROR(
+                                 "[SaveGame] script '{}': property '{}' is a {}, which a save game does not hold",
+                                 slot.ScriptKey, name, PropertyKindName( held->Type ) );
+                            continue;
                     }
                     properties[name] = Json::Value( record.Build() );
                 }
@@ -216,10 +216,11 @@ namespace Desert::Core
                               Scripting::ScriptProperty read;
                               read.Name   = std::string( name );
                               bool usable = false;
-                              if ( value && kindName == "Number" )
+                              if ( value && ( kindName == "Number" || kindName == "Int" ) )
                                   if ( const auto v = value->AsNumber() )
                                   {
-                                      read.Type   = Scripting::PropertyType::Number;
+                                      read.Type   = kindName == "Int" ? Scripting::PropertyType::Int
+                                                                      : Scripting::PropertyType::Number;
                                       read.Number = v.GetValue();
                                       usable      = true;
                                   }
@@ -230,10 +231,11 @@ namespace Desert::Core
                                       read.Bool = v.GetValue();
                                       usable    = true;
                                   }
-                              if ( value && kindName == "String" )
+                              if ( value && ( kindName == "String" || kindName == "Enum" ) )
                                   if ( const auto v = value->AsString() )
                                   {
-                                      read.Type = Scripting::PropertyType::String;
+                                      read.Type = kindName == "Enum" ? Scripting::PropertyType::Enum
+                                                                     : Scripting::PropertyType::String;
                                       read.Str  = v.GetValue();
                                       usable    = true;
                                   }

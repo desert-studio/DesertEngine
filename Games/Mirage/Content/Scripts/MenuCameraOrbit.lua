@@ -1,9 +1,9 @@
 -- The main menu's camera: one slow circle around the dune field, always looking at its centre.
 Properties = {
-    CentreX = 0.0, CentreY = 600.0, CentreZ = 0.0, -- cm: the point the camera circles and looks at
-    Radius  = 16000.0,                              -- cm
-    Height  = 2600.0,                               -- cm above the centre
-    Period  = 240.0,                                -- seconds for one full circle
+    CentreX = Property.Float( 0.0 ), CentreY = Property.Float( 600.0 ), CentreZ = Property.Float( 0.0 ), -- cm: the point the camera circles and looks at
+    Radius  = Property.Float( 16000.0 ),                              -- cm
+    Height  = Property.Float( 2600.0 ),                               -- cm above the centre
+    Period  = Property.Float( 240.0 ),                                -- seconds for one full circle
 }
 
 local angle = 0.0

@@ -17,6 +17,7 @@
 
 #include <cstring>
 #include <format>
+#include <array>
 #include <optional>
 
 #include <Engine/ECS/Components.hpp>
@@ -449,14 +450,62 @@ namespace Desert::Core::Serialize
 
         // ScriptComponent has no reflected data block (reflection can't do std::string/variant lists), so it
         // gets a manual serializer via a reflect-cpp mirror: the .lua reference + the exposed-property values.
+        //
+        // A property holds the value of its kind only: Number/Bool/Str are always written (the v16 shape), the
+        // vector (Color, Vector), the reference (Asset handle, Entity UUID) and an Array's items only when the
+        // kind has them — a file without them is a file without such properties, not an older format.
+        struct ScriptValueSer
+        {
+            int                                  Type   = 0;
+            double                               Number = 0.0;
+            bool                                 Bool   = false;
+            std::string                          Str;
+            std::optional<std::array<double, 3>> Vec;
+            std::optional<std::uint64_t>         Ref;
+        };
         struct ScriptPropSer
         {
-            std::string Name;
-            int         Type   = 0;
-            double      Number = 0.0;
-            bool        Bool   = false;
-            std::string Str;
+            std::string                                Name;
+            int                                        Type   = 0;
+            double                                     Number = 0.0;
+            bool                                       Bool   = false;
+            std::string                                Str;
+            std::optional<std::array<double, 3>>       Vec;
+            std::optional<std::uint64_t>               Ref;
+            std::optional<int>                         ElementType;
+            std::optional<std::vector<ScriptValueSer>> Items;
         };
+
+        bool HasVec( Scripting::PropertyType type )
+        {
+            return type == Scripting::PropertyType::Color || type == Scripting::PropertyType::Vector;
+        }
+        bool HasRef( Scripting::PropertyType type )
+        {
+            return type == Scripting::PropertyType::Asset || type == Scripting::PropertyType::Entity;
+        }
+
+        ScriptValueSer SaveValue( const Scripting::ScriptValue& v )
+        {
+            ScriptValueSer out{ static_cast<int>( v.Type ), v.Number, v.Bool, v.Str, std::nullopt, std::nullopt };
+            if ( HasVec( v.Type ) )
+                out.Vec = v.Vec;
+            if ( HasRef( v.Type ) )
+                out.Ref = v.Ref;
+            return out;
+        }
+
+        Scripting::ScriptValue LoadValue( const ScriptValueSer& v )
+        {
+            Scripting::ScriptValue out;
+            out.Type   = static_cast<Scripting::PropertyType>( v.Type );
+            out.Number = v.Number;
+            out.Bool   = v.Bool;
+            out.Str    = v.Str;
+            out.Vec    = v.Vec.value_or( std::array<double, 3>{} );
+            out.Ref    = v.Ref.value_or( 0 );
+            return out;
+        }
         // `ScriptKey` and not `Path`, because the value stopped being a path at scene v16 (I9): it is the
         // root-tagged key ScriptSlot documents. Renaming the JSON field with the value is the point — a
         // key called `Path` reads as something you may hand to std::filesystem, which is exactly the
@@ -480,12 +529,14 @@ namespace Desert::Core::Serialize
             for ( const auto& p : src )
             {
                 Scripting::ScriptProperty prop;
-                prop.Name   = p.Name;
-                prop.Type   = static_cast<Scripting::PropertyType>( p.Type );
-                prop.Number = p.Number;
-                prop.Bool   = p.Bool;
-                prop.Str    = p.Str;
-                out.push_back( prop );
+                static_cast<Scripting::ScriptValue&>( prop ) =
+                     LoadValue( { p.Type, p.Number, p.Bool, p.Str, p.Vec, p.Ref } );
+                prop.Name        = p.Name;
+                prop.ElementType = static_cast<Scripting::PropertyType>( p.ElementType.value_or( 0 ) );
+                if ( p.Items )
+                    for ( const ScriptValueSer& item : *p.Items )
+                        prop.Items.push_back( LoadValue( item ) );
+                out.push_back( std::move( prop ) );
             }
             return out;
         };
@@ -506,7 +557,19 @@ namespace Desert::Core::Serialize
                     ScriptSlotSer ss;
                     ss.ScriptKey = slot.ScriptKey;
                     for ( const auto& p : slot.Properties )
-                        ss.Props.push_back( { p.Name, static_cast<int>( p.Type ), p.Number, p.Bool, p.Str } );
+                    {
+                        const ScriptValueSer value = SaveValue( p );
+                        ScriptPropSer        prop{ p.Name,    value.Type, value.Number, value.Bool,  value.Str,
+                                            value.Vec, value.Ref,  std::nullopt, std::nullopt };
+                        if ( p.Type == Scripting::PropertyType::Array )
+                        {
+                            prop.ElementType = static_cast<int>( p.ElementType );
+                            prop.Items.emplace();
+                            for ( const Scripting::ScriptValue& item : p.Items )
+                                prop.Items->push_back( SaveValue( item ) );
+                        }
+                        ss.Props.push_back( std::move( prop ) );
+                    }
                     slots.push_back( std::move( ss ) );
                 }
                 ser.Scripts = std::move( slots );

@@ -10,8 +10,8 @@
 -- Edit this file while the scene is PLAYING — it hot-reloads on save.
 
 Properties = {
-    Speed = 2.0,   -- pulse frequency (radians/sec)
-    UseUnlit = false, -- true: switch the entity to the Unlit shader on start
+    Speed = Property.Float( 2.0 ),   -- pulse frequency (radians/sec)
+    UseUnlit = Property.Bool( false ), -- true: switch the entity to the Unlit shader on start
 }
 
 local t = 0.0

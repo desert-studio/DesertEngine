@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <string_view>
 
 namespace Desert::Scripting
 {
@@ -37,29 +38,48 @@ namespace Desert::Scripting
             return Common::MakeError<std::string>( std::format( "script not found: {}", path ) );
         }
 
-        /// A `Properties` entry as an editor property: a boolean, a number or a string (anything else is not one).
-        std::optional<ScriptProperty> ToScriptProperty( const LuauTableEntry& entry )
+        /// Whether a held value fits the declaration it is applied to: the same kind (and item kind).
+        bool Fits( const ScriptProperty& value, const ScriptPropertyDecl& decl )
         {
-            ScriptProperty p;
-            p.Name = entry.Key;
-            if ( const bool* b = entry.Value.Get<bool>() )
+            return value.Type == decl.Default.Type &&
+                   ( value.Type != PropertyType::Array || value.ElementType == decl.ElementType );
+        }
+
+        /// The comment block a script opens with (`--` lines before the first line of code, `--!` directives and
+        /// blank lines skipped), its markers stripped, one line per line.
+        std::string LeadingComment( const std::string& source )
+        {
+            std::string text;
+            std::size_t at = 0;
+            while ( at < source.size() )
             {
-                p.Type = PropertyType::Bool;
-                p.Bool = *b;
+                std::size_t end = source.find( '\n', at );
+                if ( end == std::string::npos )
+                    end = source.size();
+                std::string_view line( source.data() + at, end - at );
+                at = end + 1;
+                while ( !line.empty() && ( line.front() == ' ' || line.front() == '\t' ) )
+                    line.remove_prefix( 1 );
+                while ( !line.empty() && ( line.back() == '\r' || line.back() == ' ' ) )
+                    line.remove_suffix( 1 );
+                if ( line.empty() )
+                {
+                    if ( !text.empty() )
+                        break; // a blank line closes the block
+                    continue;
+                }
+                if ( !line.starts_with( "--" ) )
+                    break;
+                if ( line.starts_with( "--!" ) )
+                    continue;
+                line.remove_prefix( 2 );
+                if ( !line.empty() && line.front() == ' ' )
+                    line.remove_prefix( 1 );
+                if ( !text.empty() )
+                    text += '\n';
+                text += line;
             }
-            else if ( const double* d = entry.Value.Get<double>() )
-            {
-                p.Type   = PropertyType::Number;
-                p.Number = *d;
-            }
-            else if ( const std::string* str = entry.Value.Get<std::string>() )
-            {
-                p.Type = PropertyType::String;
-                p.Str  = *str;
-            }
-            else
-                return std::nullopt;
-            return p;
+            return text;
         }
     } // namespace
 
@@ -123,6 +143,8 @@ namespace Desert::Scripting
         // The replaced sandbox's callables (its pending timers) are stale whether or not the new code runs.
         ++impl.Generations[key];
         impl.LastUpdateError.erase( key ); // fresh sandbox -> fresh error state
+        impl.StaleProperties.erase( key );
+        impl.SyncedOverrides.erase( key ); // the new sandbox starts from its declared defaults
 
         entt::registry*    registry = impl.Scene != nullptr ? &impl.Scene->GetRegistry() : nullptr;
         const entt::entity handle   = static_cast<entt::entity>( entity );
@@ -258,24 +280,75 @@ namespace Desert::Scripting
         const LuauSlot target = m_Impl->SlotOf( entity, slot );
         if ( target == 0 )
             return;
-        for ( const auto& p : props )
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( target );
+        if ( declared == nullptr )
+            return;
+        Core::Scene* const      scene = m_Impl->Scene;
+        const LuauPropertyWorld world{ .Registry   = scene != nullptr ? &scene->GetRegistry() : nullptr,
+                                       .FindEntity = [scene]( std::uint64_t uuid ) -> entt::entity
+                                       {
+                                           if ( scene == nullptr )
+                                               return entt::null;
+                                           const auto found = scene->FindEntityByID( Common::UUID( uuid ) );
+                                           return found ? static_cast<entt::entity>( found->get().GetHandle() )
+                                                        : entt::entity( entt::null );
+                                       } };
+        const uint64_t          key = Impl::SlotKey( entity, slot );
+        for ( const ScriptProperty& p : props )
         {
-            switch ( p.Type )
+            const auto decl = std::find_if( declared->begin(), declared->end(),
+                                            [&]( const ScriptPropertyDecl& d ) { return d.Name == p.Name; } );
+            // A value the script no longer declares, or declares as another kind (the script changed under the
+            // scene): not applied, said once per slot and name — Details shows the same row as stale.
+            if ( decl == declared->end() || !Fits( p, *decl ) )
             {
-                case PropertyType::Number:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
-                                                    Reflection::Value::Double( p.Number ) );
-                    break;
-                case PropertyType::Bool:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
-                                                    Reflection::Value::Bool( p.Bool ) );
-                    break;
-                case PropertyType::String:
-                    m_Impl->Runtime->SetTableField( target, "Properties", p.Name,
-                                                    Reflection::Value::String( p.Str ) );
-                    break;
+                if ( m_Impl->StaleProperties[key].insert( p.Name ).second )
+                    LOG_ERROR( "[Script] property '{}' (entity {}, slot {}) is not applied: the script {}", p.Name,
+                               entity, slot,
+                               decl == declared->end() ? "no longer declares it"
+                                                       : std::format( "declares it as {} now",
+                                                                      PropertyTypeName( decl->Default.Type ) ) );
+                continue;
             }
+            m_Impl->Runtime->SetProperty( target, p, world );
         }
+    }
+
+    void ScriptEngine::SyncProperties( uint32_t entity, uint32_t slot,
+                                       const std::vector<ScriptProperty>& overrides )
+    {
+        ApplyProperties( entity, slot, overrides );
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 )
+            return;
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( target );
+        if ( declared == nullptr )
+            return;
+
+        std::unordered_set<std::string> held;
+        for ( const ScriptProperty& p : overrides )
+            held.insert( p.Name );
+        std::unordered_set<std::string>& synced = m_Impl->SyncedOverrides[Impl::SlotKey( entity, slot )];
+        bool                             gone   = false;
+        for ( const std::string& name : synced )
+            gone = gone || !held.contains( name );
+        if ( gone )
+        {
+            Core::Scene* const      scene = m_Impl->Scene;
+            const LuauPropertyWorld world{ .Registry   = scene != nullptr ? &scene->GetRegistry() : nullptr,
+                                           .FindEntity = [scene]( std::uint64_t uuid ) -> entt::entity
+                                           {
+                                               if ( scene == nullptr )
+                                                   return entt::null;
+                                               const auto found = scene->FindEntityByID( Common::UUID( uuid ) );
+                                               return found ? static_cast<entt::entity>( found->get().GetHandle() )
+                                                            : entt::entity( entt::null );
+                                           } };
+            for ( const ScriptPropertyDecl& decl : *declared )
+                if ( synced.contains( decl.Name ) && !held.contains( decl.Name ) )
+                    m_Impl->Runtime->SetProperty( target, decl.Default, world );
+        }
+        synced = std::move( held );
     }
 
     void ScriptEngine::ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
@@ -284,19 +357,23 @@ namespace Desert::Scripting
         const LuauSlot source = m_Impl->SlotOf( entity, slot );
         if ( source == 0 || names.empty() )
             return;
-        for ( const LuauTableEntry& entry : m_Impl->Runtime->ReadTable( source, "Properties" ) )
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( source );
+        if ( declared == nullptr )
+            return;
+        for ( const ScriptPropertyDecl& decl : *declared )
         {
-            if ( std::find( names.begin(), names.end(), entry.Key ) == names.end() )
+            if ( std::find( names.begin(), names.end(), decl.Name ) == names.end() )
                 continue;
-            std::optional<ScriptProperty> read = ToScriptProperty( entry );
-            if ( !read )
+            ScriptProperty read;
+            if ( !m_Impl->Runtime->ReadProperty( source, decl.Name, decl.Default.Type, read ) )
                 continue;
+            read.Name       = decl.Name;
             const auto held = std::find_if( props.begin(), props.end(),
-                                            [&]( const ScriptProperty& p ) { return p.Name == entry.Key; } );
+                                            [&]( const ScriptProperty& p ) { return p.Name == decl.Name; } );
             if ( held == props.end() )
-                props.push_back( std::move( *read ) );
+                props.push_back( std::move( read ) );
             else
-                *held = std::move( *read );
+                *held = std::move( read );
         }
     }
 
@@ -364,12 +441,21 @@ namespace Desert::Scripting
         Common::ResultStr<Names> declared = runtime.ReadStringList( slot.GetValue(), "SaveGameProperties" );
         if ( !declared.IsSuccess() )
             return Common::MakeFormattedError<Names>( "script '{}': {}", path, declared.GetError() );
-        Names                             list       = declared.ExtractValue();
-        const std::vector<LuauTableEntry> properties = runtime.ReadTable( slot.GetValue(), "Properties" );
+        Names                                  list       = declared.ExtractValue();
+        const std::vector<ScriptPropertyDecl>& properties = *runtime.Declarations( slot.GetValue() );
         for ( const std::string& name : list )
         {
-            const bool known = std::any_of( properties.begin(), properties.end(),
-                                            [&]( const LuauTableEntry& e ) { return e.Key == name; } );
+            const auto decl  = std::find_if( properties.begin(), properties.end(),
+                                             [&]( const ScriptPropertyDecl& d ) { return d.Name == name; } );
+            const bool known = decl != properties.end();
+            if ( known &&
+                 !( decl->Default.Type == PropertyType::Number || decl->Default.Type == PropertyType::Int ||
+                    decl->Default.Type == PropertyType::Bool || decl->Default.Type == PropertyType::String ||
+                    decl->Default.Type == PropertyType::Enum ) )
+                return Common::MakeFormattedError<Names>( "script '{}': SaveGameProperties names '{}', a {}; a "
+                                                          "save game holds numbers, booleans, strings "
+                                                          "and enumerators",
+                                                          path, name, PropertyTypeName( decl->Default.Type ) );
             if ( !known )
                 return Common::MakeFormattedError<Names>(
                      "script '{}': SaveGameProperties names '{}', which its Properties table does not declare",
@@ -378,23 +464,76 @@ namespace Desert::Scripting
         return Common::MakeSuccess( std::move( list ) );
     }
 
-    std::vector<ScriptProperty> ReadScriptProperties( const std::string& path )
+    ScriptSchema ReadScriptSchema( const std::string& path )
     {
-        std::vector<ScriptProperty>    out;
+        ScriptSchema schema;
+        const auto   fail = [&]( ScriptStatus status, std::string error )
+        {
+            schema.Status    = status;
+            schema.ErrorLine = ScriptErrorLine( error );
+            schema.Error     = std::move( error );
+            return schema;
+        };
+        if ( !std::filesystem::exists( path ) && !Common::Utils::FileSystem::Exists( path ) )
+            return fail( ScriptStatus::NotFound, std::format( "script not found: {}", path ) );
         Common::ResultStr<std::string> source = ReadScript( path );
         if ( !source.IsSuccess() )
-            return out;
+            return fail( ScriptStatus::Error, source.GetError() );
+        schema.Description = LeadingComment( source.GetValue() );
 
-        // A throwaway runtime with no engine modules: the top level runs, `Properties` is read back.
+        // A throwaway runtime with no engine modules: the top level runs, the declarations are read back.
         LuauRuntime                       runtime;
         Common::ResultStr<LuauSlot> const slot = runtime.Load( path, source.GetValue(), {} );
         if ( !slot.IsSuccess() )
-            return out;
+            return fail( ScriptStatus::Error, slot.GetError() );
+        schema.Properties = *runtime.Declarations( slot.GetValue() );
 
-        for ( const LuauTableEntry& entry : runtime.ReadTable( slot.GetValue(), "Properties" ) )
-            if ( std::optional<ScriptProperty> p = ToScriptProperty( entry ) )
-                out.push_back( std::move( *p ) );
-        return out;
+        Common::ResultStr<std::vector<std::string>> buttons =
+             runtime.ReadStringList( slot.GetValue(), "CallInEditor" );
+        if ( !buttons.IsSuccess() )
+            return fail( ScriptStatus::Error, std::format( "{}: {}", path, buttons.GetError() ) );
+        for ( const std::string& name : buttons.GetValue() )
+        {
+            if ( !runtime.Defines( slot.GetValue(), name.c_str() ) )
+                return fail(
+                     ScriptStatus::Error,
+                     std::format( "{}: CallInEditor names '{}', which the script does not define as a function",
+                                  path, name ) );
+            schema.EditorFunctions.push_back( { name } );
+        }
+        return schema;
+    }
+
+    int ScriptErrorLine( const std::string& error )
+    {
+        // Luau prefixes a located error with `<chunk>:<line>:`; a chunk is a path, which may itself hold a colon
+        // (`C:/...`), so the first colon FOLLOWED BY DIGITS AND A COLON is the one.
+        for ( std::size_t colon = error.find( ':' ); colon != std::string::npos;
+              colon             = error.find( ':', colon + 1 ) )
+        {
+            std::size_t end = colon + 1;
+            while ( end < error.size() && error[end] >= '0' && error[end] <= '9' )
+                ++end;
+            if ( end > colon + 1 && end < error.size() && error[end] == ':' )
+                return std::stoi( error.substr( colon + 1, end - colon - 1 ) );
+        }
+        return 0;
+    }
+
+    Common::BoolResultStr ScriptEngine::CallFunction( uint32_t entity, uint32_t slot, const std::string& function )
+    {
+        const LuauSlot target = m_Impl->SlotOf( entity, slot );
+        if ( target == 0 )
+            return Common::MakeFormattedError<bool>( "no script runs in slot {} of entity {}", slot, entity );
+        if ( !m_Impl->Runtime->Defines( target, function.c_str() ) )
+            return Common::MakeFormattedError<bool>( "the script defines no function '{}'", function );
+        return m_Impl->CallSlot( entity, slot, function.c_str(), {} );
+    }
+
+    const std::string* ScriptEngine::SlotError( uint32_t entity, uint32_t slot ) const
+    {
+        const auto found = m_Impl->LastUpdateError.find( Impl::SlotKey( entity, slot ) );
+        return found == m_Impl->LastUpdateError.end() ? nullptr : &found->second;
     }
 
     void ScriptEngine::TickPlayerInput( entt::registry& registry, const float deltaSeconds )
