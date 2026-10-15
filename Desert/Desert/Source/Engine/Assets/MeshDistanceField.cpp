@@ -480,7 +480,9 @@ namespace Desert::Assets
             {
                 if ( cancel.IsCancelled() )
                 {
+                    // A cancelled build's error is not a failure: nothing is logged or published for it.
                     cancelled = true;
+                    field     = Common::MakeSuccess<std::shared_ptr<const MeshDistanceFieldData>>( nullptr );
                     break;
                 }
                 field = item.Work( built, cancel );
