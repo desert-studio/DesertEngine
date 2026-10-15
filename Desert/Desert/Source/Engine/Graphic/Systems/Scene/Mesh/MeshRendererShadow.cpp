@@ -1119,6 +1119,14 @@ namespace Desert::Graphic::System
              "CSM.Cascades" );
         graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics );
         m_CascadeMapsBuilt = true;
+        // Every layer starts at the far plane (1, standard Z: "no occluder"), written once on the frame the array
+        // is made. The cascade passes write only the layers fitted this frame, and none when nothing is fitted (an
+        // empty scene, no sun): without this the lighting would read, and the extraction hand on, an array no
+        // pass ever wrote.
+        graph.AddPass(
+             "CSM.Init", RDG::PassFlags::Raster,
+             [created]( RDG::PassBuilder& pass ) { pass.DepthTarget( created, RDG::LoadOp::ClearDepth( 1.0f ) ); },
+             []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
         // A fresh array holds nothing: every cascade fitted this frame is rebuilt into it (its cache copied, its
         // movable casters drawn), and one not fitted now redraws its cache the frame it is.
         const uint32_t fitted = GetValidCascadeCount();
