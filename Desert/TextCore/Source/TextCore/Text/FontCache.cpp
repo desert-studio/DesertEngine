@@ -1,6 +1,6 @@
 #include "FontCache.hpp"
 
-#include <Engine/Text/FontBaker.hpp>
+#include <TextCore/Text/FontBaker.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>

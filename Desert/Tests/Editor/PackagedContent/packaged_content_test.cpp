@@ -27,9 +27,9 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
-#include <Engine/Text/FontBaker.hpp>
-#include <Engine/Text/FontCache.hpp>
-#include <Engine/Vector/IconBake.hpp>
+#include <TextCore/Text/FontBaker.hpp>
+#include <TextCore/Text/FontCache.hpp>
+#include <TextCore/Vector/IconBake.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>

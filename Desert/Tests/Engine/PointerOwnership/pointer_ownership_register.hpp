@@ -2165,7 +2165,7 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/Core/Commands/SkeletonBindEdit.hpp",
           "ResidentSkeletonClips", "Loaded", Guard::HostOutlivesUs,
           "the editor's AssetManager (AnimationEditorDocument::m_Assets), held for the editor session and outliving every document and every command in the history; null = no clip resident" },
-        { "Desert/Desert/Source/Engine/Text/Msdf.cpp",
+        { "Desert/TextCore/Source/TextCore/Text/Msdf.cpp",
           "EdgePoint", "NearEdge", Guard::CallScoped,
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },

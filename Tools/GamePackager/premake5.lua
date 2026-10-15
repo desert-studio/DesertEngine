@@ -41,11 +41,11 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontCache.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Vector/IconBake.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/TextCore/Source/TextCore/Text/FontBaker.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/TextCore/Source/TextCore/Text/Msdf.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/TextCore/Source/TextCore/Text/FontCache.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/TextCore/Source/TextCore/Vector/VectorImage.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/TextCore/Source/TextCore/Vector/IconBake.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
         -- THE TEXTURE COOK (PK1): the editor's importer itself, the container it writes, the BC7 gates it
         -- measures its own output against, and stb_image as the one decoder in the closure. The same
