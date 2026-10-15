@@ -316,9 +316,6 @@ namespace Desert::Graphic::System
         // is keyed on where the sky light is (SkyLightState), not on the bare presence of two cubes:
         //  - NoSky: the scene has no sky, so there is no sky light (UE: no USkyLightComponent) and the black
         //    cubes are the defined answer — said once, at info;
-        //  - Settling: the sky's environment is on its way (the first frame of a physical sky waits for this
-        //    frame's atmosphere LUTs, then the bake lands asynchronously) — said once, at info, and the
-        //    "arrived" line below closes it, so a bake that never lands is visible as an unclosed wait;
         //  - Ready with a cube that did not resolve, or a missing BRDF LUT (a renderer-global built at
         //    startup and never legitimately absent): a real fault, an ERROR.
         //
@@ -329,7 +326,6 @@ namespace Desert::Graphic::System
         {
             Complete,
             NoSky,
-            Settling,
             Broken,
         };
 
@@ -341,8 +337,6 @@ namespace Desert::Graphic::System
             {
                 case SkyLightState::NoSky:
                     return EnvironmentReport::NoSky;
-                case SkyLightState::Settling:
-                    return EnvironmentReport::Settling;
                 case SkyLightState::Ready:
                     return environment.IsComplete() ? EnvironmentReport::Complete : EnvironmentReport::Broken;
             }
@@ -366,10 +360,6 @@ namespace Desert::Graphic::System
                     LOG_INFO( "DeferredLighting: this scene has no sky (no procedural sky, no HDR skybox), so it "
                               "has no sky light: the sky ambient is zero by definition and static geometry is lit "
                               "by its lights, GI and reflection captures only." );
-                    break;
-                case EnvironmentReport::Settling:
-                    LOG_INFO( "DeferredLighting: the sky light is still being captured (the sky's environment "
-                              "bake has not landed); the sky ambient is black until it does." );
                     break;
                 case EnvironmentReport::Broken:
                     LOG_ERROR( "DeferredLighting: the sky light cannot shade the ambient — irradiance cube {}, "

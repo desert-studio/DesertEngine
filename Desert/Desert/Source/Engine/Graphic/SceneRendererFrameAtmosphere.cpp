@@ -116,6 +116,17 @@ namespace Desert::Graphic
             textures.Transients.CloudShadowMap = textures.Import( clouds->GetShadowMap(), "Clouds.ShadowMap" );
     }
 
+    void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        if ( sky == nullptr )
+            return;
+        sky->SettleAtmosphereCachedLutNodes(
+             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes() ) );
+        sky->AddSkyCapturePasses( graph, textures );
+    }
+
     void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type

@@ -16,6 +16,7 @@
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SkyCapture.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -56,21 +57,20 @@ namespace Desert::Graphic::System
         // SkyLuminanceCeiling). Set from the post-process settings; re-uploads the block when it changes.
         void SetSkyLuminanceCeiling( float ceiling );
 
-        // Bakes / rebakes the procedural-sky IBL when the rule says so (see ShouldRebakeSkyEnvironment
-        // for WHETHER, SkyEnvironmentRebakeMayRun for WHEN). Call once per frame from a
-        // frame-boundary-safe point (BEFORE the render graph records), NOT from inside a pass. The bake is
-        // SUBMITTED, not waited for: it lands on the first call that finds its batch complete, and until then
-        // the previous environment (or none, on the first bake) stays. @p deltaSeconds drives the debounce
-        // that keeps a drag from baking on every frame it crosses the angular threshold.
+        // Begins a capture of the procedural sky's light when the rule says so (see ShouldRebakeSkyEnvironment
+        // for WHETHER, SkyEnvironmentRebakeMayRun for WHEN). Call once per frame BEFORE the render graph is built:
+        // it decides and allocates, AddSkyCapturePasses records. The view's FIRST capture is whole -- recorded
+        // complete in this frame's graph, so the frame lights its scene with its sky -- and every later one is
+        // time-sliced over the next frames while the previous environment keeps lighting the scene (SkyCapture).
+        // @p deltaSeconds drives the debounce that keeps a drag from recapturing on every frame it crosses the
+        // angular threshold.
         void EnsureProceduralEnvironment( float deltaSeconds );
 
-        /// "The light this view's sky gives is not the one it will give a frame from now": a procedural sky
-        /// whose bake is still on the GPU, or that has none yet. A capture of the view waits on this — a
-        /// picture taken now would be lit by no sky, or by the previous one.
-        [[nodiscard]] bool IsEnvironmentSettling() const
-        {
-            return m_UseProceduralSky && ( m_PendingBake != nullptr || !m_ProceduralEnv );
-        }
+        // GRAPH BUILD, before any lit pass and before the view imports its environment
+        // (SceneRenderer::AddFrameSkyLight): the atmosphere's cached LUT nodes it marches must already be added
+        // (DeclareAtmosphereCachedLutNodes). Records this frame's slice of the running capture; the frame its last
+        // step is recorded, GetEnvironment answers the new cubes.
+        void AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures );
 
         // The physical atmosphere's LUTs (Hillaire 2020): the cached pair — transmittance 256x64 +
         // multi-scattering 32x32 — the per-view Sky-View LUT, 192x104, the per-view camera
@@ -91,8 +91,16 @@ namespace Desert::Graphic::System
         // (SceneRenderer runs this slot immediately before ExecuteAtmosphericFog), so the froxels a
         // pixel reads were marched for the camera that pixel was drawn with. The DISTANT SKY LIGHT is
         // refilled here for the third time on the same grounds — same frame, same consumer, no latency.
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        //
+        // SPLIT IN TWO SLOTS: the nodes that depend on the sky alone -- the cached pair when stale, and the
+        // distant sky light -- are DeclareAtmosphereCachedLutNodes, added at the head of the graph because the sky
+        // capture marches them in the same frame (AddSkyCapturePasses). The per-view ones -- the Sky-View LUT and
+        // the aerial-perspective volume -- are DeclareAtmosphereLutNodes, in the in-frame compute slot above.
+        std::vector<ComputeNodeDeclaration> DeclareAtmosphereCachedLutNodes();
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
+        void                                SettleAtmosphereCachedLutNodes( bool accepted );
+        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        // The sky-view LUT counts as filled only once the frame graph accepted its node.
         void SettleAtmosphereLutNodes( bool accepted );
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
         // an earlier frame's nodes have written both. SceneRenderer::ImportSceneViewTextures asks it before any
@@ -131,16 +139,16 @@ namespace Desert::Graphic::System
             return std::nullopt;
         }
 
-        /// Which of the three answers GetEnvironment() is giving (SkyLightState). The same branches in the
-        /// same order, so the state and the environment cannot disagree: a procedural sky is Ready once its
-        /// first bake landed (a re-bake in flight keeps the previous environment, which is still Ready), an
-        /// HDR skybox once its material holds both cubes, and a scene with neither has NoSky.
+        /// Whether this view has a sky light (SkyLightState), by the branches GetEnvironment() takes. A
+        /// procedural sky is Ready from its view's first frame, because its first capture is recorded whole in
+        /// that frame's graph before anything reads it (a recapture keeps the previous environment, still Ready);
+        /// an HDR skybox is handed to the renderer only once its cubes exist (SkyboxService holds it pending
+        /// until then). A Ready sky whose cubes do not resolve is therefore a fault, which the deferred composite
+        /// reports as one; a scene with neither sky has NoSky.
         [[nodiscard]] SkyLightState GetSkyLightState() const
         {
-            if ( m_UseProceduralSky )
-                return m_ProceduralEnv ? SkyLightState::Ready : SkyLightState::Settling;
-            if ( const auto& material = m_MaterialSkybox.lock() )
-                return material->GetEnvironment() ? SkyLightState::Ready : SkyLightState::Settling;
+            if ( m_UseProceduralSky || m_MaterialSkybox.lock() )
+                return SkyLightState::Ready;
             return SkyLightState::NoSky;
         }
 
@@ -215,9 +223,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchDistantLight( const RDG::PassContext& context );
 
-        // True when an earlier frame's graph has written the transmittance and multi-scattering LUTs for the
-        // atmosphere's current parameters, so the environment bake (outside the graph) may sample them.
-        [[nodiscard]] bool CachedLutsCurrent() const;
+        // Each LUT node's binding block 0: @p pipeline's shader layout (kept in @p layout), the sky payload
+        // buffer through the pipeline route, and @p pushBytes of push constants.
+        RenderPassDeclaration::BlockDeclaration DeclareLutBlock( RenderPassDeclaration&    declared,
+                                                                 ComputePipeline*          pipeline,
+                                                                 ShaderBindingLayoutCache& layout,
+                                                                 uint32_t                  pushBytes );
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;
@@ -360,16 +371,17 @@ namespace Desert::Graphic::System
         bool m_HighResCostLogged  = false;
         bool m_BelowHorizonLogged = false;
 
-        // THE BAKE ON THE GPU, and what it was baked from — stamped into m_Baked* only when it lands, for the
-        // reason m_BakedSkyFingerprint gives. Declared LAST so it is destroyed FIRST: its destructor waits for
-        // the batch, which reads the LUTs and parameter buffers declared above.
-        bool                                       LandPendingBake();
-        std::unique_ptr<ProceduralEnvironmentBake> m_PendingBake;
+        // THE CAPTURE IN THE GRAPH, and what it was begun from -- stamped into m_Baked* only when it completes,
+        // for the reason m_BakedSkyFingerprint gives.
+        SkyCapture                                 m_Capture;
+        bool                                       m_CaptureProgramsFailed    = false;
+        bool                                       m_CaptureLutsMissingLogged = false;
         glm::vec3                                  m_PendingSunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
         uint64_t                                   m_PendingCloudFingerprint = 0;
         uint64_t                                   m_PendingSkyFingerprint   = 0;
         SkyEnvironmentSize                         m_PendingSize{};
         const char*                                m_PendingWhat = "";
         std::chrono::steady_clock::time_point      m_PendingStarted{};
+        uint32_t                                   m_PendingFrames = 0; // frames the running capture has spanned
     };
 } // namespace Desert::Graphic::System

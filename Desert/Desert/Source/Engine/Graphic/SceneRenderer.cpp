@@ -995,8 +995,8 @@ namespace Desert::Graphic
             colorIntensity.z *= transmittance.z;
         }
 
-        // Bake/rebake the procedural-sky IBL if the sun moved (throttled). Done here — before the render
-        // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
+        // Decide whether the procedural sky's light is (re)captured this frame and allocate the capture, before
+        // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
@@ -1131,6 +1131,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
+        AddFrameSkyLight( graph, textures );
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
@@ -1730,16 +1731,6 @@ namespace Desert::Graphic
 
         const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
         return clouds && clouds->IsModellingVolumeBaking();
-    }
-
-    bool SceneRenderer::IsEnvironmentSettling() const
-    {
-        const auto it = m_RenderSystems.find( "SkyboxSystem" );
-        if ( it == m_RenderSystems.end() )
-            return false;
-
-        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
-        return ( sky != nullptr ) && sky->IsEnvironmentSettling();
     }
 
     SkyLightState SceneRenderer::GetSkyLightState() const

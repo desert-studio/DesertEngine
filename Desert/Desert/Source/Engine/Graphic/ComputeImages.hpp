@@ -45,23 +45,6 @@ namespace Desert::Graphic
         virtual ~ComputeImages() = default;
 
         static std::shared_ptr<Image2D> ProccessForImage2D( const std::shared_ptr<Image>& image );
-        // Bakes the procedural atmosphere into an equirect HDR panorama (RGBA32F, Storage|Sample). No input
-        // image: the sky is generated in-shader from @p skyParams, which is the SAME buffer the screen sky
-        // pass reads, so the baked lighting and the visible sky cannot describe different skies.
-        // @p transmittanceLut / @p multiScatterLut feed the physical model's march; nullptr (the gradient
-        // model) binds the engine fallbacks so the shader's samplers are never undefined descriptors.
-        // @p clouds is this view's cloud layer, marched into the same panorama by the same field the
-        // screen pass marches — see Engine/Graphic/Clouds/CloudEnvironmentBake.hpp. Its Marched flag is
-        // the only gate: every descriptor the shader declares is written on every path, because an
-        // unbound one makes the set invalid and this backend answers an invalid set by skipping the whole
-        // dispatch — which here would lose the environment, not the clouds, with nothing in the log.
-        // RECORDS into @p batch and returns the panorama before the GPU has written it — the caller samples it
-        // only from commands recorded after this one in the same batch, or once the batch completes.
-        static std::shared_ptr<Image2D> BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
-                                                                ShaderResources::StorageBuffer* skyParams,
-                                                                Image2D*                        transmittanceLut,
-                                                                Image2D*                        multiScatterLut,
-                                                                const CloudBakeBinding&         clouds );
         // Single dispatch: samples spec.InputHandle (2D panorama OR source cubemap) -> a fresh output cube.
         // Both RECORD into @p batch and return the cube before the GPU has written it: the caller submits
         // the batch and must not sample the cube until it completes. The transient pipeline is retained

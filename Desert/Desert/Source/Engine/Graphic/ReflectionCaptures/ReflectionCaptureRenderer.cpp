@@ -304,9 +304,9 @@ namespace Desert::Graphic
 
         // Settled once the face views have held ONE sky environment for kCaptureSettleFrames frames. A scene
         // with NO sky has no environment to wait for: its defined answer (zero sky light) is as stable as a
-        // landed bake, so it settles too — waiting for a sky that cannot arrive kept six complete face views
-        // rendering every frame, forever, and never wrote the capture as settled. Only a sky whose
-        // environment is still on its way (Settling) holds the counter at zero.
+        // captured one, so it settles too — waiting for a sky that cannot arrive kept six complete face views
+        // rendering every frame, forever, and never wrote the capture as settled. A sky's recapture replaces
+        // the face views' prefiltered cube, which restarts the count.
         constexpr uint64_t kNoSkyEnvironment = ~uint64_t{ 0 };
         uint64_t           faceEnvironment   = 0;
         if ( m_Faces[0]->Renderer->GetSkyLightState() == SkyLightState::NoSky )

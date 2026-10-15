@@ -11,7 +11,7 @@
 // ── THE BOUNDARY, AND IT IS THE WHOLE DESIGN ────────────────────────────────────────────────────────
 //
 // THE SKY HAS TWO PATHS AND ONLY ONE OF THEM MAY BE BAKED. `EnvironmentManager::Create` reads a FILE;
-// `EnvironmentManager::CreateProcedural` reads the atmosphere's parameters, which carry the sun's
+// the procedural sky capture (`SkyCapture`) reads the atmosphere's parameters, which carry the sun's
 // direction and therefore the time of day. Baking the second would freeze one instant of the day cycle
 // into a cache and hand it back for every other instant — a defect with no symptom at the moment it is
 // written and no way back once content depends on it. The formulation to keep: the path that gets baked
