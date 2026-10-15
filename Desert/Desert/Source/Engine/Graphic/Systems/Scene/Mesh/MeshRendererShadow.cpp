@@ -56,13 +56,7 @@ namespace Desert::Graphic::System
         const ViewFrame sunView =
              MakeStillViewFrame( glm::mat4( 1.0f ), m_RSMViewProj, m_RSMEye, m_WorldTimeSeconds );
         MaterialInstance* ri = m_RSMInstance.get();
-        // The permutation the RSM records with is a light view and declares no motion rows (binding 25/26); the
-        // template material's reflection (the view-pass cell) does, so carrying them would bind a slot the
-        // pipeline lacks and refuse the pass ("material binding 25 is not in the pipeline's set 0").
-        SceneFrameBinding sunFrame = CaptureFrameState( &sunView );
-        sunFrame.ObjectMotions     = {};
-        sunFrame.ObjectBones       = {};
-        sunFrame.ApplyTo( ri );
+        CaptureFrameState( &sunView ).ApplyTo( ri );
 
         // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM). The
         // per-object transform, material row and instance bind are each draw's state, written right before it.

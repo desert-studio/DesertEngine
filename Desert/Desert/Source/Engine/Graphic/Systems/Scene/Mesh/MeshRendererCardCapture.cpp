@@ -107,12 +107,7 @@ namespace Desert::Graphic::System
             const ViewFrame cardView =
                  MakeStillViewFrame( capture.View, capture.Projection, capture.Eye, m_WorldTimeSeconds );
             MaterialInstance* const instance = m_CardCaptureInstances[i].get();
-            // A light view (UE: the card capture is not a view of the scene's GPUScene rows): the permutation it
-            // records with declares no motion rows, so none are carried into the template that does.
-            SceneFrameBinding cardFrame = CaptureFrameState( &cardView );
-            cardFrame.ObjectMotions     = {};
-            cardFrame.ObjectBones       = {};
-            cardFrame.ApplyTo( instance );
+            CaptureFrameState( &cardView ).ApplyTo( instance );
             const SurfaceCache::AtlasRect rect = capture.CaptureRect;
             m_CardCaptureDraws.Add( { .Pipeline          = m_RSMPipeline.get(),
                                       .Mesh              = source.Mesh,
