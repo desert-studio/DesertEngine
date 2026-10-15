@@ -3,7 +3,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSkinnedRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
@@ -28,8 +27,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<Prepared> VulkanSkinnedRayTracingGeometry::Prepare( const SkinnedMesh& mesh,
-                                                                          const uint64_t     hiddenSubmeshes )
+    Common::ResultStr<Prepared>
+    VulkanSkinnedRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
     {
         const auto logical = LogicalDevice();
         if ( !logical )
@@ -40,8 +39,8 @@ namespace Desert::Graphic::API::Vulkan
                  "SkinCache: the device has no acceleration-structure functions, but "
                  "a resolved method traces rays" );
 
-        const auto vertices     = mesh.GetVertexBuffer();
-        const auto indices      = mesh.GetIndexBuffer();
+        const auto& vertices    = input.Vertices;
+        const auto& indices     = input.Indices;
         const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
         const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
@@ -49,19 +48,19 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<Prepared>(
                  "SkinCache: the skinned mesh has no resident vertex/index buffer" );
 
-        const uint32_t vertexCount = mesh.GetVertexCount();
+        const uint32_t vertexCount = input.VertexCount;
         if ( m_Handle != VK_NULL_HANDLE && vertices == m_SourceVertices && indices == m_Indices &&
-             hiddenSubmeshes == m_HiddenSubmeshes && vertexCount == m_VertexCount )
+             input.Segments == m_Segments && vertexCount == m_VertexCount )
             return Common::MakeSuccess( Prepared{ ( m_Built ? m_UpdateScratch : m_BuildScratch ) +
                                                        kMaxAccelerationStructureScratchAlignment,
                                                   m_Built } );
 
         Release();
-        m_Segments = RayTracing::DescribeDeformedMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
-        if ( m_Segments.empty() || vertexCount == 0 )
+        if ( input.Segments.empty() || vertexCount == 0 )
             return Common::MakeFormattedError<Prepared>(
-                 "SkinCache: the skinned mesh has no visible triangle ({} vertices, hidden mask {:#x})",
-                 vertexCount, hiddenSubmeshes );
+                 "SkinCache: the skinned mesh has no visible triangle ({} vertices, {} segments)", vertexCount,
+                 input.Segments.size() );
+        m_Segments = input.Segments;
 
         const VkDevice device = logical->GetVulkanLogicalDevice();
         const auto&    allocator =
@@ -140,7 +139,6 @@ namespace Desert::Graphic::API::Vulkan
 
         m_SourceVertices  = vertices;
         m_Indices         = indices;
-        m_HiddenSubmeshes = hiddenSubmeshes;
         m_VertexCount     = vertexCount;
 
         // Both start untouched; each graph hands back the state it leaves them in.
@@ -231,7 +229,6 @@ namespace Desert::Graphic::API::Vulkan
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();
-        m_HiddenSubmeshes = 0;
         m_VertexCount     = 0;
         m_IndexAddress    = 0;
         m_BuildScratch    = 0;

@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
+#include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -103,7 +104,7 @@ namespace Desert::Graphic::RayTracing
                 entry.Geometry = CreateSkinnedRayTracingGeometry();
 
             const Common::ResultStr<SkinnedBlasPrepared> prepared =
-                 entry.Geometry->Prepare( *record.Mesh, request.HiddenSubmeshes );
+                 entry.Geometry->Prepare( DescribeDeformedMeshBlas( *record.Mesh, request.HiddenSubmeshes ) );
             if ( !prepared )
             {
                 if ( !entry.RefusalLogged )

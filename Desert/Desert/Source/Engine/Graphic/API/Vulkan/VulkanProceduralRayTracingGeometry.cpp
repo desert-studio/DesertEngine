@@ -3,7 +3,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanProceduralRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
@@ -26,8 +25,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<Prepared> VulkanProceduralRayTracingGeometry::Prepare( const Mesh&    mesh,
-                                                                             const uint64_t hiddenSubmeshes )
+    Common::ResultStr<Prepared>
+    VulkanProceduralRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
     {
         const auto logical = LogicalDevice();
         if ( !logical )
@@ -38,8 +37,8 @@ namespace Desert::Graphic::API::Vulkan
                  "procedural BLAS: the device has no acceleration-structure functions, but a resolved method "
                  "traces rays" );
 
-        const auto vertices     = mesh.GetVertexBuffer();
-        const auto indices      = mesh.GetIndexBuffer();
+        const auto& vertices    = input.Vertices;
+        const auto& indices     = input.Indices;
         const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
         const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
@@ -47,15 +46,14 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no resident vertex/index buffer" );
 
         if ( m_Handle != VK_NULL_HANDLE && vertices == m_SourceVertices && indices == m_Indices &&
-             hiddenSubmeshes == m_HiddenSubmeshes )
+             input.Segments == m_Segments )
             return Common::MakeSuccess(
                  Prepared{ m_BuildScratch + kMaxAccelerationStructureScratchAlignment, !m_Built } );
 
         Release();
-        m_Segments = RayTracing::DescribeStaticMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
-        if ( m_Segments.empty() )
-            return Common::MakeFormattedError<Prepared>(
-                 "procedural BLAS: the mesh has no visible triangle (hidden mask {:#x})", hiddenSubmeshes );
+        if ( input.Segments.empty() )
+            return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no visible triangle" );
+        m_Segments = input.Segments;
 
         const VkDevice device = logical->GetVulkanLogicalDevice();
         const auto&    allocator =
@@ -114,7 +112,6 @@ namespace Desert::Graphic::API::Vulkan
 
         m_SourceVertices  = vertices;
         m_Indices         = indices;
-        m_HiddenSubmeshes = hiddenSubmeshes;
 
         m_StorageExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
         m_StorageExternal.Physical =
@@ -183,7 +180,6 @@ namespace Desert::Graphic::API::Vulkan
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();
-        m_HiddenSubmeshes = 0;
         m_IndexAddress    = 0;
         m_BuildScratch    = 0;
         m_Built           = false;

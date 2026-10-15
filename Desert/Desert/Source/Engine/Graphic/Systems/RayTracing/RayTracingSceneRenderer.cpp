@@ -3,6 +3,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
+#include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGather.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 
@@ -16,7 +17,8 @@ namespace Desert::Graphic::RayTracing
         return []( Mesh& mesh, const uint64_t hiddenMask )
                     -> Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>
         {
-            auto built = API::Vulkan::VulkanRayTracingGeometry::BuildStatic( mesh, hiddenMask );
+            auto built =
+                 API::Vulkan::VulkanRayTracingGeometry::BuildStatic( DescribeStaticMeshBlas( mesh, hiddenMask ) );
             if ( !built )
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );

@@ -5,8 +5,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
+
+namespace Desert::Graphic
+{
+    class IndexBuffer;
+    class VertexBuffer;
+} // namespace Desert::Graphic
 
 // THE BLAS BUILD INPUT OF A STATIC MESH (UE FRayTracingGeometryInitializer + its segments), device-free. One
 // geometry per submesh, all reading the mesh's ONE vertex buffer and ONE index buffer — the same buffers the
@@ -120,6 +127,22 @@ namespace Desert::Graphic::RayTracing
     {
         return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kDeformedPositionLayout );
     }
+
+    // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and
+    // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
+    // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
+    // (Engine/Graphic/Render/RayTracingMeshInput.hpp), so the API layer never includes Mesh or SkinnedMesh.
+    struct RayTracingMeshInput
+    {
+        // The mesh's vertex buffer: what a static / procedural BLAS reads positions from, and what the skin pass
+        // reads for a deformed one (its BLAS reads the cached positions instead).
+        std::shared_ptr<VertexBuffer> Vertices;
+        std::shared_ptr<IndexBuffer>  Indices;
+        // Vertices in Vertices: a deformed BLAS sizes its cached positions by it (a static input leaves it 0).
+        uint32_t VertexCount = 0;
+        // Empty: nothing to build (no visible triangle, or a skinned mesh asked for a static BLAS).
+        std::vector<RayTracingGeometrySegment> Segments;
+    };
 
     // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a
     // view TLAS answer different questions), and this is the one place the level picks the kind.

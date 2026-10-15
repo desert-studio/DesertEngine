@@ -32,7 +32,7 @@ namespace Desert::Graphic::API::Vulkan
         VulkanSkinnedRayTracingGeometry& operator=( const VulkanSkinnedRayTracingGeometry& ) = delete;
 
         [[nodiscard]] Common::ResultStr<RayTracing::SkinnedBlasPrepared>
-                                           Prepare( const SkinnedMesh& mesh, uint64_t hiddenSubmeshes ) override;
+                                           Prepare( const RayTracing::RayTracingMeshInput& input ) override;
         [[nodiscard]] RDG::ExternalBuffer& GetPositions() override
         {
             return m_PositionsExternal;
@@ -65,7 +65,6 @@ namespace Desert::Graphic::API::Vulkan
         // What the current storage was built for: a change of any of them is a full build of a new BLAS.
         std::shared_ptr<VertexBuffer> m_SourceVertices;
         std::shared_ptr<IndexBuffer>  m_Indices; // held: the BLAS build reads it by address
-        uint64_t                      m_HiddenSubmeshes = 0;
         uint32_t                      m_VertexCount     = 0;
 
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;

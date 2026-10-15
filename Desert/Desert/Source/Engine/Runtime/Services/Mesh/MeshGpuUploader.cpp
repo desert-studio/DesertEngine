@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Geometry/MeshFactory.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
+#include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 
 namespace Desert::Runtime
 {
@@ -46,7 +47,8 @@ namespace Desert::Runtime
             {
                 if ( !mesh )
                     return;
-                auto built = Graphic::API::Vulkan::VulkanRayTracingGeometry::BuildStatic( *mesh, 0 );
+                auto built = Graphic::API::Vulkan::VulkanRayTracingGeometry::BuildStatic(
+                     Graphic::RayTracing::DescribeStaticMeshBlas( *mesh, 0 ) );
                 if ( !built.IsSuccess() )
                 {
                     LOG_ERROR( "[MeshService] BLAS of '{}' not built: {}", asset.GetMetadata().Filepath.string(),

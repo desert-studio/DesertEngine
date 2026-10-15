@@ -7,11 +7,6 @@
 #include <cstdint>
 #include <memory>
 
-namespace Desert
-{
-    class SkinnedMesh;
-}
-
 // THE DEVICE-FACING SIDE OF ONE SKIN-CACHE ENTRY (RenderCore): the interface the API implements
 // (VulkanSkinnedRayTracingGeometry) and the skin cache (RayTracingSkinCache.hpp, Renderer) drives. Kept apart from
 // the cache so the API layer never includes the renderer.
@@ -29,12 +24,11 @@ namespace Desert::Graphic::RayTracing
     class SkinnedRayTracingGeometry : public RayTracingDynamicGeometryTarget
     {
     public:
-        // Makes the positions buffer and the BLAS fit @p mesh with @p hiddenSubmeshes left out, recreating both
-        // when the mesh's vertex/index buffers, its vertex count or the mask changed. Errors: the device cannot
-        // build acceleration structures, the mesh is not resident or has no visible triangle, an allocation
-        // failed.
-        [[nodiscard]] virtual Common::ResultStr<SkinnedBlasPrepared> Prepare( const SkinnedMesh& mesh,
-                                                                              uint64_t hiddenSubmeshes ) = 0;
+        // Makes the positions buffer and the BLAS fit @p input (DescribeDeformedMeshBlas of the skinned mesh and
+        // the instance's hidden mask), recreating both when the vertex/index buffers, the vertex count or the
+        // segments changed. Errors: the device cannot build acceleration structures, the buffers are not
+        // resident, the input has no segment or no vertex, an allocation failed.
+        [[nodiscard]] virtual Common::ResultStr<SkinnedBlasPrepared> Prepare( const RayTracingMeshInput& input ) = 0;
         // Graph external carrying its own state across graphs: the positions the skin pass writes (the BLAS
         // storage and its build are the dynamic-geometry target's; the build reads these positions).
         [[nodiscard]] virtual RDG::ExternalBuffer& GetPositions() = 0;

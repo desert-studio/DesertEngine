@@ -3,6 +3,7 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 namespace Desert::Graphic::RayTracing
@@ -42,7 +43,7 @@ namespace Desert::Graphic::RayTracing
                 entry.Geometry = CreateProceduralRayTracingGeometry();
 
             const Common::ResultStr<ProceduralBlasPrepared> prepared =
-                 entry.Geometry->Prepare( mesh, primitive.HiddenSubmeshes );
+                 entry.Geometry->Prepare( DescribeStaticMeshBlas( mesh, primitive.HiddenSubmeshes ) );
             if ( !prepared )
             {
                 if ( !entry.RefusalLogged )
