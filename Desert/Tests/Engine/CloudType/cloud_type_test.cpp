@@ -155,7 +155,6 @@ namespace
         params.LayerBottomKm     = CloudTypeBaseKm( shape );
         params.LayerThicknessKm  = std::max( CloudTypeTopKm( shape ) - params.LayerBottomKm, 0.001f );
         params.BlendRadiusKm     = 0.02f * latticeKm;
-        params.ProfileDepthKm    = 0.12f * latticeKm;
         params.Coverage          = 1.0f;
         params.CoverageContrast  = 1.0f;
         params.Seed              = 1u;
@@ -176,6 +175,8 @@ namespace
     {
         Desert::Assets::CloudProceduralFieldParams      Params;
         std::vector<Desert::Assets::CloudModellingBlob> Blobs;
+        /// The same lumps with their ranks and cluster sites — what the preview cuts and joins by, as the bake.
+        std::vector<Desert::Assets::CloudProceduralLump> Lumps;
         glm::vec3                                       TallestKm{ 0.0f };
     };
 
@@ -196,7 +197,10 @@ namespace
 
         const glm::vec2 origin = Desert::Assets::CloudProceduralRegionOriginKm( column.Params, 0.0f, 0.0f );
 
-        column.Blobs = Desert::Assets::GenerateCloudProceduralBlobs( column.Params, 0u, origin );
+        column.Lumps = Desert::Assets::GenerateCloudProceduralLumps(
+             column.Params, 0u, origin, Desert::Assets::CloudProceduralLumpSet::KeptCells );
+        for ( const Desert::Assets::CloudProceduralLump& lump : column.Lumps )
+            column.Blobs.push_back( lump.Blob );
 
         if ( !column.Blobs.empty() )
         {
@@ -219,7 +223,7 @@ namespace
             return 0.0f;
 
         return Desert::Assets::EvaluateCloudProceduralProfile(
-             column.Params, column.Blobs, glm::vec3( column.TallestKm.x, altitudeKm, column.TallestKm.z ) );
+             column.Params, 0u, column.Lumps, glm::vec3( column.TallestKm.x, altitudeKm, column.TallestKm.z ) );
     }
 
     float ProfileBaseKm( const CloudTypeShape& shape )
@@ -311,9 +315,9 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndAMissingShapeFieldTakesIts
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
     const std::string minimal =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":7},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
-        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368],"Density":[0.0,0.25925928,0.7407408,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
         "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
 
@@ -326,15 +330,26 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndAMissingShapeFieldTakesIts
     // Common/Json/Json.hpp: the member initialiser IS the format's default, the way UE fills an unstated
     // property from the class default object) — the shape is still validated, the field is not invented.
     const std::string incomplete =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":7},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
-        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368],"Density":[0.0,0.25925928,0.7407408,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
         "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
     const auto defaulted = ParseCloudType( incomplete );
     ASSERT_TRUE( defaulted ) << defaulted.GetError();
     EXPECT_FLOAT_EQ( defaulted.GetValue().Shape.ExtinctionFactor, 1.0f )
          << "a shape missing ExtinctionFactor did not take the struct default";
+
+    // THE ALTITUDE DENSITY ROW IS PART OF THE SHAPE (CLTY 6): a profile carrying the silhouette and not
+    // the density is refused, not handed the base ramp — the ramp is what the migrator wrote into the
+    // shipped files once, not what the reader assumes for a file that does not say.
+    const std::string noDensity =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":7},"Dependencies":[]},"Shape":{
+        "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
+        "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
+        "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
+        "PlacementScale":1.0,"PlacementAnisotropy":1.0}})";
+    EXPECT_FALSE( ParseCloudType( noDensity ) ) << "a profile missing its Density row was accepted";
 
     // A VERSION-1 FILE IS REFUSED, NOT FILLED IN. It carries the twelve numbers T1 shipped and neither of
     // the two T3 added, and a fibrous cirrus and a round-patched one are different KINDS of cloud — so
@@ -1142,10 +1157,12 @@ TEST( CloudTypeLibrary, TheLayersDetailStrengthStillMovesEveryShippedType )
 //     authored      strength 0.10 x factor 2.50 = 0.250   cirrus
 //     §DS           strength 0.40 x factor 0.625 = 0.250   the march needed a deeper layer
 //     §SIL2         strength 0.65 x factor 0.3846154 = 0.250   a taller lump needed a deeper layer again
+//     FARWX-b13     strength 0.40 x factor 0.625 = 0.250   the coverage remap made the surface erode further
 //
 //     authored      strength 0.10 x factor 1.60 = 0.160   altocumulus
 //     §DS           strength 0.40 x factor 0.40 = 0.160
 //     §SIL2         strength 0.65 x factor 0.2461538 = 0.160
+//     FARWX-b13     strength 0.40 x factor 0.40 = 0.160
 //
 // WHY IT IS ASSERTED RATHER THAN RECOMPUTED IN A COMMENT. Both re-bases were arithmetic done by hand in a
 // report, and the numbers then had to be typed into a JSON file by hand as well. A slip in either — a digit,

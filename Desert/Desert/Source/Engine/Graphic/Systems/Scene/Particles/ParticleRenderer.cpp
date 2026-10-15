@@ -193,7 +193,7 @@ namespace Desert::Graphic::System
             if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
-                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
@@ -272,7 +272,7 @@ namespace Desert::Graphic::System
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
-                 .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageWrite )
+                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
                  .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
                  .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
@@ -295,11 +295,11 @@ namespace Desert::Graphic::System
             ve.Declared = false;
             ve.Sorted   = false;
         }
-        if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Particles )
+        if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
         const ParticlePoolBuffers& pool = m_World->Pool();
         for ( const auto& [buffer, import, name] :
-              { std::tuple{ &pool.Particles, &m_Pool.ParticlesImport, "ParticlePool" },
+              { std::tuple{ &pool.Slots, &m_Pool.SlotsImport, "ParticleSlots" },
                 std::tuple{ &pool.FreeList, &m_Pool.FreeImport, "ParticleFreeList" },
                 std::tuple{ &pool.AliveList, &m_Pool.AliveImport, "ParticleAliveList" } } )
         {
@@ -311,21 +311,27 @@ namespace Desert::Graphic::System
                 return;
             }
         }
-        m_Pool.ParticlesRef = graph.RegisterExternal( m_Pool.ParticlesImport, "ParticlePool" );
-        m_Pool.FreeRef      = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
-        m_Pool.AliveRef     = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
-        m_Pool.Declared     = true;
+        m_Pool.SlotsRef = graph.RegisterExternal( m_Pool.SlotsImport, "ParticleSlots" );
+        m_Pool.FreeRef  = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
+        m_Pool.AliveRef = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
+        m_Pool.Declared = true;
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
             ViewEmitter&                ve       = m_ViewEmitters[i];
             const ParticleEmitterGpu&   gpu      = *ve.Frame->Gpu;
-            const Common::BoolResultStr counters = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
-            if ( !counters )
+            // Every view reads the counters (the indirect draw), the attribute columns and the draw layout (the
+            // sort and the sprite draw read the particles where they live).
+            Common::BoolResultStr drawn = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
+            if ( drawn )
+                drawn = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
+            if ( drawn )
+                drawn = Renderer::ImportBuffer( gpu.DrawLayout, ve.DrawLayoutImport );
+            if ( !drawn )
             {
-                LOG_ERROR(
-                     "[Particles] emitter {} sits out this frame, its counters are not in the frame graph: {}", i,
-                     counters.GetError() );
+                LOG_ERROR( "[Particles] emitter {} sits out this frame, its counters, attribute columns or draw "
+                           "layout are not in the frame graph: {}",
+                           i, drawn.GetError() );
                 continue;
             }
             // The step table and the dispatch arguments are read only by the simulation nodes.
@@ -334,9 +340,7 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
-                if ( stack )
-                    stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
+                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
                 if ( stack )
@@ -355,12 +359,14 @@ namespace Desert::Graphic::System
                      graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef  = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef   = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
-                ve.FloatsRef = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
                 ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
+            ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
+            ve.DrawLayoutRef =
+                 graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
         }
     }
@@ -400,8 +406,8 @@ namespace Desert::Graphic::System
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
             ve.Sorted       = true;
-            const ParticleSortBuffers buffers{ m_Pool.ParticlesRef, m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
-                                               m_SortedRef };
+            const ParticleSortBuffers            buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
+                                               ve.CountersRef, m_SortKeysRef,    m_SortedRef };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
@@ -600,7 +606,8 @@ namespace Desert::Graphic::System
                 // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
                 auto block =
                      declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "Particles", m_Pool.ParticlesRef, RDG::Access::StorageRead )
+                          .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
+                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
                           .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
                                     RDG::Access::StorageRead );
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )

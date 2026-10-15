@@ -1,6 +1,9 @@
 #include "SceneMigration.hpp"
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Settings/RenderMethods.hpp>
+#include <array>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -992,6 +995,89 @@ namespace Desert::Migration
                            ++report.Volumes;
                            return true;
                        } );
+        }
+        return report;
+    }
+
+    RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIMethod;
+        using Common::Scalability::ReflectionMethod;
+        RenderMethodsReport report;
+
+        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name.
+        constexpr std::array<GIMethod, 3> kFromGIMode{ GIMethod::Off, GIMethod::ScreenSpace,
+                                                       GIMethod::ReflectiveShadowMaps };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           if ( const auto gi = settings.get( "GlobalIllumination" ); gi.has_value() )
+                           {
+                               const auto mode = gi.value().to_int();
+                               if ( !mode.has_value() || mode.value() < 0 ||
+                                    mode.value() >= static_cast<int>( kFromGIMode.size() ) )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.GlobalIllumination {} is not a GIMode "
+                                        "(0 Off, 1 ScreenSpace, 2 RSM)",
+                                        who, rfl::json::write( gi.value() ) ) );
+                                   return false;
+                               }
+                               DropKey( settings, "GlobalIllumination" );
+                               settings["GlobalIlluminationMethod"] = rfl::Generic(
+                                    static_cast<int>( kFromGIMode[static_cast<std::size_t>( mode.value() )] ) );
+                               changed = true;
+                           }
+                           if ( const auto ssr = settings.get( "EnableSSR" ); ssr.has_value() )
+                           {
+                               const auto flag = ssr.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableSSR {} is not a bool",
+                                                     who, rfl::json::write( ssr.value() ) ) );
+                                   return false;
+                               }
+                               DropKey( settings, "EnableSSR" );
+                               settings["ReflectionsMethod"] = rfl::Generic( static_cast<int>(
+                                    flag.value() ? ReflectionMethod::ScreenSpace : ReflectionMethod::Off ) );
+                               changed                       = true;
+                           }
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Rewritten;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            // An override's Settings is a delta against its prefab record, but the keys it states are gone from
+            // the type all the same: a delta stating EnableSSR states ReflectionsMethod now.
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
         }
         return report;
     }
@@ -2583,6 +2669,169 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    namespace
+    {
+        // CLTY 5 as it was written: the shape with a silhouette and no altitude density.
+        struct CloudVerticalProfileV5
+        {
+            std::array<float, Graphic::kCloudProfileSamples> HalfWidth;
+        };
+        struct CloudTypeShapeV5
+        {
+            float                  BaseAltitudeKm;
+            float                  TopAltitudeKm;
+            float                  EdgeTopFraction;
+            float                  BaseRampFraction;
+            CloudVerticalProfileV5 Profile;
+            float                  AnvilAltitudeKm;
+            float                  AnvilThicknessKm;
+            float                  AnvilStrength;
+            float                  DetailCharacter;
+            float                  DetailFactor;
+            float                  DensityFactor;
+            float                  ExtinctionFactor;
+            float                  PlacementScale;
+            float                  PlacementAnisotropy;
+        };
+        struct CloudTypeDataV5
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::optional<std::string>                                DisplayName;
+            std::optional<std::string>                                Notes;
+            std::optional<Assets::AssetGuidRef>                       NoiseVolume;
+            CloudTypeShapeV5                                          Shape;
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text )
+    {
+        const auto v5 = Common::Json::Read<CloudTypeDataV5>( text );
+        if ( !v5 )
+            return Common::MakeFormattedError<std::string>( "CLTY 5 body does not read: {}", v5.GetError() );
+        const CloudTypeDataV5& old = v5.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises CLTY 5 only" );
+        const auto stated = old.Header->Versions.find( "CLTY" );
+        if ( stated == old.Header->Versions.end() || stated->second != 5u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states CLTY {}, and this step raises CLTY 5 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        Assets::CloudTypeData data;
+        data.Header      = old.Header;
+        data.DisplayName = old.DisplayName;
+        data.Notes       = old.Notes;
+        data.NoiseVolume = old.NoiseVolume;
+
+        const CloudTypeShapeV5&  from = old.Shape;
+        Graphic::CloudTypeShape& to   = data.Shape;
+        to.BaseAltitudeKm             = from.BaseAltitudeKm;
+        to.TopAltitudeKm              = from.TopAltitudeKm;
+        to.EdgeTopFraction            = from.EdgeTopFraction;
+        to.BaseRampFraction           = from.BaseRampFraction;
+        to.Profile.HalfWidth          = from.Profile.HalfWidth;
+        to.Profile.Density            = Graphic::CloudProfileDensityBaseRamp();
+        to.AnvilAltitudeKm            = from.AnvilAltitudeKm;
+        to.AnvilThicknessKm           = from.AnvilThicknessKm;
+        to.AnvilStrength              = from.AnvilStrength;
+        to.DetailCharacter            = from.DetailCharacter;
+        to.DetailFactor               = from.DetailFactor;
+        to.DensityFactor              = from.DensityFactor;
+        to.ExtinctionFactor           = from.ExtinctionFactor;
+        to.PlacementScale             = from.PlacementScale;
+        to.PlacementAnisotropy        = from.PlacementAnisotropy;
+
+        // WriteCloudType stamps the header at the engine's CLTY and keeps the loaded GUID.
+        std::string written = Assets::WriteCloudType( data );
+        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 6: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text )
+    {
+        // CLTY 7 IS CLTY 6 PLUS ONE KEY, so the v6 body is the v7 one once `Shape.BodyDiameterKm` is there:
+        // it goes in after `PlacementAnisotropy`, the shape's last v6 key, and the body then reads as the
+        // current type — no frozen v6 copy of fifteen fields to keep in step with the struct.
+        const std::string key = "\"PlacementAnisotropy\"";
+        const size_t      at  = text.find( key );
+        if ( at == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 body has no Shape.PlacementAnisotropy" );
+        if ( text.find( "\"BodyDiameterKm\"" ) != std::string::npos )
+            return Common::MakeFormattedError<std::string>( "the body already states BodyDiameterKm" );
+        const size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+        if ( end == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 Shape.PlacementAnisotropy has no value end" );
+
+        // ONE KILOMETRE, the default type's (Assets::CloudTypeDefaultShape): a v6 type had no body size, its
+        // bodies were its cells; the shipped library states its own after the raise (FIELD-GRAIN).
+        std::string patched = text;
+        patched.insert( end,
+                        ", \"BodyDiameterKm\": " + std::format( "{}", Graphic::CloudTypeShape{}.BodyDiameterKm ) );
+
+        const auto v6 = Common::Json::Read<Assets::CloudTypeData>( patched );
+        if ( !v6 )
+            return Common::MakeFormattedError<std::string>( "CLTY 6 body does not read: {}", v6.GetError() );
+        const Assets::CloudTypeData& data = v6.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises CLTY 6 only" );
+        const auto stated = data.Header->Versions.find( "CLTY" );
+        if ( stated == data.Header->Versions.end() || stated->second != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states CLTY {}, and this step raises CLTY 6 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        std::string written = Assets::WriteCloudType( data );
+        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 7: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    float MigratePatchStrengthV4ToV5( float strength )
+    {
+        const float s = std::clamp( strength, 0.0f, 1.0f );
+        // At s <= 1/2 the v4 ramp never reached zero: no sky was clear, which is v5's zero.
+        return s <= 0.5f ? 0.0f : 1.0f - 1.0f / ( 2.0f * s );
+    }
+
+    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 4 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 4 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 4 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        // BY NAME, NOT BY SHADER: an instance of the cloud material states no Shader of its own and may still
+        // override PatchStrength, and no other schema has a parameter of that name.
+        for ( Assets::MaterialShaderParam& param : data.Params )
+            if ( param.Name == "PatchStrength" )
+                param.Value.x = MigratePatchStrengthV4ToV5( param.Value.x );
+
+        auto written = Assets::WriteMaterialJson( data );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
+                                                            written.GetError() );
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 4 -> 5", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 5: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::string( written.GetValue() ) );
+    }
+
     Common::ResultStr<std::string> MigrateFoliageTypeV6ToV7( const std::string& text )
     {
         if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 6u )
@@ -2868,6 +3117,18 @@ namespace Desert::Migration
                 }
             }
 
+            // GIMode / EnableSSR are the render methods (RMODE-IFACE).
+            if ( statedSceneVersion < kSceneVersionRenderMethods )
+            {
+                report.RenderMethodsRaised = true;
+                report.RenderMethods       = MigrateRenderMethodsV52ToV53( entities );
+                if ( !report.RenderMethods.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.RenderMethods.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -2939,7 +3200,13 @@ namespace Desert::Migration
             if ( guid.IsNull() )
                 guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
                                           : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
-            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            Common::Content::TextAssetHeaderSerialized header =
+                 Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+            // What the file stated it depends on stays stated: only the v50 -> v51 step (SCENE-DEPS) gathers the
+            // list, and it runs once, so a restated header without it would empty every later migration's list.
+            if ( stated )
+                header.Dependencies = stated->Dependencies;
+            return header;
         }
     } // namespace
 
@@ -3202,6 +3469,22 @@ namespace Desert::Migration
         return true;
     }
 
+    SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot )
+    {
+        // The save's own rule (Core::GatherSceneDependencies), so a migrated scene and the same scene saved
+        // again state the same list.
+        SceneDependenciesReport     report;
+        Core::SceneDependencyGather gather = Core::GatherSceneDependencies(
+             scene.Entities, scene.Settings.has_value() ? &*scene.Settings : nullptr, assetsRoot );
+        for ( const auto& refusal : gather.Refused )
+            report.Refused.push_back( scene.SceneName + " > " + refusal );
+        report.Stated = gather.Guids.size();
+        if ( report.Refused.empty() && scene.Header.has_value() )
+            scene.Header->Dependencies = std::move( gather.Guids );
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -3255,6 +3538,18 @@ namespace Desert::Migration
             // RunSteps' v49 step re-stated before it was there: re-state again (idempotent), the count is total.
             if ( report.ShadowBiasCentimetresRaised && report.SceneSettingsHomes.ShadowKeysFound > 0 )
                 report.ShadowBiasesRestated = MigrateShadowBiasCentimetresV48ToV49( scene.Entities );
+            // Likewise the volume it just made states the grade's pre-v53 GlobalIllumination / EnableSSR: re-state
+            // them as methods (idempotent — a re-stated key is gone).
+            if ( report.RenderMethodsRaised )
+            {
+                const RenderMethodsReport lifted = MigrateRenderMethodsV52ToV53( scene.Entities );
+                report.RenderMethods.Rewritten += lifted.Rewritten;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
         }
         if ( statedSceneVersion < kSceneVersionGameModeSettings )
         {
@@ -3291,6 +3586,18 @@ namespace Desert::Migration
              MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
         scene.SceneVersion = std::nullopt;
         scene.UnitVersion  = std::nullopt;
+
+        // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
+        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        {
+            report.SceneDependenciesRaised = true;
+            report.SceneDependencies       = MigrateSceneDependenciesV51ToV52( scene, assetsRoot );
+            if ( !report.SceneDependencies.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.SceneDependencies.Refused );
+                return report;
+            }
+        }
 
         return report;
     }

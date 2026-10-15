@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "8418ed46ec377848ed31f52d0c1bc01b",
         "Versions": {
-            "SCNE": 51,
+            "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["40293d62f22f46a49912f44c6c024d06"]
     },
     "SceneName": "Shared-Block Transport Probe (3 spheres, 3 Blend values)",
     "Entities": [
@@ -201,11 +201,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

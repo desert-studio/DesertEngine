@@ -1,0 +1,15 @@
+#ifndef REFLECTION_CAPTURE_GPU_GLSLH
+#define REFLECTION_CAPTURE_GPU_GLSLH
+
+// One reflection capture as the lighting passes read it: Graphic::ReflectionCaptureGpu, std430, the same layout.
+// See Common/ReflectionEnvironment.glslh for who reads it and how.
+struct ReflectionCaptureGpu
+{
+	vec4 PositionRadius;          // xyz = influence centre (entity position, world cm), w = sphere influence radius
+	vec4 CaptureOffsetBrightness; // xyz = capture point - centre (world cm), w = Brightness
+	vec4 BoxExtentTransition;     // xyz = box half extent (cm), w = box transition distance (cm)
+	uvec4 ShapeCube;              // x = 0 sphere / 1 box, y = cube index in u_ReflectionCaptureCubes
+	mat4 WorldToBox;              // world -> box space, where the box is [-1, 1]^3 (box shape only)
+};
+
+#endif // REFLECTION_CAPTURE_GPU_GLSLH

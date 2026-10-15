@@ -247,6 +247,17 @@ namespace Desert::Graphic
         s_RendererAPI->SetScissor( x, y, width, height );
     }
 
+    void Renderer::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
+    {
+        s_RendererAPI->SetViewportRegion( x, y, width, height );
+    }
+
+    void Renderer::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                uint32_t height, const glm::vec4& color, float depth )
+    {
+        s_RendererAPI->ClearRegion( framebuffer, x, y, width, height, color, depth );
+    }
+
     Common::BoolResultStr Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
     {
         return s_RendererAPI->BeginRenderPass( renderPass, clearFrame );

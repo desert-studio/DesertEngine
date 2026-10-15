@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "5f1126e475658ac0d129a29c537f7bd9",
         "Versions": {
-            "SCNE": 51,
+            "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["7351c844f8e8c67ceb04ebea4e85f51b"]
     },
     "SceneName": "Particle Local-Space Probe",
     "Entities": [
@@ -152,11 +152,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

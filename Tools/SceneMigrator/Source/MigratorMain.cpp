@@ -45,6 +45,7 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -631,6 +632,8 @@ namespace Desert::Migration
         }
 
         int changed = 0;
+        // Materials raised MATL 4 -> 5: a --check with any is pending work.
+        int materialsRaised = 0;
         // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
         int meshesRaised = 0;
         int failed  = 0;
@@ -1064,10 +1067,10 @@ namespace Desert::Migration
             ++changed;
         }
 
-        // THE MATERIALS. Every committed `.demat` is MATL v4, and this tool no longer raises an older one (the
-        // legacy steps, their material-number register and the path-derived asset table were retired with
-        // LEG1): an older or newer generation FAILS by its number, a current one is only re-laid-out if its text
-        // layout is not canonical.
+        // THE MATERIALS. MATL v4 is raised to v5 (FIELD-GRAIN-b: PatchStrength becomes the clear share of the
+        // sky); anything older is no longer raised (the legacy steps, their material-number register and the
+        // path-derived asset table were retired with LEG1): an older or newer generation FAILS by its number, a
+        // current one is only re-laid-out if its text layout is not canonical.
         const auto engineShaders = EngineShaderLocatorsByGuid();
         for ( const auto& path : materials )
         {
@@ -1083,6 +1086,25 @@ namespace Desert::Migration
             {
                 err << "FAIL   " << stated.GetError() << "\n";
                 ++failed;
+                continue;
+            }
+            if ( stated.GetValue() == 4u )
+            {
+                const auto raised = Desert::Migration::MigrateMaterialV4ToV5( source );
+                if ( !raised )
+                {
+                    err << "FAIL   " << path.string() << " — MATL 4 -> 5: " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 4 -> "
+                    << Desert::Assets::kMaterialSchemaVersion << "\n";
+                if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                {
+                    ++failed;
+                    continue;
+                }
+                ++materialsRaised;
                 continue;
             }
             if ( stated.GetValue() != Desert::Assets::kMaterialSchemaVersion )
@@ -1358,6 +1380,7 @@ namespace Desert::Migration
         }
 
         int foliageRaised    = 0;
+        int cloudTypesRaised = 0;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1473,6 +1496,49 @@ namespace Desert::Migration
                         continue;
                     }
                     ++animGraphsRaised;
+                    continue;
+                }
+            }
+            // CLTY 5 -> 6 (H-BASE): the altitude density curve.
+            if ( path.extension() == Desert::Assets::kCloudTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "CLTY" );
+                if ( stated && stated.GetValue() == 5u )
+                {
+                    const auto raised = Desert::Migration::MigrateCloudTypeV5ToV6( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 5 -> 6: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CLTY 5 -> "
+                        << Desert::Assets::kCloudTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++cloudTypesRaised;
+                    continue;
+                }
+                if ( stated && stated.GetValue() == 6u )
+                {
+                    const auto raised = Desert::Migration::MigrateCloudTypeV6ToV7( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 6 -> 7: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " CLTY 6 -> "
+                        << Desert::Assets::kCloudTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++cloudTypesRaised;
                     continue;
                 }
             }
@@ -1610,13 +1676,15 @@ namespace Desert::Migration
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
-            << " material(s), " << materialsRenamed
-            << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " ) << prefabs.size()
-            << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
-            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
-            << foliageRaised << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " )
-            << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
-            << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << " material(s), " << materialsRaised << ( check ? " would be raised, " : " raised, " )
+            << materialsRenamed << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " )
+            << prefabs.size() << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " )
+            << texts.size() << " other text asset(s), " << relaid
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
+            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
             << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
@@ -1626,9 +1694,9 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check &&
-                 ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 || animGraphsRaised > 0 ||
-                   meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
+                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
+                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

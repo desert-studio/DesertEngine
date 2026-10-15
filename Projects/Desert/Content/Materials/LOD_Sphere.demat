@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "1138830e1ab5cfca8f2b15a8b2042983",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [0.0, 0.33333373069763184, 1.0, 1.0]
+            "Value": [0.0, 0.33333373, 1.0, 1.0]
         },
         {
             "Name": "RoughnessFactor",

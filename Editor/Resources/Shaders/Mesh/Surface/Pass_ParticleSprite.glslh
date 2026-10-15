@@ -11,11 +11,16 @@ layout( location = 12 ) in flat vec4 v_ParticleColor;
 layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 
 layout( location = 0 ) out vec4 oColor;
+#ifdef DESERT_SURFACE_RESPONSIVE_AA
+// The scene target's responsive-AA slot (Graphic::kSceneTargetResponsiveAASlot): the sprite's coverage, blended
+// exactly as its colour is (the alpha is the same Opacity), so the mask is what the sprite composited.
+layout( location = 2 ) out vec4 oResponsiveAA;
+#endif
 
 void main()
 {
     SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
-                                         v_Surface.UV1, v_Surface.VertexColor );
+                                         v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
     i.Particle.Color        = v_ParticleColor;
     i.Particle.RelativeTime = v_ParticleTimeRandom.x;
     i.Particle.Random       = v_ParticleTimeRandom.y;
@@ -26,6 +31,9 @@ void main()
     if ( s.Opacity <= 0.0 )
         discard;
     oColor = vec4( s.BaseColor + s.Emissive, clamp( s.Opacity, 0.0, 1.0 ) );
+#ifdef DESERT_SURFACE_RESPONSIVE_AA
+    oResponsiveAA = vec4( 1.0, 0.0, 0.0, oColor.a );
+#endif
 #else
     oColor = vec4( s.BaseColor + s.Emissive, 1.0 );
 #endif

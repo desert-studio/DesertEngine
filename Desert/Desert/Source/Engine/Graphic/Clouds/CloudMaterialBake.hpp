@@ -147,7 +147,8 @@ namespace Desert::Graphic
         // weather tile, which is what the tooltip names.
         params.PatchTileKm = std::max( look.PatchTileSize, 1.0f ) / kCloudWorldUnitsPerKm;
 
-        // THE BLEND RADIUS AND THE PROFILE DEPTH ARE DERIVED FROM THE LATTICE rather than exposed, and
+        // THE BLEND RADIUS IS DERIVED FROM THE LATTICE rather than exposed (the profile's depth is each
+        // cluster's own body, Assets::CloudProceduralBodyDepthKm), and
         // that is a decision with a number behind it. The join inflates its own surface by
         // `BlendRadius * ln(sum of weights in range)`, so with hundreds of overlapping lumps a generous
         // radius does not soften a crease, it floods the sky — at a 3 km cell and 24 lumps in range, a
@@ -159,8 +160,7 @@ namespace Desert::Graphic
         // painting's strokes against the cell and must not compute the ratio a second time.
         const float latticeKm = ECS::CloudLayerLatticeKm( look.WeatherTileSize );
 
-        params.BlendRadiusKm  = std::max( 0.02f * latticeKm, 1e-3f );
-        params.ProfileDepthKm = std::max( 0.12f * latticeKm, 1e-3f );
+        params.BlendRadiusKm = std::max( 0.02f * latticeKm, 1e-3f );
 
         // THE MARCH'S OWN SEARCH STEP, handed in rather than assumed by the generator. It is one half of
         // the relation this programme has been bitten by twice — what the field places against what the

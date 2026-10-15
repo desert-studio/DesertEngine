@@ -61,7 +61,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 24> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 25> kEntityTables{ {
          { "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.hpp", "m_Live", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/RagdollLifetime.cpp", "on_destroy<RagdollComponent>().connect",
            "RAG1b: the ragdoll's description and rig signature; OnRagdollDestroyed releases the ragdoll and its "
@@ -123,6 +123,11 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp", "it = m_Actors.erase( it )",
            "the actor's player and loaded sequence; the per-frame pass retires actors whose entity is gone or "
            "lost the component, giving back a cut's view target" },
+         { "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.hpp", "m_Entities", Release::Sweep,
+           "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.cpp",
+           "std::erase_if( m_Entities, [&]( const auto& entry ) { return !drawn.contains( entry.first ); } );",
+           "DST-06: each destructible's piece meshes and slots; the per-frame draw drops entities it did not draw "
+           "(destroyed, or no longer a drawable destructible)" },
          { "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.hpp", "m_Captures", Release::Sweep,
            "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.cpp", "m_Captures.erase( element )",
            "capture not demanded this frame is released after one device idle for the batch" },
@@ -131,7 +136,7 @@ namespace Desert::Tests::RuntimeHandles
            "one log line per refused element, forgotten when the element is demanded again" },
          // Keyed by `uint32_t` (the entity's integer value), so the text scan for entt::entity keys cannot see
          // these two; they are listed by hand and their declarations are still checked to exist.
-         { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Slots", Release::Listener,
+         { "Desert/Desert/Source/Engine/Scripting/Luau/LuauHost.hpp", "Slots", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp", "on_destroy<ScriptComponent>().connect",
            "each entity's Luau script slots and their timers (SCR-LUAU-3), ScriptEngine::Impl::ReleaseEntity" },
          { "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.hpp", "m_Tiles", Release::Sweep,

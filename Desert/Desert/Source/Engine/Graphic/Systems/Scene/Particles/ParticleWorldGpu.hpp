@@ -85,6 +85,20 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( ParticleDrawSlotGpu ) == kParticleDrawSlotStride );
 
+    // Where a renderer finds an emitter's particle (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`;
+    // UE FNiagaraSpriteUniformParameters' data offsets): the first float column of each drawn attribute in the
+    // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
+    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around.
+    constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
+    struct ParticleDrawLayoutGpu
+    {
+        glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
+        glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
+        glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, -, -
+        glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+    };
+    static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
+
     // One emitter's GPU state in the scene's pool, cached across ticks by entity id. Its particles are Range of
     // the pool; its alive lists are the two halves [2 Base + h Count, 2 Base + (h + 1) Count) of the alive list.
     struct ParticleEmitterGpu
@@ -102,6 +116,10 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> AttributeInts;
         std::shared_ptr<ShaderResources::StorageBuffer> Params;
         std::shared_ptr<ShaderResources::StorageBuffer> Curves;
+        // Where the sprite draw and the sort read the drawn attributes in AttributeFloats (VFX-SPRITE-DRAW): its
+        // columns are the compiled layout's, its range and emitter position are re-uploaded every tick.
+        std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
+        ParticleDrawLayoutGpu                           DrawColumns;
         std::vector<glm::vec4>                          ParamRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
@@ -129,10 +147,11 @@ namespace Desert::Graphic::System
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
-    // The pool's buffers: particles, the free list (one entry per particle) and the alive list (two per particle).
+    // The pool's buffers: the slots (id + alive flag per particle, Common/ParticleState.glslh), the free list (one
+    // entry per particle) and the alive list (two per particle). The particles' data is the emitters' columns.
     struct ParticlePoolBuffers
     {
-        std::shared_ptr<ShaderResources::StorageBuffer> Particles;
+        std::shared_ptr<ShaderResources::StorageBuffer> Slots;
         std::shared_ptr<ShaderResources::StorageBuffer> FreeList;
         std::shared_ptr<ShaderResources::StorageBuffer> AliveList;
         uint32_t                                        Capacity = 0;

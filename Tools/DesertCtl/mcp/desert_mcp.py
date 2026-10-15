@@ -195,8 +195,9 @@ TOOLS = [
         "description": (
             "Inject mouse, keyboard or file-drop input at the root of the OS path: the editor plays it through "
             "the GLFW callbacks, so ImGui and the routed event tree see it exactly as a hand's input. "
-            "kind: move | click | press | release | key | drop. x, y are points inside 'panel' when one is "
-            "named (its title as the View menu shows it), else inside the editor window."
+            "kind: move | click | press | release | key | keydown | keyup | drop. key taps a key; keydown holds "
+            "it until a keyup of the same key (what a played pawn needs to walk). x, y are points inside 'panel' "
+            "when one is named (its title as the View menu shows it), else inside the editor window."
         ),
         "inputSchema": {
             "type": "object",
@@ -205,7 +206,7 @@ TOOLS = [
                 "panel": {"type": "string"},
                 "x": {"type": "number"},
                 "y": {"type": "number"},
-                "key": {"type": "string", "description": "for kind 'key': T, Escape, Ctrl+S ..."},
+                "key": {"type": "string", "description": "for kinds 'key', 'keydown', 'keyup': T, Escape, Ctrl+S ..."},
                 "paths": {"type": "array", "items": {"type": "string"}, "description": "for kind 'drop'"},
             },
             "required": ["kind"],
@@ -282,8 +283,9 @@ def dispatch(channel: Channel, name: str, arguments: dict) -> dict:
     if name == "send_input":
         kind = arguments.get("kind", "")
         panel = arguments.get("panel", "") or "-"
-        point = "-" if kind == "key" else f"{float(arguments.get('x', 0))},{float(arguments.get('y', 0))}"
-        extra = [arguments.get("key", "")] if kind == "key" else list(arguments.get("paths", []))
+        is_key = kind in ("key", "keydown", "keyup")
+        point = "-" if is_key else f"{float(arguments.get('x', 0))},{float(arguments.get('y', 0))}"
+        extra = [arguments.get("key", "")] if is_key else list(arguments.get("paths", []))
         return channel.call("input", kind, panel, point, *extra)
     if name == "get_state":
         return channel.call("state", *arguments.get("sections", []), wait=120)

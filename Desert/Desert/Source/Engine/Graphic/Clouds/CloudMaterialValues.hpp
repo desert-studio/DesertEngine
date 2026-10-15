@@ -75,8 +75,8 @@ namespace Desert::Graphic
         float PlacementDensity     = 1.75f;
         float PlacementScatter     = 1.0f;
         float PlacementSizeVariety = 0.75f;
-        float PatchTileSize        = 2100000.0f; // cm; 21 km
-        float PatchStrength        = 0.60f;
+        float PatchTileSize        = 3000000.0f; // cm; 30 km
+        float PatchStrength        = 0.29f;      // MATL 5: the clear share of the sky (CloudWeatherPresence)
 
         // ---- Layout (bake-time; the painted sky) ----------------------------------------------------
         //
@@ -96,7 +96,7 @@ namespace Desert::Graphic
         float DetailTileSize  = 100000.0f; // cm; 1 km
         float DetailStrength  = 0.65f;
         float DensityScale    = 1.0f;
-        float ExtinctionScale = 8.0f; // per km
+        float ExtinctionScale = 75.0f; // per km — a real cumulus, D-32 superseded (CLOUD-SHAPE-e)
 
         // ---- Lighting -------------------------------------------------------------------------------
         // PER COLOUR since the Volume domain's output contract was implemented (O1_DESIGN §3.3, §9 п.2).
@@ -107,6 +107,7 @@ namespace Desert::Graphic
         float     PhaseGBackward           = 0.1667f;
         float     PhaseBlend               = 0.575f;
         float     AmbientOcclusionStrength = 1.0f;
+        float     SkyLightCloudBottomOcclusion = 0.5f;
         int32_t   MultiScatterOctaves      = 3;
         float     MultiScatterContribution = 0.667f;
         float     MultiScatterOcclusion    = 0.25f;
@@ -226,6 +227,8 @@ namespace Desert::Graphic
                 AssignCloudValue( v.PhaseBlend, name, p );
             else if ( name == "AmbientOcclusionStrength" )
                 AssignCloudValue( v.AmbientOcclusionStrength, name, p );
+            else if ( name == "SkyLightCloudBottomOcclusion" )
+                AssignCloudValue( v.SkyLightCloudBottomOcclusion, name, p );
             else if ( name == "MultiScatterOctaves" )
                 AssignCloudValue( v.MultiScatterOctaves, name, p );
             else if ( name == "MultiScatterContribution" )

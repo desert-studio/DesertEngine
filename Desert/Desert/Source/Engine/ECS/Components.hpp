@@ -46,6 +46,7 @@
 #include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -190,10 +191,11 @@ namespace Desert::ECS
         uint32_t SeenMaterialsVersion = 0;
         // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
         // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
-        // clearMaterialParams (Scripting/MaterialBindings.cpp). Held HERE, on the mesh that owns the slot, so a
-        // write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it) is not lost,
-        // and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem applies the list
-        // to every slot-0 instance it builds. The authored slots stay the source of truth for everything else.
+        // clearMaterialParams (Libraries/EntityLibrary.cpp, MaterialLibrary). Held HERE, on the mesh that owns the
+        // slot, so a write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it)
+        // is not lost, and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem
+        // applies the list to every slot-0 instance it builds. The authored slots stay the source of truth for
+        // everything else.
         std::vector<MaterialParamOverride> ScriptSlotParams;
     };
 
@@ -1014,6 +1016,32 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Radius" ), Category( "Light" ) )
         bool ShowRadius = false;
+
+        // THE POINT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
     };
 
     struct PointLightComponent
@@ -1050,6 +1078,32 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Cone" ), Category( "Light" ) )
         bool ShowCone = false;
+
+        // THE SPOT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
     };
 
     struct SpotLightComponent

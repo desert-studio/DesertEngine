@@ -65,6 +65,8 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp", -- RefusalOf: the serializer's one admission rule for enum values
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp", -- FieldTypeName, called by FieldValue
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
@@ -76,6 +78,7 @@ project "SceneMigrator"
         -- restating either. Pure over the parsed tree, like everything else in this project: no GPU, no
         -- asset manager.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp", -- v43 gathers Header.Dependencies by the save's rule
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- v35 reads and writes one file per entity (WP16)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
 
@@ -84,6 +87,7 @@ project "SceneMigrator"
         -- bytes in, bytes out; no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/SoundFormat.cpp", -- v42 reads `.desound` (SOUND-ASSET)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
@@ -115,6 +119,10 @@ project "SceneMigrator"
     }
 
     DesertModuleLibs.DependOnCodegen()
+
+    -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
+    -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).
+    defines { "DESERT_REFLECTION_DATA_ONLY" }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",

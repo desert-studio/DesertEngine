@@ -101,7 +101,7 @@ namespace Desert::Graphic::RDG
         else if ( desc.Mips > maxMips )
             RecordError( fmt::format( "graph '{}': texture '{}' asks for {} mips, a {}x{} chain has {}", m_Name,
                                       name, desc.Mips, desc.Size.Width, desc.Size.Height, maxMips ) );
-        else if ( desc.Dim == TextureDim::Cube && desc.Layers % 6 != 0 )
+        else if ( ( desc.Dim == TextureDim::Cube || desc.Dim == TextureDim::CubeArray ) && desc.Layers % 6 != 0 )
             RecordError( fmt::format( "graph '{}': cube texture '{}' has {} layers, not a multiple of 6", m_Name,
                                       name, desc.Layers ) );
         else if ( desc.Dim == TextureDim::Tex3D && desc.Layers != 1 )

@@ -265,7 +265,23 @@ namespace Desert::Migration
     //       keys refuses the file. Scenes and prefabs alike.
     inline constexpr int kSceneVersionParticleEmittersToVFX = 51;
 
-    static_assert( kSceneVersionParticleEmittersToVFX == kSceneVersion,
+    //  52 - A SCENE STATES WHAT IT REFERENCES (SCENE-DEPS, UE's AssetRegistry dependencies). Header.Dependencies,
+    //       written [] by every earlier build, lists every asset the scene names, unique and sorted: each
+    //       asset a component or the Settings block names and each prefab instance's prefab, by the ONE rule
+    //       the engine's save applies too (Core::GatherSceneDependencies, MigrateSceneDependenciesV51ToV52).
+    //       Scenes only.
+    inline constexpr int kSceneVersionSceneDependencies = 52;
+
+    //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
+    //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
+    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
+    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
+    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
+    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
+    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionRenderMethods = 53;
+
+    static_assert( kSceneVersionRenderMethods == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -514,9 +530,33 @@ namespace Desert::Migration
     // states. PURE.
     SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateRenderMethodsV52ToV53 did to one file.
+    struct RenderMethodsReport
+    {
+        std::size_t              Rewritten = 0; // GlobalIllumination / EnableSSR keys re-stated as methods
+        std::vector<std::string> Refused;       // a Settings block or old value that is not the declared type
+    };
+
+    // Re-states PostProcessVolume.Settings GlobalIllumination / EnableSSR as GlobalIlluminationMethod /
+    // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
+    // override. PURE.
+    RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
+
+    // What MigrateSceneDependenciesV51ToV52 did to one scene.
+    struct SceneDependenciesReport
+    {
+        std::size_t              Stated = 0; // GUIDs the header lists after the step
+        std::vector<std::string> Refused;    // one line per prefab instance whose file states no GUID
+    };
+
+    // Header.Dependencies under the rule kSceneVersionSceneDependencies states. Prefab paths are located
+    // against @p assetsRoot (LocateMeshFile's rule) and read for their header GUID.
+    SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
+                                                              const std::filesystem::path& assetsRoot );
 
     // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
     struct UIAnimationTimelinesReport
@@ -668,6 +708,25 @@ namespace Desert::Migration
     // the header's GUID kept. A file that does not state FOLT 7 is an error naming what it states. PURE - no
     // filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV7ToV8( const std::string& text );
+    // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
+    // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
+    // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is
+    // an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text );
+
+    // The v7 text of a v6 `.decloudtype`: every v6 value kept, `Shape.BodyDiameterKm` written as the default
+    // type's (FIELD-GRAIN: the exponential body-size law's D0), the header's GUID kept. A file that does not
+    // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
+
+    // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
+    // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
+    float MigratePatchStrengthV4ToV5( float strength );
+
+    // The v5 text of a v4 `.demat`: every `PatchStrength` parameter (the cloud material's and its instances')
+    // raised by MigratePatchStrengthV4ToV5, everything else and the header's GUID kept. A file that does not
+    // state MATL 4 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
@@ -744,6 +803,12 @@ namespace Desert::Migration
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
 
+        bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
+        SceneDependenciesReport SceneDependencies;
+
+        bool                RenderMethodsRaised = false; // below kSceneVersionRenderMethods
+        RenderMethodsReport RenderMethods;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -756,7 +821,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised;
         }
     };
 

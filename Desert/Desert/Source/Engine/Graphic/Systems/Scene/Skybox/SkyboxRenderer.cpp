@@ -812,6 +812,9 @@ namespace Desert::Graphic::System
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             cloudBinding.Noise[slot] = clouds.Noise[slot];
         cloudBinding.Modelling          = clouds.Modelling;
+        cloudBinding.FarWeather         = clouds.FarWeather;
+        cloudBinding.LayoutPattern      = clouds.LayoutPattern;
+        cloudBinding.LayoutMask         = clouds.LayoutMask;
         cloudBinding.AuthoredAtlas      = clouds.AuthoredAtlas;
         cloudBinding.SkyOcclusionVolume = clouds.SkyOcclusionVolume;
         cloudBinding.DistantSkyLight    = m_Atmosphere.DistantSkyLight.get();

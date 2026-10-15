@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "2731f4b41a1ce80f8f52cea1bb617496",
         "Versions": {
-            "MATL": 4
+            "MATL": 5
         },
         "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76"]
     },
@@ -14,7 +14,7 @@
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [0.44999998807907104, 0.0, 0.0, 0.0]
+            "Value": [0.45, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [],

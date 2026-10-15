@@ -8,20 +8,29 @@
 // gl_VertexIndex / 6 is an entry of the alive list and every drawn particle is alive. Under a view sort the list
 // read is the view's sorted copy of the same entries — the same binding, a different buffer.
 #include <Common/CameraUB.glslh>
-#include <Common/ParticleState.glslh>
 #include <Common/VFXRandom.glslh>
+#include <Common/ParticleDrawLayout.glslh>
 
 // Above the material row (Binding(2)) and below the forward family's slots this cell does not declare: the
-// sprite cell reads the scene's pool and the emitter's alive list and nothing else of the particle system.
-layout( std430, binding = 9 ) readonly buffer Particles
+// sprite cell reads the emitter's attribute columns (the ONE store of its particles, UE NiagaraParticleDataFloat),
+// where its stack put each drawn attribute (Common/ParticleDrawLayout.glslh, UE FNiagaraSpriteUniformParameters),
+// and the emitter's alive list - nothing else of the particle system.
+layout( std430, binding = 9 ) readonly buffer AttributeFloats
 {
-    Particle u_Particles[];
+    float u_DrawFloats[];
 };
 
 layout( std430, binding = 10 ) readonly buffer AliveList
 {
     uint u_Alive[];
 };
+
+layout( std430, binding = 11 ) readonly buffer DrawLayout
+{
+    ParticleDrawLayout u_DrawLayout;
+};
+
+#include <Common/ParticleDrawRead.glslh>
 
 // The ONE engine push block, as the fragment stage's material row index reads it.
 #include <Common/MaterialTransport.glslh>
@@ -33,36 +42,48 @@ layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time
 
 void main()
 {
-    const uint     corner = uint( gl_VertexIndex ) % 6u;
-    const uint     index  = u_Alive[uint( gl_VertexIndex ) / 6u];
-    const Particle p      = u_Particles[index];
+    const uint corner = uint( gl_VertexIndex ) % 6u;
+    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u]; // a pool index
+    const uint n      = ParticleLocalIndex( index );            // its row in the emitter's columns
+
+    const vec3  position = ParticleWorldPosition( n );
+    const vec2  size     = ParticleSpriteSize( n );
+    const vec4  colour   = ParticleColor( n );
+    const float rotation = radians( ParticleSpriteRotation( n ) );
+    const float lifetime = ParticleLifetime( n );
 
     const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ), vec2( 1.0, -1.0 ),
                                      vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
     const vec2 c          = corners[corner];
 
-    // Camera-facing: the corner offset is taken along the view's right and up axes, in WORLD space, so the
-    // surface function sees a world position and a world normal like any mesh path.
-    const vec3 right    = vec3( cameraUB.View[0][0], cameraUB.View[1][0], cameraUB.View[2][0] );
-    const vec3 up       = vec3( cameraUB.View[0][1], cameraUB.View[1][1], cameraUB.View[2][1] );
-    const vec3 facing   = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
-    const vec3 worldPos = p.PosSize.xyz + ( right * c.x + up * c.y ) * ( p.PosSize.w * 0.5 );
+    // Camera-facing (UE's FacingCameraPlane alignment-free sprite): the corner offset is taken along the view's
+    // right and up axes turned by the sprite's rotation, in WORLD space, so the surface function sees a world
+    // position and a world normal like any mesh path. Width along the turned right axis, height along its up.
+    const vec3  viewRight = vec3( cameraUB.View[0][0], cameraUB.View[1][0], cameraUB.View[2][0] );
+    const vec3  viewUp    = vec3( cameraUB.View[0][1], cameraUB.View[1][1], cameraUB.View[2][1] );
+    const vec3  facing    = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
+    const float sinR      = sin( rotation );
+    const float cosR      = cos( rotation );
+    const vec3  right     = cosR * viewRight + sinR * viewUp;
+    const vec3  up        = cosR * viewUp - sinR * viewRight;
+    const vec3  worldPos  = position + right * ( c.x * size.x * 0.5 ) + up * ( c.y * size.y * 0.5 );
 
     v_Surface.WorldPosition  = worldPos;
     v_Surface.Normal         = facing;
     v_Surface.UV0            = vec2( c.x * 0.5 + 0.5, 0.5 - c.y * 0.5 );
     v_Surface.UV1            = v_Surface.UV0;
-    v_Surface.VertexColor    = p.Color;
+    v_Surface.VertexColor    = colour;
     v_Surface.TBN            = mat3( right, -up, facing );
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
 
-    // Relative time = age / lifetime; Random is drawn from the particle's pool slot and its lifetime, which is itself
-    // drawn at spawn — constant over one life, different for the next particle that takes the slot.
-    v_ParticleColor      = p.Color;
-    v_ParticleTimeRandom = vec2( p.VelLife.w > 0.0 ? clamp( p.Age.x / p.VelLife.w, 0.0, 1.0 ) : 0.0,
-                                 VFXRandomFloat4( uvec4( index, floatBitsToUint( p.VelLife.w ), 0u, 0u ) ).x );
+    // Relative time = age / lifetime (UE NormalizedAge); Random is drawn from the particle's pool slot and its
+    // lifetime, which is itself drawn at spawn — constant over one life, different for the next particle that takes
+    // the slot. No Lifetime attribute: relative time 0.
+    v_ParticleColor      = colour;
+    v_ParticleTimeRandom = vec2( lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0,
+                                 VFXRandomFloat4( uvec4( index, floatBitsToUint( lifetime ), 0u, 0u ) ).x );
 
     // Scene raster before the temporal resolve: jittered like every mesh.
     gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );

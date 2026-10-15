@@ -5,6 +5,8 @@
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
+#include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <UI/UIDataStore.hpp>
 
@@ -40,6 +42,12 @@ namespace Desert::ECS
                 m_HookedRegistry->on_destroy<ScriptComponent>().disconnect( this );
         }
 
+        /// The local player of this world (UE ULocalPlayer): the viewport the world is played in feeds its keys.
+        [[nodiscard]] Input::LocalPlayerInput& PlayerInput()
+        {
+            return m_Engine.PlayerInput();
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
@@ -72,14 +80,13 @@ namespace Desert::ECS
             // the material/shader watcher). Throttled; scripts keep running between polls.
             PollScriptFiles( registry, ts );
 
-            // Advance edge-detection state so Input.wasPressed() fires exactly on the press transition.
-            m_Engine.NewInputFrame();
-
             // ---- Per-frame input plumbing exposed to scripts (Input.mouseDelta()) ----
             // ESCAPE TOGGLES the cursor free/captured (edge-detected) — so you can always free it to click
             // Stop / the UI. (Left Alt is avoided: on Windows it grabs the window's system menu and is
             // unreliable in GLFW.) Captured = smooth unbounded look.
-            const bool toggleDown = Input::Keyboard::IsKeyPressed( Common::KeyCode::Escape );
+            // The player's key state, as every gameplay key: Escape typed into a text field is not this toggle.
+            const bool toggleDown =
+                 m_Engine.PlayerInput().IsKeyDown( Input::InputKey::Of( Common::KeyCode::Escape ) );
             if ( toggleDown && !m_AltPrev )
                 m_LookSuspended = !m_LookSuspended;
             m_AltPrev = toggleDown;
@@ -98,7 +105,8 @@ namespace Desert::ECS
             const glm::vec2 mouseNow( mp.first, mp.second );
             const glm::vec2 delta = ( wantLock && !toggled ) ? ( mouseNow - m_LastMouse ) : glm::vec2( 0.0f );
             m_LastMouse           = mouseNow;
-            m_Engine.SetFrameMouseDelta( delta.x, delta.y );
+            // The gameplay input frame (Input.wasPressed edges, Input.mouseDelta) — before any script runs.
+            Libraries::InputLibrary::NewFrame( delta );
 
             // The local player's Enhanced Input evaluates THIS frame before any script reads it (UE: the
             // player input is processed before the pawn ticks).
@@ -217,7 +225,7 @@ namespace Desert::ECS
 
             // A script may have requested cursor lock/unlock (Input.lockCursor/showCursor). Apply it so it
             // cooperates with the Escape toggle (also keeps m_LookSuspended in sync for the next Escape press).
-            if ( auto req = m_Engine.ConsumeCursorLockRequest() )
+            if ( auto req = Libraries::InputLibrary::ConsumeCursorLockRequest() )
             {
                 m_LookSuspended = !*req;
                 if ( *req != m_CursorLocked )

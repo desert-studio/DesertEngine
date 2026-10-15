@@ -1,0 +1,14 @@
+# clouds-ideal
+
+Started 2026-10-09T15:01:09Z. Goal: Clouds_Demo/Showcase read as real cumulus: flat dark bases, cauliflower heads, soft wispy edges, no grain/sparkle/popcorn
+
+| round | lens | gap | outcome | note |
+|---|---|---|---|---|
+| 01 | silhouette | sub-head grain and loose flecks on the outline | improved | Detail Strength default 0.85->0.65 (schema CloudRaymarch.shader:70 + mirror CloudMaterialValues.hpp:97) |
+| 02 | light | micro-shadow stipple from the fine erosion octave | improved | CLOUD_DETAIL_HF_WEIGHT 0.5->0.3 (CloudField.glslh:227) |
+| 03 | scale | undersides as bright as lit flanks — bodies read small | refused | MultiScatterOcclusion 0.25->0.4847 dims the whole body, gradient unchanged, Showcase greys; reverted |
+| 04 | coherence | bases as bright as tops: sky light not occluded toward the cloud bottom | improved | UE SkyLightCloudBottomOcclusion 0.5 as material param in u_CloudAlbedo.w; Showcase base/top 0.49->0.42, tops -5%; Demo neutral (shape, not light) |
+| 05 | grain | congestus undersides round: suspected altitude-density multiply bowls the floor | refused | min(depth,density) instead of product: frames unchanged, base/top within 1-4 %; reverted — round comes from the lumps, not the ramp |
+| 06 | silhouette | small congestus bodies are round balls over the base: suspected H read on the type band | refused | H over the body's own height (base->crown), DDC v0x18: fresh bake, Demo m identical to r04; reverted — rounding is the stack geometry (tall narrow 6-lump column), not H |
+| 07 | light | small bodies stacked balls: height not scaled with width | refused | body height capped by width (aspect 0.5+0.7*size), DDC v0x19: mispredicted — small bodies MORE columnar; turrets/billows floored at 188 m voxel = body-size balls on the crown; reverted |
+| 08 | scale | small bodies stacked balls: turrets/billows floored to body size | refused | unresolvable turrets/billows not drawn, DDC v0x1a: lumps 3759->2263, Demo m unchanged; balls are the stack lumps at the 188 m voxel — volume resolution, not layout; reverted |

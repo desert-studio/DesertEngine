@@ -9,6 +9,8 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -192,6 +194,23 @@ namespace Desert::Assets
 
     inline constexpr uint32_t kCloudProceduralBytesPerVoxel = 4u;
 
+    /// How far past a cluster's rank the Coverage slider must run before the cluster stands at its full
+    /// profile, at CoverageContrast 1 (the softness is this over the contrast). It is what makes a cloud near
+    /// its threshold ERODE to its core instead of vanishing whole — Nubis's remap threshold 1 - g, with
+    /// g = (Coverage - rank) / softness (CloudProceduralClusterReach), applied by the bake per cluster.
+    inline constexpr float kCloudRankSoftness = 0.25f;
+
+    /// THE WEATHER MAP'S SHORE (CloudWeatherPresence, FIELD-GRAIN-b): the half-width of the step from busy
+    /// to clear, in the weather's uniform rank, as a fraction of the smaller side. The shader's
+    /// CloudLocalWeather states the same number.
+    inline constexpr float kCloudWeatherShore = 0.15f;
+
+    /// THE PERIOD OF THE WORLD WEATHER, kilometres. 997 is prime and shares no small factor with any
+    /// region an artist can author, so the weather does not repeat with the region: the least common
+    /// multiple with the shipped 48 km is 47 856 km. A weather periodic WITH the region (what WeatherGaussian
+    /// was, fmod(world, region)) closed every horizon gap with the gap's own copy one region further out.
+    inline constexpr float kCloudFarWeatherPeriodKm = 997.0f;
+
     /// The exact size of the byte block @ref BakeCloudProceduralVolume returns for a grid of @p sideVoxels.
     /// A FUNCTION and not a constant, because the side is a parameter now: a constant would be the size of
     /// one particular volume being read as the size of every volume, which is how a caller ends up
@@ -289,14 +308,11 @@ namespace Desert::Assets
         /// of eight — and the radius only decides how sharp the crease between them is.
         float BlendRadiusKm = 0.06f;
 
-        /// How deep inside the body the Dimensional Profile reaches 1, kilometres. The normalisation of the
-        /// distance field, exactly as in the sculpted volume.
-        float ProfileDepthKm = 0.35f;
-
-        /// What fraction of the lattice's cells carry a cluster, 0..1. THE SLIDER NOW ADDRESSES A FRACTION
-        /// OF SKY DIRECTLY, which is what the quantile map it replaces was introduced to fake: a cell is
-        /// alive when its hash falls below this number, so 0 is exactly empty and 1 is exactly full for any
-        /// seed, with no distribution to calibrate against.
+        /// HOW BUSY THE WEATHER IS WHERE THERE IS WEATHER, 0..1 (owner, 10-08; Nubis' coverage). The march
+        /// keeps a cluster where its core rank is under `Coverage * W`, W >= 0 being the weather map
+        /// (CloudWeatherPresence), so 0 is exactly empty, the sky's cover rises monotonically with it, and
+        /// the weather's true zeros stay clear at EVERY setting. It is NOT the fraction of the sky with
+        /// cloud: an overcast sky is its own cloud type (a stratus deck), not Coverage 1.
         float Coverage = 0.24f;
 
         /// How sharply a cell goes from empty to full, > 0. A cell whose hash lands just under the coverage
@@ -350,6 +366,10 @@ namespace Desert::Assets
         /// those four settings and the frame's contrast goes 0.378 / 0.379 / 0.374 / 0.349 against the
         /// 0.384 of the sky the owner accepted. 1.75 is the lowest setting that is a whole measured step
         /// away from the one that fails and is on the contrast plateau.
+        ///
+        /// SINCE FIELD-GRAIN a cell is a PATCH of the type's bodies, and the density multiplies how many
+        /// bodies a patch holds while shrinking each by its square root — the summed area, hence the cover,
+        /// stays. The table above was measured on one cluster per cell and is RECAL's to re-measure.
         float PlacementDensity = 1.75f;
 
         /// How far a cluster may wander from its lattice site, in CELLS — 1.0 means it may sit anywhere in
@@ -366,24 +386,31 @@ namespace Desert::Assets
         /// 1.0 km to 1.5 km at the same distance.
         float PlacementScatter = 1.0f;
 
-        /// How much cluster sizes spread, 0..1. Zero makes every cluster the size its cell's fill says;
-        /// one makes the largest about four times the width of the smallest.
-        ///
-        /// THE SPREAD IS UNIFORM IN AREA AND NOT IN RADIUS, so that the mean area a cluster covers is
-        /// exactly what it was at zero. Spreading the radius uniformly instead would have raised the mean
-        /// area by a twelfth of the spread squared and moved the Coverage mapping with it.
+        /// How much body sizes spread, 0..1 (FIELD-GRAIN): a body's diameter is the type's Body Diameter
+        /// times `(1 - v) + v * X` with X exponential of mean one, so one is the exponential size law
+        /// observed cumulus fields follow (Plank 1969) — many small clouds and few large ones — and zero is
+        /// every body the type's size (CloudBodyDiameterDraw). The mean diameter is the type's at every
+        /// setting and the patch's body count divides by the mean square, so the knob shares the same cloud
+        /// out differently and the Coverage mapping does not move with it.
         float PlacementSizeVariety = 0.75f;
 
-        /// The world size over which the LARGE-scale modulation of coverage repeats, kilometres. It is the
-        /// scale of a weather system rather than of a cloud: patches of busy sky and patches of clear sky,
-        /// which is the structure a lattice with one number for the whole sky cannot have.
-        float PatchTileKm = 21.0f;
+        /// The size of a WEATHER SYSTEM, kilometres: the SHORTEST wavelength of the large-scale modulation
+        /// of coverage. Its spectrum spans the one octave from the tile up to twice it, so at the shipped
+        /// 30 km the sky has busy regions and clear gaps — half a wavelength each — from fifteen to thirty
+        /// kilometres, the scale real cumulus fields cluster at. NOT two octaves around it, which it was
+        /// until FARWX-a4: the octave below opened 7.5 km gaps that a 12 km piece of sky averages away.
+        /// NOT 21 km, which it was: its gaps were ten to twenty kilometres, and between 10 and
+        /// 25 km from the eye — 4 to 8 degrees above the owner's horizon — a sight line crosses that much
+        /// sky inside the layer, so every gap there was closed by the cloud behind it.
+        float PatchTileKm = 30.0f;
 
-        /// How hard that modulation pushes, 0..1. Zero is a uniformly busy sky — which is what the owner
-        /// described as "the whole sky is cloud" — and one lets a patch reach nearly empty and nearly
-        /// solid. It is SYMMETRIC about the slider's own value, so it redistributes cloud rather than
-        /// adding or removing it.
-        float PatchStrength = 0.60f;
+        /// THE FRACTION OF THE SKY THE WEATHER LEAVES CLEAR, 0..1 (CloudWeatherPresence, MATL 5): W is one
+        /// over the other 1 - s and zero over s, joined by a shore 0.15 min(s, 1 - s) wide in the weather's
+        /// rank, so the Coverage slider is the cover WHERE there is weather. Zero is W = 1 everywhere, a
+        /// uniformly busy sky. The clear gaps are as wide as the weather system (PatchTileKm). 0.29 is the
+        /// clear share MATL 4's 0.70 had (1 - 1/(2 * 0.70)), now with the rest at W = 1 rather than a ramp.
+        /// RECAL calibrates it once.
+        float PatchStrength = 0.29f;
 
         /// The horizontal wind direction the lattice's anisotropy is measured against, world XZ. Need not
         /// be normalized; a zero vector means east, which is what CloudSpeciesPlacementBasis also does.
@@ -529,6 +556,12 @@ namespace Desert::Assets
      * six lobes, so a cell that clears that bound by construction is full of lobes that do not. A slider
      * whose legal range produces a field the container cannot express is the dead-setting shape §1.3 of the
      * contract names, one level down.
+     *
+     * THE VOXEL IS THE FINEST CLIP LEVEL'S (CLIP-1), not the region's: one lump set serves every level, so
+     * the floor is what the level that draws the nearest sky can carry — `max( 0.5 * ResolvableChordKm,
+     * CloudProceduralLevelVoxelKm( params, 0 ) )`, 62.5 m at the shipped 48 km / 256 where the region's
+     * voxel was 187.5 m. A lump the coarser levels cannot carry is a smear there, which is the far sky,
+     * where it is a few pixels; at the old floor it was a smear everywhere (r05-r08's "stacked balls").
      *
      * WHY THE VERTICAL AXIS IS NOT FLOORED BY THE VOLUME. The horizontal voxel is `RegionSize / Width` and
      * is a constant of the subsystem. The vertical one is `LayerThickness / Height` — the layer's own
@@ -722,6 +755,208 @@ namespace Desert::Assets
      */
     using CloudProceduralBakeProgressFn = std::function<bool( float fraction )>;
 
+    /// The seed of the layer's world weather — one per layer, since the march keeps per voxel after the
+    /// max over species.
+    uint32_t CloudFarWeatherSeed( const CloudProceduralFieldParams& params );
+
+    /// The world weather, a standard normal field over WORLD kilometres with its spectrum spanning the one
+    /// octave of wavelengths from @p tileKm to twice it, periodic with kCloudFarWeatherPeriodKm and with
+    /// nothing shorter.
+    float CloudFarWeather( uint32_t seed, const glm::vec2& worldKm, float tileKm );
+
+    /// The side of the GPU map of the world weather, texels over one kCloudFarWeatherPeriodKm: 1.95 km a
+    /// texel, so the shortest wave the weather holds (PatchTileKm, >= 5 km by the slider's range) spans at
+    /// least two and a half texels and the shipped 30 km fifteen — bilinear filtering of a cosine that
+    /// well sampled keeps its amplitude to half a percent.
+    inline constexpr uint32_t kCloudFarWeatherMapSide = 512u;
+
+    /// CloudFarWeather over the whole far torus, row-major (z outer), at texel CENTRES — the map the march
+    /// samples with REPEAT at `worldKm / kCloudFarWeatherPeriodKm`. The same waves as the point function
+    /// (one definition, CloudFarWeatherWaves in the .cpp), so the map IS the field and not a fit of it.
+    std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
+
+    /// What the march needs to read the world weather W, as the GPU block carries it (CloudGpuPayload::Weather
+    /// / u_CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
+    /// down (no strength, or a painted pattern is the weather, exactly as CloudProceduralLocalWeather
+    /// decides), w 1 / kCloudFarWeatherPeriodKm, x CloudFarFieldScale (the far path's own read of the same
+    /// map). z is zero and unread (Graphic::kCloudUnreadSlots): the cover's softness is the bake's since
+    /// CUT-AT-BAKE.
+    glm::vec4 CloudFarWeatherUniform( const CloudProceduralFieldParams& params );
+
+    /// THE FAR PATH (CLOUD-SEAM24): past the coarsest clip level's window nothing is baked, and reading the
+    /// level's periodic torus there REPEATED the 48 km region at the horizon. Unreal's Volumetric Cloud has no
+    /// such edge because its shape is a function of a world weather map at every distance; the far path is
+    /// that function here: a world column field u(x, z), uniform on [0, 1], drawn from the world weather map
+    /// itself read at cloud scale (two reads, CLOUD_FAR_READ_* in Common/CloudField.glslh), and per height
+    /// band and species the share of the coarsest level's voxels that are cloud. A column is cloud at a
+    /// height where u is below that share, so the far sky has the level's own coverage at every height — the
+    /// two meet in the level's blend band with the same statistics and no period inside the view.
+    inline constexpr uint32_t kCloudFarBands = 8u;
+
+    /// Per height band b (the layer's height fraction cut into kCloudFarBands, band centres at
+    /// (b + 0.5) / kCloudFarBands) and per species channel: Presence the share of voxels whose profile is
+    /// above zero, Profile the mean profile over those voxels (0 where there are none).
+    struct CloudProceduralFarStatistics
+    {
+        std::array<glm::vec4, kCloudFarBands> Presence{};
+        std::array<glm::vec4, kCloudFarBands> Profile{};
+    };
+
+    /// The statistics of one baked level (@p levelBytes, RGBA8, kCloudProceduralVolumeHeight rows, @p side
+    /// squared columns — the layout BakeCloudProceduralBox and the cached whole-region bake return). Order of
+    /// the columns does not matter, so torus order and window order give the same answer. Zero for bytes of
+    /// the wrong size: no far cloud rather than a guess.
+    CloudProceduralFarStatistics CloudProceduralFarStatisticsOf( const std::vector<unsigned char>& levelBytes,
+                                                                 uint32_t                          side );
+
+    /// The far path's read scale of the world weather map, 1/km: the map holds wavelengths PatchTileKm ..
+    /// 2 PatchTileKm over kCloudFarWeatherPeriodKm, and the far read compresses them onto the species'
+    /// lattice — the mean CellKm of the live species — so the far columns are spaced like the baked clusters.
+    float CloudFarFieldScale( const CloudProceduralFieldParams& params );
+
+    /// WHERE THE PAINTING LIES, as the GPU block carries it (CloudGpuPayload::LayoutPlace): xy the
+    /// placement's OffsetKm, zw `(cos, sin) * Repeats / RegionSize` of its quarter turn — exact, so the
+    /// shader's `uv = (z sx - w sy, w sx + z sy)` is CloudLayoutUv bit for bit at every magnitude.
+    glm::vec4 CloudLayoutPlaceUniform( const CloudProceduralFieldParams& params );
+
+    /// HOW STRONGLY IT ACTS (CloudGpuPayload::LayoutStrength): x the PatternStrength when a pattern is
+    /// bound and 0 otherwise, y the MaskStrength when a mask is bound and 0 otherwise — the same live tests
+    /// CloudProceduralLocalWeather makes. Two numbers: the payload's vec4 slot carries them in xy and its z
+    /// and w are not read (Graphic::kCloudUnreadSlots).
+    glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
+
+    /// How far the Coverage slider runs past a cluster's rank before the cluster stands at its full profile.
+    inline float CloudProceduralRankSoftness( const CloudProceduralFieldParams& params )
+    {
+        return kCloudRankSoftness / ( params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f );
+    }
+
+    /// THE WEATHER MAP W (WX-NUBIS; Nubis' weather-map coverage, Schneider 2015/2022): the presence of
+    /// weather at a column, 0..1 with TRUE ZEROS, from the standard normal world weather @p weather.
+    /// `1 - smoothstep(f - delta, f + delta, Phi(weather))` with f = 1 - strength and
+    /// delta = kCloudWeatherShore * min(f, 1 - f) (FIELD-GRAIN-b): ONE over a fraction f - delta of the sky,
+    /// zero over strength - delta, E[W] = f. The shader's CloudLocalWeather is the same expression.
+    float CloudWeatherPresence( float strength, float weather );
+
+    /// THE WEATHER the march remaps the baked profile by at a world column, for species @p slot: the slot's
+    /// PAINTED W (`1 - PatternStrength * (1 - painted)`) when a pattern is bound and the world weather's
+    /// otherwise, plus the mask, clamped — per column, as Unreal's Layout and the Nubis weather map apply it
+    /// (WX-PAINT). The Coverage slider is NOT in it: the bake chose the clusters by it (CUT-AT-BAKE). The
+    /// shader's CloudLocalWeather is the same expression, its painted term read from the layout textures.
+    float CloudProceduralLocalWeather( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& worldKm );
+
+    /// CloudProceduralLocalWeather for the four species slots at once, in slot order — what
+    /// CloudProceduralColumnKept takes, because a column's remap reads the weather of the species that wins it.
+    glm::vec4 CloudProceduralLocalWeathers( const CloudProceduralFieldParams& params, const glm::vec2& worldKm );
+
+    /// THE ALTITUDE DENSITY H (H-BASE) the bake multiplies a species' profile by at altitude @p altitudeKm:
+    /// the type's Profile.Density at the height fraction of its own band. Unreal's altitude curve and Nubis'
+    /// height gradient, applied BEFORE the march's coverage remap so the threshold eats the base and its
+    /// corners first. Zero outside the band would be a second clamp of what the lumps already respect, so
+    /// the curve is simply clamped at its ends.
+    inline float CloudProceduralAltitudeDensity( const Graphic::CloudTypeShape& shape, float altitudeKm )
+    {
+        const float bandKm = std::max( shape.TopAltitudeKm - shape.BaseAltitudeKm, 1e-4f );
+        return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / bandKm );
+    }
+
+    /// THE CLUSTER'S REACH (CUT-AT-BAKE), the bake's per-cluster decision: g = saturate((Coverage - rank) /
+    /// softness), how far the slider has run past the cluster's rank. Zero — the cluster is not baked — when
+    /// the slider is not over the rank, so a Coverage of 0 bakes nothing; one past a softness.
+    inline float CloudProceduralClusterReach( float rank, float coverage, float softness )
+    {
+        const float run = coverage - rank;
+        if ( run <= 0.0f )
+            return 0.0f;
+        return run < softness ? run / ( softness > 1e-4f ? softness : 1e-4f ) : 1.0f;
+    }
+
+    /// HOW MANY TIMES THE BODIES ONE PATCH NEEDS AT THE MARGIN IT DRAWS (FIELD-FILL), so that Coverage 1 under
+    /// W = 1 is a solid deck. A patch's bodies are a Boolean model: at a unit fill they cover 1 - e^-1 of it
+    /// whatever survives the slider, so a slider that only THINNED them topped out at 0.69 of the sky for a
+    /// stratus deck. The patch draws kCloudBodyRankDepth times that fill and the slider keeps the share
+    /// CloudBodyRankThreshold says, so the kept bodies' intensity is -ln(1 - Coverage (1 - e^-K)) fills: the
+    /// slider at the margin (Coverage) and the sky at one. EIGHT, MEASURED: a stratus deck's bodies cover the
+    /// sky at about three quarters of a unit body's efficiency (their profile taper and the eroding share), so
+    /// at five the deck at Coverage 1 was 0.976 of the sky; at eight it is 1 - e^-(8 * 0.75) past 0.99.
+    inline constexpr float kCloudBodyRankDepth = 8.0f;
+
+    /// The share of a patch's drawn bodies the slider keeps at @p coverage: -ln(1 - c (1 - e^-K)) / K.
+    inline float CloudBodyRankThreshold( float coverage )
+    {
+        const float c    = coverage < 0.0f ? 0.0f : ( coverage > 1.0f ? 1.0f : coverage );
+        const float full = 1.0f - std::exp( -kCloudBodyRankDepth );
+        return -std::log( 1.0f - c * full ) / kCloudBodyRankDepth;
+    }
+
+    /// A BODY'S REACH past the slider (CloudProceduralClusterReach) from its uniform @p rank: kept when the
+    /// rank is under CloudBodyRankThreshold, and the kept ranks spread over [0, Coverage) so the same share
+    /// of the kept bodies erodes towards its core at every Coverage as when the slider thinned one fill.
+    inline float CloudProceduralBodyReach( const CloudProceduralFieldParams& params, float rank )
+    {
+        const float threshold = CloudBodyRankThreshold( params.Coverage );
+        if ( rank >= threshold || threshold <= 0.0f )
+            return 0.0f;
+        const float coverage = params.Coverage < 1.0f ? params.Coverage : 1.0f;
+        return CloudProceduralClusterReach( coverage * rank / threshold, coverage,
+                                            CloudProceduralRankSoftness( params ) );
+    }
+
+    /// NUBIS'S COVERAGE REMAP, ValueRemap(profile, 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach))
+    /// (Schneider, "Nubis" 2017: `remap(base, 1 - coverage, 1, 0, 1) * coverage`) — the one remap both halves
+    /// make: the bake on each cluster's own profile with its CloudProceduralClusterReach, the march on the
+    /// baked profile with the column's CloudProceduralLocalWeather (the shader's CloudCoverRemap). Zero at a
+    /// reach of zero and wherever the profile is zero (air is never cloud); the profile itself at a reach of one.
+    ///
+    /// TIMES THE REACH, NOT DIVIDED BACK TO ONE (PROFILE-BODY): the slope of the result in the profile is 1 at
+    /// every reach, so the cut keeps the profile's own gradient — at least two voxels per unit
+    /// (CloudProceduralBodyDepthKm) — and never steepens into a step the grid's trilinear fetch shows as
+    /// facets. Dividing by the reach made a cluster near its threshold a 0..1 ramp a tenth of a voxel thick.
+    inline float CloudProceduralCoverRemap( float profile, float reach )
+    {
+        if ( reach <= 0.0f || profile <= 0.0f )
+            return 0.0f;
+        const float g     = reach < 1.0f ? reach : 1.0f;
+        const float value = profile - ( 1.0f - g );
+        return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
+    }
+
+    /// How deep the centre of one lump lies inside it, kilometres — its smallest semi-axis (an ellipsoid's
+    /// shortest radius, a sphere's or a capsule's radius). The lumps of one cluster only deepen each other in
+    /// the join, so the deepest lump is the cluster's core depth to within the join's inflation.
+    float CloudProceduralLumpDepthKm( const CloudModellingBlob& blob );
+
+    /// THE DEPTH ONE CLUSTER'S PROFILE IS NORMALISED BY (PROFILE-BODY), kilometres: @p deepestLumpKm, the
+    /// largest CloudProceduralLumpDepthKm among the cluster's lumps, floored at two voxels of the baked grid
+    /// in its coarser direction. The Dimensional Profile is then `depth / this` — 0 on the surface, 1 in the
+    /// core, rising through the WHOLE body as Nubis's and Unreal's do, so the coverage threshold carves the
+    /// form along a gradient the grid resolves. A fixed depth in kilometres (the ProfileDepthKm that stood
+    /// here) put the whole rise in a shell thinner than one voxel and made every cut a facet.
+    float CloudProceduralBodyDepthKm( const CloudProceduralFieldParams& params, float deepestLumpKm );
+
+    /// THE BODY'S SILHOUETTE NOISE (SHAPE-NOISE), in [-1, 1]: Nubis 2017's low-frequency Perlin-Worley —
+    /// periodic Perlin dilated by the billow channel, `mix(billow, 1, perlin)` — centred on its median and
+    /// signed so that +1 carves and -1 grows. The billow is CloudAlligator01, the inverted-Worley successor
+    /// Common/CloudNoise.glslh documents (Nubis Cubed). Its lattice cell is kCloudShapeNoiseCellsPerCell of
+    /// the slot's CellKm, rounded so a whole number of cells spans RegionSizeKm: the field tiles with the
+    /// volume, so the bake's wrap stays seamless and the preview at any point is the bake at its wrap.
+    /// Scaled by the point's height in the slot type's band, half at the base to full at the top (CLOUD-SHAPE).
+    float CloudProceduralShapeNoise( const CloudProceduralFieldParams& params, uint32_t slot,
+                                     const glm::vec3& pointKm );
+
+    /// How far CloudProceduralShapeNoise moves one lump's surface, kilometres: a fixed fraction of its
+    /// CloudProceduralLumpDepthKm, so a lump is never carved through and a small lobe is reshaped as much
+    /// as a large one, relative to its own size. The distance a lump reports to the join is
+    /// `distance + reach * noise` — BEFORE the smooth minimum, in the bake and the preview alike.
+    float CloudProceduralShapeReachKm( const CloudModellingBlob& blob );
+
+    /// Whether column (@p x, @p z) of the baked @p voxels shows sky or cloud under the per-slot weathers
+    /// @p slotWeather (CloudProceduralLocalWeathers): cloud when ANY voxel's winning profile survives
+    /// CloudProceduralCoverRemap by its winner's weather, as the march decides. What a census reads.
+    bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
+                                    uint32_t z, const glm::vec4& slotWeather );
+
     /**
      * @brief The same bake, reporting progress and able to be abandoned.
      *
@@ -740,7 +975,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000001ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001cULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -778,25 +1013,164 @@ namespace Desert::Assets
     BakeCloudProceduralVolumeCached( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                      const CloudProceduralBakeProgressFn& onProgress );
 
+    // ---------------------------------------------------------------------------------------------------
+    // CLIP LEVELS (CLIP-1): one field, one lump set, three windows of the same grid around the camera
+    // ---------------------------------------------------------------------------------------------------
+    //
+    // Level k covers RegionSizeKm / 2^(levels-1-k) with the same VolumeSideVoxels per side, so level 0 is the
+    // finest (12 km, 46.9 m at the shipped 48 km / 256) and the last level is the region itself (48 km,
+    // 187.5 m). Every level is the WORLD field — the lumps of absolute lattice cells, placed once, never
+    // wrapped — so a voxel's bytes depend on where it is in the world and on nothing else, which is what lets
+    // a level scroll by re-baking only the columns that enter it. The image is addressed TOROIDALLY: world
+    // voxel i of a level lives at texel i mod side, whatever the origin (CloudProceduralLevelTexel).
+
+    inline constexpr uint32_t kCloudProceduralClipLevels = 3u;
+
+    /// The horizontal side of clip level @p level, kilometres: RegionSizeKm halved once per level below the last.
+    float CloudProceduralLevelSideKm( const CloudProceduralFieldParams& params, uint32_t level );
+
+    /// One voxel of clip level @p level, kilometres: its side over VolumeSideVoxels.
+    float CloudProceduralLevelVoxelKm( const CloudProceduralFieldParams& params, uint32_t level );
+
+    /// The level's minimum corner in WHOLE VOXELS of that level, for a camera (minus the wind's offset, as the
+    /// region origin is chosen today) at @p cameraXKm, @p cameraZKm: the window is centred on the camera and
+    /// snapped to the level's own voxel, so one voxel of travel moves it by exactly one column and nothing
+    /// inside it changes. Integer so that a voxel's world position is computed from its index alone.
+    glm::ivec2 CloudProceduralLevelOriginVoxel( const CloudProceduralFieldParams& params, uint32_t level,
+                                                float cameraXKm, float cameraZKm );
+
+    /// The same corner in world kilometres (CloudProceduralLevelOriginVoxel times the level's voxel).
+    glm::vec2 CloudProceduralLevelOriginKm( const CloudProceduralFieldParams& params, uint32_t level,
+                                            float cameraXKm, float cameraZKm );
+
+    /// The texel world voxel @p worldVoxel occupies on an axis of @p side texels — the torus.
+    inline uint32_t CloudProceduralLevelTexel( int32_t worldVoxel, uint32_t side )
+    {
+        const int32_t s = static_cast<int32_t>( side );
+        return static_cast<uint32_t>( ( ( worldVoxel % s ) + s ) % s );
+    }
+
+    /// The world voxel texel @p texel holds when the level's minimum corner is voxel @p originVoxel: the one
+    /// index in [originVoxel, originVoxel + side) congruent to the texel.
+    inline int32_t CloudProceduralLevelWorldVoxel( uint32_t texel, int32_t originVoxel, uint32_t side )
+    {
+        return originVoxel + static_cast<int32_t>(
+                                  CloudProceduralLevelTexel( static_cast<int32_t>( texel ) - originVoxel, side ) );
+    }
+
+    /// A box of TEXELS of one level, the full height of the volume: [X, X + Width) x [Z, Z + Depth), inside
+    /// [0, VolumeSideVoxels). A slab that crosses the torus' edge is two boxes, each one sub-region upload.
+    struct CloudProceduralVoxelBox
+    {
+        uint32_t X     = 0u;
+        uint32_t Z     = 0u;
+        uint32_t Width = 0u;
+        uint32_t Depth = 0u;
+    };
+
+    /// Exactly the bytes BakeCloudProceduralBox returns for @p box: Width x 32 x Depth RGBA8, x fastest,
+    /// then y, then z — the layout of a Graphic::Image3D sub-region.
+    inline constexpr uint64_t CloudProceduralBoxBytes( const CloudProceduralVoxelBox& box )
+    {
+        return static_cast<uint64_t>( box.Width ) * kCloudProceduralVolumeHeight * box.Depth *
+               kCloudProceduralBytesPerVoxel;
+    }
+
     /**
-     * @brief The Dimensional Profile at one point, gathered over @p blobs — 0 outside the body, 1 at
-     *        ProfileDepth inside it.
+     * @brief Bakes one box of texels of clip level @p level whose minimum corner is @p originVoxel.
      *
-     * THE SAME THREE FUNCTIONS THE BAKE CALLS, in the same order: the distance, the join's shifted term,
-     * the join. What differs is the SET — this gathers every lump it is handed where the bake gathers the
-     * ones a spatial bin says can reach the voxel — and Desert/Tests/Engine/CloudProceduralField measures
-     * the two against each other at four hundred probes and asserts they agree to within one 255th.
+     * BYTE-EQUAL TO THE FULL LEVEL BAKE: the box of a whole-level bake at the same origin holds exactly these
+     * bytes, and a texel shared by two origins holds the same bytes under both — the voxel is the world field
+     * at the world voxel the texel holds. So a camera move re-bakes only the entering columns
+     * (Desert/Tests/Engine/CloudProceduralField: SlabBakeEqualsTheFullBakeOfTheShiftedLevel).
+     *
+     * The lumps are those of every cell near enough to reach the box: the generator's window is the box
+     * widened by the furthest any emitted lump reaches from its own cell, re-measured on every call and
+     * widened again (doubling) until the lumps it emitted all reach less than half of it.
+     *
+     * @return exactly CloudProceduralBoxBytes( box ) bytes, or an error naming what was wrong (invalid
+     *         parameters, a level past kCloudProceduralClipLevels, a box outside the level, cancellation).
+     */
+    Common::ResultStr<std::vector<unsigned char>> BakeCloudProceduralBox( const CloudProceduralFieldParams& params,
+                                                                          uint32_t                          level,
+                                                                          const glm::ivec2& originVoxel,
+                                                                          const CloudProceduralVoxelBox& box );
+
+    Common::ResultStr<std::vector<unsigned char>>
+    BakeCloudProceduralBox( const CloudProceduralFieldParams& params, uint32_t level,
+                            const glm::ivec2& originVoxel, const CloudProceduralVoxelBox& box,
+                            const CloudProceduralBakeProgressFn& onProgress );
+
+    /// The DDC key of one WHOLE clip level at one origin — the region's settings block plus the level and the
+    /// origin in voxels, because a level's texels hold different world voxels at a different origin.
+    uint64_t CloudProceduralLevelCacheKey( const CloudProceduralFieldParams& params, uint32_t level,
+                                           const glm::ivec2&           originVoxel,
+                                           const Common::DDC::Deriver& deriver = kCloudModellingDeriver );
+
+    /// BakeCloudProceduralBox of the whole level behind the derived-data cache, as
+    /// BakeCloudProceduralVolumeCached is for the region: a cold start reads the three levels back.
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralLevelCached( const CloudProceduralFieldParams& params, uint32_t level,
+                                    const glm::ivec2&                    originVoxel,
+                                    const CloudProceduralBakeProgressFn& onProgress );
+
+    /// Which cells GenerateCloudProceduralLumps emits: every cell (the placement measured apart from the
+    /// slider) or only those the Coverage slider keeps (CloudProceduralClusterReach > 0) — what the bake
+    /// draws, and the view the panels use.
+    enum class CloudProceduralLumpSet
+    {
+        EveryCell,
+        KeptCells
+    };
+
+    /// A lump and the rank of the cell it was born in.
+    struct CloudProceduralLump
+    {
+        CloudModellingBlob Blob;
+        float              Rank = 0.0f;
+        /// Where the cluster this lump belongs to was placed — its MASSIF's centre (FIELD-GRAIN-c: a lobe on a
+        /// massif's rim carries the massif's site, so the bake joins and cuts the two as one cloud) — so the
+        /// placement can be measured apart from the shape drawn around it.
+        glm::vec2 ClusterKm{ 0.0f };
+        /// The centre of the lattice cell the lump was born in — what decides which window emits it, so a
+        /// clip-level bake can measure how far a lump reaches from the cell that owns it.
+        glm::vec2 CellKm{ 0.0f };
+    };
+
+    std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
+                                                                   uint32_t slot, const glm::vec2& regionOriginKm,
+                                                                   CloudProceduralLumpSet set );
+
+    /// The same generator over any rectangle: the lumps of every cell whose centre lies in
+    /// [windowMinKm, windowMinKm + windowSizeKm). The region form above is this with a square of RegionSizeKm;
+    /// a clip level asks for its box widened by the lumps' reach (BakeCloudProceduralBox).
+    std::vector<CloudProceduralLump>
+    GenerateCloudProceduralLumpsInWindow( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm,
+                                          CloudProceduralLumpSet set );
+
+    /**
+     * @brief What the bake writes for species @p slot at one point, gathered over @p lumps — 0 outside the
+     *        body, 1 at its cluster's core (CloudProceduralBodyDepthKm), times the altitude density, cut by
+     *        each cluster's reach.
+     *
+     * ONE HOME WITH THE BAKE (CUT-AT-BAKE-b): the voxel is the same function the bake calls — the join per
+     * cluster, the altitude density, each cluster cut by its CloudProceduralClusterReach before the clusters
+     * meet by `max`. What differs is the SET: this gathers every lump it is handed where the bake asks a
+     * spatial bin, and Desert/Tests/Engine/CloudProceduralField holds the two against each other at four
+     * hundred probes to within one 255th. A cluster is identified by its ClusterKm, so a caller handing
+     * wrapped copies shifts ClusterKm with each copy.
      *
      * It exists because the Cloud Type panel has to draw the silhouette a type produces, and a preview
-     * computed from a formula written a second time is a preview that agrees with a picture nobody
-     * renders. It is NOT what the bake uses: gathering every lump of a region at every one of two million
-     * voxels is quadratic in the region, which is what the bin is for.
+     * computed from a formula written a second time is a preview that agrees with a picture nobody renders.
+     * It is NOT what the bake uses: gathering every lump of a region at every voxel is quadratic in it.
      *
-     * @param blobs may be in any order; the join is commutative in real arithmetic and the list a caller
-     *        gets from GenerateCloudProceduralBlobs is canonically sorted already.
+     * @param lumps in the canonical order GenerateCloudProceduralLumps returns, which is what makes the
+     *        join's floating-point sum the bake's.
      */
-    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams&      params,
-                                          const std::vector<CloudModellingBlob>& blobs, const glm::vec3& pointKm );
+    float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams& params, uint32_t slot,
+                                          const std::vector<CloudProceduralLump>& lumps,
+                                          const glm::vec3&                        pointKm );
 
     /// How many lumps the whole region holds, summed over the species — the quantity the bake's cost is
     /// linear in, exposed so the renderer can log it beside the milliseconds rather than guessing.

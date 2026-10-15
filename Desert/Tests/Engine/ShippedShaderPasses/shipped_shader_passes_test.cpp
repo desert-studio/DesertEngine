@@ -363,6 +363,8 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     // Ю11 added the last of these. UIMatError.shader is deliberately ABSENT: it declares no resources at
     // all, which is what makes it the tree's only test of a resource-free program, so it carries no row.
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
+         // BISTRO-LOOK-3: the TwoSidedFoliage template, taken by two-sided masked FBX materials.
+         "FoliageSurface.shader",
          "MatProbe.shader",
          "MatProbeUnlit.shader",
          // The particle sprite templates' cells read the generated row of the material their emitter names.

@@ -40,6 +40,8 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::tessellationShader );
                 case Capability::IndependentBlend:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::independentBlend );
+                case Capability::ImageCubeArray:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::imageCubeArray );
                 case Capability::WideLines:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::wideLines );
                 case Capability::FillModeNonSolid:

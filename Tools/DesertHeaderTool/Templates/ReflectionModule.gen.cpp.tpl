@@ -24,7 +24,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ContainerAccess.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-{% if hasFunctions %}#include <Engine/Reflection/FunctionThunk.hpp>
+{% if includeThunks %}#include <Engine/Reflection/FunctionThunk.hpp>
 {% endif %}#include <cstddef>
 #include <cstdint>
 #include <string>
@@ -35,7 +35,22 @@
 {% endfor %}{% endif %}
 {# No static object here: a module's registration runs because the module list calls it by name, so the
    linker keeps this object for the reference and not for a side effect it cannot see (plan C11). -#}
-namespace Desert::Reflection::Generated
+{# DESERT_REFLECTION_DATA_ONLY: a tool that compiles this table to read and write formats (SceneMigrator,
+   WorldGen) links no engine code, and a FUNCTION thunk takes the address of the engine function it calls.
+   Such a tool defines the macro and gets the types and their fields without the callable functions. -#}
+{# REFLECT( ScriptStruct ): the member list a Struct Value is packed from and unpacked into (FunctionThunk.hpp,
+   ReflectedStruct) - declared before any FUNCTION below takes or returns the struct. -#}
+{% if hasScriptStructs %}namespace Desert::Reflection
+{
+{% for t in types %}{% if t.scriptStruct %}template <>
+struct ReflectedStruct<::{{ t.fqn }}>
+{
+    static constexpr const char* Name = "{{ t.registryName }}";
+    static constexpr auto Members = std::tuple{ {% for f in t.fields %}StructMember{ "{{ f.name }}", &::{{ t.fqn }}::{{ f.name }} }, {% endfor %}};
+};
+{% endif %}{% endfor %}} // namespace Desert::Reflection
+
+{% endif %}namespace Desert::Reflection::Generated
 {
 void RegisterReflection_{{ module }}();
 
@@ -45,7 +60,10 @@ void RegisterReflection_{{ module }}()
 {% endif %}{% for t in types %}    {
         using T = ::{{ t.fqn }};
         TypeBuilder( "{{ t.registryName }}", sizeof( T ) )
-{% for f in t.fields %}{% include "Field.tpl" %}{% endfor %}{% for fn in t.functions %}{% include "Function.tpl" %}{% endfor %}{% for ev in t.events %}{% include "Event.tpl" %}{% endfor %}            .WithDefault<T>()
+            .ScriptName( "{{ t.scriptName }}" )
+{% for f in t.fields %}{% include "Field.tpl" %}{% endfor %}{% if t.hasFunctions %}#ifndef DESERT_REFLECTION_DATA_ONLY
+{% for fn in t.functions %}{% include "Function.tpl" %}{% endfor %}#endif
+{% endif %}{% for ev in t.events %}{% include "Event.tpl" %}{% endfor %}            .WithDefault<T>()
 {#- ^ a default-constructed instance, so the editor can offer reset-to-default per field. #}
             .Register();
     }

@@ -14,8 +14,10 @@
 
 #include <Common/Core/Timestep.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -127,6 +129,23 @@ namespace Desert::Animation
         /// was still being read): the fade starts that many seconds in, so its alpha is the transition's.
         void CrossFade( const AnimationClip& clip, float duration, bool loop = true,
                         AlphaBlendOption curve = AlphaBlendOption::Linear, float elapsed = 0.0F );
+        /**
+         * A state machine state that plays a Blend Space 1D (Graph::StateBlendSpace), as Play / CrossFade play a
+         * clip: `clips` holds each sample's clip, parallel to the row (null while it is still loading). Its
+         * weights follow the axis parameter (SetPoseGraphParameter's value; 0 with no pose graph) at the row's
+         * WeightSpeed and its samples play at one shared phase (Graph::AdvanceSyncedPhase), which is what
+         * GetCurrentTime / GetDuration then report: the HEAVIEST resolved sample at that phase, so an exit time
+         * reads the phase and that sample's notifies are the ones heard (UE: the highest-weight sample's).
+         * A request for the row already on top does not restart it; it only takes the sample clips (resolved
+         * later than the state was entered). The clips are kept by address, as Play keeps its clip.
+         */
+        void PlayBlendSpace( const Graph::StateBlendSpace& space, std::span<const AnimationClip* const> clips );
+        void CrossFadeBlendSpace( const Graph::StateBlendSpace& space, std::span<const AnimationClip* const> clips,
+                                  float duration, AlphaBlendOption curve = AlphaBlendOption::Linear,
+                                  float elapsed = 0.0F );
+        /// The blend space the base stage's TARGET plays (the newest fade, else the current), nullptr when it
+        /// plays a clip.
+        [[nodiscard]] const Graph::StateBlendSpace* GetCurrentBlendSpace() const;
         void Stop();
 
         void Update( const Common::Timestep& ts );
@@ -328,11 +347,46 @@ namespace Desert::Animation
         /// The live value of a declared graph parameter (a pin bound to it reads it). Ignored for an undeclared
         /// name: Graph::Evaluator's setters have refused it by name already.
         void SetPoseGraphParameter( std::string_view name, float value );
+        /// Blend Space 1D node `node`'s sample `sample` plays `clip` (resolved by name, as a source's clip is).
+        /// The shared phase is not restarted: the samples are synced, not clocked one by one. Ignored for a
+        /// node that is no blend space, a sample past its row and with no graph set.
+        void SetPoseGraphBlendSample( size_t node, size_t sample, const AnimationClip& clip );
+        /// Deleted for `Play`'s reason: the sample keeps the clip's address.
+        void SetPoseGraphBlendSample( size_t node, size_t sample, AnimationClip&& clip ) = delete;
         void ClearPoseGraph();
         /// The graph the stage runs, or nullptr when none is set.
         [[nodiscard]] const Graph::AnimGraph* GetPoseGraph() const
         {
             return m_PoseGraph ? &m_PoseGraph->Instance.Graph() : nullptr;
+        }
+        /**
+         * A Blend Space 1D node's run (UE FAnimNode_BlendSpacePlayer: its sample data cache and its internal
+         * time accumulator). Every sample plays at the ONE shared normalized `Phase` of its own clip
+         * (Graph::AdvanceSyncedPhase); `Weights` move toward the axis's target weights at the node's WeightSpeed
+         * (Graph::InterpolateBlendWeights). Parallel to the node's Samples.
+         */
+        struct BlendSpaceRun
+        {
+            std::vector<const AnimationClip*> Clips; ///< per sample; null while its clip is not resolved
+            std::vector<float>                Weights;
+            float                             Phase = 0.0F;
+            /// False until the first Update: the first weights ARE the target (UE: no interpolation from
+            /// nothing on the first update of a blend space player).
+            bool Started = false;
+        };
+
+        /// The base stage target's blend space run (PlayBlendSpace: weights, shared phase), nullptr when it plays
+        /// a clip.
+        [[nodiscard]] const BlendSpaceRun* GetCurrentBlendRun() const;
+
+        /// Blend Space 1D node `node`'s run (its weights and shared phase), or nullptr for any other node and
+        /// with no graph set.
+        [[nodiscard]] const BlendSpaceRun* GetPoseGraphBlendSpace( size_t node ) const
+        {
+            if ( !m_PoseGraph || node >= m_PoseGraph->BlendSpaces.size() ||
+                 !m_PoseGraph->Instance.Graph().Nodes[node].BlendSpace )
+                return nullptr;
+            return &m_PoseGraph->BlendSpaces[node];
         }
 
         // --- Linked anim layers (UE LinkAnimClassLayers / UnlinkAnimClassLayers) -------------------------
@@ -439,20 +493,37 @@ namespace Desert::Animation
             FrameTime StepFrom;
             bool      StepWrapped  = false;
             bool      StepBackward = false;
+            /// A state playing a Blend Space 1D (PlayBlendSpace): its row and axis, and the run (Blend.Clips
+            /// holds the sample clips). An empty row is a plain clip. With a row, `Clip` / `Time` follow the
+            /// heaviest resolved sample at the shared phase (UpdateBlendPlayback), and the pose is the blend of
+            /// every weighted sample (SamplePlayback).
+            Graph::StateBlendSpace BlendSpace;
+            BlendSpaceRun          Blend;
 
+            bool IsBlendSpace() const
+            {
+                return !BlendSpace.Space.Samples.empty();
+            }
             bool IsValid() const
             {
-                return Clip != nullptr;
+                return Clip != nullptr || ( IsBlendSpace() && std::any_of( Blend.Clips.begin(), Blend.Clips.end(),
+                                                                           []( const AnimationClip* sample )
+                                                                           { return sample != nullptr; } ) );
             }
         };
 
         /// The pose graph, its source clocks (one per node; the base source's and the blend nodes' unused), the
-        /// parameter values (parallel to the graph's Parameters) and the per-frame scratch.
+        /// blend spaces' runs (one per node; empty for every node that is no Blend Space 1D), the parameter
+        /// values (parallel to the graph's Parameters) and the per-frame scratch.
         struct PoseGraphState
         {
-            Graph::PoseGraphInstance  Instance;
-            std::vector<ClipPlayback> Sources;
-            std::vector<float>        Parameters;
+            Graph::PoseGraphInstance   Instance;
+            std::vector<ClipPlayback>  Sources;
+            std::vector<BlendSpaceRun> BlendSpaces;
+            std::vector<float>         Parameters;
+            /// The second and later weighted samples of a blend space are sampled here, then blended into the
+            /// node's output.
+            Graph::GraphPose          BlendScratch;
             int                       BaseSource = -1;
             Graph::GraphPose          Out;
             /// Per node: the notify states its clip reported active (the base source's are m_ActiveStates).
@@ -466,6 +537,20 @@ namespace Desert::Animation
         struct RigSampling;
 
         void UpdatePlayback( ClipPlayback& playback, float deltaTime );
+        /// UpdatePlayback for a blend-space playback: weights toward the axis's target, the shared phase advanced,
+        /// then `Clip` / `Time` / the step moved to the heaviest resolved sample at that phase.
+        void UpdateBlendPlayback( ClipPlayback& playback, float deltaTime );
+        /// `playback`'s pose on `rig`: its clip at its time, or for a blend space every weighted sample at the
+        /// shared phase blended by weight (the rest pose while no sample is resolved).
+        void SamplePlayback( const RigSampling& rig, const ClipPlayback& playback, LocalPose& out );
+        /// The base stage's target: the newest fade's playback, else the current one.
+        [[nodiscard]] const ClipPlayback& TopPlayback() const
+        {
+            return m_Fades.empty() ? m_Current : m_Fades.back().Playback;
+        }
+        /// PlayBlendSpace / CrossFadeBlendSpace's playback for `space` with `clips`.
+        [[nodiscard]] static ClipPlayback BlendPlaybackOf( const Graph::StateBlendSpace&         space,
+                                                           std::span<const AnimationClip* const> clips );
 
         /// Runs every stage in m_Stages over m_EvaluatedPose, then resolves it into m_Skinning.
         void EvaluatePipeline();
@@ -477,6 +562,18 @@ namespace Desert::Animation
         /// PoseStage::Graph — evaluates the pose graph; its base source reads `pose` (the Source stage's), every
         /// other source samples its own clip. NOT const for EvaluateSource's reason.
         void EvaluateGraph( PoseGraphState& state, LocalPose& pose );
+        /// UE FAnimNode_BlendSpacePlayer::UpdateAssetPlayer for every Blend Space 1D node: the axis from its X
+        /// pin, the weights toward that axis's target at WeightSpeed, the shared phase advanced over the
+        /// weighted samples' lengths.
+        static void UpdateBlendSpaces( PoseGraphState& state, float deltaTime );
+        /// A Blend Space 1D node's pose: each weighted sample with a clip at the shared phase, blended by its
+        /// share of the running weight; curves the weighted sum (a curve a sample lacks counts 0 there).
+        void SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run,
+                               const std::function<void( const ClipPlayback&, Graph::GraphPose& )>& sampleClock,
+                               Graph::GraphPose&                                                    out );
+        /// The value of declared graph parameter `name` (0 for an undeclared one: the planner refused a pin
+        /// bound to it).
+        [[nodiscard]] static float GraphParameter( const PoseGraphState& state, const std::string& name );
         /// Sizes m_LinkedSources to m_LinkedLayers after a link or unlink.
         void RebuildLinkedClocks();
 
@@ -628,6 +725,8 @@ namespace Desert::Animation
         std::vector<Timeline::FiredEvent> m_Crossed;
         // A fading-in clip's pose during a crossfade (BlendedBasePose).
         LocalPose m_BlendScratch;
+        // The second and later weighted samples of a blend-space playback (SamplePlayback).
+        LocalPose m_SampleScratch;
 
         /// Ends every active state of both base players: the clips they belong to stop playing.
         void RetireNotifyStates();

@@ -215,8 +215,6 @@ namespace
     // Files under the scanned directories that may read a wall clock, because what they measure is the
     // MACHINE (how long a bake or a load took, for a log line), never something drawn. One row each.
     const std::set<std::string> kWallClockAllowed{
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp",
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", // shadow alloc ms
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",   // bake ms
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp",   // bake start, same log

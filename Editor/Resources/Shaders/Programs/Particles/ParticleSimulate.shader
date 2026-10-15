@@ -13,10 +13,10 @@ Shader "ParticleSimulate"
         //   * update: thread t < alive count runs the stack on the particle at AliveList[Base + t];
         //   * spawn: thread t < min(budget, free count) runs it as a newborn (the spawn group, then the update
         //     group, UE's spawn-and-update in one step) on FreeList[Base + FreeCount - 1 - t] with id IdBase + t.
-        // A module's Kill (UpdateAge at Lifetime) leaves lifetime 0: the next compact frees the particle. After the
-        // stack the host writes the DRAWN particle (Common/ParticleState.glslh) from the stack's Position /
-        // SpriteSize / Color / Age / Lifetime / Velocity attributes (absent = 0, 1 or white), which is all the sprite
-        // vertex path reads. A Spawn from Channel newborn hands its record's direction, colour and scalars to the
+        // A module's Kill (UpdateAge at Lifetime) clears the slot's Alive flag: the next compact frees the particle.
+        // The attributes are the particle's ONE store: the sprite vertex path and the sort read them where the
+        // emitter's ParticleDrawLayout says (Common/ParticleDrawLayout.glslh); the host keeps only the pool slot's
+        // id and alive flag (Common/ParticleState.glslh). A Spawn from Channel newborn hands its record's direction, colour and scalars to the
         // stack in VFXSim (the Initialize / velocity modules read them, UE's Data Channel read); only the bound
         // position is the host's, as the shape modules place a newborn around zero. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
         // Local one is drawn at emitter + Position every step.
@@ -25,9 +25,10 @@ Shader "ParticleSimulate"
         #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
 
-        Buffer(0) Particles
+        // The pool's bookkeeping (Common/ParticleState.glslh): id + alive flag, none of the particle's data.
+        Buffer(0) PoolSlots
         {
-            Particle u_Particles[];
+            ParticleSlot u_PoolSlots[];
         };
 
         struct VFXStep
@@ -142,7 +143,7 @@ Shader "ParticleSimulate"
             VFX_WriteFloat( n, c + 2u, v.z );
         }
 
-        // Runs the stack on pool particle @p i and writes the drawn particle from its attributes.
+        // Runs the stack on pool particle @p i: its attributes, then its slot (id, alive).
         void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel )
         {
             const uint n     = i - u_Counts.z; // range-local: the attribute columns are the emitter's
@@ -174,39 +175,8 @@ Shader "ParticleSimulate"
                 WriteVec3( n, VFX_ATTR_POSITION, position );
             }
 #endif
-            float lifetime = 3.0e38; // no Lifetime attribute: the particle never dies of age
-#ifdef VFX_ATTR_LIFETIME
-            if ( VFX_ReadFloat( n, VFX_ATTR_LIFETIME ) > 0.0 )
-                lifetime = VFX_ReadFloat( n, VFX_ATTR_LIFETIME );
-#endif
-            float age = 0.0;
-#ifdef VFX_ATTR_AGE
-            age = VFX_ReadFloat( n, VFX_ATTR_AGE );
-#endif
-            vec3 velocity = vec3( 0.0 );
-#ifdef VFX_ATTR_VELOCITY
-            velocity = ReadVec3( n, VFX_ATTR_VELOCITY );
-#endif
-            float size = 1.0;
-#ifdef VFX_ATTR_SPRITESIZE
-            size = VFX_ReadFloat( n, VFX_ATTR_SPRITESIZE );
-#endif
-            vec4 color = vec4( 1.0 );
-#ifdef VFX_ATTR_COLOR
-            color = vec4( VFX_ReadFloat( n, VFX_ATTR_COLOR ), VFX_ReadFloat( n, VFX_ATTR_COLOR + 1u ),
-                          VFX_ReadFloat( n, VFX_ATTR_COLOR + 2u ), VFX_ReadFloat( n, VFX_ATTR_COLOR + 3u ) );
-#endif
-
-            Particle p;
-            p.PosSize = vec4( local ? u_EmitterPos.xyz + position : position, size );
-            p.Color   = color;
-            p.VelLife = vec4( velocity, sim.Kill ? 0.0 : lifetime );
-            p.Age     = vec4( age, 0.0, 0.0, 0.0 );
-            // x carries the particle's id between steps (its random streams are keyed by it).
-            p.Ids     = uvec4( id, 0u, 0u, 0u );
-            if ( sim.Kill )
-                p.Color.a = 0.0; // dead => invisible
-            u_Particles[i] = p;
+            // Death is the stack's (a module's Kill, UpdateAge at Lifetime); a stack without one never kills.
+            u_PoolSlots[i] = ParticleSlot( id, sim.Kill ? 0u : 1u );
         }
 
         void main()
@@ -230,7 +200,7 @@ Shader "ParticleSimulate"
             if ( t < alive )
             {
                 uint i = u_Alive[2u * base + slot * u_Counts.x + t];
-                Run( i, false, u_Particles[i].Ids.x, step, none );
+                Run( i, false, u_PoolSlots[i].Id, step, none );
             }
 
             if ( t < min( u_Steps[step].Budget, freeCount ) )

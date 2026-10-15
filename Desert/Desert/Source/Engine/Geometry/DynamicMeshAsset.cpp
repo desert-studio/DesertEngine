@@ -80,14 +80,12 @@ namespace Desert::Geometry
 
         if ( const DynamicMeshAttributeSet* attributes = mesh.Attributes() )
         {
-            if ( attributes->HasPrimaryColors() )
-                return Common::MakeError<Ser::MeshAssetData>(
-                     "the mesh carries a vertex colour overlay and a .stmesh vertex has no colour; writing it "
-                     "would drop the overlay" );
-            if ( attributes->NumUVLayers() > 1 )
+            // The colour overlay and UV layer 1 are written: they are the .stmesh's optional Colors / UV1
+            // streams (MeshBinary v4), which ToRenderMesh fills. Only layers past 1 have no home in the file.
+            if ( attributes->NumUVLayers() > 2 )
                 return Common::MakeFormattedError<Ser::MeshAssetData>(
-                     "the mesh carries {} UV layers and a .stmesh vertex has one; writing it would drop layers "
-                     "1..{}",
+                     "the mesh carries {} UV layers and a .stmesh has two (the vertex's UV 0 and the UV1 stream); "
+                     "writing it would drop layers 2..{}",
                      attributes->NumUVLayers(), attributes->NumUVLayers() - 1 );
             if ( attributes->NumPolygroupLayers() > 0 )
                 return Common::MakeFormattedError<Ser::MeshAssetData>(

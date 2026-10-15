@@ -61,7 +61,16 @@ namespace Desert::ECS
                      light.MinRadius = pointlight.Data.MinRadius;
                      light.Falloff   = static_cast<int32_t>( pointlight.Data.Falloff );
 
-                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light );
+                     // What the light asks of its shadow, and who it is (its tiles stay its own while it and
+                     // its casters stand still: MeshRenderer::UpdateLocalShadows).
+                     const Graphic::LocalLightShadowSettings shadow{
+                          .CastShadows     = pointlight.Data.CastShadows,
+                          .DepthBias       = pointlight.Data.ShadowBias,
+                          .SlopeBias       = pointlight.Data.ShadowSlopeBias,
+                          .ResolutionScale = pointlight.Data.ShadowResolutionScale,
+                          .SourceId        = static_cast<uint32_t>( entity ) + 1u };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light, shadow );
                  } );
         }
     };

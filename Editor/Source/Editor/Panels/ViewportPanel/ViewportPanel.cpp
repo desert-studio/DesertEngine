@@ -1,6 +1,8 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "RenderMethodsOverlay.hpp"
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
@@ -43,6 +45,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <UI/UILayout.hpp>
 #include <Editor/Panels/ViewportPanel/ActiveViewportRule.hpp>
@@ -1639,6 +1643,15 @@ namespace Desert::Editor
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
         m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
+        // Focus moved away (a Details field, another panel): the releases of the keys the player holds will
+        // be routed there, so they are released now — a held W must not walk the pawn on forever.
+        if ( m_PlayerHoldsKeys && !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) )
+        {
+            if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+                player->FlushPressedKeys();
+            m_PlayerHoldsKeys = false;
+        }
+
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
         if ( m_OnActivate && ImGui::IsWindowFocused() )
@@ -1998,6 +2011,14 @@ namespace Desert::Editor
         // stores the decision nowhere, so no save can find it and no call site can forget to fence it.
         if ( !m_Modes.UI2D )
             DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
+
+        // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
+        if ( !m_Modes.UI2D && m_Scene )
+            if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
+                                          ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
+                                          ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
+                                                  m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
         if ( EditorPreferences::Get().ShowPerfHud )
@@ -2539,6 +2560,28 @@ namespace Desert::Editor
             ApplyViewAxisTip( *editorCam, tips2[hotTip].WorldDir );
     }
 
+    Input::LocalPlayerInput* ViewportPanel::PlayedPlayerInput() const
+    {
+        if ( m_Scene == nullptr || m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+            return nullptr;
+        auto* scripts = m_Scene->FindSystem<ECS::ScriptSystem>();
+        return scripts != nullptr ? &scripts->PlayerInput() : nullptr;
+    }
+
+    bool ViewportPanel::OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e )
+    {
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+            player->InputKey( Input::InputKey::Of( e.GetMouseButton() ), false );
+        return false;
+    }
+
+    bool ViewportPanel::OnKeyReleased( Common::KeyReleasedEvent& e )
+    {
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+            player->InputKey( Input::InputKey::Of( e.GetKeyCode() ), false );
+        return false;
+    }
+
     bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
     {
         // LMB picks/selects ONLY in Select mode and when no brush is active (terrain brush / Foliage paint
@@ -2547,6 +2590,14 @@ namespace Desert::Editor
         // pick the object behind it.
         if ( m_ViewAxisGizmoHovered || m_PilotOverlayHovered )
             return false;
+
+        // A played world's button, over its image: the player's, not a pick.
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput(); player != nullptr && m_ViewportData.IsHovered )
+        {
+            player->InputKey( Input::InputKey::Of( e.GetMouseButton() ), true );
+            m_PlayerHoldsKeys = true;
+            return false;
+        }
 
         // The pick must fire ONLY over the rendered scene image — not the toolbar/overlay widgets that sit
         // in the same viewport window. IsHovered (IsWindowHovered) is true for the whole window, so a click
@@ -2665,6 +2716,14 @@ namespace Desert::Editor
 
     bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        // A played world's key: the player's (its key state ignores the OS repeats), not an editing shortcut.
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+        {
+            if ( e.GetRepeatCount() == 0 )
+                player->InputKey( Input::InputKey::Of( e.GetKeyCode() ), true );
+            m_PlayerHoldsKeys = true;
+            return false;
+        }
         if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
         {
             if ( *command == ViewportCommand::SelectNone &&

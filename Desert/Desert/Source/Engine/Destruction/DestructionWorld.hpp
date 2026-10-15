@@ -40,6 +40,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -56,6 +57,13 @@ namespace Desert::Destruction
         glm::vec2 MaxSleepTime         = { 5.0f, 10.0f }; ///< Seconds asleep before removal, drawn in [x, y]
         bool      SlowMovingAsSleeping = true;
         float     SlowMovingVelocityThreshold = 1.0f; ///< cm/s; slower than this counts as asleep
+
+        /// UE bNotifyCollisions + the Chaos collision-event filter's MinImpulse: a contact on one of the object's
+        /// bodies whose normal impulse reaches CollisionEventMinImpulse (kg*cm/s) is recorded as a Collision
+        /// event. Off, no contact of the object is recorded (contacts are per step and many; breaks and removals
+        /// are bounded by the pieces and always recorded).
+        bool  CollisionEvents          = false;
+        float CollisionEventMinImpulse = 1000.0f;
     };
 
     struct DestructibleDesc
@@ -74,17 +82,30 @@ namespace Desert::Destruction
 
     enum class DestructionEventKind : uint8_t
     {
-        Break,   ///< A unit left its body as a body of its own
-        Removed, ///< A broken-off body slept long enough and left the simulation (one event per member)
+        Break,     ///< A group of units left its body as a body of its own (UE FChaosBreakEvent)
+        Collision, ///< A contact on a body of an object with CollisionEvents (UE FChaosCollisionEvent)
+        Removed,   ///< A member left the simulation: slept long enough, or a kill field (UE FChaosRemovalEvent)
     };
 
+    /// One thing the simulation did in a step. Which fields mean something depends on Kind:
+    ///   Break     - Node (first member of the detached group), Position (the GROUP's world centre of mass),
+    ///               Velocity (the group's), MassKg (the group's), PieceCount (leaves in the group).
+    ///   Collision - Node (the unit touched), Position (the contact point), Normal (out of the destructible's
+    ///               body, towards what it hit), Impulse (the contact's normal impulse, kg*cm/s), Velocity (the
+    ///               body's), MassKg (the body's), PieceCount (leaves in the body).
+    ///   Removed   - Node (the member), Position (its world centre of mass), Velocity (its body's; zero when it
+    ///               slept), MassKg and PieceCount (the member's).
     struct DestructionEvent
     {
-        DestructionEventKind Kind     = DestructionEventKind::Break;
-        DestructibleHandle   Object   = kInvalidDestructible;
-        int32_t              Node     = -1;
-        glm::vec3            Position = { 0.0f, 0.0f, 0.0f }; ///< World centre of mass of the node
-        glm::vec3            Velocity = { 0.0f, 0.0f, 0.0f }; ///< Its velocity, cm/s
+        DestructionEventKind Kind       = DestructionEventKind::Break;
+        DestructibleHandle   Object     = kInvalidDestructible;
+        int32_t              Node       = -1;
+        glm::vec3            Position   = { 0.0f, 0.0f, 0.0f }; ///< World, cm
+        glm::vec3            Velocity   = { 0.0f, 0.0f, 0.0f }; ///< cm/s
+        glm::vec3            Normal     = { 0.0f, 0.0f, 0.0f }; ///< Collision only; unit length
+        float                Impulse    = 0.0f;                 ///< Collision only; kg*cm/s
+        float                MassKg     = 0.0f;
+        uint32_t             PieceCount = 0;
     };
 
     class DestructionWorld
@@ -99,7 +120,7 @@ namespace Desert::Destruction
 
         /// Spawns @p data whole, as one body. Refused by name: no nodes, a hierarchy out of order, a leaf
         /// without a hull, an anchored node out of range, a density that is not positive, a sleep range
-        /// upside down, a hull Jolt cannot cook.
+        /// upside down, a negative collision-event impulse, a hull Jolt cannot cook.
         Common::ResultStr<DestructibleHandle> Add( std::shared_ptr<const FractureData> data,
                                                    const DestructibleDesc&             desc );
         /// Takes every body of @p object out of the physics world.
@@ -111,13 +132,21 @@ namespace Desert::Destruction
         /// How many bodies @p object is in now.
         [[nodiscard]] uint32_t GetBodyCount( DestructibleHandle object ) const;
 
+        /// Where @p node draws now: its body's pose as the fracture-space -> world transform (a body's frame is
+        /// the fracture's, placed; WorldPoint maps a fracture-space point the same way). Empty once its body is
+        /// gone (removed on sleep, killed) or for an unknown object or node.
+        [[nodiscard]] std::optional<glm::mat4> GetNodeWorld( DestructibleHandle object, int32_t node ) const;
+        /// The node count of @p object's fracture; 0 for an unknown or removed object.
+        [[nodiscard]] size_t GetNodeCount( DestructibleHandle object ) const;
+
         /// Fires @p command once, now (DestructionField.hpp): strains break at once (UE MaxAppliedStrain =
         /// max(collision, external), PBDRigidClustering.cpp:1178), an impulse then pushes the bodies the break
         /// left, a kill removes bodies with Removed events, an anchor makes the bodies holding its leaves
         /// static. Returns how many bodies it acted on. The one entry for every trigger (component, Sequencer).
         uint32_t ApplyField( const FieldCommand& command );
 
-        /// Breaks and removals since ClearEvents, in the order they happened.
+        /// Breaks, collisions and removals since ClearEvents, in the order they happened, collected on the
+        /// thread that steps the physics world, after each step's contacts are known.
         [[nodiscard]] std::span<const DestructionEvent> GetEvents() const
         {
             return m_Events;
@@ -180,6 +209,15 @@ namespace Desert::Destruction
         [[nodiscard]] static std::vector<int32_t> UnitsOf( const Object& object, const BodyState& body );
         [[nodiscard]] static int32_t    UnitOfLeaf( const Object& object, const BodyState& body, int32_t leaf );
         [[nodiscard]] static glm::dvec3 CenterOfMass( const Object& object, const std::vector<int32_t>& members );
+        /// Mass (kg, the object's density times the members' volume) and leaf count of @p members.
+        [[nodiscard]] static float    MassOf( const Object& object, const std::vector<int32_t>& members );
+        [[nodiscard]] static uint32_t PiecesOf( const Object& object, const std::vector<int32_t>& members );
+        /// Records one Collision event for the side of @p contact that is a body of an object asking for them.
+        void RecordCollision( Physics::BodyHandle handle, uint32_t part, const glm::vec3& point,
+                              const glm::vec3& normal, float impulse );
+        /// The Removed event of @p member of object @p objectIndex, at @p position moving at @p velocity.
+        [[nodiscard]] DestructionEvent RemovedEvent( uint32_t objectIndex, int32_t member,
+                                                     const glm::vec3& position, const glm::vec3& velocity ) const;
 
         Physics::PhysicsWorld&                           m_Physics;
         std::vector<Object>                              m_Objects; // a removed object has no Data

@@ -583,17 +583,19 @@ TEST( EnhancedInputPlayer, ScriptSystemTicksThePlayerInputBeforeTheScripts )
     EXPECT_NE( system.find( "m_Engine.EndPlayerInput()" ), std::string::npos );
 }
 
-// The Lua `Input` table keeps its raw keys and gains the actions, contexts and rebinding.
-TEST( EnhancedInputPlayer, LuaInputTableNamesActionsContextsAndRebinding )
+// The script `Input` table (the reflected InputLibrary) keeps its raw keys and gains the actions, contexts and
+// rebinding.
+TEST( EnhancedInputPlayer, ScriptInputTableNamesActionsContextsAndRebinding )
 {
-    const std::string lua = SourceText( "Desert/Desert/Source/Engine/Scripting/InputBindings.cpp" );
-    ASSERT_FALSE( lua.empty() );
+    const std::string library = SourceText( "Desert/Desert/Source/Engine/Libraries/InputLibrary.hpp" );
+    ASSERT_FALSE( library.empty() );
     for ( const char* name :
           { "isKeyDown", "wasPressed", "actionValue", "actionTriggered", "actionStarted", "actionOngoing",
             "actionCompleted", "actionCanceled", "actionSeconds", "addContext", "removeContext", "rebindKey" } )
-        EXPECT_NE( lua.find( std::format( "{{ \"{}\", &", name ) ), std::string::npos ) << name;
-    EXPECT_NE( lua.find( "luaL_register( L, \"Input\", kInput )" ), std::string::npos )
-         << "the entries are the global Input table's";
+        EXPECT_NE( library.find( std::format( "ScriptCallable, ScriptName( \"{}\" )", name ) ), std::string::npos )
+             << name;
+    EXPECT_NE( library.find( "REFLECT( ScriptName( \"Input\" ) )" ), std::string::npos )
+         << "the functions are the global Input table's";
 }
 
 namespace

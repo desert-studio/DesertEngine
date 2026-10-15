@@ -455,6 +455,10 @@ namespace
           "VulkanImage3D's staging buffer; a volume is one image and has no layers "
           "(Image3DSpecification deliberately has no Mips field either), and no block format is legal "
           "on one" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
+          "CalculateImageSize( r.Width, r.Height, r.Depth, m_Specification.Format )", Sizes::OneImage, Blocks::Correct,
+          "the byte count one box of a VulkanImage3D region write must carry (Image3D::WriteRegions): the box is "
+          "a sub-volume of the one image, with no layers and no block format legal on a volume" },
         { "Desert/Desert/Source/Engine/Graphic/Environment/EnvironmentBake.cpp",
           "TightlyPackedChainBytes( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, " "Assets::kEnvironmentComputeFormat )", Sizes::EveryLayer, Blocks::Correct,
           "the bake asserting that what came back off the device is the shape it is about to place: a "
@@ -495,6 +499,15 @@ namespace
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
           "CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace )", Sizes::OneImage, Blocks::Correct,
           "the half-resolution cloud trace target's cost line; one 2D image" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererLocalShadow.cpp",
+          "CalculateImageSize( atlasSide, atlasSide, ViewTargetFormats::kShadowColor )", Sizes::OneImage, Blocks::Correct,
+          "the local-light shadow atlas's COLOUR attachment in its cost line: every point face and spot is a "
+          "TILE of one 2D image, not a layer, so one product is the whole attachment; a render target, never "
+          "a block format" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererLocalShadow.cpp",
+          "CalculateImageSize( atlasSide, atlasSide, ViewTargetFormats::kShadowDepth )", Sizes::OneImage, Blocks::Correct,
+          "the local-light shadow atlas's DEPTH attachment, same shape as the colour row: tiles of one 2D "
+          "image, so the six faces of a point light are already inside the side, not a multiplier around it" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kTransmittanceLutWidth, kTransmittanceLutHeight, " "Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
           "the transmittance LUT's cost line; a 2D lookup table" },

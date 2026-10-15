@@ -10,6 +10,7 @@
 //   DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]
 //                    [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]
 //                               [--reflect-root <source-root> <scan-subdir>]...
+//                               [--reflect-enums <scan-dir>]...
 //                               [--reflect-components <output-file>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
@@ -23,6 +24,9 @@
 //     --reflect-components <output-file>  after --reflect: the COMPONENT(...) block list.
 //     --reflect-root <source-root> <scan-subdir>  after --reflect: one more tree scanned into the SAME set
 //                    (a library the engine links whose headers carry reflected types, e.g. DesertUI).
+//     --reflect-enums <scan-dir>  after --reflect: a tree read for ENUM definitions only (no reflected types),
+//                    so a reflected field may be typed with an enum declared there (Common/Settings: the
+//                    render methods). Without it such a field is classified Struct and never serialized.
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
@@ -94,6 +98,7 @@ namespace
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
         bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
+        std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
     };
 
     struct Field
@@ -121,6 +126,8 @@ namespace
     struct FunctionMeta
     {
         bool        scriptCallable = false;
+        bool        scriptMethod   = false;
+        std::string scriptName;
         std::string category;
         std::string tooltip;
     };
@@ -133,7 +140,9 @@ namespace
         std::string                                      name;
         std::string                                      returnType;
         std::vector<std::pair<std::string, std::string>> params; // { name, C++ spelling }
-        FunctionMeta                                     meta;
+        std::vector<std::string>
+                     defaults; // per parameter: its C++ default expression (UE's CPP_Default_), or empty
+        FunctionMeta meta;
     };
 
     // EVENT(...) attributes (CoreReflection/ReflectionMacros.hpp).
@@ -156,6 +165,9 @@ namespace
     {
         std::string           fqn;          // fully-qualified C++ name, e.g. Desert::Assets::SurfaceMaterialData
         std::string           registryName; // short name used as the registry key, e.g. SurfaceMaterialData
+        std::string           scriptName;   // REFLECT( ScriptName( "..." ) ): the global a language binds
+        bool                  scriptStruct = false; // REFLECT( ScriptStruct ): travels as a Struct Value (UE's
+                                                    // USTRUCT(BlueprintType)) — the tool emits its member list
         std::vector<Field>    fields;
         std::vector<Function> functions;
         std::vector<Event>    events;
@@ -232,6 +244,8 @@ namespace
         if ( type == "glm::vec2" || type == "vec2" ) return "Vec2";
         if ( type == "glm::vec3" || type == "vec3" ) return "Vec3";
         if ( type == "glm::vec4" || type == "vec4" ) return "Vec4";
+        if ( type == "ECS::Entity" || type == "Desert::ECS::Entity" )
+            return "Entity";
         if ( type == "AssetHandle" || type == "Assets::AssetHandle" ||
              type == "Desert::Assets::AssetHandle" ) return "AssetHandle";
         return "Struct"; // unknown class type — resolved later by TypeName
@@ -424,8 +438,13 @@ namespace
         std::string tail = t;
         if ( auto pos = t.rfind( "::" ); pos != std::string::npos ) tail = t.substr( pos + 2 );
 
+        // A qualified spelling names one enum: its exact FQN wins over a short-name match elsewhere.
         for ( const auto& e : enums )
-            if ( e.fqn == t || e.shortName == t || e.shortName == tail ) return &e;
+            if ( e.fqn == t )
+                return &e;
+        for ( const auto& e : enums )
+            if ( e.shortName == t || e.shortName == tail )
+                return &e;
         return nullptr;
     }
 
@@ -489,6 +508,8 @@ namespace
                 m.saveGame = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "Refuse", 0 ) == 0 )
+                m.refuse = ExtractStringLiteral( tok );
             else if ( tok == "Length" )
                 m.isLength = true;
         }
@@ -503,6 +524,8 @@ namespace
         int         depth;    // brace depth at which this scope opened
         bool        isStruct; // struct/class vs namespace
         bool        reflected = false;
+        std::string        scriptName   = {};    // REFLECT( ScriptName( "..." ) )
+        bool               scriptStruct = false; // REFLECT( ScriptStruct )
         std::vector<Field> fields =
              {}; // the two `scopes.push_back( { name, depth, isStruct } )` below stop here on purpose
         std::vector<Function>         functions = {};
@@ -523,14 +546,18 @@ namespace
                 continue;
             if ( tok == "ScriptCallable" )
                 m.scriptCallable = true;
+            else if ( tok == "ScriptMethod" )
+                m.scriptMethod = true;
+            else if ( tok.starts_with( "ScriptName" ) )
+                m.scriptName = ExtractStringLiteral( tok );
             else if ( tok.starts_with( "Category" ) )
                 m.category = ExtractStringLiteral( tok );
             else if ( tok.starts_with( "Tooltip" ) )
                 m.tooltip = ExtractStringLiteral( tok );
             else
-                error = std::format(
-                     R"(FUNCTION: unknown attribute '{}' (ScriptCallable, Category("..."), Tooltip("...")))",
-                     tok );
+                error = std::format( R"(FUNCTION: unknown attribute '{}' (ScriptCallable, ScriptMethod, )"
+                                     R"(ScriptName("..."), Category("..."), Tooltip("...")))",
+                                     tok );
         }
         return m;
     }
@@ -545,10 +572,12 @@ namespace
         return text.substr( b, e - b );
     }
 
-    // The parameter list opening at `open` ('('): each parameter's { name, spelling }, a default value dropped.
-    // Returns the index of the closing ')'. A parameter without a name is an error naming `what`.
+    // The parameter list opening at `open` ('('): each parameter's { name, spelling }, and into `defaults` (when
+    // given) its default expression or an empty string. Returns the index of the closing ')'. A parameter without
+    // a name is an error naming `what`.
     size_t ParseParams( const std::string& raw, size_t open, const std::string& what,
-                        std::vector<std::pair<std::string, std::string>>& params, std::string& error )
+                        std::vector<std::pair<std::string, std::string>>& params, std::string& error,
+                        std::vector<std::string>* defaults = nullptr )
     {
         size_t close = open;
         for ( int p = 0; close < raw.size(); ++close )
@@ -564,8 +593,12 @@ namespace
         for ( const auto& paramRaw : SplitTopLevel( list ) )
         {
             std::string param = paramRaw;
+            std::string fallback;
             if ( const size_t eq = param.find( '=' ); eq != std::string::npos )
-                param = param.substr( 0, eq );
+            {
+                fallback = Trimmed( param.substr( eq + 1 ) );
+                param    = param.substr( 0, eq );
+            }
             param                   = Trimmed( param );
             const std::string pname = TrailingIdent( param );
             const std::string ptype = Trimmed( param.substr( 0, param.size() - pname.size() ) );
@@ -576,6 +609,8 @@ namespace
                 return close;
             }
             params.emplace_back( pname, ptype );
+            if ( defaults != nullptr )
+                defaults->push_back( fallback );
         }
         return close;
     }
@@ -655,7 +690,8 @@ namespace
             return raw.size();
         }
 
-        const size_t close = ParseParams( raw, open, std::format( "FUNCTION {}", fn.name ), fn.params, error );
+        const size_t close =
+             ParseParams( raw, open, std::format( "FUNCTION {}", fn.name ), fn.params, error, &fn.defaults );
         if ( !error.empty() )
             return raw.size();
 
@@ -692,7 +728,7 @@ namespace
                     std::vector<std::string>& errors )
     {
         const std::string raw = StripComments( ReadFile( file ) );
-        if ( raw.find( "REFLECT()" ) == std::string::npos && raw.find( "COMPONENT(" ) == std::string::npos )
+        if ( raw.find( "REFLECT(" ) == std::string::npos && raw.find( "COMPONENT(" ) == std::string::npos )
             return;
 
         std::string headerInclude =
@@ -768,15 +804,33 @@ namespace
                 if ( word == "REFLECT" )
                 {
                     SkipWs( raw, i );
+                    std::string reflectArgs;
                     if ( i < raw.size() && raw[i] == '(' )
                     {
-                        // consume ()
+                        // consume ( ... ): REFLECT( ScriptName( "..." ) ) is the one attribute
+                        const size_t argsBegin = i + 1;
                         int p = 0;
                         do { if ( raw[i] == '(' ) ++p; else if ( raw[i] == ')' ) --p; ++i; }
                         while ( i < raw.size() && p > 0 );
+                        reflectArgs = raw.substr( argsBegin, i - 1 - argsBegin );
                     }
                     if ( !scopes.empty() && scopes.back().isStruct )
+                    {
                         scopes.back().reflected = true;
+                        for ( const auto& tokRaw : SplitTopLevel( reflectArgs ) )
+                        {
+                            const std::string tok = Trimmed( tokRaw );
+                            if ( tok.empty() )
+                                continue;
+                            if ( tok.rfind( "ScriptName", 0 ) == 0 )
+                                scopes.back().scriptName = ExtractStringLiteral( tok );
+                            else if ( tok == "ScriptStruct" )
+                                scopes.back().scriptStruct = true;
+                            else
+                                fail( start, "REFLECT: unknown attribute '" + tok +
+                                                  "' (ScriptName(\"...\"), ScriptStruct)" );
+                        }
+                    }
                     continue;
                 }
                 if ( word == "PROPERTY" )
@@ -1046,6 +1100,8 @@ namespace
                     {
                         ReflectedType t;
                         t.registryName  = sc.name;
+                        t.scriptName    = sc.scriptName;
+                        t.scriptStruct  = sc.scriptStruct;
                         t.fqn           = JoinScopes( scopes ).empty()
                                              ? sc.name
                                              : JoinScopes( scopes ) + "::" + sc.name;
@@ -1100,6 +1156,7 @@ namespace
         flag( "preview", m.preview );
         flag( "saveGame", m.saveGame );
         text( "editCondition", m.editCondition );
+        text( "refuse", m.refuse );
         return b.Build();
     }
 
@@ -1126,15 +1183,27 @@ namespace
     Common::Json::Value FunctionModel( const Function& fn )
     {
         Common::Json::Value::Array params;
-        for ( const auto& [name, cppType] : fn.params )
-            params.emplace_back(
-                 Common::Json::ObjectBuilder().Set( "name", name ).Set( "cppType", cppType ).Build() );
+        for ( std::size_t i = 0; i < fn.params.size(); ++i )
+        {
+            // A default is emitted as C++ (the compiler converts it to the parameter's type, Function.tpl): `{}`
+            // value-initialises, anything else brace-initialises from the expression.
+            const std::string& fallback = fn.defaults[i];
+            params.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "name", fn.params[i].first )
+                                      .Set( "cppType", fn.params[i].second )
+                                      .Set( "index", static_cast<long long>( i ) )
+                                      .Set( "hasDefault", !fallback.empty() )
+                                      .Set( "defaultInit", fallback == "{}" ? std::string() : fallback )
+                                      .Build() );
+        }
         return Common::Json::ObjectBuilder()
              .Set( "name", fn.name )
              .Set( "returnType", fn.returnType )
              .Set( "paramCount", static_cast<long long>( fn.params.size() ) )
              .Set( "params", Common::Json::Value( std::move( params ) ) )
              .Set( "scriptCallable", std::string( fn.meta.scriptCallable ? "true" : "false" ) )
+             .Set( "scriptMethod", std::string( fn.meta.scriptMethod ? "true" : "false" ) )
+             .Set( "scriptName", fn.meta.scriptName )
              .Set( "category", fn.meta.category )
              .Set( "tooltip", fn.meta.tooltip )
              .Build();
@@ -1165,7 +1234,8 @@ namespace
         Common::Json::Value::Array includeValues( includes.begin(), includes.end() );
 
         Common::Json::Value::Array typeValues;
-        bool                       hasFunctions = false;
+        bool                       hasFunctions     = false;
+        bool                       hasScriptStructs = false;
         for ( const auto& t : types )
         {
             Common::Json::Value::Array fields;
@@ -1177,11 +1247,15 @@ namespace
             Common::Json::Value::Array events;
             for ( const auto& ev : t.events )
                 events.push_back( EventModel( ev ) );
-            hasFunctions = hasFunctions || !t.functions.empty() || !t.events.empty();
+            hasFunctions     = hasFunctions || !t.functions.empty() || !t.events.empty();
+            hasScriptStructs = hasScriptStructs || t.scriptStruct;
             typeValues.emplace_back( Common::Json::ObjectBuilder()
                                           .Set( "fqn", t.fqn )
                                           .Set( "registryName", t.registryName )
+                                          .Set( "scriptName", t.scriptName )
+                                          .Set( "scriptStruct", t.scriptStruct )
                                           .Set( "fields", Common::Json::Value( std::move( fields ) ) )
+                                          .Set( "hasFunctions", !t.functions.empty() )
                                           .Set( "functions", Common::Json::Value( std::move( functions ) ) )
                                           .Set( "events", Common::Json::Value( std::move( events ) ) )
                                           .Build() );
@@ -1191,6 +1265,8 @@ namespace
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "types", Common::Json::Value( std::move( typeValues ) ) )
              .Set( "hasFunctions", hasFunctions )
+             .Set( "hasScriptStructs", hasScriptStructs )
+             .Set( "includeThunks", hasFunctions || hasScriptStructs )
              .Build();
     }
 
@@ -1305,6 +1381,8 @@ namespace
         // types (--reflect-root): DesertUI's UI/Args since UI-FW-4. All of them land in ONE generated set,
         // each type in the module its header's place in the repository names.
         std::vector<ReflectRoot> Roots;
+        // Trees read for enum definitions only (--reflect-enums): pass 1 below, never pass 2.
+        std::vector<fs::path> EnumRoots;
         fs::path Output; // the module list; the per-module files are written beside it
         // The force-link function the module list defines. The engine's is ForceLinkGeneratedReflection; a second
         // generated set linked into the same image (a test fixture's) names its own (--reflect-anchor).
@@ -1375,6 +1453,20 @@ namespace
         std::vector<EnumDef> enums;
         for ( const auto& [h, root] : headers )
             CollectEnums( StripComments( ReadFile( h ) ), enums );
+        for ( const fs::path& enumRoot : request.EnumRoots )
+        {
+            if ( !fs::exists( enumRoot ) )
+            {
+                std::cerr << "[DesertHeaderTool] enum root does not exist: " << enumRoot << "\n";
+                return 1;
+            }
+            for ( const auto& entry : fs::recursive_directory_iterator( enumRoot ) )
+            {
+                const auto ext = entry.path().extension().string();
+                if ( entry.is_regular_file() && ( ext == ".hpp" || ext == ".h" ) )
+                    CollectEnums( StripComments( ReadFile( entry.path() ) ), enums );
+            }
+        }
 
         // Pass 2: reflected types, resolving enum field types against the collected enums.
         std::vector<ReflectedType>  types;
@@ -1500,7 +1592,8 @@ static int RunTool( int argc, char** argv )
         else if ( arg == "--reflect" && left >= 3 )
         {
             const fs::path root = argv[i + 1];
-            reflect             = ReflectRequest{ { ReflectRoot{ root, root / argv[i + 2] } }, argv[i + 3] };
+            reflect =
+                 ReflectRequest{ .Roots = { ReflectRoot{ root, root / argv[i + 2] } }, .Output = argv[i + 3] };
             i += 3;
         }
         else if ( arg == "--reflect-root" && left >= 2 && reflect )
@@ -1509,6 +1602,8 @@ static int RunTool( int argc, char** argv )
             reflect->Roots.push_back( ReflectRoot{ root, root / argv[i + 2] } );
             i += 2;
         }
+        else if ( arg == "--reflect-enums" && left >= 1 && reflect )
+            reflect->EnumRoots.emplace_back( argv[++i] );
         else if ( arg == "--reflect-anchor" && left >= 1 && reflect )
             reflect->Anchor = argv[++i];
         else if ( arg == "--reflect-components" && left >= 1 && reflect )
@@ -1530,6 +1625,7 @@ static int RunTool( int argc, char** argv )
         std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]\n"
                      "       [--reflect <source-root> <scan-subdir> <output> [--reflect-anchor <Name>]\n"
                      "                  [--reflect-root <source-root> <scan-subdir>]...\n"
+                     "                  [--reflect-enums <scan-dir>]...\n"
                      "                  [--reflect-components <output>]]\n"
                      "       [--check <include-root>]... [--context <include-root>]...\n"
                      "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";

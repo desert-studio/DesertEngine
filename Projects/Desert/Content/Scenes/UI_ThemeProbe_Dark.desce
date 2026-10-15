@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "3e4129f23f48c200dca134231f4dbebf",
         "Versions": {
-            "SCNE": 51,
+            "SCNE": 53,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["ebf08701ff7a9596e75af43ede0136ea"]
     },
     "SceneName": "UI_ThemeProbe_Dark",
     "Entities": [
@@ -664,11 +664,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

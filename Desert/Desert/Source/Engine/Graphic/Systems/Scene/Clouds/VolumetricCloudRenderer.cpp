@@ -18,6 +18,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -103,7 +105,7 @@ namespace Desert::Graphic::System
         // what keeps that from leaking a worker for seconds afterwards. Nothing the job touches belongs to
         // this object: the parameters, the origin and the flag are all captured BY VALUE, which is what
         // makes not waiting safe rather than merely fast.
-        m_ModellingBakeSignal->Cancelled.store( true, std::memory_order_relaxed );
+        m_Clipmap.CancelAll();
     }
 
     Common::BoolResultStr VolumetricCloudRenderer::Initialize()
@@ -364,258 +366,114 @@ namespace Desert::Graphic::System
         }
         m_LayoutWaiting = false;
 
-        // WHERE THE REGION WANTS TO BE. The camera MINUS the accumulated wind, because the march asks the
-        // volume about `position - wind`: the sky drifting downwind for an hour must not carry the region
+        // WHERE THE LEVELS WANT TO BE. The camera MINUS the accumulated wind, because the march asks the
+        // volume about `position - wind`: the sky drifting downwind for an hour must not carry the clipmap
         // away from the camera that is looking at it.
         const glm::vec3 cameraKm = camera->GetPosition() / kCloudWorldUnitsPerKm;
         const glm::vec3 windKm   = m_WindOffset / kCloudWorldUnitsPerKm;
+        const glm::vec2 clipCameraKm( cameraKm.x - windKm.x, cameraKm.z - windKm.z );
 
-        const glm::vec2 wantedOrigin =
-             Assets::CloudProceduralRegionOriginKm( wanted, cameraKm.x - windKm.x, cameraKm.z - windKm.z );
-
-        // ---------------------------------------------------------------------------------------------
-        // START ONE IF WHAT IS ON THE DEVICE IS NOT WHAT IS WANTED
-        // ---------------------------------------------------------------------------------------------
-        // A REFUSAL APPLIES TO THE PARAMETERS THAT EARNED IT, AND IS LIFTED THE MOMENT THEY MOVE. See the
-        // member's declaration for what the permanent version of this flag cost: an artist cannot reach a
-        // positive thickness without passing through zero, and zero is rejected, so the latch fired during
-        // ordinary editing and disabled every cloud knob for the rest of the session.
-        if ( m_ModellingFailed && ( m_FailedOriginKm != wantedOrigin ||
-                                    !Assets::CloudProceduralParamsEqual( m_FailedParams, wanted ) ) )
+        // A REFUSAL APPLIES TO THE PARAMETERS THAT EARNED IT, AND IS LIFTED THE MOMENT THEY MOVE: an artist
+        // cannot reach a positive thickness without passing through zero, and zero is rejected.
+        if ( m_ModellingFailed && !Assets::CloudProceduralParamsEqual( m_FailedParams, wanted ) )
             m_ModellingFailed = false;
+        if ( m_ModellingFailed )
+            return m_ModellingValid;
 
-        if ( !m_ModellingFailed )
+        // A NEW SHAPE (parameters, types or the files behind them) re-bakes every level whole; a moving
+        // camera only scrolls them, inside CloudProceduralClipmap::Update. A shape in flight that is still
+        // the wanted one is left alone, so a slider held still does not restart it every frame; one that is
+        // not is cancelled by BeginShape.
         {
             const bool sameSet =
                  m_ModellingValid && m_ProfileSpeciesCount == speciesCount && m_ProfileGeneration == generation;
-
             bool sameTypes = sameSet;
             for ( uint32_t slot = 0; sameTypes && slot < speciesCount; ++slot )
                 sameTypes = m_ProfileTypes[slot] == handles[slot];
-
-            const bool sameRegion = m_ModellingValid && m_ModellingOriginKm == wantedOrigin;
             const bool sameParams =
                  m_ModellingValid && Assets::CloudProceduralParamsEqual( m_ModellingParams, wanted );
 
-            // ── WHAT A BAKE IN FLIGHT IS FOR, AND THE ONE DISTINCTION THAT MATTERS ────────────────────
-            //
-            // A bake becomes stale for two completely different reasons, and only ONE of them makes it
-            // worthless:
-            //
-            //   * THE SHAPE CHANGED — the artist moved a parameter or dropped a different cloud type in.
-            //     The volume in flight is a picture of a sky that no longer exists. Nothing downstream will
-            //     ever want it, so finishing it is pure waste and it is CANCELLED.
-            //   * ONLY THE REGION MOVED — the camera crossed a snap of the lump lattice. The volume in
-            //     flight is a picture of the RIGHT sky, one snap step away, and the field is periodic, so
-            //     it is a perfectly usable answer that the next frame can march. It is LET FINISH.
-            //
-            // THE SECOND CASE IS NOT A CONCESSION, IT IS FORWARD PROGRESS. Cancelling on a moving camera
-            // would replace "always one snap behind" with "never finishes at all" whenever the camera keeps
-            // crossing snaps faster than a bake completes — a starvation the old always-finish code could
-            // not have. The gain the owner asked for lives entirely in the first case: his twenty edits in
-            // 1.02 s are twenty shape changes and no region movement whatsoever.
-            bool pendingShapeIsWanted = m_ModellingBake.valid() && m_PendingSpeciesCount == speciesCount &&
+            bool pendingShapeIsWanted = m_Clipmap.IsShapeInFlight() && m_PendingSpeciesCount == speciesCount &&
                                         m_PendingGeneration == generation &&
                                         Assets::CloudProceduralParamsEqual( m_PendingParams, wanted );
             for ( uint32_t slot = 0; pendingShapeIsWanted && slot < speciesCount; ++slot )
                 pendingShapeIsWanted = m_PendingTypes[slot] == handles[slot];
 
-            // A bake of the wanted SHAPE is left alone even when its region has since moved, which is also
-            // what stops an artist holding a slider still from restarting the same bake sixty times a
-            // second: the frame after it lands starts the cheap origin-only rebake if one is still wanted.
-            if ( !pendingShapeIsWanted && !( sameTypes && sameRegion && sameParams ) )
+            if ( !pendingShapeIsWanted && !( sameTypes && sameParams ) )
             {
                 if ( auto valid = Assets::ValidateCloudProceduralParams( wanted ); !valid )
                 {
                     m_ModellingFailed = true;
                     m_FailedParams    = wanted;
-                    m_FailedOriginKm  = wantedOrigin;
                     LOG_ERROR( "[Clouds] The cloud layer cannot be turned into a modelling volume: {}",
                                valid.GetError() );
                     return m_ModellingValid;
                 }
-
-                // GETTING HERE WITH A BAKE IN FLIGHT MEANS ITS SHAPE IS NOT THE WANTED ONE — see the two
-                // cases above — so it is told to stop and its result is dropped rather than collected. A
-                // third of the delay the owner reported was exactly this: 20 edits in 1.02 s produced two
-                // bakes of 4 800 ms and 11 453 ms IN SERIES, because `std::async` has no way to be told the
-                // answer is no longer needed, and the second could not start until the first was done.
-                //
-                // Dropping the future is safe and does not block — a future from JobSystem::Async wraps a
-                // packaged_task, whose destructor never waits, where the destructor of a std::async future
-                // BLOCKS on the very thread we are trying to stop. That is why the old code could not have
-                // done this even if it had had a flag.
-                if ( m_ModellingBake.valid() )
-                {
-                    m_ModellingBakeSignal->Cancelled.store( true, std::memory_order_relaxed );
-                    m_ModellingBake = {};
-                    ++m_ModellingBakesCancelled;
-                }
-
                 m_PendingParams       = wanted;
-                m_PendingOriginKm     = wantedOrigin;
                 m_PendingSpeciesCount = speciesCount;
                 m_PendingGeneration   = generation;
                 for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
                     m_PendingTypes[slot] = slot < speciesCount ? handles[slot] : Assets::AssetHandle::Null();
-
-                // ON A WORKER, and the frame does not wait for it. See the note on the declaration: the
-                // bake is measured at hundreds of milliseconds to seconds in a Debug build, and a region
-                // shift happens once per lattice cell of camera travel.
-                m_ModellingBakeStarted = std::chrono::steady_clock::now();
-
-                // A FRESH SIGNAL PER BAKE, not a reset of the old one: the abandoned job still holds the old
-                // shared_ptr and is still reading it, so clearing that flag would un-cancel a bake we have
-                // already stopped caring about and burn a worker for nothing.
-                m_ModellingBakeSignal = std::make_shared<ModellingBakeSignal>();
-
-                // ON THE ENGINE'S POOL AND NOT ON A THREAD OF OUR OWN. Three things follow and all three
-                // were live defects: the work is VISIBLE (DESERT_PROFILE_SCOPE below puts it in Optick and
-                // in the editor's own Profiler panel, where a whole day was spent inferring this cost from
-                // log timestamps because no such row existed); it is BOUNDED (two document windows used to
-                // be able to start unrelated bakes with nothing counting them against the machine); and it
-                // is CANCELLABLE, which is what the block above needs.
-                m_ModellingBake = Common::JobSystem::Get().Async(
-                     [params = wanted, origin = wantedOrigin, signal = m_ModellingBakeSignal]()
-                     {
-                         DESERT_PROFILE_SCOPE( "Clouds: Modelling volume bake" );
-                         return Assets::BakeCloudProceduralVolumeCached(
-                              params, origin,
-                              [&signal]( float fraction )
-                              {
-                                  signal->Fraction.store( fraction, std::memory_order_relaxed );
-                                  return !signal->Cancelled.load( std::memory_order_relaxed );
-                              } );
-                     } );
+                m_Clipmap.BeginShape( wanted, clipCameraKm );
             }
         }
 
-        // ---------------------------------------------------------------------------------------------
-        // COLLECT A FINISHED BAKE
-        // ---------------------------------------------------------------------------------------------
-        // THE FIRST BAKE OF A SCENE BLOCKS, AND EVERY LATER ONE DOES NOT. The difference is whether there
-        // is anything to march meanwhile.
-        //
-        // A REBAKE has a previous volume: the camera has left the region it was baked for by at most one
-        // snap step, the volume is periodic, so the frame reads the neighbouring tile — the same
-        // degenerate far path the sky past the region already uses — and waiting for a better answer would
-        // be a hitch in exchange for nothing anybody can see.
-        //
-        // THE FIRST BAKE has none, and the consequence of not waiting was measured rather than reasoned
-        // about: with the pass skipped the frames cost almost nothing, so a headless shot of ninety frames
-        // finished BEFORE an 800 ms bake did and wrote an empty sky. In an editor it is the same defect
-        // with a friendlier face — the sky appears a second after the scene does, and the temporal resolve
-        // then takes ten more frames to converge it.
-        if ( m_ModellingBake.valid() && !m_ModellingValid )
-            m_ModellingBake.wait();
-
-        if ( m_ModellingBake.valid() &&
-             m_ModellingBake.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
+        // COLLECT, WRITE, SCROLL. The first shape of a view blocks (nothing to march meanwhile — a headless
+        // shot of ninety frames once finished before an 800 ms bake and wrote an empty sky); later ones do
+        // not, and the previous shape stays on the device until the new one has landed whole.
+        auto updated = m_Clipmap.Update( clipCameraKm, /*block=*/!m_ModellingValid );
+        if ( !updated )
         {
-            const auto baked = m_ModellingBake.get();
+            m_ModellingFailed = true;
+            m_FailedParams    = m_PendingParams;
+            LOG_ERROR( "[Clouds] The procedural modelling clipmap could not be baked or written: {}",
+                       updated.GetError() );
+            return m_ModellingValid;
+        }
 
-            if ( !baked )
+        if ( updated.GetValue() )
+        {
+            const CloudProceduralClipmap::ShapeLanded& landed    = *updated.GetValue();
+            const uint32_t                             bakedSide = m_PendingParams.VolumeSideVoxels;
+
+            // WHAT THE SKY'S ENVIRONMENT BAKE ASKS ABOUT, and it is deliberately NOT "the clipmap scrolled".
+            if ( !m_ModellingValid || !Assets::CloudProceduralParamsEqual( m_ModellingParams, m_PendingParams ) )
+                ++m_ModellingShapeGeneration;
+
+            m_ModellingParams = m_PendingParams;
+            m_ModellingValid  = true;
+
+            if ( !EnsureFarWeatherMap() || !EnsureLayoutTextures() )
             {
-                // The parameters blamed here are the ones the FINISHED bake was started for, which is what
-                // m_Pending* hold — `wanted` may already have moved on while the worker ran.
-                m_ModellingFailed = true;
-                m_FailedParams    = m_PendingParams;
-                m_FailedOriginKm  = m_PendingOriginKm;
-                LOG_ERROR( "[Clouds] The procedural modelling volume could not be baked: {}", baked.GetError() );
-                return m_ModellingValid;
-            }
-
-            // A FRESH IMAGE RATHER THAN AN IN-PLACE UPLOAD, which is the choice CloudNoiseService makes
-            // and for the same reason: SetData writes into an image that frames still in flight may be
-            // sampling. A rebake happens once per lattice cell of camera travel, so the allocation is not
-            // worth the synchronisation argument. The old image goes through Image3D's deletion queue
-            // when the last reference drops.
-            if ( m_ModellingVolume )
-                Renderer::GetInstance().WaitDeviceIdle();
-
-            // THE SIDE COMES FROM THE PARAMETERS THE FINISHED BAKE RAN WITH, never from the constant and
-            // never from `wanted`. The bake sizes its byte block from its own parameters, so an image built
-            // to any other extent would be read past the end of the block or short of it — and `wanted` may
-            // have moved to a different budget while this worker ran.
-            const uint32_t bakedSide = m_PendingParams.VolumeSideVoxels;
-
-            const Core::Formats::Image3DSpecification spec{
-                 .Tag        = "CloudModellingVolume",
-                 .Width      = bakedSide,
-                 .Height     = Assets::kCloudProceduralVolumeHeight,
-                 .Depth      = bakedSide,
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Data       = baked.GetValue().Voxels,
-                 .Properties = Core::Formats::Sample,
-            };
-
-            m_ModellingVolume = Image3D::Create( spec );
-            if ( !m_ModellingVolume )
-            {
-                // A device allocation failure is about the SIZE, so blaming the pending parameters keeps the
-                // retry honest: moving a knob — including the resolution knob — is a fresh attempt, not a
-                // loop.
-                m_ModellingFailed = true;
-                m_FailedParams    = m_PendingParams;
-                m_FailedOriginKm  = m_PendingOriginKm;
-                LOG_ERROR( "[Clouds] The {}x{}x{} RGBA8 procedural modelling volume could not be created on "
-                           "the device; the clouds will not render for this view.",
-                           bakedSide, Assets::kCloudProceduralVolumeHeight, bakedSide );
                 m_ModellingValid = false;
                 return false;
             }
 
-            // WHAT THE SKY'S ENVIRONMENT BAKE ASKS ABOUT, and it is deliberately NOT "the volume was
-            // rebuilt": a rebuild happens every time the camera crosses a snap of the lump lattice, and
-            // the irradiance cube cannot see the field move. Asked through the same canonical comparison
-            // the cache above uses, so the two cannot come to different conclusions about what changed.
-            if ( !m_ModellingValid || !Assets::CloudProceduralParamsEqual( m_ModellingParams, m_PendingParams ) )
-                ++m_ModellingShapeGeneration;
-
-            m_ModellingParams   = m_PendingParams;
-            m_ModellingOriginKm = m_PendingOriginKm;
-            m_ModellingValid    = true;
-
-            // FROM THE PENDING SET AND NOT FROM THIS FRAME'S, which is the same statement m_ModellingParams
-            // above it makes: what is recorded as "what the volume on the device was built from" has to be
-            // what the finished BAKE was started with. It reads identically today — a bake whose types
-            // changed under it is cancelled and its future dropped, so a collected one is always the wanted
-            // one — but writing `handles` here would leave the cache describing a set the bytes were never
-            // built from the day that stops being true, and the symptom would be a cloud type swap that
-            // never re-bakes at all. Both ends looked right; the middle link is where it is lost.
+            // FROM THE PENDING SET AND NOT FROM THIS FRAME'S: what is recorded as "what the volume on the
+            // device was built from" has to be what the finished shape was started with.
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
                 m_ProfileTypes[slot] = m_PendingTypes[slot];
             m_ProfileSpeciesCount = m_PendingSpeciesCount;
             m_ProfileGeneration   = m_PendingGeneration;
 
-            // THE COST OF A REBAKE IS PRINTED, NOT ASSUMED, and that is the exit criterion this phase was
-            // given (ANALYSIS_APPROACH.md §3). It is wall time from starting the worker to collecting it,
-            // so it includes whatever else the machine was doing — which is the number that matters,
-            // because what it bounds is how far the sky lags the camera.
-            const double bakeMs = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                                             m_ModellingBakeStarted )
-                                       .count();
-
-            // THE LIFT IS NAMED BESIDE THE ENVELOPE rather than left to be inferred from it. The envelope
-            // moves for two unrelated reasons — a different set of types, or this scene's own offset —
-            // and a reader who cannot tell them apart is one edit away from blaming the wrong one.
-            // HIT OR MISS IS PRINTED beside the time, so a 0 ms line cannot be mistaken for a fast bake.
-            if ( !baked.GetValue().CacheWriteError.empty() )
-                LOG_WARN( "[Clouds] The modelling volume was baked but not cached (DDC key {:016x}): {}",
-                          baked.GetValue().Key, baked.GetValue().CacheWriteError );
-            LOG_INFO( "[Clouds] Modelling volume {} for {} cloud type(s) in {:.0f} ms — region {:.0f} km "
-                      "at ({:.1f}, {:.1f}), envelope {:.2f} to {:.2f} km (scene lift {:.2f} km), "
-                      "{}x{}x{} RGBA8 ({:.2f} MiB), "
-                      "{} lumps, {:.0f} m per voxel, {} stale bake(s) cancelled.",
-                      baked.GetValue().FromCache ? "read from the DDC (hit)" : "baked (DDC miss)",
-                      m_ProfileSpeciesCount, bakeMs, m_ModellingParams.RegionSizeKm, m_ModellingOriginKm.x,
-                      m_ModellingOriginKm.y, m_ModellingParams.LayerBottomKm,
-                      m_ModellingParams.LayerBottomKm + m_ModellingParams.LayerThicknessKm,
-                      CloudLayerLiftKm( m_Data ), bakedSide, Assets::kCloudProceduralVolumeHeight, bakedSide,
-                      BytesToMiB( static_cast<size_t>( Assets::CloudProceduralVoxelBytes( bakedSide ) ) ),
-                      Assets::CountCloudProceduralBlobs( m_ModellingParams, m_ModellingOriginKm ),
-                      m_ModellingParams.RegionSizeKm / static_cast<float>( bakedSide ) * 1000.0f,
-                      m_ModellingBakesCancelled );
+            if ( !landed.CacheWriteError.empty() )
+                LOG_WARN( "[Clouds] The modelling clipmap was baked but not all levels were cached: {}",
+                          landed.CacheWriteError );
+            const glm::vec2 regionOrigin = m_Clipmap.RegionOriginKm();
+            LOG_INFO(
+                 "[Clouds] Modelling clipmap for {} cloud type(s) in {:.0f} ms ({} of {} levels from the "
+                 "DDC) — region {:.0f} km at ({:.1f}, {:.1f}), envelope {:.2f} to {:.2f} km (scene lift "
+                 "{:.2f} km), {}x{}x{} RGBA8 ({:.2f} MiB), {} lumps in the region, {:.0f} m per voxel on "
+                 "the finest level, {} stale bake(s) cancelled.",
+                 m_ProfileSpeciesCount, landed.Ms, landed.LevelsFromCache, CloudProceduralClipmap::kLevels,
+                 m_ModellingParams.RegionSizeKm, regionOrigin.x, regionOrigin.y, m_ModellingParams.LayerBottomKm,
+                 m_ModellingParams.LayerBottomKm + m_ModellingParams.LayerThicknessKm, CloudLayerLiftKm( m_Data ),
+                 bakedSide, Assets::kCloudProceduralVolumeHeight * CloudProceduralClipmap::kLevels, bakedSide,
+                 BytesToMiB( static_cast<size_t>( Assets::CloudProceduralVoxelBytes( bakedSide ) ) *
+                             CloudProceduralClipmap::kLevels ),
+                 Assets::CountCloudProceduralBlobs( m_ModellingParams, regionOrigin ),
+                 Assets::CloudProceduralLevelVoxelKm( m_ModellingParams, 0u ) * 1000.0f,
+                 m_Clipmap.CancelledBakes() );
 
             // THE GRID WAS RAISED, AND THE READER IS TOLD SO AT THE PLACE THE SIDE IS ALREADY PRINTED.
             // Graphic::CloudBakeSideForSpecies only ever raises, and only when the asked-for grid could not
@@ -981,9 +839,127 @@ namespace Desert::Graphic::System
         // §2.3.1 of the contract is about.
         const CloudQualityScale quality = CloudQualityFor( m_Quality );
 
-        payload = PackCloudParams( m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
-                                   CloudRegionBinding{ m_ModellingOriginKm, m_ModellingParams.RegionSizeKm },
-                                   quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
+        payload = PackCloudParams(
+             m_Data, m_Material, shapes, speciesCount, atmosphere, m_WindOffset,
+             CloudRegionBinding{ m_Clipmap.LevelUniforms(), Assets::CloudFarWeatherUniform( m_ModellingParams ),
+                                 Assets::CloudLayoutPlaceUniform( m_ModellingParams ),
+                                 Assets::CloudLayoutStrengthUniform( m_ModellingParams ),
+                                 m_Clipmap.FarStatistics().Presence, m_Clipmap.FarStatistics().Profile },
+             quality.LightMarchSampleCeiling, quality.StopTransmittanceFloor, m_NoiseSlots );
+        return true;
+    }
+
+    bool VolumetricCloudRenderer::EnsureFarWeatherMap()
+    {
+        // KEYED ON WHAT THE MAP IS A FUNCTION OF, and nothing else: the seed and the shortest wave. The
+        // cover and the strength are read by the march through CloudGpuPayload::Weather, so moving the
+        // Coverage slider re-uploads nothing here.
+        const uint32_t seed   = Assets::CloudFarWeatherSeed( m_ModellingParams );
+        const float    tileKm = m_ModellingParams.PatchTileKm;
+
+        if ( m_FarWeatherMap && m_FarWeatherSeed == seed && m_FarWeatherTileKm == tileKm )
+            return true;
+
+        const std::vector<float> weather = Assets::BakeCloudFarWeatherMap( seed, tileKm );
+
+        // RGBA16F WITH W IN .r: a half keeps W (|W| < 5) to 2e-3, a thousandth of the weather map W's sensitivity
+        // band, and is filterable on every device this engine targets where R32F is not.
+        std::vector<unsigned char> texels( weather.size() * 4u * sizeof( uint16_t ), 0u );
+        for ( size_t i = 0; i < weather.size(); ++i )
+        {
+            const uint16_t half = static_cast<uint16_t>( glm::packHalf1x16( weather[i] ) );
+            std::memcpy( texels.data() + i * 4u * sizeof( uint16_t ), &half, sizeof( half ) );
+        }
+
+        const Core::Formats::Image2DSpecification spec{
+             .Tag    = "CloudFarWeatherMap",
+             .Width  = Assets::kCloudFarWeatherMapSide,
+             .Height = Assets::kCloudFarWeatherMapSide,
+             .Format = Core::Formats::ImageFormat::RGBA16F,
+             .Data   = std::move( texels ),
+             .Usage  = Core::Formats::Image2DUsage::Image2D,
+             // LINEAR ALWAYS: the weather map reads W between texels (1.95 km apart); under the user's "Nearest"
+             // the cut would follow texel-block edges — straight walls in the sky.
+             .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
+        };
+
+        if ( m_FarWeatherMap )
+            Renderer::GetInstance().WaitDeviceIdle();
+
+        m_FarWeatherMap = Image2D::Create( spec );
+        if ( !m_FarWeatherMap )
+        {
+            LOG_ERROR( "[Clouds] The {}^2 world weather map could not be created on the device; the clouds will "
+                       "not render for this view.",
+                       Assets::kCloudFarWeatherMapSide );
+            return false;
+        }
+
+        m_FarWeatherSeed   = seed;
+        m_FarWeatherTileKm = tileKm;
+        return true;
+    }
+
+    bool VolumetricCloudRenderer::EnsureLayoutTextures()
+    {
+        // KEYED ON THE PAINTING'S CONTENT HASH, the number Assets::CloudProceduralParamsEqual compares it by;
+        // strength and placement reach the march through CloudGpuPayload, so moving them uploads nothing.
+        const Assets::CloudLayoutData* pattern     = m_ModellingParams.PatternSource.get();
+        const Assets::CloudLayoutData* mask        = m_ModellingParams.MaskSource.get();
+        const bool                     hasPattern  = pattern != nullptr && pattern->HasPattern();
+        const bool                     hasMask     = mask != nullptr && mask->HasMask();
+        const uint32_t                 patternHash = hasPattern ? pattern->ContentHash : 0u;
+        const uint32_t                 maskHash    = hasMask ? mask->ContentHash : 0u;
+
+        if ( m_LayoutPatternTexture && m_LayoutMaskTexture && m_LayoutPatternHash == patternHash &&
+             m_LayoutMaskHash == maskHash )
+            return true;
+
+        const auto upload = []( const char* tag, uint32_t side, std::vector<unsigned char> texels )
+        {
+            const Core::Formats::Image2DSpecification spec{
+                 .Tag    = tag,
+                 .Width  = side,
+                 .Height = side,
+                 .Format = Core::Formats::ImageFormat::RGBA8F,
+                 .Data   = std::move( texels ),
+                 .Usage  = Core::Formats::Image2DUsage::Image2D,
+                 // LINEAR ALWAYS and REPEAT: the CPU's BilinearWrapped is exactly this filter, and the
+                 // painting tiles the region by construction.
+                 .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
+            };
+            return Image2D::Create( spec );
+        };
+
+        // THE STAND-INS ARE THE NEUTRALS: white (the slider's own sky) and a mask at 128 (adds nothing).
+        std::vector<unsigned char> patternTexels =
+             hasPattern ? pattern->Pattern : std::vector<unsigned char>{ 255u, 255u, 255u, 255u };
+        std::vector<unsigned char> maskTexels;
+        if ( hasMask )
+        {
+            maskTexels.assign( mask->Mask.size() * 4u, 0u );
+            for ( size_t i = 0; i < mask->Mask.size(); ++i )
+                maskTexels[i * 4u] = mask->Mask[i];
+        }
+        else
+            maskTexels = { Assets::kCloudLayoutMaskNeutral, 0u, 0u, 0u };
+
+        if ( m_LayoutPatternTexture || m_LayoutMaskTexture )
+            Renderer::GetInstance().WaitDeviceIdle();
+
+        m_LayoutPatternTexture =
+             upload( "CloudLayoutPattern", hasPattern ? pattern->Resolution : 1u, std::move( patternTexels ) );
+        m_LayoutMaskTexture =
+             upload( "CloudLayoutMask", hasMask ? mask->Resolution : 1u, std::move( maskTexels ) );
+        if ( !m_LayoutPatternTexture || !m_LayoutMaskTexture )
+        {
+            LOG_ERROR( "[Clouds] The painted layout's textures could not be created on the device; the clouds "
+                       "will not render for this view." );
+            return false;
+        }
+
+        m_LayoutPatternHash = patternHash;
+        m_LayoutMaskHash    = maskHash;
         return true;
     }
 
@@ -1003,7 +979,7 @@ namespace Desert::Graphic::System
         {
             // WAITING IS NOT FAILING. A read still on a worker or the first modelling bake still running
             // will complete; a refused resource will not, and that layer bakes as sky alone.
-            bake.InputsPending = m_NoiseWaiting || m_LayoutWaiting || m_ModellingBake.valid();
+            bake.InputsPending = m_NoiseWaiting || m_LayoutWaiting || m_Clipmap.IsShapeInFlight();
             return bake;
         }
 
@@ -1017,7 +993,10 @@ namespace Desert::Graphic::System
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             bake.Noise[slot] = m_NoiseVolume[slot].get();
 
-        bake.Modelling     = m_ModellingVolume.get();
+        bake.Modelling     = m_Clipmap.GetImage().get();
+        bake.FarWeather    = m_FarWeatherMap.get();
+        bake.LayoutPattern = m_LayoutPatternTexture.get();
+        bake.LayoutMask    = m_LayoutMaskTexture.get();
         bake.AuthoredAtlas = m_AuthoredAtlas.get();
 
         // THE PREVIOUS FRAME'S VOLUME, and it can be nothing else: this runs before the frame's own
@@ -1929,6 +1908,7 @@ namespace Desert::Graphic::System
         push.Frame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
+        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ), 0.0f, 0.0f, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.
@@ -2150,8 +2130,17 @@ namespace Desert::Graphic::System
         const std::shared_ptr<Image> atlas =
              m_AuthoredAtlas ? std::shared_ptr<Image>( m_AuthoredAtlas )
                              : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
-        block.Sampled( "u_CloudModelling", m_ModellingVolume, RDG::Access::SampledCompute, VolumeSampler(),
+        // The clipmap's one image (three toroidal levels), the world weather map and the painted layout's two
+        // textures: always present once EnsureInputs has run, each LINEAR and REPEAT -- the weather and the
+        // layout tile over their own periods, and a "Nearest" read would cut the sky along texel edges.
+        block.Sampled( "u_CloudModelling", m_Clipmap.GetImage(), RDG::Access::SampledCompute, VolumeSampler(),
                        "Clouds.Modelling" )
+             .Sampled( "u_CloudFarWeather", m_FarWeatherMap, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearRepeat(), "Clouds.FarWeather" )
+             .Sampled( "u_CloudLayoutPattern", m_LayoutPatternTexture, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearRepeat(), "Clouds.LayoutPattern" )
+             .Sampled( "u_CloudLayoutMask", m_LayoutMaskTexture, RDG::Access::SampledCompute,
+                       RDG::SamplerDesc::LinearRepeat(), "Clouds.LayoutMask" )
              .Sampled( "u_CloudAuthoredAtlas", atlas, RDG::Access::SampledCompute, VolumeSampler(),
                        m_AuthoredAtlas ? "Clouds.AuthoredAtlas" : "Clouds.AuthoredAtlasFallback" );
         return block;

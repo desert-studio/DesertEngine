@@ -70,6 +70,9 @@ namespace Desert::Graphic
             for ( uint32_t c = 0; c < cascades; ++c )
                 view.ShadowCascades[c] =
                      textures.Import( mesh->GetCascadeShadowImage( c ), std::format( "CSM.Cascade{}", c ) );
+            if ( mesh != nullptr )
+                if ( const auto atlas = mesh->GetLocalShadowAtlasImage() )
+                    view.LocalShadowAtlas = textures.Import( atlas, "LocalShadow.Atlas" );
         }
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
@@ -416,13 +419,21 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+        // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
+        // this pass, 2 the RSM resolve's buffer. Spelled here, not cast from the enum, whose numbering is the
+        // method ladder's (Common/Settings/RenderMethods.hpp).
+        using Common::Scalability::GIMethod;
+        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : gi == GIMethod::ReflectiveShadowMaps ? 2 : 0;
+        const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
         // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
-        const System::DeferredCompositeLights lights =
-             System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights() );
+        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
+             graph, GetPointLights(), GetSpotLights(),
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows() );
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 
@@ -432,7 +443,7 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ),
+                                         shadow, giIntensity, m_EnableSSAO, compositeGI,
                                          cloudShadow, environment );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );

@@ -761,7 +761,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     RasterTargets gbuffer;
     for ( const char* slot : { "A", "B", "C", "Emissive" } )
         gbuffer.Colors.push_back( graph.CreateTexture( colour, slot ) );
-    const GraphColor onScene[]   = { VelocityColor( velocity, 1 ) };
+    // TAA-FINISH: the scene target's last colour slot is the responsive-AA mask, appended after the velocity.
+    const ViewVelocity responsive  = CreateViewResponsiveAA( graph, RDG::Extent3D{ 64, 32, 1 }, 1 );
+    const GraphColor   onScene[]   = { VelocityColor( velocity, 1 ), ResponsiveAAColor( responsive, 1 ) };
     const GraphColor onGBuffer[] = { VelocityColor( velocity, 1 ) };
     ASSERT_TRUE( AppendGraphColors( scene, onScene, false ) );
     ASSERT_TRUE( AppendGraphColors( gbuffer, onGBuffer, false ) );
@@ -769,6 +771,7 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     ASSERT_EQ( gbuffer.Colors.size(), Desert::Graphic::GBufferLayout().ColorFormats.size() );
     EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetVelocitySlot], velocity.Resolved );
     EXPECT_EQ( gbuffer.Colors[Desert::Graphic::kGBufferVelocitySlot], velocity.Resolved );
+    EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetResponsiveAASlot], responsive.Resolved );
 
     // At MSAA the scene target draws the multisampled twin; velocity is SampleZero, so the slot has NO in-pass
     // resolve (the hardware average) — "Velocity: Resolve" writes sample 0 into the one transient
@@ -889,9 +892,11 @@ TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
     ASSERT_NE( created, std::string::npos );
     ASSERT_NE( first, std::string::npos );
     EXPECT_LT( created, first ) << "the velocity must exist before the first node of the frame";
-    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor(" ), 2u ) << "velocity on any other target (RSM, cascades, overdraw)";
+    // By name: the velocity on both view targets, and the scene target's responsive-AA mask (TAA-FINISH).
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor(" ), 3u ) << "velocity on any other target (RSM, cascades, overdraw)";
     EXPECT_EQ( count( scene, "AddGraphColor( m_RSMBuffer" ), 0u );
 }
 
@@ -1162,4 +1167,30 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
          ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     EXPECT_NE( node.find( "const RDG::TextureRef velocity = textures.Transients.Velocity;" ), std::string::npos );
     EXPECT_NE( node.find( "view->DeclareBindings( pass, velocity );" ), std::string::npos );
+}
+
+// Mutation: number a MotionRecord with a Part by its submission position (or ignore Part) -> red: piece 2 is
+// handed piece 3's previous world as soon as piece 1 starts moving (DST-06b: every fracture piece has its own
+// key).
+TEST( VelocityTarget, AFracturePieceKeepsItsOwnPreviousWorldWhenAnotherPieceStartsMoving )
+{
+    using namespace Desert::Graphic;
+    const auto       At = []( auto x ) { return VelocityTargetTest::At( x ); };
+    MotionHistory    motion;
+    ObjectMotionRows out;
+    {
+        const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 0 ) },
+                                                  { .Entity = 7, .Part = 2, .World = At( 0 ) },
+                                                  { .Entity = 7, .Part = 3, .World = At( 50 ) } };
+        BuildObjectMotionRows( motion, rigid, {}, out );
+        motion.EndFrame();
+    }
+    const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 20 ) },
+                                              { .Entity = 7, .Part = 2, .World = At( 0 ) },
+                                              { .Entity = 7, .Part = 3, .World = At( 50 ) } };
+    BuildObjectMotionRows( motion, rigid, {}, out );
+    ASSERT_EQ( out.RecordRows.size(), 3u );
+    EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 0 ) ) << "the moving piece: its own previous world";
+    EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "a still piece is not handed another's";
+    EXPECT_EQ( out.Rows[out.RecordRows[2]].PrevWorld, At( 50 ) );
 }

@@ -85,7 +85,13 @@ namespace Desert::Core
     // (Tools/SceneMigrator, MigrateHLODLayersV49ToV50).
     // v51 (VFX-HOST): ParticleEmitter is gone; each block became a `.dfx` system played by a VFX block
     // (Tools/SceneMigrator, MigrateParticleEmittersToVFX).
-    inline constexpr int kSceneVersion = 51;
+    // v52 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
+    // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
+    // MigrateSceneDependenciesV51ToV52).
+    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is GlobalIlluminationMethod
+    // and EnableSSR is ReflectionsMethod, on the method ladders of Common/Settings/RenderMethods.hpp
+    // (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53).
+    inline constexpr int kSceneVersion = 53;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

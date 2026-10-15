@@ -6,11 +6,13 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -34,6 +36,7 @@
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <functional>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -83,6 +86,7 @@ namespace Desert::Graphic
     }
     class FrameTextures;
     struct FrameValues;
+    class ReflectionCaptureRenderer;
 
     class SceneRenderer final
     {
@@ -103,6 +107,7 @@ namespace Desert::Graphic
         struct RenderSubmissionExtra
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
+            uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
             std::vector<glm::mat4> BoneMatrices; // optional
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;
@@ -205,6 +210,15 @@ namespace Desert::Graphic
 
         [[nodiscard]] Common::BoolResultStr EndScene();
 
+        // THE REFLECTION CAPTURES (ReflectionCaptures/ReflectionCaptureRenderer.hpp) are the scene's; a view only
+        // reads them. Whether this view's profile does (ViewProfile::ReflectionCaptures), and the identity of the
+        // sky bake it holds (0 before it has one) - the scene recaptures when it changes.
+        [[nodiscard]] bool     ReadsReflectionCaptures() const;
+        [[nodiscard]] uint64_t GetEnvironmentIdentity();
+        // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
+        // reflection capture resamples into its cube. Null before the targets exist.
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
+
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
         // silhouette mask, overdraw target and outline. Resize() sizes the Output set (tonemap, FXAA, SMAA) and
@@ -257,10 +271,11 @@ namespace Desert::Graphic
                                 const std::string& directTextureSampler = {}, bool castShadows = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
-        // slot's own runtime material (a MaterialService-owned DataDrivenMaterial).
+        // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
+        // of the entity the draw belongs to (RenderSubmissionExtra::MotionPart), 0 = the entity itself.
         void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined = false,
-                                     bool castShadows = false );
+                                     uint64_t visibleSubmeshMask, bool outlined = false, bool castShadows = false,
+                                     uint32_t motionPart = 0 );
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
@@ -318,6 +333,13 @@ namespace Desert::Graphic
         {
             m_Quality = quality;
         }
+        // The GI / reflection / shadow methods this view renders and why any came out below its request — what
+        // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
+        [[nodiscard]] const RenderMethods& GetRenderMethods() const
+        {
+            return m_RenderMethods;
+        }
+
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.
@@ -437,7 +459,7 @@ namespace Desert::Graphic
             return m_GBuffer;
         }
 
-        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMode::RSM.
+        // Reflective Shadow Map (a G-buffer rendered from the sun) — the bounce source for GIMethod::ReflectiveShadowMaps.
         // Same attachment layout as the G-buffer, at a fixed light-space resolution.
         const std::shared_ptr<Framebuffer>& GetRSMBuffer() const
         {
@@ -472,14 +494,18 @@ namespace Desert::Graphic
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
         // away on the first view, and the second view then got a moved-from light.
-        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight );
+        // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
+        // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
+        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                            const LocalLightShadowSettings&           shadow );
 
         const auto& GetPointLights() const
         {
             return m_PointLight;
         }
 
-        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight );
+        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                           const LocalLightShadowSettings&          shadow );
 
         const auto& GetSpotLights() const
         {
@@ -611,6 +637,7 @@ namespace Desert::Graphic
         {
             RDG::TextureRef    Color;
             RDG::TextureRef    Velocity;
+            RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    Depth;
             [[nodiscard]] bool IsValid() const
             {
@@ -776,6 +803,9 @@ namespace Desert::Graphic
         ShaderProtocols::DirectionLight m_DirectionLights;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
+        // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
+        std::vector<LocalLightShadowSettings> m_PointLightShadows;
+        std::vector<LocalLightShadowSettings> m_SpotLightShadows;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
@@ -793,6 +823,9 @@ namespace Desert::Graphic
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
+        // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
+        // views): published into this view's graph by OnUpdate, cleared by EndScene.
+        ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -831,9 +864,10 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        Core::GIMode            m_GIMode        = Core::GIMode::ScreenSpace; // indirect-light source
+        // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
+        // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
+        RenderMethods           m_RenderMethods;
         float                   m_GIIntensity   = 2.0f;
-        bool                    m_EnableSSR     = false;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.

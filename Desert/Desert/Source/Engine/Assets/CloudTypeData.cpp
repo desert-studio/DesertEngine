@@ -64,6 +64,10 @@ namespace Desert::Assets
              // what T1 shipped, and this is that, digit for digit.
              /* PlacementScale      */ 1.00f,
              /* PlacementAnisotropy */ 1.00f,
+             // FIELD-GRAIN-d: a congestus tower, three kilometres on average. Plank's D0 of 0.5-1 km is a
+             // HUMILIS field's; at 1 km under the shipped density the measured lumps sat on the volume's
+             // floor (73 %, LatticePeak --bodies) and every cloud was a pile of equal spheres.
+             /* BodyDiameterKm      */ 3.00f,
         };
         return kDefault;
     }
@@ -113,6 +117,23 @@ namespace Desert::Assets
                      "Profile.HalfWidth[{}] is {}, which is not a finite width in [0, 4] cluster radii", i,
                      halfWidth );
         }
+
+        // THE ALTITUDE DENSITY, sample by sample, and not all zero: a curve that is zero everywhere is a type
+        // whose every voxel the bake multiplies away — a sky with nothing in it and nothing in the log.
+        float densest = 0.0f;
+        for ( uint32_t i = 0; i < Graphic::kCloudProfileSamples; ++i )
+        {
+            const float density = shape.Profile.Density[i];
+            if ( !Graphic::CloudProfileDensitySampleIsLegal( density ) )
+                return Common::MakeFormattedError<bool>(
+                     "Profile.Density[{}] is {}, which is not a finite density in [0, 1]", i, density );
+            densest = std::max( densest, density );
+        }
+        if ( !( densest > 0.01f ) )
+            return Common::MakeFormattedError<bool>(
+                 "Profile.Density is {} at its densest: a type whose altitude density is zero at every height "
+                 "draws nothing",
+                 densest );
 
         // A CURVE OF ALL ZEROES IS NOT A TYPE, and it is refused here rather than drawn. Every lump would
         // be floored at the march's resolvable chord, so the sky would come out as a field of identical
@@ -172,6 +193,11 @@ namespace Desert::Assets
         // stretch about the same axis, and forbidding one half of it would have made the lenticular
         // unreachable.
         if ( auto r = InRange( "PlacementAnisotropy", shape.PlacementAnisotropy, 0.1f, 16.0f ); !r )
+            return r;
+
+        // A body is drawn from the exponential law around this mean. Under a fifth of a kilometre it is
+        // narrower than one voxel of the shipped volume (0.1875 km); over 8 km it is a patch, not a body.
+        if ( auto r = InRange( "BodyDiameterKm", shape.BodyDiameterKm, 0.2f, 8.0f ); !r )
             return r;
 
         return BOOLSUCCESS;

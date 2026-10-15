@@ -200,7 +200,7 @@ namespace
     // The same reflection for a FRAGMENT stage. A separate function rather than a stage parameter on the
     // one above, because the two shaderc kinds are the only difference and a bool argument at the call
     // site reads as nothing at all.
-    std::vector<VkDescriptorSetLayoutBinding> FragmentSetZero( const std::filesystem::path& shaderFile )
+    std::vector<VkDescriptorSetLayoutBinding> FragmentSet( const std::filesystem::path& shaderFile, uint32_t set )
     {
         const std::string source = StageSource( shaderFile, ShaderStage::Fragment );
         const auto        spirv  = CompileStage( source, shaderFile, shaderc_fragment_shader );
@@ -211,9 +211,14 @@ namespace
         const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Fragment, data );
         EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
 
-        const auto it = data.ShaderDescriptorSets.find( 0 );
+        const auto it = data.ShaderDescriptorSets.find( set );
         return it == data.ShaderDescriptorSets.end() ? std::vector<VkDescriptorSetLayoutBinding>{}
                                                      : ShaderReflection::BuildLayoutBindings( it->second );
+    }
+
+    std::vector<VkDescriptorSetLayoutBinding> FragmentSetZero( const std::filesystem::path& shaderFile )
+    {
+        return FragmentSet( shaderFile, 0u );
     }
 
     // Set 0 of a GRAPHICS shader as the PIPELINE LAYOUT sees it: both stages reflected into one
@@ -328,9 +333,10 @@ namespace
 
     // The cloud FIELD's samplers: the names VolumetricCloudRenderer::SampledVolumes binds on the shadow map,
     // the sky-light occlusion volume and the march alike — one vocabulary for one field.
-    constexpr const char* kCloudFieldSamplerNames[] = { "u_CloudNoise",     "u_CloudNoise1",
-                                                        "u_CloudNoise2",    "u_CloudNoise3",
-                                                        "u_CloudModelling", "u_CloudAuthoredAtlas" };
+    constexpr const char* kCloudFieldSamplerNames[] = {
+         "u_CloudNoise",         "u_CloudNoise1",     "u_CloudNoise2",
+         "u_CloudNoise3",        "u_CloudModelling",  "u_CloudFarWeather",
+         "u_CloudLayoutPattern", "u_CloudLayoutMask", "u_CloudAuthoredAtlas" };
 
     // A temporary .glslh next to the real ones, so an include can be edited without touching the tree.
     struct ScopedHeader
@@ -607,10 +613,10 @@ TEST( ShaderVariantDefines, TheRSMPipelineIsBuiltFromTheRSMPermutation )
 
     const std::string pass = read( "Editor/Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh" );
     ASSERT_FALSE( pass.empty() );
-    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuintoGBufferShadingWord;" ),
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMlayout(location=2)outuvec2oGBufferShadingWord;" ),
                std::string::npos )
          << "Pass_GBuffer declares the shading word in the RSM permutation too.";
-    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuintword=" ), std::string::npos )
+    EXPECT_NE( pass.find( "#ifndefDESERT_GBUFFER_RSMconstuvec2word=" ), std::string::npos )
          << "Pass_GBuffer writes the shading word in the RSM permutation too.";
 }
 
@@ -992,7 +998,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDistantSkyLightDeclaresFourDescriptorsInSet
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // multi-scatter LUT
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresTwelveDescriptorsInSetZero )
 {
     // THE PRODUCER OF THE CLOUD SHADOW MAP, and the reason it is pinned here rather than trusted: its
     // inputs are bound by NUMBER and not by reflection (ComputePipeline::SetInput takes the binding
@@ -1013,9 +1019,20 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZ
     // debt and a dead setting in three slots of four. THE SHADOW PASS TAKES ALL FOUR TOO, and that is the
     // relation worth pinning here rather than the count: a cirrus eroded by the fine volume for the eye
     // and by the default one for the shadow map would be two different clouds in one frame.
+    //
+    // The modelling volume's R8 RANK (FARWX-b2) left again with CUT-AT-BAKE; the WORLD WEATHER map
+    // (kCloudShadowFarWeatherBinding) is binding 15 since.
+    // The shadow map must cut the field by the same rank against the same local cover the view march does,
+    // or the ground is shaded by a sky that is not the one drawn. Both are sampled images, so the stage now
+    // holds eleven sampled images at most — inside Vulkan's guaranteed maxPerStageDescriptorSampledImages
+    // and maxPerStageDescriptorSamplers (16 on every conformant device), so no device budget is spent.
+    //
+    // THIRTEEN SINCE WX-PAINT. The two that arrived are the LAYOUT PATTERN (17) and MASK (18), the march's
+    // own slots: the painted W multiplies the local cover per species, so the shadow cut must read the same
+    // painting the view cut does. Thirteen sampled images, still inside the guaranteed 16.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 9u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 12u );
 
     for ( std::uint32_t slot = 0; slot < Desert::Graphic::kCloudSpeciesSlots; ++slot )
     {
@@ -1035,7 +1052,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresNineDescriptorsInSetZ
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresFifteenDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresEighteenDescriptorsInSetZero )
 {
     // THE VIEW MARCH, pinned on the same terms and for the same reason, and it was NOT pinned before slot
     // A landed — which is precisely why it is worth doing now: two of its ten descriptors are new, both
@@ -1058,9 +1075,20 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresFifteenDescriptorsInSetZe
     // SKY's texture, read by the cloud march so that the sun's colour can be re-evaluated at each sample's
     // own altitude instead of once at sea level. Bound on the same terms again, and in the shipped scene
     // it is the FALLBACK that is bound, because the field it serves is off by default.
+    //
+    // SEVENTEEN SINCE FARWX-b2. The two that arrived are the R8 RANK of the modelling volume at binding 15
+    // and the WORLD WEATHER map at binding 16: the bake keeps every cell and the march makes the cut, the
+    // rank against the cover the weather leaves the column (CloudField.glslh CloudRankProfile /
+    // CloudLocalCover). Bound ALWAYS, on the terms above. Within the device's budget: the set is one
+    // storage buffer and images, and the sampled ones stay at or under the 16 that Vulkan guarantees per
+    // stage (maxPerStageDescriptorSamplers / SampledImages); every device this engine targets reports
+    // far more, so the count is pinned as the binding contract, not as a limit being approached.
+    //
+    // NINETEEN SINCE WX-PAINT: the LAYOUT PATTERN (17) and MASK (18), the painted W per species and the
+    // signed mask, read by CloudLocalCover in every cloud pass.
     const auto bindings = ComputeSetZero( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 15u );
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 18u );
 
     // Every image is a binding-block entry BY SHADER NAME, so the names are what is pinned; the field's
     // samplers are the same names the shadow map and the occlusion producer declare.
@@ -1136,47 +1164,80 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudParameterBlockIsTheSameNumberOfBytesOn
     }
 }
 
-TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresTwentyTwoDescriptorsInSetZero )
+TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamedSetZero )
 {
     // THE CONSUMER, and the pass this repository shares most widely — every deferred scene draws it, and
     // it is the one file the cloud work was told to touch as little as possible. Pinning its descriptor
-    // set is how "as little as possible" becomes checkable: the count moves the day somebody adds a
-    // binding to it, whether or not they meant to.
+    // set is how "as little as possible" becomes checkable: a binding added to it, whether or not anyone
+    // meant to, is a set-0 entry with no row below.
     //
-    // Twenty. Slots 0..16 with none free in between: six G-buffer and scene samplers (1, 2, 3, 8, 9, 10),
-    // four cascade maps (5, 13, 14, 15), four uniform blocks (0, 4, 7, 12), two light SSBOs (6, 16) and
-    // the cloud shadow map (11) — plus the three the ambient needs (17, 18, 19). Was seventeen until
-    // 2026-09-03, when this pass stopped inventing its ambient out of a flat constant and started reading
-    // the same baked environment the forward mesh shaders read. Twenty-one since 2026-09-24 (ENV1): the
-    // sky's look (20, SkyLookUB) is applied where the environment cubes are sampled instead of being
-    // baked into them, so the composite reads the rotation and gain the backdrop is drawn with.
-    // Twenty-two since GBUF1: the world-position target (u_GBufferC, RGBA32F, slot 1) is gone; slot 1 is the
-    // R32_UINT shading word (usampler2D, read by texelFetch) and the position is rebuilt from the depth
-    // attachment at slot 21 (Common/ReconstructPosition.glslh).
-    const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
-
-    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), 22u );
-    EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_GBufferShadingWord
-    EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GBufferDepth
-    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) ); // SkyLookUB
-
-    EXPECT_TRUE( HasBinding( bindings, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
-    EXPECT_TRUE( HasBinding( bindings, 12, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
-
-    // THE AMBIENT'S OWN THREE, and the point of the whole change: a deferred composite that declares
-    // none of these cannot be reading the sky, whatever its ambient line says it is doing. That was
-    // exactly the state the owner saw as black ground under a bright sky.
-    EXPECT_TRUE( HasBinding( bindings, 17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EnvIrradianceTex
-    EXPECT_TRUE( HasBinding( bindings, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EnvSpecularTex
-    EXPECT_TRUE( HasBinding( bindings, 19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_BRDFLUTTexture
-
+    // A REGISTER BY NAME, NOT A COUNT. The count is DERIVED from the rows (it was a hand-typed number —
+    // seventeen, twenty, twenty-one, twenty-two — and each new input had to edit the number and its
+    // story). Each row names what reads the slot and the change that brought it:
+    //   - the ambient's three (17, 18, 19): the pass reads the same baked environment the forward mesh shaders
+    //     read (2026-09-03) — a composite that declares none of them cannot be reading the sky, which was
+    //     the black ground under a bright sky the owner saw;
+    //   - the sky's look (20, ENV1), applied where the cubes are sampled;
+    //   - GBUF1: slot 1 is the R32_UINT shading word, the position is rebuilt from the depth at 21;
+    //   - SHADOW-LOCAL: the local shadow atlas and its view table (22, 23);
+    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 0 had one spare slot (24) under
+    //     the scene-read range and the graph's window, so they are set 1, pinned by the second register below.
     // And the cascade block it must NOT have disturbed: the same four maps at the same four slots, with
     // ShadowUB where Lit.glsl.frag mirrors it.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );
+    struct Row
+    {
+        uint32_t         Binding;
+        VkDescriptorType Type;
+        const char*      Name;
+    };
+    constexpr VkDescriptorType kSampler = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    constexpr VkDescriptorType kUniform = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    constexpr VkDescriptorType kStorage = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    const Row                  rows[]   = {
+         { 0, kUniform, "DeferredUB" },
+         { 1, kSampler, "u_GBufferShadingWord" },
+         { 2, kSampler, "u_GBufferA" },
+         { 3, kSampler, "u_GBufferB" },
+         { 4, kUniform, "LightsMetadata" },
+         { 5, kSampler, "u_ShadowMap0" },
+         { 6, kStorage, "PointLightsUB" },
+         { 7, kUniform, "ShadowUB" },
+         { 8, kSampler, "u_SSAO" },
+         { 9, kSampler, "u_GBufferEmissive" },
+         { 10, kSampler, "u_GI" },
+         { 11, kSampler, "u_CloudShadowMap" },
+         { 12, kUniform, "CloudShadowUB" },
+         { 13, kSampler, "u_ShadowMap1" },
+         { 14, kSampler, "u_ShadowMap2" },
+         { 15, kSampler, "u_ShadowMap3" },
+         { 16, kStorage, "SpotLightsUB" },
+         { 17, kSampler, "u_EnvIrradianceTex" },
+         { 18, kSampler, "u_EnvSpecularTex" },
+         { 19, kSampler, "u_BRDFLUTTexture" },
+         { 20, kUniform, "SkyLookUB" },
+         { 21, kSampler, "u_GBufferDepth" },
+         { 22, kSampler, "u_LocalShadowAtlas" },
+         { 23, kStorage, "LocalShadowViewsUB" },
+    };
+    const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
+
+    for ( const Row& row : rows )
+        EXPECT_TRUE( HasBinding( bindings, row.Binding, row.Type ) )
+             << row.Name << " is not declared at binding " << row.Binding << " with its descriptor type";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( bindings ), std::size( rows ) )
+         << "DeferredLighting's set 0 holds a descriptor no row names (or lost one): add or delete its row";
+
+    // SET 1: the reflection captures (REFL-CAPTURE), and nothing else.
+    const Row setOne[] = {
+         { 0, kStorage, "ReflectionCapturesUB" },
+         { 1, kSampler, "u_ReflectionCaptureCubes" },
+    };
+    const auto setOneBindings = FragmentSet( ShaderPath( "Deferred/DeferredLighting.shader" ), 1u );
+    for ( const Row& row : setOne )
+        EXPECT_TRUE( HasBinding( setOneBindings, row.Binding, row.Type ) )
+             << row.Name << " is not declared at set 1, binding " << row.Binding << " with its descriptor type";
+    EXPECT_EQ( ShaderReflection::CountDescriptors( setOneBindings ), std::size( setOne ) )
+         << "DeferredLighting's set 1 holds a descriptor no row names (or lost one): add or delete its row";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActuallyReads )
@@ -1913,6 +1974,23 @@ namespace
         return 0u;
     }
 
+    // The declared size of a storage block that is ONE struct (no runtime array), read from the compiled SPIR-V.
+    uint32_t StorageBlockSize( const std::filesystem::path& shaderFile, ShaderStage stage,
+                               shaderc_shader_kind kind, uint32_t binding, const std::string& cell = {} )
+    {
+        const auto spirv = CompileStage( StageSource( shaderFile, stage, cell ), shaderFile, kind );
+        if ( spirv.empty() )
+            return 0u;
+
+        spirv_cross::Compiler              compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+        for ( const auto& resource : resources.storage_buffers )
+            if ( compiler.get_decoration( resource.id, spv::DecorationBinding ) == binding )
+                return static_cast<uint32_t>(
+                     compiler.get_declared_struct_size( compiler.get_type( resource.base_type_id ) ) );
+        return 0u;
+    }
+
     // The declared workgroup size of a compute stage, as the compiled module states it. Zeroes when the
     // stage did not compile, which every caller treats as a failure rather than as a size.
     std::array<uint32_t, 3> ComputeLocalSize( const std::filesystem::path& shaderFile )
@@ -1942,34 +2020,41 @@ namespace
 
 TEST_F( ShaderCacheKeyShaderRoot, BothParticleStagesIndexTheStateByTheStrideTheEngineAllocates )
 {
-    // THE RELATION, stated against BOTH readers of the storage because the engine writes only one of the
-    // two numbers it needs to be right about. ParticleRenderer allocates MaxParticles * kParticleStride
-    // and zeroes exactly that many bytes; the simulation writes element i at i * (its own stride) and the
-    // draw reads element i at i * (its own stride). Any one of the three moving alone is a frame in which
-    // particles are read from bytes nobody wrote — and the shipped symptom of that is an emitter that
-    // looks mistuned, not an error.
-    const uint32_t simulate  = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
-                                                   ShaderStage::Compute, shaderc_compute_shader, 0 );
-    // The draw is the ParticleSprite.Forward cell of a sprite template (Mesh/Surface/Vertex_ParticleSprite.glslh
-    // reads the state at binding 9); the default template is the one every emitter falls back to.
-    const uint32_t billboard =
-         StorageArrayStride( ShaderPath( "Particles/ParticleSpriteDefault.shader" ), ShaderStage::Vertex,
-                             shaderc_vertex_shader, 9, kParticleSpriteCell );
+    // THE RELATION, stated against BOTH users of the pool slots because the engine writes only one of the numbers
+    // it needs to be right about. ParticleWorldGpu allocates capacity * kParticleSlotStride; the simulation and
+    // the compact index slot i at i * (their own stride). Any one of the three moving alone is a pool whose alive
+    // flags are read from bytes nobody wrote - particles that never die, or never live.
+    const uint32_t simulate = StorageArrayStride( ShaderPath( "Particles/ParticleSimulate.shader" ),
+                                                  ShaderStage::Compute, shaderc_compute_shader, 0 );
+    const uint32_t compact  = StorageArrayStride( ShaderPath( "Particles/ParticleCompact.shader" ),
+                                                  ShaderStage::Compute, shaderc_compute_shader, 0 );
+    EXPECT_EQ( simulate, Desert::Graphic::System::kParticleSlotStride )
+         << "the simulation indexes the pool slots by " << simulate << " bytes and ParticleWorldGpu allocates "
+         << Desert::Graphic::System::kParticleSlotStride << " per particle";
+    EXPECT_EQ( compact, Desert::Graphic::System::kParticleSlotStride )
+         << "the compact indexes the pool slots by " << compact << " bytes and ParticleWorldGpu allocates "
+         << Desert::Graphic::System::kParticleSlotStride << " per particle";
+    EXPECT_EQ( simulate, compact ) << "the two pool stages read one storage with two layouts";
 
-    EXPECT_GT( simulate, 0u ) << "ParticleSimulate declares no storage block at slot 0";
-    EXPECT_GT( billboard, 0u ) << "the ParticleSprite vertex path declares no storage block at slot 9";
-
-    EXPECT_EQ( simulate, Desert::Graphic::System::kParticleStride )
-         << "the simulation indexes the state by " << simulate << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-    EXPECT_EQ( billboard, Desert::Graphic::System::kParticleStride )
-         << "the billboard draw indexes the state by " << billboard << " bytes and ParticleRenderer allocates "
-         << Desert::Graphic::System::kParticleStride << " per particle";
-
-    // ...and therefore each other. Stated separately, because the two equalities above would both hold in
-    // a world where the constant was edited to follow ONE of the shaders and this line is what names the
-    // pair that actually shares the bytes.
-    EXPECT_EQ( simulate, billboard ) << "the two particle stages read one storage with two layouts";
+    // VFX-SPRITE-DRAW: the sprite draw (the ParticleSprite.Forward cell, Mesh/Surface/Vertex_ParticleSprite.glslh)
+    // and the sort read the particle where the simulation wrote it - the emitter's float columns, one float per
+    // component - through the emitter's draw layout, uploaded by ParticleWorldGpu at kParticleDrawLayoutSize.
+    const auto     sprite = ShaderPath( "Particles/ParticleSpriteDefault.shader" );
+    const auto     sort   = ShaderPath( "Particles/ParticleSort.shader" );
+    const uint32_t spriteFloat =
+         StorageArrayStride( sprite, ShaderStage::Vertex, shaderc_vertex_shader, 9, kParticleSpriteCell );
+    const uint32_t sortFloat = StorageArrayStride( sort, ShaderStage::Compute, shaderc_compute_shader, 0 );
+    EXPECT_EQ( spriteFloat, 4u ) << "the sprite vertex path no longer reads the attribute columns at slot 9";
+    EXPECT_EQ( sortFloat, 4u ) << "the sort no longer reads the attribute columns at slot 0";
+    const uint32_t spriteLayout =
+         StorageBlockSize( sprite, ShaderStage::Vertex, shaderc_vertex_shader, 11, kParticleSpriteCell );
+    const uint32_t sortLayout = StorageBlockSize( sort, ShaderStage::Compute, shaderc_compute_shader, 5 );
+    EXPECT_EQ( spriteLayout, Desert::Graphic::System::kParticleDrawLayoutSize )
+         << "the sprite vertex path reads a " << spriteLayout << "-byte draw layout and ParticleWorldGpu uploads "
+         << Desert::Graphic::System::kParticleDrawLayoutSize;
+    EXPECT_EQ( sortLayout, Desert::Graphic::System::kParticleDrawLayoutSize )
+         << "the sort reads a " << sortLayout << "-byte draw layout and ParticleWorldGpu uploads "
+         << Desert::Graphic::System::kParticleDrawLayoutSize;
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStepTableIsIndexedByTheStrideTheEngineUploads )
@@ -2033,8 +2118,8 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
 
 // VFX-10c, ported into the stack by VFX-HOST: a bound channel Size scales the particle's base size - the upload
 // packs it into the record's Scalars.y (1 when unbound), InitializeSpriteSize multiplies the size by it and keeps
-// the product as InitialSpriteSize, which SizeOverLife scales every step. struct Particle no longer carries the
-// channel values: five 16-byte members (PosSize, Color, VelLife, Age, Ids), 80 B.
+// the product as InitialSpriteSize, which SizeOverLife scales every step. The pool slot carries none of it
+// (VFX-SPRITE-DRAW: id + alive flag, 8 B); the size is the SpriteSize attribute the sprite draw reads.
 TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 {
     const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
@@ -2048,9 +2133,9 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
     EXPECT_NE( simulate.find( "none.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
          << "a particle not from a channel no longer gets size scale 1";
     const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
-    EXPECT_NE( state.find( "uvec4 Ids;" ), std::string::npos ) << "struct Particle lost the id it carries";
-    EXPECT_EQ( Desert::Graphic::System::kParticleStride, 80u )
-         << "struct Particle is five 16-byte members (PosSize, Color, VelLife, Age, Ids)";
+    EXPECT_NE( state.find( "uint Id;" ), std::string::npos ) << "the pool slot lost the id it carries";
+    EXPECT_EQ( Desert::Graphic::System::kParticleSlotStride, 8u )
+         << "the pool slot is the id and the alive flag, none of the particle's data";
     const std::string upload = ReadFile( s_RepoRoot / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" /
                                          "Systems" / "Scene" / "Particles" / "ParticleWorldGpu.cpp" );
     EXPECT_NE( upload.find( "r.HasSize ? r.Size : 1.0f" ), std::string::npos )
@@ -2059,25 +2144,35 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothStages )
 {
-    // WHY THE EQUALITY ABOVE IS NOT ENOUGH. Two independent declarations that happen to be the same size
-    // pass it — which was exactly the state Д26 left behind, one copy having gained a meaning for Age.yzw
-    // that the other did not know about. Sizes are what a stride can see; MEANING is not, and the only
-    // way to assert it is that there is one text.
+    // WHY THE EQUALITIES ABOVE ARE NOT ENOUGH. Two independent declarations that happen to be the same size
+    // pass them — which was exactly the state Д26 left behind. Sizes are what a stride can see; MEANING is not,
+    // and the only way to assert it is that there is one text: the pool slot for the two stages that keep the
+    // pool, the draw layout and its readers for the two that read the particle.
     //
-    // Membership rather than absence of the word `struct`, because what must hold is that both stages
-    // COMPILE the shared header — a second declaration alongside it would not even build.
-    const auto simulate = CollectShaderIncludes(
-         StageSource( ShaderPath( "Particles/ParticleSimulate.shader" ), ShaderStage::Compute ),
-         ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    const auto billboard =
-         CollectShaderIncludes( StageSource( ShaderPath( "Particles/ParticleSpriteDefault.shader" ),
-                                             ShaderStage::Vertex, kParticleSpriteCell ),
-                                ShaderPath( "Particles/ParticleSpriteDefault.shader" ) );
+    // VFX-SPRITE-DRAW, the relation that broke: the sprite draw read a per-step COPY of the drawn attributes
+    // (the 80-byte `struct Particle`) instead of the stack's columns. Its closure must not hold the pool slot at
+    // all - a renderer reads the particle where the simulation wrote it (UE: the sprite vertex factory over the
+    // emitter's data buffer), never through a second record.
+    const auto closure = [&]( const char* shader, ShaderStage stage, const std::string& cell = {} )
+    { return CollectShaderIncludes( StageSource( ShaderPath( shader ), stage, cell ), ShaderPath( shader ) ); };
+    const auto simulate = closure( "Particles/ParticleSimulate.shader", ShaderStage::Compute );
+    const auto compact  = closure( "Particles/ParticleCompact.shader", ShaderStage::Compute );
+    const auto sort     = closure( "Particles/ParticleSort.shader", ShaderStage::Compute );
+    const auto sprite =
+         closure( "Particles/ParticleSpriteDefault.shader", ShaderStage::Vertex, kParticleSpriteCell );
 
     EXPECT_TRUE( ClosureNames( simulate, "ParticleState.glslh" ) )
-         << "the simulation declares the particle layout itself again";
-    EXPECT_TRUE( ClosureNames( billboard, "ParticleState.glslh" ) )
-         << "the billboard draw declares the particle layout itself again";
+         << "the simulation declares the pool slot itself again";
+    EXPECT_TRUE( ClosureNames( compact, "ParticleState.glslh" ) )
+         << "the compact declares the pool slot itself again";
+    EXPECT_TRUE( ClosureNames( sprite, "ParticleDrawRead.glslh" ) )
+         << "the sprite draw no longer reads the particle through the emitter's draw layout";
+    EXPECT_TRUE( ClosureNames( sort, "ParticleDrawRead.glslh" ) )
+         << "the sort no longer reads the particle through the emitter's draw layout";
+    EXPECT_FALSE( ClosureNames( sprite, "ParticleState.glslh" ) )
+         << "the sprite draw reads a pool record again instead of the stack's attribute columns";
+    EXPECT_FALSE( ClosureNames( sort, "ParticleState.glslh" ) )
+         << "the sort reads a pool record again instead of the stack's attribute columns";
 }
 
 TEST_F( ShaderCacheKeyShaderRoot, TheParticleDispatchDividesByTheWorkgroupTheShaderDeclares )

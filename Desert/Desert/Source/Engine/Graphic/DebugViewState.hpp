@@ -27,7 +27,7 @@ namespace Desert::Graphic
         Metallic        = 3,
         Roughness       = 4,
         AO              = 5,
-        GI              = 6, // indirect light only (whichever GIMode is active) — for judging GI in isolation
+        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
