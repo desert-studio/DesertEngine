@@ -110,6 +110,7 @@ namespace Desert::Graphic
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
+            uint32_t               SectionSlot = 0;  // static: the slot this draw's submeshes shade with
             std::vector<glm::mat4> BoneMatrices; // optional
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;
@@ -292,6 +293,7 @@ namespace Desert::Graphic
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
+                                  uint64_t hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, const InstanceCullDistance& cullDistance,
                                   const InstanceWind& wind );

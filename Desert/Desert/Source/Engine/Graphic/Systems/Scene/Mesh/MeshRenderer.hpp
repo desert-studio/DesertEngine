@@ -148,6 +148,7 @@ namespace Desert::Graphic::System
         // what travels the chain is a shared_ptr, so the slots and the instances in them cannot be freed
         // under a draw that is still in flight.
         MaterialSlotBindingPtr MaterialSlots;
+        uint32_t               SectionSlot = 0; // static: the slot this draw's submeshes shade with
 
         // optional
         std::vector<glm::mat4> BoneMatrices;
@@ -180,6 +181,9 @@ namespace Desert::Graphic::System
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
             // ECS systems have run (A8-3).
             MaterialSlotBindingPtr MaterialSlots;
+            // The slot every drawn submesh shades with, in every pass (SectionSurface); HiddenSubmeshes masks the
+            // sections of the entity's other slots, which arrive as their own entries.
+            uint32_t               SectionSlot     = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -187,6 +191,17 @@ namespace Desert::Graphic::System
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
+        };
+
+        // A skinned entry's section group: every submesh that shades with one material slot.
+        struct SkinnedSection
+        {
+            // The (surface x Skinned) material. It is SHARED with every other entity using the same
+            // `.demat`, which is why nothing per-object may be stored on it: the pose is packed into a
+            // per-frame buffer and named by a push constant instead.
+            class Graphic::DataDrivenMaterial* Material = nullptr;
+            MaterialInstance* Instance = nullptr; // applied during Bind; owned by the entry's MaterialSlots
+            uint64_t          HiddenSubmeshes = 0; // every submesh of the other sections
         };
 
         struct SkinnedMeshRenderData
@@ -198,16 +213,15 @@ namespace Desert::Graphic::System
             uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
-            // The (surface x Skinned) material. It is SHARED with every other entity using the same
-            // `.demat`, which is why nothing per-object may be stored on it: the pose below is packed
-            // into a per-frame buffer and named by a push constant instead.
-            class Graphic::DataDrivenMaterial* Material = nullptr;
-            // The binding the instance below was selected FROM, carried so that it keeps that instance
-            // alive: the entity that authored it can be destroyed between the record and this queue being
-            // drawn (A8-3). Holding the binding rather than a second shared_ptr to the instance keeps the
+            // The binding every section's instance below was selected FROM, carried so that it keeps those
+            // instances alive: the entity that authored it can be destroyed between the record and this queue
+            // being drawn (A8-3). Holding the binding rather than a second shared_ptr per instance keeps the
             // static and skinned queues answering the lifetime question the same way.
             MaterialSlotBindingPtr      MaterialSlots;
-            MaterialInstance*           Instance = nullptr; // instance applied during Bind; owned by MaterialSlots
+            // One per section material (UE: a skeletal mesh's sections, each a batch element with its own
+            // MaterialIndex), by the static rule Desert::SectionMaterialSlot. The pose is skinned ONCE per entry;
+            // every pass draws each section with its own material, masked to its own submeshes.
+            std::vector<SkinnedSection> Sections;
             std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
             bool                        Outlined    = false;
             bool                        CastShadows = true;
@@ -223,7 +237,8 @@ namespace Desert::Graphic::System
             // The entity that owns the field: each instance's GPU-scene row is keyed {Entity, instance}.
             uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh   = nullptr;
-            MaterialInstancePtr                           Material;   // slot 0 (Lit)
+            MaterialInstancePtr                           Material;            // the section group's slot (a mesh cell)
+            uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
@@ -261,8 +276,8 @@ namespace Desert::Graphic::System
             // queue's flag: a generic draw is not necessarily a solid object. The text system submits
             // its SDF glyph quads through this same queue, and the shadow pass has no alpha test — a
             // default of true would hang an opaque rectangle in the cascade behind every 3D label.
-            // The producers that ARE meshes opt in; ECS::Rules::RouteMeshShadowCaster decides which
-            // single draw of an entity does so, because the shadow pass draws a mesh WHOLE.
+            // The producers that ARE meshes opt in; every draw of an entity casts only the submeshes it
+            // draws (VisibleSubmeshMask), so the entity's silhouette is the union of its draws.
             bool CastShadows = false;
             // Whether the view's TLAS holds this record (UE bVisibleInRayTracing). Off by default for the reason
             // CastShadows is: a text glyph quad is not a surface a ray should hit. The mesh producers opt in.
@@ -1101,6 +1116,7 @@ namespace Desert::Graphic::System
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
+            uint64_t            HiddenSubmeshMask = 0; // the batch's section group (one mask for every instance)
             // A draw call carries ONE index range, so a batch carries ONE level. Before this field the
             // batched path drew at the default 0 while the per-object path next to it computed a level
             // and passed it — the same object at two detail levels depending on whether it batched.
@@ -1151,6 +1167,7 @@ namespace Desert::Graphic::System
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
+            uint64_t            HiddenSubmeshMask = 0; ///< see InstancedDraw::HiddenSubmeshMask
             InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
         };
 
@@ -1203,6 +1220,7 @@ namespace Desert::Graphic::System
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
             uint32_t          LodLevel  = 0;
+            uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;

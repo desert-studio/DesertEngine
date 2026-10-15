@@ -31,6 +31,13 @@ STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /t
 TURN_WARN = 135
 TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
 TURN_HARD_CAP = 150  # owner 2026-10-10 (was 60, 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+# Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
+# costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
+# build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
+import datetime as _dtc
+if _dtc.date.today() <= _dtc.date( 2026, 10, 19 ):
+    TURN_WARN, TURN_LIMIT, TURN_HARD_CAP = 285, 300, 300
+UNCOUNTED_WAIT = re.compile(r"^\s*(\S*/)?(build_wait|wait_bg)\.sh\b")
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
 
@@ -407,6 +414,11 @@ def self_check():
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
 MAX_WORKING_AGENTS = 7  # owner 2026-10-12: limit raised 5 -> 7
+# Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
+# itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
+# below MIN_FREE_DISK_GB whatever the count.
+NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 19 )
+MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
 
@@ -452,8 +464,13 @@ def main():
     # last 6 h with no later done/wip for that id — so a launch not logged there escapes this check: log every launch.
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
             ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+        import shutil
+        free_gb = shutil.disk_usage( os.path.expanduser( "~" ) ).free / 1024 ** 3
+        if free_gb < MIN_FREE_DISK_GB:
+            deny(f"[agent_guard] Тимлид: на диске {free_gb:.1f} ГБ свободно (< {MIN_FREE_DISK_GB}) — новое дерево со сборкой "
+                 f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
         running = lead_running_agents()
-        if len(running) >= MAX_WORKING_AGENTS:
+        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
             deny(f"[agent_guard] Тимлид: лимит владельца 09-30 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
                  f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
@@ -522,8 +539,9 @@ def main():
     tin = data.get("tool_input") or {}
     cmd = tin.get("command", "") if tool == "Bash" else ""
 
-    state["calls"] = state.get("calls", 0) + 1
-    calls = state["calls"]
+    if not UNCOUNTED_WAIT.match(cmd):
+        state["calls"] = state.get("calls", 0) + 1
+    calls = state["calls"] = state.get("calls", 0)
 
     if calls > limit:
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
