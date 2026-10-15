@@ -436,7 +436,8 @@ namespace Desert::Graphic::System
         };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
-            block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+            block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
+                           "Sky.TransmittanceLut" )
                  .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
                  .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
             return block;
@@ -462,7 +463,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration multiScatter;
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
-                 .Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
+                           "Sky.TransmittanceLut" )
                  .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
                  .Storage( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::StorageWrite,
                            "Sky.MultiScatterLut" );

@@ -38,7 +38,8 @@
 // SAMPLERS. UE's shared-sampler form is the one form a pass has: an input is a separate texture (Texture) and
 // the shader reads it through a sampler slot the pass fills with a SamplerDesc (Sampler), as UE's pass parameters
 // carry TStaticSamplerState next to the textures. A pass never binds a combined sampler (sampler2D): one sampler
-// descriptor per input put the deferred composite over maxPerStageDescriptorSamplers. There is no default and no implicit sampler on the graph route: the
+// descriptor per input put the deferred composite over maxPerStageDescriptorSamplers. There is no default and no
+// implicit sampler on the graph route: the
 // call site passes one, usually a named constant (SamplerDesc::LinearClamp()). The backend turns the description
 // into a device object it caches for the device's lifetime (Vulkan: VulkanRdgPassDescriptors::GetSampler), so
 // equal descriptions share one object and nothing is created per frame. Asset textures bound through a material

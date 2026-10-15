@@ -2139,7 +2139,8 @@ namespace Desert::Graphic::System
              .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
              .Texture( "u_CloudFarWeather", m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" )
              .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-             .Texture( "u_CloudLayoutPattern", m_LayoutPatternTexture, RDG::Access::SampledCompute, "Clouds.LayoutPattern" )
+             .Texture( "u_CloudLayoutPattern", m_LayoutPatternTexture, RDG::Access::SampledCompute,
+                       "Clouds.LayoutPattern" )
              .Texture( "u_CloudLayoutMask", m_LayoutMaskTexture, RDG::Access::SampledCompute, "Clouds.LayoutMask" )
              .Texture( "u_CloudAuthoredAtlas", atlas, RDG::Access::SampledCompute,
                        m_AuthoredAtlas ? "Clouds.AuthoredAtlas" : "Clouds.AuthoredAtlasFallback" );
