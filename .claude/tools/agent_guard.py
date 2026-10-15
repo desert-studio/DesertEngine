@@ -31,6 +31,13 @@ STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /t
 TURN_WARN = 135
 TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
 TURN_HARD_CAP = 150  # owner 2026-10-10 (was 60, 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+# Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
+# costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
+# build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
+import datetime as _dtc
+if _dtc.date.today() <= _dtc.date( 2026, 10, 19 ):
+    TURN_WARN, TURN_LIMIT, TURN_HARD_CAP = 285, 300, 300
+UNCOUNTED_WAIT = re.compile(r"^\s*(\S*/)?(build_wait|wait_bg)\.sh\b")
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
 
@@ -532,8 +539,9 @@ def main():
     tin = data.get("tool_input") or {}
     cmd = tin.get("command", "") if tool == "Bash" else ""
 
-    state["calls"] = state.get("calls", 0) + 1
-    calls = state["calls"]
+    if not UNCOUNTED_WAIT.match(cmd):
+        state["calls"] = state.get("calls", 0) + 1
+    calls = state["calls"] = state.get("calls", 0)
 
     if calls > limit:
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
