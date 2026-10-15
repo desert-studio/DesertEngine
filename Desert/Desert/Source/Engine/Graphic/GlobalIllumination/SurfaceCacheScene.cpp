@@ -333,7 +333,7 @@ namespace Desert::Graphic::SurfaceCache
         // each of them was recaptured - every frame, for ever (Bistro: 256 captures a frame at frame 600).
         const uint32_t                     pagesPerSide = AtlasPagesPerSide( m_Budget.AtlasSize );
         std::vector<std::vector<uint32_t>> occupants( static_cast<std::size_t>( pagesPerSide ) * pagesPerSide );
-        const auto pageOf = [pagesPerSide]( const AtlasRect& rect )
+        const auto                         pageOf = [pagesPerSide]( const AtlasRect& rect )
         { return rect.Y / kPhysicalPageSize * pagesPerSide + rect.X / kPhysicalPageSize; };
         const auto occupy = [&]( const uint32_t index )
         {
