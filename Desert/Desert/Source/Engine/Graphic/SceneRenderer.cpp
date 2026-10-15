@@ -1278,6 +1278,31 @@ namespace Desert::Graphic
         // the engine that belong under every translucent layer join here.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterOpaque, {} );
 
+        // AutoExposure's build-time step, before the first node that reads last frame's adapted luminance: the
+        // temporal method's opaque passes below and the temporal node.
+        const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
+        // The temporal method's passes over the OPAQUE scene, before the translucency composites into the scene
+        // colour (ITemporalUpscaler::AddOpaquePasses; UE AddTSRMeasureFlickeringLuma). A refusal is said; the
+        // temporal node then refuses itself by name if it needed the result.
+        RDG::TextureRef opaqueLuma;
+        // A multisampled scene target has no temporal resolve (AddFrameTemporal's refusal), so nothing to measure.
+        if ( frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr && m_TargetFramebuffer &&
+             m_TargetFramebuffer->GetSpecification().Samples == 1 )
+        {
+            const Common::ResultStr<RDG::TextureRef> measured = m_TemporalUpscaler->AddOpaquePasses(
+                 graph, frame,
+                 TemporalUpscalerOpaqueInputs{
+                      .SceneColor =
+                           textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+                      .Exposure = exposurePrevious.IsValid() ? exposurePrevious : textures.System.White,
+                      .Quality  = &m_Quality } );
+            if ( measured )
+                opaqueLuma = measured.GetValue();
+            else
+                LOG_ERROR( "[SceneRenderer] {}: the temporal method's opaque passes are refused: {}",
+                           m_ViewResources.GetName(), measured.GetError() );
+        }
+
         // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
         // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
         // test against (the particle top-down bug / grid-through-meshes).
@@ -1300,8 +1325,7 @@ namespace Desert::Graphic
         // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
         // colour, as before.
-        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
-        const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const OverlayTargets overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
@@ -1831,7 +1855,8 @@ namespace Desert::Graphic
 
     SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
                                                                    const ViewFrame&      frame,
-                                                                   const RDG::TextureRef exposure )
+                                                                   const RDG::TextureRef exposure,
+                                                                   const RDG::TextureRef opaqueLuma )
     {
         // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and
         // above 100 % the fixed SSAA downsample after the temporal method, or alone without one
@@ -1881,6 +1906,7 @@ namespace Desert::Graphic
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
              .Exposure             = exposure.IsValid() ? exposure : textures.System.White,
              .ThinGeometryCoverage = textures.Transients.ThinGeometryCoverage,
+             .OpaqueLuma           = opaqueLuma,
              .Black                = textures.System.Black,
              .History              = histories,
              .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,

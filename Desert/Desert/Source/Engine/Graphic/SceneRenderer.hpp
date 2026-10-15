@@ -707,8 +707,9 @@ namespace Desert::Graphic
         // no PopulateSceneDepth pipeline, the upscaler's refusal) is RENDERED WITHOUT IT: ERROR "rendered without
         // the temporal resolve this frame: <why>", an invalid set, and the caller draws the overlays into the
         // scene target and post-processes the scene colour.
+        // @p opaqueLuma: what the method's AddOpaquePasses returned this frame (TemporalUpscalerInputs::OpaqueLuma).
         OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                         RDG::TextureRef exposure );
+                                         RDG::TextureRef exposure, RDG::TextureRef opaqueLuma );
         // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
         // node and the exposure nodes agree on which image is last frame's: returns the imported previous
         // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.

@@ -31,6 +31,11 @@ namespace Desert::Graphic
         constexpr const char* kResolveHistory      = "TSRResolveHistory";
         constexpr const char* kRecordPersistent    = "TSRRecordPersistentFrame";
         constexpr const char* kDetectThinGeometry  = "TSRDetectThinGeometry";
+        constexpr const char* kMeasureFlickeringLuma = "TSRMeasureFlickeringLuma";
+        // UE r.TSR.ThinGeometryDetection.Coverage.ShadingRange 3 (VaryingRange) and .MinKeepLineContrast 0.30,
+        // their defaults; UE's other ranges (Foliage, FoliageAndHair, AllExceptUnlit) are its console's choices.
+        constexpr bool  kThinGeometryShadingRangeIsVarying = true;
+        constexpr float kThinGeometryMinKeepLineContrast   = 0.30f;
         // TSR.DetectThinGeometry's tile (Programs/TemporalSuperResolution/TSRDetectThinGeometry.shader: 16x16 minus
         // UE's overscan of 3 on each side): the pixels one group writes per side.
         constexpr uint32_t kThinGeometryTileOutput = 10;
@@ -115,17 +120,45 @@ namespace Desert::Graphic
         return layout;
     }
 
-    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout()
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout( const bool intensityLines )
+    {
+        const auto slots = []( const bool withLuma )
+        {
+            std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
+                                               { "u_SceneDepth", Kind::SampledTexture },
+                                               { "u_ThinGeometryCoverage", Kind::SampledTexture },
+                                               { "u_ReprojectedCoverage", Kind::SampledTexture },
+                                               { "u_ReprojectionBoundary", Kind::SampledTexture },
+                                               { "u_ThinGeometry", Kind::StorageTexture },
+                                               { "u_CoverageOut", Kind::StorageTexture } };
+            if ( withLuma )
+                list.push_back( { "u_FlickeringLuma", Kind::SampledTexture } );
+            return list;
+        };
+        static const auto withLuma = MakeLayout( kDetectThinGeometry, slots( true ) );
+        static const auto plain    = MakeLayout( kDetectThinGeometry, slots( false ) );
+        return intensityLines ? withLuma : plain;
+    }
+
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrMeasureFlickeringLumaLayout()
     {
         static const auto layout =
-             MakeLayout( kDetectThinGeometry, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                { "u_SceneDepth", Kind::SampledTexture },
-                                                { "u_ThinGeometryCoverage", Kind::SampledTexture },
-                                                { "u_ReprojectedCoverage", Kind::SampledTexture },
-                                                { "u_ReprojectionBoundary", Kind::SampledTexture },
-                                                { "u_ThinGeometry", Kind::StorageTexture },
-                                                { "u_CoverageOut", Kind::StorageTexture } } );
+             MakeLayout( kMeasureFlickeringLuma, { { "TSRParamsBuffer", Kind::StorageBuffer },
+                                                   { "u_SceneColor", Kind::SampledTexture },
+                                                   { "u_Exposure", Kind::SampledTexture },
+                                                   { "u_FlickeringLuma", Kind::StorageTexture } } );
         return layout;
+    }
+
+    bool TsrThinGeometryVaryingRange( const TsrQuality& quality )
+    {
+        return quality.ThinGeometryDetection && kThinGeometryShadingRangeIsVarying &&
+               ( quality.ShadingRejectionFlickering || kThinGeometryMinKeepLineContrast != 0.0f );
+    }
+
+    bool TsrThinGeometryIntensityLines( const TsrQuality& quality )
+    {
+        return TsrThinGeometryVaryingRange( quality ) && kThinGeometryMinKeepLineContrast != 0.0f;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout( const bool thinGeometry )
@@ -428,6 +461,9 @@ namespace Desert::Graphic
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}", "TSR: TemporalUpscalerInputs::Quality is null (its r.TSR.* rows are read from it)" );
         const TsrQuality  quality         = ReadTsrQuality( *inputs.Quality );
+        const bool        intensityLines  = TsrThinGeometryIntensityLines( quality );
+        if ( intensityLines && !inputs.OpaqueLuma.IsValid() )
+            return missing( "OpaqueLuma (AddOpaquePasses' TSR.FlickeringLuma)" );
         const std::size_t declaredHistory = DeclaredHistoryCount( quality );
         if ( quality.ThinGeometryDetection && !inputs.ThinGeometryCoverage.IsValid() )
             return missing( "ThinGeometryCoverage" );
@@ -531,10 +567,10 @@ namespace Desert::Graphic
              std::format( "TSR_THIN_GEOMETRY={}", quality.ThinGeometryDetection ? 1 : 0 );
         // UE DIM_THIN_GEOMETRY_DETECTION: RejectShading reads TSR.ThinGeometry and relaxes its clamp box by it.
         const std::string rejectDefines = decimateDefines;
-        // UE DIM_VARYING_RANGE_DETECTION: ShadingRange VaryingRange (the UE default) needs the flickering heuristic
-        // (MinKeepLineContrast's intensity lines are not ported); without it UE falls back to foliage only.
+        // UE DIM_VARYING_RANGE_DETECTION / DIM_INTENSITY_LINE_DETECTION (TsrThinGeometryVaryingRange).
         const std::string thinGeometryDefines =
-             std::format( "TSR_THIN_VARYING_RANGE={}", quality.ShadingRejectionFlickering ? 1 : 0 );
+             std::format( "TSR_THIN_VARYING_RANGE={};TSR_THIN_INTENSITY_LINE={}",
+                          TsrThinGeometryVaryingRange( quality ) ? 1 : 0, intensityLines ? 1 : 0 );
         const std::string spatialDefines =
              std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) );
         const std::string updateDefines = std::format( "TSR_UPDATE_QUALITY={};TSR_WRITE_OUTPUT={}",
@@ -638,14 +674,17 @@ namespace Desert::Graphic
                  "TSR.DetectThinGeometry", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Bindings( TsrDetectThinGeometryLayout(), RDG::OtherRouteFill{} )
-                          .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                     RDG::BindingBlockBuilder bindings =
+                          pass.Bindings( TsrDetectThinGeometryLayout( intensityLines ), RDG::OtherRouteFill{} );
+                     bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
                           .Sampled( "u_SceneDepth", inputs.SceneDepth, sampled, all, point )
                           .Sampled( "u_ThinGeometryCoverage", inputs.ThinGeometryCoverage, sampled, all, point )
                           .Sampled( "u_ReprojectedCoverage", reprojectedCoverage, sampled, all, point )
                           .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
                           .Storage( "u_ThinGeometry", thinGeometry, RDG::Access::StorageWrite, 0 )
                           .Storage( "u_CoverageOut", coverage.Current, RDG::Access::StorageWrite, 0 );
+                     if ( intensityLines )
+                         bindings.Sampled( "u_FlickeringLuma", inputs.OpaqueLuma, sampled, all, point );
                  },
                  dispatch( kDetectThinGeometry, thinGeometryDefines, render, kThinGeometryTileOutput ) );
 
@@ -751,6 +790,63 @@ namespace Desert::Graphic
 
         return Common::MakeSuccess(
              TemporalUpscalerOutputs{ .SceneColor = sceneColorOutput, .NewHistory = std::move( records ) } );
+    }
+
+    Common::ResultStr<RDG::TextureRef>
+    TemporalSuperResolution::AddOpaquePasses( RDG::Builder& graph, const ViewFrame& frame,
+                                              const TemporalUpscalerOpaqueInputs& inputs ) const
+    {
+        if ( inputs.Quality == nullptr )
+            return Common::MakeFormattedError<RDG::TextureRef>(
+                 "{}", "TSR: TemporalUpscalerOpaqueInputs::Quality is null (its r.TSR.* rows are read from it)" );
+        const TsrQuality quality = ReadTsrQuality( *inputs.Quality );
+        if ( !TsrThinGeometryIntensityLines( quality ) )
+            return Common::MakeSuccess( RDG::TextureRef{} );
+        if ( !inputs.SceneColor.IsValid() || !inputs.Exposure.IsValid() )
+            return Common::MakeFormattedError<RDG::TextureRef>(
+                 "{}", std::format( "TSR.MeasureFlickeringLuma: the input {} is not a texture of this graph",
+                                    inputs.SceneColor.IsValid() ? "Exposure" : "SceneColor" ) );
+        std::string error;
+        if ( !PipelineFor( kMeasureFlickeringLuma, "", error ) )
+            return Common::MakeFormattedError<RDG::TextureRef>( "{}", std::format( "TSR refused: {}", error ) );
+
+        const RDG::Extent3D render{ frame.Split.Render.Width, frame.Split.Render.Height, 1 };
+        // The shared TSR parameter block (TSRCommon.glslh), of which this pass reads the render extent.
+        const TsrParams params =
+             MakeTsrParams( frame, TsrHistoryExtent( frame.Split, quality ), quality, nullptr );
+        const RDG::BufferRef buffer =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( TsrParams ) }, "TSR.MeasureFlickeringLuma.Params" );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &params, 1 ) ) );
+        RDG::TextureDesc desc;
+        desc.Size                  = render;
+        desc.Format                = kDepthFormat; // one float channel
+        const RDG::TextureRef luma = graph.CreateTexture( desc, "TSR.FlickeringLuma" );
+
+        graph.AddPass(
+             "TSR.MeasureFlickeringLuma", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( TsrMeasureFlickeringLumaLayout(), RDG::OtherRouteFill{} )
+                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Storage( "u_FlickeringLuma", luma, RDG::Access::StorageWrite, 0 );
+             },
+             [this, render]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 std::string                            pipelineError;
+                 const std::shared_ptr<ComputePipeline> pipeline =
+                      PipelineFor( kMeasureFlickeringLuma, "", pipelineError );
+                 if ( !pipeline )
+                     return Common::MakeError( pipelineError );
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DispatchCompute(
+                      bindings, *pipeline, ( render.Width + kGroupSize - 1 ) / kGroupSize,
+                      ( render.Height + kGroupSize - 1 ) / kGroupSize, 1 );
+             } );
+        return Common::MakeSuccess( luma );
     }
 
     std::shared_ptr<ComputePipeline> TemporalSuperResolution::PipelineFor( const char*        shaderName,

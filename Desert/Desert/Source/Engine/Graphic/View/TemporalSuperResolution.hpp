@@ -29,6 +29,9 @@ namespace Desert::Graphic
     // vendor-neutral temporal upscaler (TemporalMethod::TSR, Upscaler::TSR): Mac (MoltenVK), non-RTX, non-AMD.
     // Resolves Upscale splits only (at 100 % the native method is TAA). Pure compute, the same pass chain as UE:
     //
+    //   TSR.MeasureFlickeringLuma Render (AddOpaquePasses, before the translucency) with thin geometry's
+    //                                    intensity lines: the opaque scene's luma (UE
+    //                                    TSRMeasureFlickeringLuma.usf)
     //   TSR.ClearPrevTextures   Render   the parallax scatter buffer -> 0 (UE TSRClearPrevTextures.usf)
     //   TSR.DilateVelocity      Render   3x3 closest depth -> dilated velocity + closest depth; scatters each
     //                                    pixel's closest depth to where it was last frame (UE
@@ -97,6 +100,12 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<TemporalUpscalerOutputs>
         AddPasses( RDG::Builder& graph, const ViewFrame& frame,
                    const TemporalUpscalerInputs& inputs ) const override;
+        // TSR.MeasureFlickeringLuma (UE TSRMeasureFlickeringLuma.usf, AddTSRMeasureFlickeringLuma in the main
+        // renderer): with thin-geometry detection's intensity lines (TsrThinGeometryIntensityLines), the luma of
+        // the opaque scene in UE's guide space, RenderExtent R32F; no pass otherwise.
+        [[nodiscard]] Common::ResultStr<RDG::TextureRef>
+        AddOpaquePasses( RDG::Builder& graph, const ViewFrame& frame,
+                         const TemporalUpscalerOpaqueInputs& inputs ) const override;
 
     private:
         // The pipeline of @p shaderName with @p defines ("" for the default program), made on first use (record
@@ -231,7 +240,15 @@ namespace Desert::Graphic
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDilateVelocityLayout();
     // @p thinGeometry: the TSR_THIN_GEOMETRY=1 variant also reprojects the coverage history.
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDecimateHistoryLayout( bool thinGeometry );
-    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrDetectThinGeometryLayout();
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
+    TsrDetectThinGeometryLayout( bool intensityLines );
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrMeasureFlickeringLumaLayout();
+    // UE DIM_VARYING_RANGE_DETECTION / DIM_INTENSITY_LINE_DETECTION of TSR.DetectThinGeometry, from UE's
+    // r.TSR.ThinGeometryDetection.Coverage.ShadingRange (3, VaryingRange) and .MinKeepLineContrast (0.30) at their
+    // defaults, as UE derives them (TemporalSuperResolution.cpp :2747-2760): the varying range needs the
+    // flickering heuristic or the intensity lines; the intensity lines need the varying range.
+    [[nodiscard]] bool TsrThinGeometryVaryingRange( const TsrQuality& quality );
+    [[nodiscard]] bool TsrThinGeometryIntensityLines( const TsrQuality& quality );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
     TsrRejectShadingLayout( bool thinGeometry );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrSpatialAntiAliasingLayout();

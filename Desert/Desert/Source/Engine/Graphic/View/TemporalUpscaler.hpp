@@ -70,6 +70,10 @@ namespace Desert::Graphic
         // surface, 1 two-sided foliage (UE TSRMeasureCoverage.usf EncodeThinGeometryMaterial). TSR's thin-geometry
         // detection reads it.
         RDG::TextureRef ThinGeometryCoverage;
+        // What AddOpaquePasses returned this frame (invalid when it added none): TSR's luma of the opaque scene
+        // (UE FlickeringLuma, TSRMeasureFlickeringLuma.usf), measured before the translucency composited into
+        // SceneColor.
+        RDG::TextureRef OpaqueLuma;
         // The graph's System.Black (RDGSystemTextures.hpp): what an implementation binds where an input of its own
         // does not exist this frame (UE GSystemTextures BlackDummy), never another input standing in for it.
         RDG::TextureRef              Black;
@@ -82,6 +86,15 @@ namespace Desert::Graphic
         // parameters from it (DLSS: its preset per mode), as UE's upscaler plugins read their own console
         // variables; the interface names none of them.
         const Common::Scalability::ResolvedQuality* Quality = nullptr;
+    };
+
+    // What an implementation may measure on the OPAQUE scene, before the translucency composites into the scene
+    // colour (UE: the main renderer's AddTSRMeasureFlickeringLuma, ahead of the translucency passes).
+    struct TemporalUpscalerOpaqueInputs
+    {
+        RDG::TextureRef SceneColor; // linear HDR, RenderExtent, jittered: the lit opaque scene, no translucency yet
+        RDG::TextureRef Exposure;   // as TemporalUpscalerInputs::Exposure
+        const Common::Scalability::ResolvedQuality* Quality = nullptr; // as TemporalUpscalerInputs::Quality
     };
 
     struct TemporalUpscalerOutputs
@@ -133,6 +146,12 @@ namespace Desert::Graphic
         // here.
         [[nodiscard]] virtual Common::ResultStr<TemporalUpscalerOutputs>
         AddPasses( RDG::Builder& graph, const ViewFrame& frame, const TemporalUpscalerInputs& inputs ) const = 0;
+
+        // Adds the method's passes over the opaque scene; the renderer calls it after the opaque scene is
+        // complete and before the translucency, and hands the result to AddPasses as
+        // TemporalUpscalerInputs::OpaqueLuma. Default: no pass, an invalid ref. Errors as AddPasses'.
+        [[nodiscard]] virtual Common::ResultStr<RDG::TextureRef>
+        AddOpaquePasses( RDG::Builder& graph, const ViewFrame& frame, const TemporalUpscalerOpaqueInputs& inputs ) const;
     };
 
     // The implementations this build has, one per TemporalMethod other than None. Null for None, and for FSR in a

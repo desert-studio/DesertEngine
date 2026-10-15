@@ -71,6 +71,12 @@ namespace Desert::Graphic
         return TemporalJitterPixels( index, length );
     }
 
+    Common::ResultStr<RDG::TextureRef> ITemporalUpscaler::AddOpaquePasses(
+         RDG::Builder& /*graph*/, const ViewFrame& /*frame*/, const TemporalUpscalerOpaqueInputs& /*inputs*/ ) const
+    {
+        return Common::MakeSuccess( RDG::TextureRef{} );
+    }
+
     float ITemporalUpscaler::MaterialMipBias( const ResolutionSplit& split ) const
     {
         // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples (UE applies the
