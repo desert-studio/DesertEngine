@@ -61,6 +61,9 @@ namespace Desert::Graphic::API::Vulkan
     // The inverse of RdgVulkanLayout, for an image imported from its own layout record. A layout the graph
     // has no name for is refused rather than mapped to a near neighbour.
     std::optional<RDG::ImageLayout> RdgLayoutFromVulkan( VkImageLayout layout );
+    // The one translation of a shared sampler state into Vulkan: a pass's Sampler entry and a compute bake's
+    // SetSampler both acquire their VkSampler from the engine sampler cache through it.
+    VkSamplerCreateInfo RdgSamplerCreateInfo( const RDG::SamplerDesc& desc );
 
     // One attachment of a render pass as the graph declared it. Format UNDEFINED marks an unused colour slot.
     struct RdgAttachmentKey

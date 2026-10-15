@@ -785,7 +785,7 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    VkSamplerCreateInfo RdgSamplerCreateInfo( const RDG::SamplerDesc& desc )
     {
         VkSamplerCreateInfo info{};
         info.sType             = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -799,7 +799,12 @@ namespace Desert::Graphic::API::Vulkan
         info.minLod            = 0.0f;
         info.maxLod            = VK_LOD_CLAMP_NONE;
         info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-        return m_SamplerCache.Acquire( info );
+        return info;
+    }
+
+    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    {
+        return m_SamplerCache.Acquire( RdgSamplerCreateInfo( desc ) );
     }
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )

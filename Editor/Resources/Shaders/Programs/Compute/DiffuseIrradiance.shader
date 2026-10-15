@@ -10,7 +10,10 @@ Shader "DiffuseIrradiance"
         const uint NumSamples = 64 * 1024;
         const float InvNumSamples = 1.0 / float(NumSamples);
 
-        Uniform(0) sampler2D  inputTexture;
+        // The source is a separate texture read through the bake's one shared state (Graphic::kComputeImagesSamplerBinding).
+        Uniform(0) texture2D inputTexture;
+        Uniform(2) sampler u_LinearRepeatSampler;
+        #define inputTexture sampler2D(inputTexture, u_LinearRepeatSampler)
         layout(binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
         // NO LOOK HERE, for the same reason as PanoramaToCubemap: the scene's rotation and gain are
