@@ -36,6 +36,9 @@
 
 namespace Desert::Editor::ImportOptions
 {
+    // Desert::ImGui (the editor's ImGuiLayer) shadows the library inside Desert; MSVC finds it.
+    namespace ImGui = ::ImGui;
+
     namespace
     {
         namespace Ser = Assets::Serialization;
