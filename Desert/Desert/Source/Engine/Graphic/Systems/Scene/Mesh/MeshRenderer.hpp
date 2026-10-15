@@ -1193,6 +1193,11 @@ namespace Desert::Graphic::System
         // read the process-wide on-load request list; the stand-in every not-yet-ready material draws with.
         MaterialPipelineTracker             m_MaterialPipelines;
         size_t                              m_MaterialRequestCursor = 0;
+        // The UsesForwardDepthPrepass answer the requests up to the cursor were precached for. The pipelines a
+        // material is precached with depend on it alone (PrecacheRequestedMaterials); when it flips (render path
+        // Deferred <-> Forward, or the wireframe view on Forward) every material loaded so far is precached
+        // again for the new answer, so the first frame after a switch does not build them at draw.
+        std::optional<bool>                 m_PrecachedForPrepass;
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content

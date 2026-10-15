@@ -553,10 +553,18 @@ namespace Desert::Graphic::System
 
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
     // frame whatever the scene holds, so the reveal waits for it; then every material that LOADED since the
-    // last frame gets its compile handed to a worker here, before any mesh using it is drawn.
+    // last frame gets its compile handed to a worker here, before any mesh using it is drawn. When the path's
+    // answer changes (Deferred <-> Forward), every material loaded so far is precached again for the new one.
     void MeshRenderer::PrecacheRequestedMaterials()
     {
         (void)DefaultSurfacePipeline();
+        const bool prepassed = m_SceneRenderer->UsesForwardDepthPrepass();
+        if ( m_PrecachedForPrepass != prepassed )
+        {
+            if ( m_PrecachedForPrepass.has_value() )
+                m_MaterialRequestCursor = 0;
+            m_PrecachedForPrepass = prepassed;
+        }
         for ( const auto& name : MaterialPipelineRequests::Get().Since( m_MaterialRequestCursor ) )
         {
             m_MaterialPipelines.Request( name );
@@ -569,7 +577,6 @@ namespace Desert::Graphic::System
             // base pass (PrepassedGenericPipelinesOf, the very requests BuildGenericDraws makes), so both compiles
             // start here, together: the first frame stands in no longer than the base pass alone would. The
             // others record after the base pass with the depth read-only (GenericDrawSet::AfterOpaque).
-            const bool                       prepassed = m_SceneRenderer->UsesForwardDepthPrepass();
             const std::optional<std::string> depthProgram =
                  prepassed ? GenericDepthProgramOf( name ) : std::optional<std::string>();
             if ( depthProgram )

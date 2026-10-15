@@ -223,6 +223,11 @@ namespace Desert::Core::Formats
         // Every uniform block, storage buffer and sampler the stage declares, by the name Material::Get
         // looks it up under — what SceneReads is classified from.
         std::vector<std::string> ResourceNames;
+
+        // The subset of ResourceNames the stage's entry point statically USES (reached from main through its call
+        // graph) - a resource an included header merely declares is not in it. The SPIR-V is unoptimized, so
+        // ResourceNames still lists such declarations; a rule about what a shader READS checks this list.
+        std::vector<std::string> UsedResourceNames;
     };
 
     constexpr const char* MaterialLayoutStageName( ShaderStage stage )

@@ -644,6 +644,14 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             for ( const auto& resource : *list )
                 out.ResourceNames.push_back( resource.name );
 
+        // Static use: the variables main reaches through its call graph (SPIRV-Cross walks the functions, not the
+        // entry point's interface list, which in SPIR-V 1.4+ names every global).
+        const spirv_cross::ShaderResources used =
+             compiler.get_shader_resources( compiler.get_active_interface_variables() );
+        for ( const auto* list : { &used.uniform_buffers, &used.storage_buffers, &used.sampled_images } )
+            for ( const auto& resource : *list )
+                out.UsedResourceNames.push_back( resource.name );
+
         if ( !resources.push_constant_buffers.empty() )
         {
             const auto& res  = resources.push_constant_buffers[0];
@@ -668,14 +676,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             out.Layout.SceneReads = out.Layout.SceneReads | SceneResources::Classify( stage.ResourceNames );
         // UE: only a translucent material reads the scene depth. An opaque custom mesh shader writes the depth it
         // would read (the forward depth prepass; on Deferred the generic node attaches it writable), so it is
-        // refused here, at load, on both paths - never silently left undrawn by one renderer.
+        // refused here, at load, on both paths - never silently left undrawn by one renderer. Only a USE counts:
+        // an opaque shader that includes a header declaring the sampler (SurfaceTypes.glslh) and never reads it is
+        // drawn.
         if ( Core::Formats::IsOpaqueCustomMeshProgram( meta, cellName ) )
             for ( const auto& stage : reflected )
                 for ( const std::string_view name : { Core::kSceneDepthName, Core::kSceneShadingWordName } )
-                    if ( std::find( stage.ResourceNames.begin(), stage.ResourceNames.end(), name ) !=
-                         stage.ResourceNames.end() )
+                    if ( std::find( stage.UsedResourceNames.begin(), stage.UsedResourceNames.end(), name ) !=
+                         stage.UsedResourceNames.end() )
                         out.Errors.push_back( std::format(
-                             "'{}' program '{}': an opaque custom mesh shader declares {} in its {} stage; only a "
+                             "'{}' program '{}': an opaque custom mesh shader reads {} in its {} stage; only a "
                              "translucent shader may read the scene depth (an opaque one writes it). Make it "
                              "blend with `ZWrite Off`, or drop the read",
                              templateName, cellName, name, Graphic::Shader::GetStringShaderStage( stage.Stage ) ) );
