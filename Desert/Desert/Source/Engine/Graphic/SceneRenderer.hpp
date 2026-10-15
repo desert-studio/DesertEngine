@@ -59,6 +59,7 @@
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
@@ -528,6 +529,8 @@ namespace Desert::Graphic
         // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
         // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
+        // The view's global distance field (clipmaps follow this view's camera), made on first use.
+        std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -722,6 +725,11 @@ namespace Desert::Graphic
         // "Debug: LightGridWorld" — the world light grid's count per surface, over the post input.
         void AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target,
                                          const ViewFrame& frame );
+        // The Global Distance Field view mode (DeferredDebugMode::GlobalDistanceField, Deferred only): brings the
+        // view's global distance field up to this frame's camera and static meshes, then draws "Debug: Global
+        // Distance Field" over @p target.
+        void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                              RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
@@ -876,6 +884,9 @@ namespace Desert::Graphic
         // the first BeginScene.
         int m_SSRMaxSteps = 32;
         int m_GISamples   = 32;
+        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
+        // global distance field's atlas holds and its finer mips stream within.
+        uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
         // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
         // initialiser is the High column.

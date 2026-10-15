@@ -1,6 +1,7 @@
 #include "SurfaceMaterialAsset.hpp"
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
@@ -43,6 +44,7 @@ namespace Desert::Assets
         copy->m_ShaderName         = source.m_ShaderName;
         copy->m_ShaderHandle       = source.m_ShaderHandle;
         copy->m_ShaderIsStandardSurface = source.m_ShaderIsStandardSurface;
+        copy->m_ShaderIsTwoSided        = source.m_ShaderIsTwoSided;
 
         // Generated, and named as generated. A random id here is the one thing that keeps this copy out of
         // every map the subject is in — see the header for what a shared one would do to the mesh ->
@@ -86,6 +88,7 @@ namespace Desert::Assets
         m_ShaderName.clear();
         m_ShaderHandle       = Common::AssetHandle::Null();
         m_ShaderIsStandardSurface = false;
+        m_ShaderIsTwoSided        = false;
         // No template stated: an instance takes its parent's (resolved through the chain by the callers);
         // anything else was refused by Load — there is no default template to fall back on.
         if ( !m_Data.Shader.has_value() || manager == nullptr )
@@ -118,6 +121,7 @@ namespace Desert::Assets
             return;
         }
         m_ShaderIsStandardSurface = shader->GetRole() == Common::Content::kStandardSurfaceRole;
+        m_ShaderIsTwoSided        = shader->IsTwoSidedTemplate();
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShader( MaterialData& data, const AssetManager& manager,
@@ -291,5 +295,49 @@ namespace Desert::Assets
         // succeeds clears it, so Save() keeps refusing to write an empty material over the authored file.
         m_ReadyForUse = false;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<bool> ResolveMaterialTwoSided( AssetManager&                     manager,
+                                                     const Common::Content::AssetGuid& material )
+    {
+        // MaterialService::CreateRuntimeInstance caps its chain walk at the same depth.
+        constexpr int              kMaxChainDepth = 16;
+        Common::Content::AssetGuid current        = material;
+        for ( int depth = 0; depth < kMaxChainDepth; ++depth )
+        {
+            const auto text  = Common::Content::AssetGuidToText( current );
+            auto       asset = manager.FindByHandle<SurfaceMaterialAsset>(
+                 Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( current ) ) ) );
+            if ( !asset )
+                asset = CreateFromRegistryGuid<SurfaceMaterialAsset>( manager, current,
+                                                                      Common::Content::ContentKind::Material );
+            if ( !asset )
+                return Common::MakeFormattedError<bool>( "material {} is not a material this project has scanned",
+                                                         text );
+            if ( const auto loaded = asset->EnsureLoaded( manager ); !loaded )
+                return Common::MakeFormattedError<bool>( "material '{}' could not be read: {}",
+                                                         asset->GetMetadata().Filepath.generic_string(),
+                                                         loaded.GetError() );
+            const MaterialData& data = asset->Data();
+            if ( data.TwoSided.has_value() )
+                return Common::MakeSuccess( *data.TwoSided );
+            if ( data.IsInstance() )
+            {
+                const auto parent = data.ParentGuid();
+                if ( parent.IsNull() || parent == current )
+                    return Common::MakeFormattedError<bool>(
+                         "material '{}' names a malformed or its own parent '{}'",
+                         asset->GetMetadata().Filepath.generic_string(), *data.ParentText() );
+                current = parent;
+                continue;
+            }
+            if ( asset->GetShaderHandle().IsNull() )
+                return Common::MakeFormattedError<bool>(
+                     "material '{}' has no resolved template, so its default sidedness is unknown",
+                     asset->GetMetadata().Filepath.generic_string() );
+            return Common::MakeSuccess( asset->IsTemplateTwoSided() );
+        }
+        return Common::MakeFormattedError<bool>( "material {}: instance chain deeper than {} (a cycle?)",
+                                                 Common::Content::AssetGuidToText( material ), kMaxChainDepth );
     }
 } // namespace Desert::Assets

@@ -43,12 +43,18 @@ namespace Desert::Assets
         {
             return m_DefaultSurface;
         }
+        // The template's `TwoSided` Surface setting: the default sidedness of its materials.
+        [[nodiscard]] bool IsTwoSidedTemplate() const
+        {
+            return m_TwoSided;
+        }
 
     private:
         bool        m_ReadyForUse = false;
         std::string m_ShaderContent;
         std::string m_Role;
         bool        m_DefaultSurface = false;
+        bool        m_TwoSided       = false;
     };
 
     class AssetManager;

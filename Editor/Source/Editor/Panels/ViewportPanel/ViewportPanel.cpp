@@ -1210,6 +1210,7 @@ namespace Desert::Editor
                 VM_SunShadowReceive,
                 VM_Velocity,
                 VM_LightGridWorld,
+                VM_GlobalDistanceField,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1230,6 +1231,7 @@ namespace Desert::Editor
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
                                          ICON_MDI_GRID "  Light Grid (World)",
+                                         ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1271,6 +1273,8 @@ namespace Desert::Editor
                 vm = VM_Velocity;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LightGridWorld )
                 vm = VM_LightGridWorld;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
+                vm = VM_GlobalDistanceField;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1456,6 +1460,9 @@ namespace Desert::Editor
                         break;
                     case VM_LightGridWorld:
                         view.DeferredDebug = Graphic::DeferredDebugMode::LightGridWorld;
+                        break;
+                    case VM_GlobalDistanceField:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

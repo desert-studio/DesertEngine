@@ -787,6 +787,7 @@ namespace Desert::Graphic
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_GISamples      = quality.As<int>( Parameter::GlobalIlluminationSamples );
+        m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_LightGridQuality =
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
@@ -1270,6 +1271,8 @@ namespace Desert::Graphic
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
         AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
                                     frame );
+        AddFrameGlobalDistanceFieldView( graph, textures, frame,
+                                         postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS

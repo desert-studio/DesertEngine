@@ -48,6 +48,12 @@ namespace Desert::Graphic
         // the temporal resolve, and the only reason the frame builds the world grid until GI-RADIANCE-CACHE reads
         // it.
         LightGridWorld = 13,
+        // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
+        // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted
+        // by the clipmap that answered, the march's step count heat-mapped. Deferred only; drawn by
+        // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
+        // field is built only while this mode is on.
+        GlobalDistanceField = 14,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
