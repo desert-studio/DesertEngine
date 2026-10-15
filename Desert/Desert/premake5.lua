@@ -1,6 +1,8 @@
 -- THE ENGINE'S LEGACY LIBRARY, AS ONE STATIC LIBRARY PER MODULE (BUILD-MOD2). BuildScripts/DesertModuleLibs.lua
 -- reads the module table (BuildScripts/DesertModules.lua) and places every file under its LegacyRoot with the
--- table's own Placement rows; this file defines one library per module that got files, all through
+-- table's own Placement rows; this file defines one library per module that got files there or whose Folder
+-- holds sources and no premake5.lua of its own (DesertModuleLibs.FolderFiles - a phase that moves a module into
+-- its Folder writes no project), all through
 -- EngineModuleLibrary below, so pch, unity, defines, include directories, warnings and /bigobj are the same for
 -- every one. Only the files, the module's Deps and the one codegen prebuild differ.
 DesertModuleLibs.SetPrebuiltLibraries(deps.DesertSpecific.Libraries)
@@ -18,7 +20,7 @@ local kVendoredSources = {
     Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
 }
 for name in pairs(kVendoredSources) do
-    if not DesertModuleLibs.LegacyFiles()[name] then
+    if not DesertModuleLibs.HasTableLibrary(DesertModules.Find(name)) then
         error("Desert/Desert/premake5.lua: vendored sources assigned to '" .. name .. "', which builds no library", 0)
     end
 end
@@ -58,11 +60,12 @@ local kHeaderToolCommand =
         .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
         .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
 
-local function EngineModuleLibrary(module, legacyFiles)
+local function EngineModuleLibrary(module)
     project(DesertModules.LegacyLibName(module.Name))
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
+    DesertModuleLibs.RequireSharedPch(module)
     pchheader "pch.hpp"
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
@@ -75,15 +78,22 @@ local function EngineModuleLibrary(module, legacyFiles)
     end
 
     -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    -- One rule for the legacy tree (paths relative to LegacyRoot) and the Folder (relative to the Folder).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
-    for _, file in ipairs(legacyFiles) do
+    local function Add(relative, projectPath)
         local target = commonFiles
-        if file:find("^Platform/Windows/") then
+        if relative:find("^Platform/Windows/") then
             target = windowsFiles
-        elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
+        elseif relative:find("^Platform/MacOS/") or relative:find("%.mm$") then
             target = macFiles
         end
-        table.insert(target, "Source/" .. file)
+        table.insert(target, projectPath)
+    end
+    for _, file in ipairs(DesertModuleLibs.LegacyFiles()[module.Name] or {}) do
+        Add(file, "Source/" .. file)
+    end
+    for _, file in ipairs(DesertModuleLibs.FolderFiles(module)) do
+        Add(file:sub(#module.Folder + 2), "%{_MAIN_SCRIPT_DIR}/" .. file)
     end
     files(commonFiles)
     files(kVendoredSources[module.Name] or {})
@@ -173,8 +183,7 @@ end
 end
 
 for _, module in ipairs(DesertModules.Modules) do
-    local legacyFiles = DesertModuleLibs.LegacyFiles()[module.Name]
-    if legacyFiles then
-        EngineModuleLibrary(module, legacyFiles)
+    if DesertModuleLibs.HasTableLibrary(module) then
+        EngineModuleLibrary(module)
     end
 end

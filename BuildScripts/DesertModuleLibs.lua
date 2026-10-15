@@ -125,28 +125,77 @@ function DesertModuleLibs.ReflectRoots()
     return roots
 end
 
--- The libraries a module is linked as: its own project, then its legacy library, each when it exists.
+local folderFiles = {}
+
+-- THE FILES OF A MODULE'S FOLDER, FOR ITS LIBRARY (ENG-MODULES P0c (a)): repository-relative paths of every
+-- source under the module's Folder, sorted, when that Folder exists and holds no hand-written project (Common,
+-- Render2DCore and DesertUI keep theirs). The module's table-built library - the one Desert/Desert/premake5.lua
+-- defines for its legacy files - compiles them too, so the commit that moves a module's files into its Folder
+-- writes no premake5.lua. A Folder with headers only (CoreReflection's macros) is an interface: it is on every
+-- include path (IncludeDirs) and builds no library, so its list is empty.
+function DesertModuleLibs.FolderFiles( module )
+    if folderFiles[module.Name] then
+        return folderFiles[module.Name]
+    end
+    local files, compiles = {}, false
+    if DesertModuleLibs.HasFolder( module ) and not DesertModuleLibs.HasOwnProject( module ) then
+        local root = _MAIN_SCRIPT_DIR .. "/" .. module.Folder
+        for _, extension in ipairs( kLegacyExtensions ) do
+            for _, file in ipairs( os.matchfiles( root .. "/**." .. extension ) ) do
+                table.insert( files, file:sub( #_MAIN_SCRIPT_DIR + 2 ) )
+                compiles = compiles or extension == "cpp" or extension == "mm"
+            end
+        end
+    end
+    if not compiles then
+        files = {}
+    end
+    table.sort( files )
+    folderFiles[module.Name] = files
+    return files
+end
+
+-- Whether Desert/Desert/premake5.lua builds DesertModules.LegacyLibName( module ): the module has legacy files,
+-- or a Folder with compiled sources and no hand-written project.
+function DesertModuleLibs.HasTableLibrary( module )
+    return DesertModuleLibs.LegacyFiles()[module.Name] ~= nil or #DesertModuleLibs.FolderFiles( module ) > 0
+end
+
+-- Every table-built library compiles its own pch.cpp from the legacy root's shared pair (SharedPch); a Folder's
+-- files get the same forced pch.hpp through IncludeDirs(), whose first root is LegacyRoot. Once LegacyRoot holds
+-- no pch.cpp (P14 moves it) there is no shared pair, and a table-built library is an error naming the module
+-- instead of a library compiled without its precompiled header.
+function DesertModuleLibs.RequireSharedPch( module )
+    local pch = DesertModules.LegacyRoot .. "/pch.cpp"
+    if not os.isfile( _MAIN_SCRIPT_DIR .. "/" .. pch ) then
+        error( "DesertModuleLibs.lua: module '" .. module.Name .. "' builds a library from the module table, but "
+               .. pch .. " (the shared precompiled header) does not exist", 0 )
+    end
+end
+
+-- The libraries a module is linked as: its own project, then its table-built library, each when it exists.
 function DesertModuleLibs.LibrariesOf( module )
     local libraries = {}
     if DesertModuleLibs.HasOwnProject( module ) then
         table.insert( libraries, module.Name )
     end
-    if DesertModuleLibs.LegacyFiles()[module.Name] then
+    if DesertModuleLibs.HasTableLibrary( module ) then
         table.insert( libraries, DesertModules.LegacyLibName( module.Name ) )
     end
     return libraries
 end
 
--- THE ONE PREBUILD SITE: the library of the first module, in layer order, that has legacy files. A module only
--- depends on modules listed before it, so that library links no other legacy library and every other one can
--- `dependson` it without a cycle - all of them compile after DesertHeaderTool has written Engine/Generated.
+-- THE ONE PREBUILD SITE: the table-built library (legacy files or Folder files) of the first module in layer
+-- order. A module only depends on modules listed before it, so that library links no other table-built library
+-- and every other one can `dependson` it without a cycle - all of them compile after DesertHeaderTool has written
+-- Engine/Generated. A Reflected module's Folder needs nothing more: ReflectRoots() puts it on that one command.
 function DesertModuleLibs.CodegenLib()
     for _, module in ipairs( DesertModules.Modules ) do
-        if DesertModuleLibs.LegacyFiles()[module.Name] then
+        if DesertModuleLibs.HasTableLibrary( module ) then
             return DesertModules.LegacyLibName( module.Name )
         end
     end
-    error( "DesertModuleLibs.lua: no module has a file under " .. DesertModules.LegacyRoot, 0 )
+    error( "DesertModuleLibs.lua: no module has a file under " .. DesertModules.LegacyRoot .. " or a Folder to build", 0 )
 end
 
 -- For a project that does not link the engine but compiles against (or compiles) what its codegen writes.
