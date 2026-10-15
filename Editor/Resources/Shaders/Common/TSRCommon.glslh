@@ -3,9 +3,13 @@
 //
 // TSR (Graphic::TemporalSuperResolution) — what every pass of the chain shares. Ported from UE 5.8
 // Engine/Shaders/Private/TemporalSuperResolution/TSRCommon.ush (ComputePrevWeightMultiplier :497,
-// RejectionFactorToBlendFactor :502, WeightedLerpFactors :455) and TSRColorSpace.ush (LinearToGCS :59, GCSToLinear :72,
+// RejectionFactorToBlendFactor :502, WeightedLerpFactors :455), TSRColorSpace.ush (LinearToGCS :59, GCSToLinear :72,
 // GCSToSMCS :102, kGCSPreceptionAdd :50, kMoireLumaToChannel :46, MeasureBackbufferLDRQuantizationError :244),
-// adapted: GLSL, full precision (no tsr_half), one pixel per lane.
+// TSRReprojectionField.ush (the offset / boundary / jacobian encodings, IsHistoryPixelWithinOffsetBoundary,
+// ComputeReprojectionUpscaleFactorFromJacobian), TSRSpatialAntiAliasing.ush (the offset encoding :637-679) and
+// TSRDepthVelocityAnalysis.ush ComputePixelDeviceZError :41, adapted: GLSL, full precision (no tsr_half), one
+// pixel per lane; the reprojection VECTOR is the dilated NDC velocity itself (TSR.DilatedVelocity, RGBA16F) rather
+// than UE's 16-bit-unorm packed uint.
 //
 // THE PARAMETERS, binding 0 of every TSR shader. The C++ side is Graphic::TsrParams (View/TemporalSuperResolution.hpp),
 // offsets pinned there by static_asserts.
@@ -31,8 +35,15 @@ layout(std430, binding = 0) readonly buffer TSRParamsBuffer
     float u_FlickeringFramePeriod;
     float u_DepthPixelRadiusScale;
     float u_DepthPixelRadiusBias;
-    float u_EnableFlickeringHeuristic;  // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
-    float u_RejectionAntiAliasingSteps; // r.TSR.RejectionAntiAliasingQuality 0 / 1 / 2 -> 0 / 4 / 8 search steps
+    float u_EnableFlickeringHeuristic; // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
+    float u_ReprojectionField;         // r.TSR.ReprojectionField: 0 / 1 (UE bReprojectionField, a uniform)
+    mat4  u_InvProjection;             // this frame, unjittered: device depth -> view
+    mat4  u_Projection;                // this frame, unjittered: view -> clip
+    mat4  u_ClipToResurrectionClip;    // this frame's unjittered clip -> the resurrection frame's clip
+    float u_ReprojectionFieldAntiAliasVelocityThreshold; // UE TemporalSuperResolution.cpp :2531
+    float u_ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
+    float u_ParamsPad0;
+    float u_ParamsPad1;
 };
 
 const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush
@@ -55,6 +66,12 @@ float TsrExposure(sampler2D exposureTexture)
 vec3 LinearToGCS(vec3 linearColor)
 {
     return linearColor / (linearColor + kGCSPreceptionAdd);
+}
+
+// Inverse of LinearToGCS (UE GCSToLinear).
+vec3 GCSToLinear(vec3 g)
+{
+    return g * kGCSPreceptionAdd / max(1.0 - g, vec3(1e-4));
 }
 
 // UE's shading-measurement colour space of a guide colour.
@@ -119,6 +136,153 @@ float TsrDepthPixelRadius(float depth)
 ivec2 TsrClampRender(ivec2 p)
 {
     return clamp(p, ivec2(0), ivec2(u_RenderSize) - 1);
+}
+
+// This frame's view depth of a device depth (UE ConvertFromDeviceZ) and back (UE ConvertToDeviceZ).
+float TsrViewDepth(float deviceDepth)
+{
+    const vec4 v = u_InvProjection * vec4(0.0, 0.0, deviceDepth, 1.0);
+    return abs(v.z / v.w);
+}
+float TsrDeviceDepth(float viewDepth)
+{
+    const vec4 c = u_Projection * vec4(0.0, 0.0, -viewDepth, 1.0);
+    return c.z / c.w;
+}
+
+// UE ComputePixelDeviceZError: the device-depth span of two pixel radii at the depth of @p deviceDepth.
+float TsrPixelDeviceZError(float deviceDepth)
+{
+    const float depth = TsrViewDepth(deviceDepth);
+    return abs(TsrDeviceDepth(TsrDepthPixelRadius(depth) * 2.0 + depth) - deviceDepth);
+}
+
+// NDC velocity (current - previous, y up) -> render-pixel velocity (y down), and back.
+vec2 TsrNdcToPixelVelocity(vec2 ndcVelocity)
+{
+    return ndcVelocity * vec2(0.5, -0.5) * u_RenderSize;
+}
+vec2 TsrPixelToNdcVelocity(vec2 pixelVelocity)
+{
+    return pixelVelocity * vec2(2.0, -2.0) / u_RenderSize;
+}
+
+// ---- The reprojection field (UE TSRReprojectionField.ush) ----------------------------------------------------
+// The jacobian is d(pixel velocity) / d(pixel): row 0 along +x, row 1 along +y (UE tsr_half2x2 with mul(v, J)).
+
+const vec2  kFullDilateBoundary    = vec2(0.0, 1.0);
+const float kVelocityJacobianRange = 2.0;
+const uint  kVelocityJacobianBits  = 8u;
+
+uint EncodeReprojectionOffset(ivec2 offset)
+{
+    return uint(offset.x + 1) + uint(offset.y + 1) * 4u;
+}
+
+// The dilating offset [-1;1]^2 in the first 4 bits, the boundary in 11 bits per axis (26 bits in all).
+uint EncodeReprojectionBoundary(ivec2 offset, vec2 boundary)
+{
+    const ivec2 bits = clamp(ivec2(round(boundary * 1023.0)) + 1024, ivec2(1), ivec2(2047));
+    return EncodeReprojectionOffset(offset) | (uint(bits.x) << 4u) | (uint(bits.y) << 15u);
+}
+
+ivec2 DecodeReprojectionOffset(uint encoded)
+{
+    return ivec2(int(encoded & 0x3u), int((encoded >> 2u) & 0x3u)) - 1;
+}
+
+vec2 DecodeReprojectionBoundary(uint encoded)
+{
+    const ivec2 bits = ivec2(int((encoded >> 4u) & 0x7FFu), int((encoded >> 15u) & 0x7FFu)) - 1024;
+    return clamp(vec2(bits) / 1023.0, vec2(-1.0), vec2(1.0));
+}
+
+// Whether the history pixel at @p dInputKO overlaps the velocity boundary, so the dilating offset applies.
+bool IsHistoryPixelWithinOffsetBoundary(vec2 dInputKO, vec2 boundary, float historyToInputFactor)
+{
+    const vec2 dInputKC = vec2(0.5) - vec2(lessThan(boundary, vec2(0.0)));
+    const vec2 dInputOR = dInputKC * historyToInputFactor;
+    const vec2 dInputBR = boundary - dInputKC + dInputKO + dInputOR;
+    return dot(dInputBR, boundary) > 0.0;
+}
+
+uint EncodeReprojectionJacobian(mat2 jacobian)
+{
+    const float range    = float((1u << (kVelocityJacobianBits - 1u)) - 1u);
+    const float offset   = range + 0.5;
+    const float multiply = range / kVelocityJacobianRange;
+    uint        encoded  = 0u;
+    for (int r = 0; r < 2; ++r)
+    {
+        vec2 row = clamp(jacobian[r], vec2(-kVelocityJacobianRange), vec2(kVelocityJacobianRange));
+        row      = sign(row) * sqrt(abs(row)) * sqrt(kVelocityJacobianRange);
+        const uvec2 q = uvec2(multiply * row + offset);
+        encoded |= q.x << (uint(2 * r) * kVelocityJacobianBits);
+        encoded |= q.y << (uint(2 * r + 1) * kVelocityJacobianBits);
+    }
+    return encoded;
+}
+
+mat2 DecodeReprojectionJacobian(uint encoded)
+{
+    const uint  mask     = (1u << kVelocityJacobianBits) - 1u;
+    const float range    = float((1u << (kVelocityJacobianBits - 1u)) - 1u);
+    const float multiply = kVelocityJacobianRange / range;
+    mat2        jacobian;
+    for (int r = 0; r < 2; ++r)
+    {
+        const vec2 row = vec2(float((encoded >> (uint(2 * r) * kVelocityJacobianBits)) & mask),
+                              float((encoded >> (uint(2 * r + 1) * kVelocityJacobianBits)) & mask)) *
+                              multiply -
+                         kVelocityJacobianRange;
+        jacobian[r] = row * abs(row) / kVelocityJacobianRange;
+    }
+    return jacobian;
+}
+
+float ComputeReprojectionUpscaleFactorFromJacobian(mat2 jacobian)
+{
+    const vec2 e = vec2(1.0, 0.0) + jacobian[0];
+    const vec2 s = vec2(0.0, 1.0) + jacobian[1];
+    return sqrt(max(dot(e, e), 1.0) * max(dot(s, s), 1.0));
+}
+
+// v * J with J's rows as in UE (mul(v, J)).
+vec2 TsrMulRowJacobian(vec2 v, mat2 jacobian)
+{
+    return v.x * jacobian[0] + v.y * jacobian[1];
+}
+
+// ---- The spatial anti-aliasing offset (UE TSRSpatialAntiAliasing.ush :637-679): 4 bits per axis ----------------
+
+const float kSpatialAntiAliasingOffsetRange = 0.5;
+const uint  kSpatialAntiAliasingOffsetBits  = 4u;
+
+uint EncodeSpatialAntiAliasingOffset(vec2 offset)
+{
+    const uint  mask     = (1u << kSpatialAntiAliasingOffsetBits) - 1u;
+    const uint  zero     = mask / 2u;
+    const float multiply = float(zero) / kSpatialAntiAliasingOffsetRange;
+    const uvec2 q = uvec2(clamp(ivec2(round(offset * multiply)) + int(1u + zero), ivec2(1), ivec2(int(mask))));
+    return q.x | (q.y << kSpatialAntiAliasingOffsetBits);
+}
+
+vec2 DecodeSpatialAntiAliasingOffset(uint encoded)
+{
+    const uint  mask     = (1u << kSpatialAntiAliasingOffsetBits) - 1u;
+    const uint  zero     = mask / 2u;
+    const float multiply = kSpatialAntiAliasingOffsetRange / float(zero);
+    const vec2  q        = vec2(float(encoded & mask), float((encoded >> kSpatialAntiAliasingOffsetBits) & mask));
+    return q * multiply - float(1u + zero) * multiply;
+}
+
+// The history-rejection bit mask (UE TSRRejectShading.usf :883): bit 0 the pixel is NOT parallax disoccluded, bit 1
+// its history is resurrected; u_HistoryRejection.w holds mask / 255.
+const uint kRejectionNotDisoccluded = 0x1u;
+const uint kRejectionResurrected    = 0x2u;
+uint TsrRejectionBits(float w)
+{
+    return uint(round(w * 255.0));
 }
 
 #endif

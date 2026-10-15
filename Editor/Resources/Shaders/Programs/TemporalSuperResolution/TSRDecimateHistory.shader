@@ -8,9 +8,15 @@ Shader "TSRDecimateHistory"
         // TSRClosestOccluder.ush ProcessPrevAtomicTexturesSamples :190 (parallax disocclusion: the bilinear 2x2 of
         // the scattered previous closest depth against this pixel's own previous depth, DepthRejection =
         // saturate(2 - |delta| / epsilon), epsilon = pixel radius * PixelDepthError 3 * RadiusToDiameter 2),
-        // adapted: no hole-filling velocity, no history resurrection, one pixel per lane.
+        // and the resurrection reprojection :225-250 (r.TSR.Resurrection: this pixel's closest surface through
+        // ClipToResurrectionClip into the persistent guide), adapted: no hole-filling velocity, one pixel per lane;
+        // the persistent guide is kept LINEAR (TSR.RecordPersistentFrame divides out its frame's exposure), so the
+        // resurrected guide is re-exposed here with this frame's exposure instead of UE's CPU
+        // ResurrectionPreExposureCorrection ratio.
         // Writes the reprojected guide (rgb) with its validity in a (0: off screen, no history, or parallax
-        // disoccluded: UE bIsOffScreen / bIsDisoccluded) and the reprojected moire history.
+        // disoccluded: UE bIsOffScreen / bIsDisoccluded), the reprojected moire history, and the resurrected guide
+        // (rgb, GCS) with a = 1 where the resurrection frame sees the pixel on screen (UE !bIsResurrectionOffScreen;
+        // 0 everywhere while u_ResurrectionEnabled is 0).
         LocalSize(8, 8, 1);
 
         #include <Common/TSRCommon.glslh>
@@ -25,6 +31,9 @@ Shader "TSRDecimateHistory"
         Uniform(5) sampler2D u_PrevMoire; // previous TSR.History.Moire, RenderExtent (bilinear)
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_ReprojectedGuide;
         layout(binding = 7, rgba16f) restrict writeonly uniform image2D u_ReprojectedMoire;
+        Uniform(8) sampler2D u_ResurrectionGuide; // the persistent TSR.History.Guide.Persistent* frame, LINEAR
+        Uniform(9) sampler2D u_Exposure;          // 1x1 previous adapted luminance
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ResurrectedGuide;
 
         void main()
         {
@@ -78,6 +87,23 @@ Shader "TSRDecimateHistory"
             const vec4  moire       = offScreen ? vec4(0.0) : textureLod(u_PrevMoire, prevUv, 0.0);
             imageStore(u_ReprojectedGuide, pixel, vec4(guide.rgb, validity));
             imageStore(u_ReprojectedMoire, pixel, vec4(moire.xyz, validity));
+
+            vec4 resurrected = vec4(0.0);
+            if (u_ResurrectionEnabled > 0.5)
+            {
+                const vec4 resurrectionClip   = u_ClipToResurrectionClip * vec4(ScreenUVToNdc(uv), depth, 1.0);
+                const vec2 resurrectionScreen = resurrectionClip.xy / resurrectionClip.w;
+                const bool resurrectionOffScreen =
+                     resurrectionClip.w <= 0.0 || any(greaterThan(abs(resurrectionScreen), vec2(1.0)));
+                if (!resurrectionOffScreen)
+                {
+                    const vec2 resurrectionUv =
+                         clamp(resurrectionScreen * vec2(0.5, -0.5) + 0.5, 0.5 / u_RenderSize, 1.0 - 0.5 / u_RenderSize);
+                    const vec3 linearGuide = textureLod(u_ResurrectionGuide, resurrectionUv, 0.0).rgb;
+                    resurrected = vec4(LinearToGCS(linearGuide * TsrExposure(u_Exposure)), 1.0);
+                }
+            }
+            imageStore(u_ResurrectedGuide, pixel, resurrected);
         }
     }
 }

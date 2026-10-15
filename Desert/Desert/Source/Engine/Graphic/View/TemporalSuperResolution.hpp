@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -16,8 +17,10 @@
 // rows), adapted: our RDG and ITemporalUpscaler instead of FRDGBuilder / ITemporalUpscaler plugin, the r.TSR.*
 // console variables read from Scalability rows (Parameter::Tsr*), GLSL compute in
 // Programs/TemporalSuperResolution/ instead of the TSR*.usf set, no wave intrinsics / 16-bit types / texture
-// atomics (MoltenVK: the parallax scatter is a storage-buffer atomicMax), no thin-geometry detection, no history
-// resurrection, no reprojection field, no lens distortion (REMAINDER-TSR.md lists each with its UE file).
+// atomics (MoltenVK: the parallax scatter is a storage-buffer atomicMax), the persistent resurrection frames as
+// HistoryLifetime::Persistent textures filled by a copy pass instead of UE's rolling Texture2DArray slices
+// (:1561-1665, :2270-2400), no thin-geometry detection, no lens distortion (REMAINDER-TSR.md lists each with its UE
+// file).
 namespace Desert::Graphic
 {
     class ComputePipeline;
@@ -29,27 +32,37 @@ namespace Desert::Graphic
     //   TSR.ClearPrevTextures   Render   the parallax scatter buffer -> 0 (UE TSRClearPrevTextures.usf)
     //   TSR.DilateVelocity      Render   3x3 closest depth -> dilated velocity + closest depth; scatters each
     //                                    pixel's closest depth to where it was last frame (UE
-    //                                    TSRDilateVelocity.usf, TSRClosestOccluder.ush ScatterClosestOccluder)
+    //                                    TSRDilateVelocity.usf, TSRClosestOccluder.ush ScatterClosestOccluder);
+    //                                    with r.TSR.ReprojectionField the reprojection jacobian and the
+    //                                    depth-anti-aliased reprojection boundary (UE TSRDepthVelocityAnalysis.ush)
     //   TSR.DecimateHistory     Render   reprojects the guide and moire histories, parallax disocclusion against
-    //                                    the scatter (UE TSRDecimateHistory.usf, ProcessPrevAtomicTexturesSamples)
+    //                                    the scatter (UE TSRDecimateHistory.usf, ProcessPrevAtomicTexturesSamples);
+    //                                    with r.TSR.Resurrection the persistent frame's guide too
     //   TSR.RejectShading       Render   shading rejection of the reprojected guide against the input in UE's
     //                                    guide colour space (UE TSRRejectShading.usf, TSRShadingAnalysis.ush
-    //                                    MeasureRejection), flicker-tolerant when the quality row says so; writes
-    //                                    the new guide and moire histories
-    //   TSR.SpatialAntiAliasing Render   edge-directed sub-pixel offset for rejected pixels (UE
-    //                                    TSRSpatialAntiAliasing.usf); not added at RejectionAntiAliasing 0
-    //   TSR.UpdateHistory       History  reprojects the high-frequency history, clamps it to the input box,
-    //                                    accumulates with UE's validity / sample-count weights (UE
+    //                                    MeasureRejection), flicker-tolerant when the quality row says so; history
+    //                                    resurrection where the persistent frame matches better; writes the new
+    //                                    guide and moire histories and the spatial anti-aliaser's luma and mask
+    //   TSR.SpatialAntiAliasing Render   UE's edge search on the LDR luma -> the sub-pixel offset and the noise
+    //                                    filtering of masked pixels (UE TSRSpatialAntiAliasing.usf / .ush)
+    //   TSR.UpdateHistory       History  reprojects the high-frequency history (through the reprojection field,
+    //                                    or from the persistent frame where resurrected), clamps it to the input
+    //                                    box, accumulates with UE's validity / sample-count weights (UE
     //                                    TSRUpdateHistory.usf); writes the output too when History == Output
     //   TSR.ResolveHistory      Output   history -> output filter when History > Output (UE TSRResolveHistory.usf)
+    //   TSR.RecordPersistentFrame        on every kTsrPersistentFrameInterval-th frame since the history reset (r.TSR.
+    //                                    Resurrection): this frame's colour and guide -> the oldest persistent frame
     //
     // THREE HISTORIES (HistoryDescs): the colour history at the HISTORY extent (Output x
-    // TsrHistoryScreenPercentage), and the guide and moire histories at the RENDER extent. All RGBA16F: the only
-    // storage formats Vulkan guarantees without shaderStorageImageExtendedFormats are used.
+    // TsrHistoryScreenPercentage), and the guide and moire histories at the RENDER extent; with r.TSR.Resurrection
+    // also kTsrPersistentFrameCount persistent colour frames and as many persistent (linear) guide frames
+    // (HistoryLifetime::Persistent). All RGBA16F / R32F / R32_UINT: the only storage formats Vulkan guarantees
+    // without shaderStorageImageExtendedFormats are used.
     //
-    // QUALITY (UE sg.AntiAliasingQuality r.TSR.* rows): TsrHistoryScreenPercentage changes the history extent
-    // (a new desc: the history is recreated and reset); TsrHistoryUpdateQuality, TsrShadingRejectionFlickering
-    // and TsrRejectionAntiAliasing select shader variants (one pipeline each, made on first use) and keep it.
+    // QUALITY (UE sg.AntiAliasingQuality r.TSR.* rows): TsrHistoryScreenPercentage and TsrResurrection change the
+    // history descs (recreated and reset); TsrHistoryUpdateQuality and TsrRejectionAntiAliasing select shader
+    // variants (one pipeline each, made on first use); TsrShadingRejectionFlickering and TsrReprojectionField are
+    // uniforms, as in UE.
     class TemporalSuperResolution final : public ITemporalUpscaler
     {
     public:
@@ -83,6 +96,11 @@ namespace Desert::Graphic
         mutable std::map<std::string, std::shared_ptr<ComputePipeline>> m_Pipelines;
     };
 
+    // UE r.TSR.Resurrection.PersistentFrameCount (2) and r.TSR.Resurrection.PersistentFrameInterval (31), both
+    // project constants in UE (not scalability rows).
+    inline constexpr uint32_t kTsrPersistentFrameCount    = 2;
+    inline constexpr uint64_t kTsrPersistentFrameInterval = 31;
+
     // The TSR quality of a ResolvedQuality (UE r.TSR.* of the level's sg.AntiAliasingQuality).
     struct TsrQuality
     {
@@ -90,11 +108,50 @@ namespace Desert::Graphic
         int  HistoryUpdateQuality       = 2;   // 0..3
         bool ShadingRejectionFlickering = true;
         int  RejectionAntiAliasing      = 1; // 0 off, 1..2
+        bool ReprojectionField          = true;
+        bool Resurrection               = true;
     };
     [[nodiscard]] TsrQuality ReadTsrQuality( const Common::Scalability::ResolvedQuality& quality );
 
     // The colour history's extent at @p split: Output x HistoryScreenPercentage / 100, at least 1 per side.
     [[nodiscard]] RDG::Extent3D TsrHistoryExtent( const ResolutionSplit& split, const TsrQuality& quality );
+
+    // UE TSRSpatialAntiAliasing.usf CONFIG_ITERATIONS of r.TSR.RejectionAntiAliasingQuality (DIM_QUALITY_PRESET
+    // 1 -> 3, 2 -> 8); 0 at quality 0 (the pass writes the zero offset).
+    [[nodiscard]] int TsrSpatialAntiAliasingIterations( const TsrQuality& quality );
+
+    // One recorded persistent frame (UE FTSRHistory::ViewMatrices / SceneColorPreExposures per slice).
+    struct TsrPersistentFrame
+    {
+        bool      Recorded = false;
+        uint64_t  Frame    = 0;             // the frame count since the history reset it was recorded on
+        glm::mat4 ViewProjection{ 1.0f };   // that frame's unjittered ViewProjection
+    };
+
+    // What TSR keeps per view between frames (SceneViewState::UpscalerHistory): the frame count since the
+    // history reset and the persistent frames' records (UE FTSRHistory: AccumulatedFrameCount,
+    // LastFrameRollingIndex, ViewMatrices[]). The textures themselves are HistoryDescs' (TemporalHistory).
+    class TsrHistory final : public ITemporalUpscalerHistory
+    {
+    public:
+        [[nodiscard]] std::string_view DebugName() const override
+        {
+            return "TSR";
+        }
+        // The persistent textures are counted by TemporalHistory; the records are host memory.
+        [[nodiscard]] uint64_t HeldBytes() const override
+        {
+            return 0;
+        }
+
+        uint64_t                                                   AccumulatedFrames = 0; // this frame's count
+        std::array<TsrPersistentFrame, kTsrPersistentFrameCount> Frames{};
+        uint32_t                                                   NextSlot = 0; // the oldest (overwritten next)
+    };
+
+    // The persistent frame to resurrect from this frame (UE GetResurrectionFrameRollingIndex: the oldest recorded
+    // one), or -1: none recorded, or the oldest is the previous frame (UE bCanResurrectHistory).
+    [[nodiscard]] int TsrResurrectionSlot( const TsrHistory& previous, uint64_t thisFrame );
 
     // The pass chain's shared parameters, the C++ side of `TSRParamsBuffer` in
     // Programs/TemporalSuperResolution/TSRCommon.glslh (std430). One buffer per frame, read by every pass.
@@ -123,8 +180,18 @@ namespace Desert::Graphic
         // GetDepthPixelRadiusForProjectionType).
         float DepthPixelRadiusScale      = 0.0f;
         float DepthPixelRadiusBias       = 0.0f;
-        float EnableFlickeringHeuristic  = 1.0f; // TsrQuality::ShadingRejectionFlickering (UE: a uniform)
-        float RejectionAntiAliasingSteps = 4.0f; // TsrQuality::RejectionAntiAliasing 0 / 1 / 2 -> 0 / 4 / 8
+        float     EnableFlickeringHeuristic = 1.0f; // TsrQuality::ShadingRejectionFlickering (UE: a uniform)
+        float     ReprojectionField         = 1.0f; // TsrQuality::ReprojectionField (UE bReprojectionField)
+        glm::mat4 InvProjection{ 1.0f };            // this frame, unjittered
+        glm::mat4 Projection{ 1.0f };               // this frame, unjittered
+        // This frame's unjittered clip -> the resurrection frame's clip: its ViewProjection x InvViewProjection
+        // (UE ClipToResurrectionClip); identity while ResurrectionEnabled is 0.
+        glm::mat4 ClipToResurrectionClip{ 1.0f };
+        // UE :2531: square(max(r.TSR.ReprojectionField.AntiAliasPixelSpeed (0.125) / (Render / Output), 1 / 64)).
+        float ReprojectionFieldAntiAliasVelocityThreshold = 0.0f;
+        float ResurrectionEnabled                         = 0.0f; // a persistent frame is resurrectable
+        float Pad0                                        = 0.0f;
+        float Pad1                                        = 0.0f;
     };
     static_assert( offsetof( TsrParams, PrevInvProjection ) == 128 );
     static_assert( offsetof( TsrParams, RenderSize ) == 192 );
@@ -132,11 +199,16 @@ namespace Desert::Graphic
     static_assert( offsetof( TsrParams, HistoryValid ) == 224 );
     static_assert( offsetof( TsrParams, FlickeringFramePeriod ) == 252 );
     static_assert( offsetof( TsrParams, DepthPixelRadiusScale ) == 256 );
-    static_assert( sizeof( TsrParams ) == 272 );
+    static_assert( offsetof( TsrParams, ReprojectionField ) == 268 );
+    static_assert( offsetof( TsrParams, InvProjection ) == 272 );
+    static_assert( offsetof( TsrParams, ClipToResurrectionClip ) == 400 );
+    static_assert( offsetof( TsrParams, ReprojectionFieldAntiAliasVelocityThreshold ) == 464 );
+    static_assert( sizeof( TsrParams ) == 480 );
 
-    // The parameters of this frame's chain (pure).
-    [[nodiscard]] TsrParams MakeTsrParams( const ViewFrame& frame, RDG::Extent3D history,
-                                           const TsrQuality& quality );
+    // The parameters of this frame's chain (pure). @p resurrection: the persistent frame resurrected from this
+    // frame, null for none.
+    [[nodiscard]] TsrParams MakeTsrParams( const ViewFrame& frame, RDG::Extent3D history, const TsrQuality& quality,
+                                           const TsrPersistentFrame* resurrection );
 
     // The binding layouts of the TSR shaders as the graph sees them — the C++ mirror of each shader's
     // declarations; the backend re-validates them against the compiled reflection at record time.
@@ -149,4 +221,5 @@ namespace Desert::Graphic
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
     TsrUpdateHistoryLayout( bool writesOutput );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrResolveHistoryLayout();
+    [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRecordPersistentFrameLayout();
 } // namespace Desert::Graphic

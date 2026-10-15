@@ -214,14 +214,27 @@ namespace Desert::Graphic
     // the read side is never written in the frame that reads it. Their shape is declared by the ITemporalUpscaler
     // (HistoryDescs): TAA/TAAU declare one RGBA16F colour history at OutputExtent; an upscaler that keeps its own
     // history internally declares none and receives only ViewFrame::HistoryReset.
+    // Pair: read Previous, write Current, swapped at EndFrame (every temporal colour history). Persistent: ONE
+    // texture kept across frames and never swapped, registered once per frame under Name with Previous == Current
+    // (the same ref): contents an upscaler records only on some frames and reads on later ones (UE TSR's
+    // persistent resurrection frames, r.TSR.Resurrection). Its contents are defined iff the upscaler recorded
+    // them since the last history reset; the upscaler tracks that in its ITemporalUpscalerHistory.
+    enum class HistoryLifetime : uint8_t
+    {
+        Pair,
+        Persistent,
+    };
+
     struct HistoryTextureDesc
     {
         RDG::TextureDesc Desc;
+        HistoryLifetime  Lifetime = HistoryLifetime::Pair;
         // Graph names of the two sides as registered each frame, e.g. "TAA.History" (written this frame) and
         // "TAA.History.Previous" (read this frame). Both static strings (the graph keeps a view while building),
         // non-empty and different from each other and from every other history's names —
         // SceneViewState::BeginFrame refuses an upscaler whose descs break that, naming it: two externals under
         // one name make every graph dump, fault report and capture ambiguous about which side a pass touched.
+        // A Persistent history has one side: Name only, PreviousName empty (BeginFrame refuses anything else).
         const char* Name         = "";
         const char* PreviousName = "";
 

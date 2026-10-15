@@ -330,6 +330,11 @@ namespace Desert::Editor
                 tsrSlider(
                      "TSR Rejection AA", SC::Parameter::TsrRejectionAntiAliasing,
                      "r.TSR.RejectionAntiAliasingQuality: spatial anti-aliasing of rejected pixels (0 off)." );
+                tsrSlider( "TSR Reprojection Field", SC::Parameter::TsrReprojectionField,
+                           "r.TSR.ReprojectionField: reproject with the depth-anti-aliased reprojection field and its "
+                           "jacobian (1) or the dilated velocity alone (0)." );
+                tsrSlider( "TSR Resurrection", SC::Parameter::TsrResurrection,
+                           "r.TSR.Resurrection: keep persistent frames and resurrect disoccluded history from them." );
             }
             if ( !vendors.empty() )
             {

@@ -28,6 +28,7 @@ namespace Desert::Graphic
         constexpr const char* kSpatialAntiAliasing = "TSRSpatialAntiAliasing";
         constexpr const char* kUpdateHistory       = "TSRUpdateHistory";
         constexpr const char* kResolveHistory      = "TSRResolveHistory";
+        constexpr const char* kRecordPersistent    = "TSRRecordPersistentFrame";
 
         constexpr const char* kColorHistory         = "TSR.History.Color";
         constexpr const char* kColorHistoryPrevious = "TSR.History.Color.Previous";
@@ -39,11 +40,22 @@ namespace Desert::Graphic
         constexpr std::size_t kGuideIndex           = 1;
         constexpr std::size_t kMoireIndex           = 2;
         constexpr std::size_t kHistoryCount         = 3;
+        // r.TSR.Resurrection: kTsrPersistentFrameCount persistent colour frames, then as many guide frames.
+        constexpr std::size_t kPersistentColorIndex = kHistoryCount;
+        constexpr std::size_t kPersistentGuideIndex = kHistoryCount + kTsrPersistentFrameCount;
+        constexpr std::size_t kHistoryCountWithResurrection = kHistoryCount + 2 * kTsrPersistentFrameCount;
+        constexpr std::array<const char*, kTsrPersistentFrameCount> kPersistentColorNames{
+             "TSR.History.Color.Persistent0", "TSR.History.Color.Persistent1" };
+        constexpr std::array<const char*, kTsrPersistentFrameCount> kPersistentGuideNames{
+             "TSR.History.Guide.Persistent0", "TSR.History.Guide.Persistent1" };
+        // UE r.TSR.ReprojectionField.AntiAliasPixelSpeed (0.125), a project constant in UE.
+        constexpr float kReprojectionFieldAntiAliasPixelSpeed = 0.125f;
 
         // RGBA16F / R32F only: the storage-image formats Vulkan guarantees without
         // shaderStorageImageExtendedFormats, so nothing here depends on a MoltenVK feature bit.
         constexpr auto kColorFormat = Core::Formats::ImageFormat::RGBA16F;
         constexpr auto kDepthFormat = Core::Formats::ImageFormat::R32F;
+        constexpr auto kUintFormat  = Core::Formats::ImageFormat::R32_UINT;
 
         // UE TemporalSuperResolution.cpp CVar defaults: r.TSR.History.SampleCount 16 (clamped 8..32 at :1933),
         // r.TSR.ShadingRejection.SampleCount 2, r.TSR.Velocity.WeightClampingSampleCount 4,
@@ -85,7 +97,9 @@ namespace Desert::Graphic
                                             { "u_Velocity", Kind::SampledTexture },
                                             { "u_DilatedVelocity", Kind::StorageTexture },
                                             { "u_ClosestDepth", Kind::StorageTexture },
-                                            { "TSRPrevAtomicBuffer", Kind::StorageBuffer } } );
+                                            { "TSRPrevAtomicBuffer", Kind::StorageBuffer },
+                                            { "u_ReprojectionJacobian", Kind::StorageTexture },
+                                            { "u_ReprojectionBoundary", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -99,7 +113,10 @@ namespace Desert::Graphic
                                              { "u_PrevGuide", Kind::SampledTexture },
                                              { "u_PrevMoire", Kind::SampledTexture },
                                              { "u_ReprojectedGuide", Kind::StorageTexture },
-                                             { "u_ReprojectedMoire", Kind::StorageTexture } } );
+                                             { "u_ReprojectedMoire", Kind::StorageTexture },
+                                             { "u_ResurrectionGuide", Kind::SampledTexture },
+                                             { "u_Exposure", Kind::SampledTexture },
+                                             { "u_ResurrectedGuide", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -110,9 +127,11 @@ namespace Desert::Graphic
                                                                  { "u_Exposure", Kind::SampledTexture },
                                                                  { "u_ReprojectedGuide", Kind::SampledTexture },
                                                                  { "u_ReprojectedMoire", Kind::SampledTexture },
+                                                                 { "u_ResurrectedGuide", Kind::SampledTexture },
                                                                  { "u_HistoryRejection", Kind::StorageTexture },
                                                                  { "u_GuideOut", Kind::StorageTexture },
-                                                                 { "u_MoireOut", Kind::StorageTexture } } );
+                                                                 { "u_MoireOut", Kind::StorageTexture },
+                                                                 { "u_AntiAliasInput", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -120,9 +139,7 @@ namespace Desert::Graphic
     {
         static const auto layout =
              MakeLayout( kSpatialAntiAliasing, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                 { "u_SceneColor", Kind::SampledTexture },
-                                                 { "u_Exposure", Kind::SampledTexture },
-                                                 { "u_HistoryRejection", Kind::SampledTexture },
+                                                 { "u_AntiAliasInput", Kind::SampledTexture },
                                                  { "u_AntiAliasing", Kind::StorageTexture } } );
         return layout;
     }
@@ -136,7 +153,9 @@ namespace Desert::Graphic
                  { "u_Exposure", Kind::SampledTexture },        { "u_ResponsiveAA", Kind::SampledTexture },
                  { "u_DilatedVelocity", Kind::SampledTexture }, { "u_HistoryRejection", Kind::SampledTexture },
                  { "u_AntiAliasing", Kind::SampledTexture },    { "u_PrevHistory", Kind::SampledTexture },
-                 { "u_HistoryOut", Kind::StorageTexture } };
+                 { "u_ClosestDepth", Kind::SampledTexture },    { "u_ReprojectionJacobian", Kind::SampledTexture },
+                 { "u_ReprojectionBoundary", Kind::SampledTexture },
+                 { "u_ResurrectionHistory", Kind::SampledTexture }, { "u_HistoryOut", Kind::StorageTexture } };
             if ( withOutput )
                 list.push_back( { "u_Output", Kind::StorageTexture } );
             return list;
@@ -155,6 +174,41 @@ namespace Desert::Graphic
         return layout;
     }
 
+    const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRecordPersistentFrameLayout()
+    {
+        static const auto layout = MakeLayout( kRecordPersistent, { { "TSRParamsBuffer", Kind::StorageBuffer },
+                                                                    { "u_Exposure", Kind::SampledTexture },
+                                                                    { "u_Source", Kind::SampledTexture },
+                                                                    { "u_Destination", Kind::StorageTexture } } );
+        return layout;
+    }
+
+    int TsrSpatialAntiAliasingIterations( const TsrQuality& quality )
+    {
+        return quality.RejectionAntiAliasing >= 2 ? 8 : quality.RejectionAntiAliasing == 1 ? 3 : 0;
+    }
+
+    int TsrResurrectionSlot( const TsrHistory& previous, const uint64_t thisFrame )
+    {
+        // The oldest recorded frame: NextSlot when it is recorded (both are), else the other one.
+        int slot = -1;
+        if ( previous.Frames[previous.NextSlot].Recorded )
+            slot = static_cast<int>( previous.NextSlot );
+        else
+        {
+            for ( uint32_t i = 0; i < kTsrPersistentFrameCount; ++i )
+                if ( previous.Frames[i].Recorded )
+                {
+                    slot = static_cast<int>( i );
+                    break;
+                }
+        }
+        // UE bCanResurrectHistory: resurrecting the previous frame is the ordinary reprojection.
+        if ( slot >= 0 && previous.Frames[static_cast<std::size_t>( slot )].Frame + 1 == thisFrame )
+            return -1;
+        return slot;
+    }
+
     TsrQuality ReadTsrQuality( const Common::Scalability::ResolvedQuality& quality )
     {
         using P = Common::Scalability::Parameter;
@@ -163,7 +217,9 @@ namespace Desert::Graphic
         return TsrQuality{ .HistoryScreenPercentage    = quality.As<int>( P::TsrHistoryScreenPercentage ),
                            .HistoryUpdateQuality       = quality.As<int>( P::TsrHistoryUpdateQuality ),
                            .ShadingRejectionFlickering = quality.As<int>( P::TsrShadingRejectionFlickering ) != 0,
-                           .RejectionAntiAliasing      = quality.As<int>( P::TsrRejectionAntiAliasing ) };
+                           .RejectionAntiAliasing      = quality.As<int>( P::TsrRejectionAntiAliasing ),
+                           .ReprojectionField          = quality.As<int>( P::TsrReprojectionField ) != 0,
+                           .Resurrection               = quality.As<int>( P::TsrResurrection ) != 0 };
     }
 
     RDG::Extent3D TsrHistoryExtent( const ResolutionSplit& split, const TsrQuality& quality )
@@ -180,7 +236,8 @@ namespace Desert::Graphic
         return RDG::Extent3D{ side( split.Output.Width ), side( split.Output.Height ), 1 };
     }
 
-    TsrParams MakeTsrParams( const ViewFrame& frame, const RDG::Extent3D history, const TsrQuality& quality )
+    TsrParams MakeTsrParams( const ViewFrame& frame, const RDG::Extent3D history, const TsrQuality& quality,
+                             const TsrPersistentFrame* resurrection )
     {
         TsrParams params;
         params.InvViewProjection  = frame.InvViewProjection;
@@ -212,11 +269,24 @@ namespace Desert::Graphic
              frame.Split.Render.Width > 0
                   ? static_cast<float>( history.Width ) / static_cast<float>( frame.Split.Render.Width )
                   : 1.0f;
-        params.FlickeringFramePeriod      = kFlickeringFramePeriod;
-        params.EnableFlickeringHeuristic  = quality.ShadingRejectionFlickering ? 1.0f : 0.0f;
-        params.RejectionAntiAliasingSteps = quality.RejectionAntiAliasing >= 2   ? 8.0f
-                                            : quality.RejectionAntiAliasing == 1 ? 4.0f
-                                                                                 : 0.0f;
+        params.FlickeringFramePeriod     = kFlickeringFramePeriod;
+        params.EnableFlickeringHeuristic = quality.ShadingRejectionFlickering ? 1.0f : 0.0f;
+        params.ReprojectionField         = quality.ReprojectionField ? 1.0f : 0.0f;
+        params.InvProjection             = frame.InvProjection;
+        params.Projection                = frame.Projection;
+        // UE :2531, OutputToInputResolutionFraction = Render / Output.
+        const float outputToInput =
+             frame.Split.Output.Width > 0
+                  ? static_cast<float>( frame.Split.Render.Width ) / static_cast<float>( frame.Split.Output.Width )
+                  : 1.0f;
+        const float antiAliasPixelSpeed =
+             std::max( kReprojectionFieldAntiAliasPixelSpeed / std::max( outputToInput, 1e-6f ), 1.0f / 64.0f );
+        params.ReprojectionFieldAntiAliasVelocityThreshold = antiAliasPixelSpeed * antiAliasPixelSpeed;
+        if ( resurrection != nullptr )
+        {
+            params.ClipToResurrectionClip = resurrection->ViewProjection * frame.InvViewProjection;
+            params.ResurrectionEnabled    = 1.0f;
+        }
 
         // A perspective projection has w = -z (P[3][3] == 0), an orthographic one w = 1 (P[3][3] == 1).
         const float pixelsHigh       = std::max( params.RenderSize.y, 1.0f );
@@ -256,7 +326,28 @@ namespace Desert::Graphic
         HistoryTextureDesc moire = guide;
         moire.Name               = kMoireHistory;
         moire.PreviousName       = kMoireHistoryPrevious;
-        return { color, guide, moire };
+        if ( !tsr.Resurrection )
+            return { color, guide, moire };
+
+        // r.TSR.Resurrection: the persistent frames (UE: the persistent slices of the history arrays).
+        std::vector<HistoryTextureDesc> descs{ color, guide, moire };
+        for ( std::size_t i = 0; i < kTsrPersistentFrameCount; ++i )
+        {
+            HistoryTextureDesc persistent = color;
+            persistent.Lifetime           = HistoryLifetime::Persistent;
+            persistent.Name               = kPersistentColorNames[i];
+            persistent.PreviousName       = "";
+            descs.push_back( persistent );
+        }
+        for ( std::size_t i = 0; i < kTsrPersistentFrameCount; ++i )
+        {
+            HistoryTextureDesc persistent = guide;
+            persistent.Lifetime           = HistoryLifetime::Persistent;
+            persistent.Name               = kPersistentGuideNames[i];
+            persistent.PreviousName       = "";
+            descs.push_back( persistent );
+        }
+        return descs;
     }
 
     Common::ResultStr<TemporalUpscalerOutputs>
@@ -281,13 +372,15 @@ namespace Desert::Graphic
         if ( inputs.Quality == nullptr )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}", "TSR: TemporalUpscalerInputs::Quality is null (its r.TSR.* rows are read from it)" );
-        if ( inputs.History.size() != kHistoryCount )
+        const TsrQuality  quality         = ReadTsrQuality( *inputs.Quality );
+        const std::size_t declaredHistory = quality.Resurrection ? kHistoryCountWithResurrection : kHistoryCount;
+        if ( inputs.History.size() != declaredHistory )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}", std::format( "TSR: {} histories given, HistoryDescs declares {}", inputs.History.size(),
-                                    kHistoryCount ) );
+                                    declaredHistory ) );
         for ( const HistoryRefs& history : inputs.History )
             if ( !history.Previous.IsValid() || !history.Current.IsValid() )
-                return missing( "history (one of TSR.History.Color / Guide / Moire)" );
+                return missing( "history (one of TSR.History.Color / Guide / Moire / *.Persistent*)" );
         const ResolutionSplit& split = frame.Split;
         if ( !Supports( split ) || split.Render.Width == 0 || split.Render.Height == 0 ||
              split.Output.Width == 0 || split.Output.Height == 0 )
@@ -296,7 +389,6 @@ namespace Desert::Graphic
                                     split.Render.Height, split.Output.Width, split.Output.Height,
                                     split.RenderScalePercent ) );
 
-        const TsrQuality    quality = ReadTsrQuality( *inputs.Quality );
         const RDG::Extent3D render{ split.Render.Width, split.Render.Height, 1 };
         const RDG::Extent3D output{ split.Output.Width, split.Output.Height, 1 };
         const RDG::Extent3D history = TsrHistoryExtent( split, quality );
@@ -304,7 +396,27 @@ namespace Desert::Graphic
         const HistoryRefs   guide   = inputs.History[kGuideIndex];
         const HistoryRefs   moire   = inputs.History[kMoireIndex];
 
-        const TsrParams      params = MakeTsrParams( frame, history, quality );
+        // The persistent-frame records (UE FTSRHistory). A reset history (camera cut, resize, method change)
+        // starts over: the persistent textures' contents belong to the frames before it.
+        auto        records  = std::make_shared<TsrHistory>();
+        const auto* previous = dynamic_cast<const TsrHistory*>( inputs.PrevHistory.get() );
+        if ( previous != nullptr && frame.HistoryValid() )
+        {
+            *records = *previous;
+            ++records->AccumulatedFrames;
+        }
+        const int resurrectionSlot =
+             quality.Resurrection && previous != nullptr && frame.HistoryValid()
+                  ? TsrResurrectionSlot( *previous, records->AccumulatedFrames )
+                  : -1;
+        const TsrPersistentFrame* resurrection =
+             resurrectionSlot >= 0 ? &previous->Frames[static_cast<std::size_t>( resurrectionSlot )] : nullptr;
+        // UE: a persistent rolling index every PersistentFrameInterval frames, the first frame included.
+        const bool recordThisFrame =
+             quality.Resurrection && records->AccumulatedFrames % kTsrPersistentFrameInterval == 0;
+        const uint32_t recordSlot = records->NextSlot;
+
+        const TsrParams      params = MakeTsrParams( frame, history, quality, resurrection );
         const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( TsrParams ) }, "TSR.Params" );
         graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &params, 1 ) ) );
         const RDG::BufferRef prevAtomic = graph.CreateBuffer(
@@ -323,13 +435,29 @@ namespace Desert::Graphic
         const RDG::TextureRef reprojectedGuide = texture( render, kColorFormat, "TSR.ReprojectedGuide" );
         const RDG::TextureRef reprojectedMoire = texture( render, kColorFormat, "TSR.ReprojectedMoire" );
         const RDG::TextureRef historyRejection = texture( render, kColorFormat, "TSR.HistoryRejection" );
-        const RDG::TextureRef antiAliasing     = texture( render, kColorFormat, "TSR.AntiAliasing" );
+        const RDG::TextureRef antiAliasInput   = texture( render, kColorFormat, "TSR.AntiAliasInput" );
+        const RDG::TextureRef antiAliasing     = texture( render, kUintFormat, "TSR.AntiAliasing" );
+        const RDG::TextureRef reprojJacobian   = texture( render, kUintFormat, "TSR.ReprojectionJacobian" );
+        const RDG::TextureRef reprojBoundary   = texture( render, kUintFormat, "TSR.ReprojectionBoundary" );
+        const RDG::TextureRef resurrectedGuide = texture( render, kColorFormat, "TSR.ResurrectedGuide" );
+        // The resurrection frame's textures; with none this frame the shaders read nothing from them
+        // (u_ResurrectionEnabled 0), and the bound texture is one the pass reads anyway (UE: BlackArrayDummy).
+        const RDG::TextureRef resurrectionGuide =
+             resurrection != nullptr
+                  ? inputs.History[kPersistentGuideIndex + static_cast<std::size_t>( resurrectionSlot )].Previous
+                  : inputs.Exposure;
+        const RDG::TextureRef resurrectionColor =
+             resurrection != nullptr
+                  ? inputs.History[kPersistentColorIndex + static_cast<std::size_t>( resurrectionSlot )].Previous
+                  : inputs.Exposure;
         const RDG::TextureRef sceneColorOutput = texture( output, kColorFormat, "TSR.Output" );
         const bool            historyIsOutput  = history.Width == output.Width && history.Height == output.Height;
         const auto            point            = RDG::SamplerDesc::PointClamp();
         const auto            linear           = RDG::SamplerDesc::LinearClamp();
         const auto            all              = RDG::SubresourceRange::All();
         constexpr auto        sampled          = RDG::Access::SampledCompute;
+        // The stand-in is sampled with a point sampler: linear filtering of its format is not guaranteed.
+        const auto resurrectionSampler = resurrection != nullptr ? linear : point;
 
         // The record-time half of every pass: the pipeline of (shader, defines), dispatched over @p extent.
         const auto dispatch = [this]( const char* shader, std::string defines, RDG::Extent3D extent )
@@ -367,7 +495,9 @@ namespace Desert::Graphic
                       .Sampled( "u_Velocity", inputs.Velocity, sampled, all, point )
                       .Storage( "u_DilatedVelocity", dilatedVelocity, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_ClosestDepth", closestDepth, RDG::Access::StorageWrite, 0 )
-                      .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageWrite );
+                      .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageWrite )
+                      .Storage( "u_ReprojectionJacobian", reprojJacobian, RDG::Access::StorageWrite, 0 )
+                      .Storage( "u_ReprojectionBoundary", reprojBoundary, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kDilateVelocity, "", render ) );
 
@@ -383,7 +513,10 @@ namespace Desert::Graphic
                       .Sampled( "u_PrevGuide", guide.Previous, sampled, all, linear )
                       .Sampled( "u_PrevMoire", moire.Previous, sampled, all, linear )
                       .Storage( "u_ReprojectedGuide", reprojectedGuide, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_ReprojectedMoire", reprojectedMoire, RDG::Access::StorageWrite, 0 );
+                      .Storage( "u_ReprojectedMoire", reprojectedMoire, RDG::Access::StorageWrite, 0 )
+                      .Sampled( "u_ResurrectionGuide", resurrectionGuide, sampled, all, resurrectionSampler )
+                      .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
+                      .Storage( "u_ResurrectedGuide", resurrectedGuide, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kDecimateHistory, "", render ) );
 
@@ -397,26 +530,28 @@ namespace Desert::Graphic
                       .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
                       .Sampled( "u_ReprojectedGuide", reprojectedGuide, sampled, all, point )
                       .Sampled( "u_ReprojectedMoire", reprojectedMoire, sampled, all, point )
+                      .Sampled( "u_ResurrectedGuide", resurrectedGuide, sampled, all, point )
                       .Storage( "u_HistoryRejection", historyRejection, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_GuideOut", guide.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_MoireOut", moire.Current, RDG::Access::StorageWrite, 0 );
+                      .Storage( "u_MoireOut", moire.Current, RDG::Access::StorageWrite, 0 )
+                      .Storage( "u_AntiAliasInput", antiAliasInput, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kRejectShading, "", render ) );
 
         // r.TSR.RejectionAntiAliasingQuality 0: no spatial AA; UpdateHistory reads a zero offset (the same shader
-        // writes it at 0 search steps, so UpdateHistory's binding set never changes with the quality).
+        // writes it at 0 iterations, so UpdateHistory's binding set never changes with the quality).
         graph.AddPass(
              "TSR.SpatialAntiAliasing", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( TsrSpatialAntiAliasingLayout(), RDG::OtherRouteFill{} )
                       .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, sampled, all, point )
-                      .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
-                      .Sampled( "u_HistoryRejection", historyRejection, sampled, all, point )
+                      .Sampled( "u_AntiAliasInput", antiAliasInput, sampled, all, linear )
                       .Storage( "u_AntiAliasing", antiAliasing, RDG::Access::StorageWrite, 0 );
              },
-             dispatch( kSpatialAntiAliasing, "", render ) );
+             dispatch( kSpatialAntiAliasing,
+                       std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) ),
+                       render ) );
 
         graph.AddPass(
              "TSR.UpdateHistory", RDG::PassFlags::Compute,
@@ -432,6 +567,10 @@ namespace Desert::Graphic
                       .Sampled( "u_HistoryRejection", historyRejection, sampled, all, point )
                       .Sampled( "u_AntiAliasing", antiAliasing, sampled, all, point )
                       .Sampled( "u_PrevHistory", color.Previous, sampled, all, linear )
+                      .Sampled( "u_ClosestDepth", closestDepth, sampled, all, point )
+                      .Sampled( "u_ReprojectionJacobian", reprojJacobian, sampled, all, point )
+                      .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
+                      .Sampled( "u_ResurrectionHistory", resurrectionColor, sampled, all, resurrectionSampler )
                       .Storage( "u_HistoryOut", color.Current, RDG::Access::StorageWrite, 0 );
                  if ( historyIsOutput )
                      bindings.Storage( "u_Output", sceneColorOutput, RDG::Access::StorageWrite, 0 );
@@ -454,7 +593,36 @@ namespace Desert::Graphic
                  },
                  dispatch( kResolveHistory, "", output ) );
 
-        return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = sceneColorOutput } );
+        // r.TSR.Resurrection: this frame becomes the oldest persistent frame (UE: a persistent rolling index).
+        if ( recordThisFrame )
+        {
+            const auto record = [&]( const char* name, RDG::TextureRef source, RDG::TextureRef destination,
+                                     int guideVariant, RDG::Extent3D extent )
+            {
+                graph.AddPass(
+                     name, RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Bindings( TsrRecordPersistentFrameLayout(), RDG::OtherRouteFill{} )
+                              .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
+                              .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
+                              .Sampled( "u_Source", source, sampled, all, point )
+                              .Storage( "u_Destination", destination, RDG::Access::StorageWrite, 0 );
+                     },
+                     dispatch( kRecordPersistent, std::format( "TSR_RECORD_GUIDE={}", guideVariant ), extent ) );
+            };
+            record( "TSR.RecordPersistentFrame.Color", color.Current,
+                    inputs.History[kPersistentColorIndex + recordSlot].Current, 0, history );
+            record( "TSR.RecordPersistentFrame.Guide", guide.Current,
+                    inputs.History[kPersistentGuideIndex + recordSlot].Current, 1, render );
+            records->Frames[recordSlot] = TsrPersistentFrame{ .Recorded       = true,
+                                                              .Frame          = records->AccumulatedFrames,
+                                                              .ViewProjection = frame.ViewProjection };
+            records->NextSlot           = ( recordSlot + 1 ) % kTsrPersistentFrameCount;
+        }
+
+        return Common::MakeSuccess(
+             TemporalUpscalerOutputs{ .SceneColor = sceneColorOutput, .NewHistory = std::move( records ) } );
     }
 
     std::shared_ptr<ComputePipeline> TemporalSuperResolution::PipelineFor( const char*        shaderName,
