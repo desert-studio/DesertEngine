@@ -66,6 +66,10 @@ namespace Desert::ECS
             std::shared_ptr<Graphic::Image2D> Weightmap;
             uint32_t                          WeightmapX = 0u;
             uint32_t                          WeightmapZ = 0u;
+            // Revisions of the two images' PIXELS (from m_Revision): bumped on every rewrite or recreation,
+            // since an in-place rewrite keeps the address. The view's ray-tracing BLAS rebuilds on a change.
+            uint64_t HeightRevision = 0u;
+            uint64_t WeightRevision = 0u;
         };
 
         // Creates, rewrites in place, or drops the tile's weightmap copy to match its weight layers.
@@ -73,6 +77,7 @@ namespace Desert::ECS
                               entt::entity entity, const LandscapeTileComponent& tileComp, bool weightsDirty );
 
         std::unordered_map<entt::entity, TileGpu> m_Tiles;
+        uint64_t                                  m_Revision = 0u; // the last revision handed out
         // Said once per tile, not once per frame: a tile that cannot be drawn stays that way until edited.
         std::unordered_set<entt::entity> m_Warned;
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or

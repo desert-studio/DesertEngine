@@ -1150,8 +1150,18 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
+            // an identity World.
+            m_ScratchTileMotions.clear();
+            for ( const System::TerrainDrawData& tile : terrain->GetQueue() )
+                m_ScratchTileMotions.push_back(
+                     { .Entity = tile.Landscape.Entity, .Part = 0, .World = glm::mat4( 1.0f ) } );
+            if ( const Common::BoolResultStr rows =
+                      meshes->BuildObjectMotions( m_ViewState.Motion(), m_ScratchTileMotions );
+                 !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
                            "frame: {}",
@@ -1180,8 +1190,57 @@ namespace Desert::Graphic
                  camera != nullptr
                           ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } )
                           : 1.0f;
+            const bool required = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+
+            // The landscape tiles' BLAS first: the TLAS pass reads their storage (orders it after the builds).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
+            const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
+            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
+            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
+            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            std::vector<RayTracing::LandscapeRayTracingTile> tiles;
+            if ( instances.size() != queue.size() || rows.size() != queue.size() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows and {} GPU-scene rows; "
+                           "the landscape is not in this frame's TLAS",
+                           m_ViewResources.GetName(), queue.size(), instances.size(), rows.size() );
+                queue = {};
+            }
+            tiles.reserve( queue.size() );
+            for ( std::size_t i = 0; i < queue.size(); ++i )
+            {
+                const System::TerrainDrawData& draw = queue[i];
+                tiles.push_back( { .Entity         = draw.Landscape.Entity,
+                                   .GpuSceneRow    = rows[i],
+                                   .Heightmap      = draw.Heightmap,
+                                   .HeightRevision = draw.Landscape.HeightRevision,
+                                   .Weightmap      = draw.Weights.Weightmap,
+                                   .WeightRevision = draw.Weights.Revision,
+                                   .Instance       = instances[i],
+                                   .Weights        = draw.Weights } );
+            }
+            const Common::BoolResultStr landscape =
+                 m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
+            if ( !landscape )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's landscape could not enter the TLAS; rays miss it this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), landscape.GetError() );
+            }
+            // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
+            const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
+            std::span<const RayTracing::RayTracingPrimitive> landscapePrimitives;
+            std::span<const RDG::BufferRef>                  landscapeGeometry;
+            if ( landscape.IsSuccess() )
+            {
+                landscapePrimitives = landscapeFrame.Primitives;
+                landscapeGeometry   = landscapeFrame.Geometry;
+            }
+
             const Common::BoolResultStr tlas = m_RayTracingScene.AddPasses(
-                 graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ), *meshes, viewOrigin, lensScale );
+                 graph, required, *meshes, viewOrigin, lensScale, landscapePrimitives, landscapeGeometry );
             for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
             {
                 LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}", m_ViewResources.GetName(),
@@ -1632,7 +1691,8 @@ namespace Desert::Graphic
                              .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
-    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+    void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
+                                             const System::LandscapeTileDraw&   tile,
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {

@@ -1,10 +1,10 @@
-// The Vulkan side of one landscape tile's ray-tracing geometry (LandscapeRayTracing.hpp): a persistent vertex
+// The Vulkan side of one landscape tile's ray-tracing geometry (LandscapeRayTracingGeometry.hpp): a persistent vertex
 // buffer (Desert::Vertex, the LOD grid plus the NaN vertex), a persistent index buffer (the opaque range, then the
 // masked range) and the tile's BLAS of two triangle geometries over them - OPAQUE and non-opaque (the alpha test
 // reads the visibility layer). Built with ALLOW_UPDATE so a LOD-only change refits in place; every object is freed
 // on the frame ring and has its own ledger row.
 #include <Common/Core/DestructorGuard.hpp>
-#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
+#include <Engine/Graphic/Systems/RayTracing/LandscapeRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>

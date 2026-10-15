@@ -28,7 +28,9 @@ namespace Desert::Graphic::RayTracing
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses( RDG::Builder& graph, bool required,
                                                               const System::MeshRenderer& meshes,
                                                               const glm::vec3&            viewOrigin,
-                                                              const float                 drawDistanceScale )
+                                                              const float                 drawDistanceScale,
+                                                              std::span<const RayTracingPrimitive> landscape,
+                                                              std::span<const RDG::BufferRef> landscapeGeometry )
     {
         m_Frame     = {};
         m_Instances = {};
@@ -46,6 +48,7 @@ namespace Desert::Graphic::RayTracing
                                       .DrawDistanceScale   = drawDistanceScale },
                                     m_Variants, m_Gather );
         m_Variants.EndFrame();
+        m_Gather.Primitives.insert( m_Gather.Primitives.end(), landscape.begin(), landscape.end() );
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
@@ -53,7 +56,7 @@ namespace Desert::Graphic::RayTracing
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
-             AddRayTracingScenePass( graph, required, m_Instances, *m_Target );
+             AddRayTracingScenePass( graph, required, m_Instances, *m_Target, landscapeGeometry );
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();

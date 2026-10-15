@@ -104,11 +104,13 @@ namespace Desert::Graphic::RayTracing
     }
 
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
-    // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
-    // no TLAS, and a reader must not be declared).
+    // nothing and answers Built = false otherwise. @p builtGeometry: BLAS storage written by this frame's graph
+    // (the landscape tiles' "Landscape: Ray Tracing Geometry"); the TLAS pass reads each as a build input, which
+    // orders it after those builds and places the BLAS-write -> TLAS-read barrier. Errors: the target could not be
+    // prepared (the frame then has no TLAS, and a reader must not be declared).
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
-                            RayTracingSceneTarget& target )
+                            RayTracingSceneTarget& target, std::span<const RDG::BufferRef> builtGeometry )
     {
         RayTracingSceneFrame frame;
         if ( !required )
@@ -134,6 +136,8 @@ namespace Desert::Graphic::RayTracing
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( instances, RDG::Access::AccelStructBuildInput );
+                 for ( const RDG::BufferRef& blas : builtGeometry )
+                     pass.Read( blas, RDG::Access::AccelStructBuildInput );
                  pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
                  pass.Write( tlas, RDG::Access::AccelStructBuildWrite );
              },
@@ -164,9 +168,13 @@ namespace Desert::Graphic::RayTracing
         // custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
+        // @p landscape: the view's landscape tiles (LandscapeRayTracing::GetFrame().Primitives, Kind = Landscape),
+        // instanced after the meshes; @p landscapeGeometry: their BLAS storage, built earlier in this graph.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
                                                        const System::MeshRenderer& meshes, const glm::vec3& viewOrigin,
-                                                       float drawDistanceScale );
+                                                       float                                drawDistanceScale,
+                                                       std::span<const RayTracingPrimitive> landscape,
+                                                       std::span<const RDG::BufferRef>      landscapeGeometry );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
