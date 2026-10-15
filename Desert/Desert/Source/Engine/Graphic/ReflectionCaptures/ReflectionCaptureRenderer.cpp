@@ -106,13 +106,14 @@ namespace Desert::Graphic
                 HashBytes( hash, &transform.Translation, sizeof( transform.Translation ) );
                 HashBytes( hash, &transform.Rotation, sizeof( transform.Rotation ) );
             };
-            for ( const auto [entity, light, transform] :
-                  registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>().each() )
+            const auto points = registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>();
+            for ( const entt::entity entity : points )
             {
                 if ( ECS::IsHidden( registry, entity ) )
                     continue;
-                const ECS::PointLightData& d  = light.Data;
-                const auto                 id = entt::to_integral( entity );
+                const ECS::TransformComponent& transform = points.get<const ECS::TransformComponent>( entity );
+                const ECS::PointLightData&     d  = points.get<const ECS::PointLightComponent>( entity ).Data;
+                const auto                     id = entt::to_integral( entity );
                 HashBytes( hash, &id, sizeof( id ) );
                 HashBytes( hash, &d.Color, sizeof( d.Color ) );
                 HashBytes( hash, &d.Intensity, sizeof( d.Intensity ) );
@@ -123,13 +124,14 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
                 hashTransform( transform );
             }
-            for ( const auto [entity, light, transform] :
-                  registry.view<const ECS::SpotLightComponent, const ECS::TransformComponent>().each() )
+            const auto spots = registry.view<const ECS::SpotLightComponent, const ECS::TransformComponent>();
+            for ( const entt::entity entity : spots )
             {
                 if ( ECS::IsHidden( registry, entity ) )
                     continue;
-                const ECS::SpotLightData& d  = light.Data;
-                const auto                id = entt::to_integral( entity );
+                const ECS::TransformComponent& transform = spots.get<const ECS::TransformComponent>( entity );
+                const ECS::SpotLightData&      d         = spots.get<const ECS::SpotLightComponent>( entity ).Data;
+                const auto                     id        = entt::to_integral( entity );
                 HashBytes( hash, &id, sizeof( id ) );
                 HashBytes( hash, &d.Color, sizeof( d.Color ) );
                 HashBytes( hash, &d.Intensity, sizeof( d.Intensity ) );
