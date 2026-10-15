@@ -541,9 +541,9 @@ namespace Desert::Graphic
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         // The traced GI's final gather (screen probes or the irradiance field), or black (unread in the other
         // modes).
-        const bool traced = refs.Transients.GIDiffuse.IsValid();
-        inputs.GIDiffuse  = traced ? refs.Transients.GIDiffuse : refs.System.Black;
-        inputs.GISpecular = traced ? refs.Transients.GISpecular : refs.System.Black;
+        const bool traced      = refs.Transients.GIDiffuse.IsValid();
+        inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
+        inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.

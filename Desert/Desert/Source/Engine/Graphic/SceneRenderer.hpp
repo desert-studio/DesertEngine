@@ -769,9 +769,8 @@ namespace Desert::Graphic
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                           const glm::vec4& lightColor, const ViewFrame& frame );
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer,
-                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame );
+                                           const std::vector<RDG::TextureRef>& gbuffer, System::MeshRenderer* meshRenderer,
+                                           const glm::vec4& lightDir, const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot as a per-frame transient (UE: CreateTexture from the scene colour's desc, copied by a
         // raster node): published as FrameTransients::SceneColorCopy and returned; invalid when no copy was made
         // (no copy system, no scene colour, its desc refused - logged).
@@ -916,7 +915,7 @@ namespace Desert::Graphic
         // unavailable; the failure is latched so it is not retried each frame.
         bool EnsureSSRResources();
         // Device can sample+blend RGBA32F colour attachments — SSR's precondition.
-        bool HasFloatRenderTargetSupport() const;
+        bool                                                            HasFloatRenderTargetSupport() const;
         bool m_SSRResourcesReady  = false;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;

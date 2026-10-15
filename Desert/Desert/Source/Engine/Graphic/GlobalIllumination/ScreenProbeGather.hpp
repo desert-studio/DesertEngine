@@ -131,7 +131,8 @@ namespace Desert::Graphic::GlobalIllumination
     // What the deferred composite reads (rgba16f, the G-buffer's extent).
     struct ScreenProbeGatherFrame
     {
-        RDG::TextureRef Diffuse;  // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
+        RDG::TextureRef
+             Diffuse; // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
         RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "u_GISpecular" in the composite
     };
 

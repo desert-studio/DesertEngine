@@ -38,7 +38,8 @@ namespace Common::Scalability
         // gather): the cheap traced path, every light and the sky bounced off screen too. It took the number of
         // the reflective shadow maps it replaced (3), so a scene that stated those now states this.
         ProbeVolume,
-        SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE, GI-FINAL-GATHER)
+        SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
+                        // GI-FINAL-GATHER)
         HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not implemented
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };

@@ -29,9 +29,9 @@ namespace Desert::Graphic::GlobalIllumination
             return ( value + by - 1u ) / by;
         }
 
-        std::shared_ptr<Image2D> CreateTarget( const std::string_view tag, const uint32_t width,
-                                               const uint32_t height,
-                                               const Core::Formats::ImageFormat format = Core::Formats::ImageFormat::RGBA16F )
+        std::shared_ptr<Image2D>
+        CreateTarget( const std::string_view tag, const uint32_t width, const uint32_t height,
+                      const Core::Formats::ImageFormat format = Core::Formats::ImageFormat::RGBA16F )
         {
             const Core::Formats::Image2DSpecification spec{
                  .Tag        = std::string( tag ),

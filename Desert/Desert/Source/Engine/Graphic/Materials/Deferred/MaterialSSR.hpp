@@ -25,7 +25,8 @@ namespace Desert::Graphic
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
             // u_Trace, u_History and u_GBufferDepth are textures of the frame graph in both variants (the
-            // history ping-pong is imported), bound by name through RDG::PassBindings (SSRRenderer::RecordResolve).
+            // history ping-pong is imported), bound by name through RDG::PassBindings
+            // (SSRRenderer::RecordResolve).
         }
 
         // The SSRResolveUB (SSRResolve.shader and SSRResolveTiled.shader) block, std140, member for member

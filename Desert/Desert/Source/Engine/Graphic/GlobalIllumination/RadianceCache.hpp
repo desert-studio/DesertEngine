@@ -103,8 +103,9 @@ namespace Desert::Graphic::RadianceCache
     // cache per pixel (no screen probes in front of it, IrradianceFieldGather.hpp) and re-traces it less often:
     // the Scalability budget scaled by UE's ratio above. The SHAPE is the same for both methods, so switching
     // between them keeps every traced probe (WorldRadianceCache rebuilds only on a shape change).
-    [[nodiscard]] inline RadianceCacheInputs MakeRadianceCacheInputs( const Common::Scalability::ResolvedQuality& quality,
-                                                                      const Common::Scalability::GIMethod method )
+    [[nodiscard]] inline RadianceCacheInputs
+    MakeRadianceCacheInputs( const Common::Scalability::ResolvedQuality& quality,
+                             const Common::Scalability::GIMethod         method )
     {
         using P = Common::Scalability::Parameter;
         RadianceCacheInputs inputs;

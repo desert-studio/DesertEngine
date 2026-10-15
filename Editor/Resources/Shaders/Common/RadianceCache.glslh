@@ -197,8 +197,13 @@ vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
 // arriving at a surface point @p p with normal @p N seen from @p V (unit, toward the viewer), from the eight probes
 // around it in the clipmap the dither picks. .a = 1 when at least one traced probe answered, 0 when none did yet
 // (cells allocated this frame), -1 past the coarsest clipmap: the caller decides what the last two mean.
-vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+// With @p second, the same eight probes under the same weights are also read about @p R into @p irradianceR (the
+// irradiance field gather's rough specular lobe: one lookup, visibility and weight per probe for both reads);
+// every other caller passes false, a constant the compiler folds away.
+vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float ditherRandom, bool second,
+                                    out vec3 irradianceR )
 {
+    irradianceR = vec3( 0.0 );
     const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
     if ( clipmap >= radianceCache.shape.x )
         return vec4( 0.0, 0.0, 0.0, -1.0 );
@@ -245,9 +250,20 @@ vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
         }
         w = max( w, 1e-6 );
         sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
+        if ( second )
+            irradianceR += w * RadianceCacheSampleProbeIrradiance( entry, R );
         weight += w;
     }
-    return weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
+    if ( weight <= 0.0 )
+        return vec4( 0.0 );
+    irradianceR /= weight;
+    return vec4( sum / weight, 1.0 );
+}
+
+vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+{
+    vec3 unused;
+    return RadianceCacheIrradianceAtImpl( p, N, V, N, ditherRandom, false, unused );
 }
 #endif // RADIANCE_CACHE_INDIRECTION
 

@@ -38,7 +38,8 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (FrameTransients::
-        // GIDiffuse / GISpecular, SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI modes).
+        // GIDiffuse / GISpecular, SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI
+        // modes).
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
