@@ -561,7 +561,7 @@ namespace Desert::Tests::PointerCensus
           "erased from; growing the vector moves the unique_ptrs, not their pointees, so each address is stable "
           "for the FrameTextures' whole life and dies with it" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp",
-          "DeferredShadowInput", "CascadeVP", Guard::CallScoped,
+          "DeferredCascadeShadow", "CascadeVP", Guard::CallScoped,
           kWhyArgumentPack },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp",
           "DeferredEnvironmentInput", "Irradiance", Guard::CallScoped,

@@ -402,7 +402,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                           RDG::TextureRef ssr, System::MeshRenderer* meshRenderer,
+                                           RDG::TextureRef ssr, const RDG::TextureRef sunShadowMask,
+                                           System::MeshRenderer* meshRenderer,
                                            const glm::vec4& lightDir, const glm::vec4& lightColor,
                                            const ViewFrame& frame )
     {
@@ -444,15 +445,20 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
-        if ( meshRenderer != nullptr )
+        if ( SunShadowIsRayTraced() )
         {
-            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-            shadow.Count                = meshRenderer->GetValidCascadeCount();
-            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-            shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
-            shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
+            // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
+            // never shadowed by cascades no pass drew.
+            inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
+            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
         }
+        else if ( meshRenderer != nullptr )
+            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
+                                                .Count                = meshRenderer->GetValidCascadeCount(),
+                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
+                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
+                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
+                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();

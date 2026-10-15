@@ -31,6 +31,9 @@ namespace Desert::Graphic::System
 
     // UE r.RayTracing.NormalBias (0.1 cm): a constant of the method, not a setting.
     inline constexpr float kRayTracedShadowNormalBias = 0.1f;
+    // The sun is at infinity: its shadow ray is unbounded, every instance of the TLAS may occlude (UE traces a
+    // directional light's ray to 1e27).
+    inline constexpr float kRayTracedSunShadowMaxDistance = 1.0e27f;
 
     // Per view, per frame (Docs/RENDERER_FRAME_STATE.md).
     struct RayTracedSunShadowParams

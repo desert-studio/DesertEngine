@@ -85,7 +85,7 @@ namespace Common::Scalability
     }
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
-        return method == ShadowMethod::CascadedMaps;
+        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::HardwareTraced;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.

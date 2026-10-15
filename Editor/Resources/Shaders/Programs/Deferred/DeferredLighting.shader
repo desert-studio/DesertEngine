@@ -202,7 +202,13 @@ Shader "DeferredLighting"
         // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
+        // DESERT_SUN_SHADOW_RAY_QUERY (DeferredLightingRenderer's second program, "Shadows: Ray Traced Sun"): the
+        // sun's visibility is the denoised screen mask, and the cascades are compiled out.
+        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        Uniform(5) sampler2D u_ScreenShadowMask; // r = visibility, 1 = lit (render extent = this target's)
+        #else
         Uniform(5) sampler2DArray u_ShadowCascades; // one layer per cascade
+        #endif
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
         	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
@@ -214,7 +220,12 @@ Shader "DeferredLighting"
         	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
         };
 
+        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(u_ScreenShadowMask, ivec2(gl_FragCoord.xy), 0).r
+        #else
         #include <Mesh/CascadedShadow.glslh>
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(worldPos, N, L, cascade)
+        #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
         // u_GBufferDepth. Included after ShadowUB, which carries the march's view values; Mesh/LocalLightShadow.glslh
@@ -382,7 +393,7 @@ Shader "DeferredLighting"
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
         	float shadow   = DesertReceivesSunShadows(word)
-        	                     ? ShadowFactor(worldPos, N, L, cascade) *
+        	                     ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) *
         	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
         	                     : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);

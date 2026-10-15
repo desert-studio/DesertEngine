@@ -142,7 +142,8 @@
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 16,
-                "Shadows.LightGridMaxLightsPerCell": 32
+                "Shadows.LightGridMaxLightsPerCell": 32,
+                "Shadows.RayTracedSamplesPerPixel": 1
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -152,7 +153,8 @@
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 24,
-                "Shadows.LightGridMaxLightsPerCell": 32
+                "Shadows.LightGridMaxLightsPerCell": 32,
+                "Shadows.RayTracedSamplesPerPixel": 1
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -162,7 +164,8 @@
                 "Shadows.Method": "VirtualMaps",
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 32,
-                "Shadows.LightGridMaxLightsPerCell": 32
+                "Shadows.LightGridMaxLightsPerCell": 32,
+                "Shadows.RayTracedSamplesPerPixel": 1
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -172,7 +175,8 @@
                 "Shadows.Method": "HardwareTraced",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 32,
-                "Shadows.LightGridMaxLightsPerCell": 64
+                "Shadows.LightGridMaxLightsPerCell": 64,
+                "Shadows.RayTracedSamplesPerPixel": 1
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -182,7 +186,8 @@
                 "Shadows.Method": "Stochastic",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 64,
-                "Shadows.LightGridMaxLightsPerCell": 64
+                "Shadows.LightGridMaxLightsPerCell": 64,
+                "Shadows.RayTracedSamplesPerPixel": 2
             }
         },
         "GlobalIllumination": {

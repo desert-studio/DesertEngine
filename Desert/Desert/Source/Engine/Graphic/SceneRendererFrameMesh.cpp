@@ -126,9 +126,24 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
+            // "Shadows: Ray Traced Sun" replaces the sun's cascades (AddFrameRayTracedSunShadow): no cascade pass
+            // is declared, the deferred composite reads the screen shadow mask instead.
+            if ( !SunShadowIsRayTraced() )
+                AddFrameSunCascades( graph, textures, *mesh );
+            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
+            // light and casters stood still keeps last frame's depth (it has no pass at all).
+            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            AddSystemRasters( graph, textures, local, false );
+        }
+    }
+
+    void SceneRenderer::AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures,
+                                             System::MeshRenderer& mesh )
+    {
+        {
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
             const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
-            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses( maps );
+            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
             AddSystemRasters( graph, textures, cascades.StaticPasses, true );
             for ( const auto& copy : cascades.Copies )
             {
@@ -146,10 +161,6 @@ namespace Desert::Graphic
                      { return Renderer::CopyGraphDepthToLayer( context, from, maps, layer ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
-            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
-            // light and casters stood still keeps last frame's depth (it has no pass at all).
-            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
-            AddSystemRasters( graph, textures, local, false );
         }
     }
 

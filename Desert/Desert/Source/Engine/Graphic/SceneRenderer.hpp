@@ -77,6 +77,8 @@
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 
 namespace Desert::Core
 {
@@ -675,6 +677,17 @@ namespace Desert::Graphic
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
+        // The sun's cascade depths (MeshRenderer::ShadowCascadePasses); not declared when SunShadowIsRayTraced.
+        void AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer& mesh );
+        // This frame's sun shadow is "Shadows: Ray Traced Sun" (the resolved Shadows method is HardwareTraced):
+        // no cascade pass, the deferred composite's DESERT_SUN_SHADOW_RAY_QUERY permutation reads the mask.
+        [[nodiscard]] bool SunShadowIsRayTraced() const;
+        // "Shadows: Ray Traced Sun" over the G-buffer, then the DENOISE-CORE ShadowVisibility signal (SourceAngle,
+        // closest occluder): the composite's screen shadow mask. Invalid (logged) when it could not be declared.
+        RDG::TextureRef AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                    const std::vector<RDG::TextureRef>& gbuffer,
+                                                    const glm::vec3& directionToSun, const ViewFrame& frame );
+        bool            EnsureRayTracedShadowResources();
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -776,7 +789,8 @@ namespace Desert::Graphic
         void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
-                                RDG::TextureRef ssr, System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                RDG::TextureRef ssr, RDG::TextureRef sunShadowMask,
+                                System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                 const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
@@ -968,6 +982,15 @@ namespace Desert::Graphic
         bool m_GIResourcesReady   = false;
         bool m_GIResourcesFailed  = false;
         bool m_SSRResourcesReady  = false;
+        // "Shadows: Ray Traced Sun" and its denoiser (per view: the denoiser keeps this view's history), created
+        // on the first frame that resolves the sun to HardwareTraced.
+        System::RayTracedSunShadowRenderer m_RayTracedSunShadow;
+        System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
+        bool                               m_RayTracedShadowReady  = false;
+        bool                               m_RayTracedShadowFailed = false;
+        // Scalability Shadows.RayTracedSamplesPerPixel and the elected sun's SourceAngle, taken each BeginScene.
+        uint32_t m_RayTracedShadowSamples = 1;
+        float    m_SunSourceAngleDegrees  = 0.0f;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 

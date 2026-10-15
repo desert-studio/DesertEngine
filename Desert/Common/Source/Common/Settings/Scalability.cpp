@@ -85,6 +85,8 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)" },
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)" },
+             { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
+               "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },

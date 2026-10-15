@@ -797,6 +797,9 @@ namespace Desert::Graphic
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_RayTracedShadowSamples =
+             static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1271,8 +1274,14 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
-                               lightColor, frame );
+            // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
+            // DESERT_SUN_SHADOW_RAY_QUERY permutation reads this mask.
+            const RDG::TextureRef sunShadowMask =
+                 SunShadowIsRayTraced()
+                      ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                      : RDG::TextureRef{};
+            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, sunShadowMask, meshRenderer,
+                               lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
 
@@ -1495,6 +1504,88 @@ namespace Desert::Graphic
 
         m_GIResourcesReady = true;
         return true;
+    }
+
+    bool SceneRenderer::SunShadowIsRayTraced() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced;
+    }
+
+    bool SceneRenderer::EnsureRayTracedShadowResources()
+    {
+        if ( m_RayTracedShadowReady )
+            return true;
+        if ( m_RayTracedShadowFailed )
+            return false;
+        Common::BoolResultStr initialized = m_RayTracedSunShadow.Initialize();
+        if ( initialized )
+            initialized = m_SunShadowDenoiser.Initialize();
+        if ( !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun could not be created; the sun casts no shadow "
+                       "while the method resolves to HardwareTraced: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_RayTracedShadowFailed = true;
+            return false;
+        }
+        m_RayTracedShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                               const std::vector<RDG::TextureRef>& gbuffer,
+                                                               const glm::vec3&                    directionToSun,
+                                                               const ViewFrame&                    frame )
+    {
+        if ( !EnsureRayTracedShadowResources() )
+            return {};
+        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+        if ( !scene.Built )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun: the view's TLAS was not built this frame; the "
+                       "sun casts no shadow",
+                       m_ViewResources.GetName() );
+            return {};
+        }
+        const uint32_t                       width  = frame.Split.Render.Width;
+        const uint32_t                       height = frame.Split.Render.Height;
+        const RDG::TextureRef                depth  = textures.Depth( m_GBuffer, "GBuffer" );
+        const System::ScreenShadowMaskInputs inputs{ .Depth                     = depth,
+                                                     .Normal                    = gbuffer[1],
+                                                     .Tlas                      = scene.Tlas,
+                                                     .Metadata                  = scene.Metadata,
+                                                     .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                     .Width                     = width,
+                                                     .Height                    = height };
+        const System::RayTracedSunShadowParams params = System::MakeRayTracedSunShadowParams(
+             m_SunSourceAngleDegrees, directionToSun, m_RayTracedShadowSamples,
+             System::kRayTracedSunShadowMaxDistance, frame.FrameIndex );
+        const Common::ResultStr<System::RayTracedSunShadowOutputs> traced =
+             m_RayTracedSunShadow.AddPass( graph, inputs, params );
+        if ( !traced )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       traced.GetError() );
+            return {};
+        }
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun: the denoiser reprojects its history through "
+                       "the view's velocity, the frame has none; the undenoised mask is shaded",
+                       m_ViewResources.GetName() );
+            return traced.GetValue().Mask;
+        }
+        return m_SunShadowDenoiser.DenoiseShadowVisibility(
+             graph,
+             System::ShadowVisibilityDenoiserInputs{ .Mask                    = traced.GetValue().Mask,
+                                                     .ClosestOccluder         = traced.GetValue().ClosestOccluder,
+                                                     .LightSourceAngleRadians = params.SourceAngleRadians },
+             System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                            .GBufferDepth  = depth,
+                                            .Velocity      = velocity,
+                                            .Black         = textures.GraphRefs().System.Black },
+             frame, width, height );
     }
 
     bool SceneRenderer::EnsureSSRResources()
