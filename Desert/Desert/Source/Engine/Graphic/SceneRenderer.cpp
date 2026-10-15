@@ -462,23 +462,23 @@ namespace Desert::Graphic
                 if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
                     LOG_WARN( "[SceneRenderer] Scene-color copy system unavailable (glass refraction off)." );
 
-                RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
-                if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
-                               ->Initialize();
-                     !velocityViewInit )
-                    LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
+                RegisterSystem<System::BufferViewRenderer>( "BufferViewSystem", this, m_TargetFramebuffer );
+                if ( const auto bufferViewInit =
+                          SP_CAST( System::BufferViewRenderer, m_RenderSystems["BufferViewSystem"] )->Initialize();
+                     !bufferViewInit )
+                    LOG_ERROR( "[SceneRenderer] Velocity / indirect view modes unavailable: {}",
+                               bufferViewInit.GetError() );
                 return "SceneColorCopy";
             }
             case 15:
             {
-                RegisterSystem<System::VelocityViewRenderer>( "VelocityViewSystem", this, m_TargetFramebuffer );
-                if ( const auto velocityViewInit =
-                          SP_CAST( System::VelocityViewRenderer, m_RenderSystems["VelocityViewSystem"] )
-                               ->Initialize();
-                     !velocityViewInit )
-                    LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
-                return "VelocityView";
+                RegisterSystem<System::BufferViewRenderer>( "BufferViewSystem", this, m_TargetFramebuffer );
+                if ( const auto bufferViewInit =
+                          SP_CAST( System::BufferViewRenderer, m_RenderSystems["BufferViewSystem"] )->Initialize();
+                     !bufferViewInit )
+                    LOG_ERROR( "[SceneRenderer] Velocity / indirect view modes unavailable: {}",
+                               bufferViewInit.GetError() );
+                return "BufferView";
             }
             case 16:
             {
@@ -1225,6 +1225,8 @@ namespace Desert::Graphic
                 giAccum = AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, frame, lightColor );
             }
 
+            textures.Transients.DiffuseIndirect = giAccum; // -> Debug: Indirect, after the temporal resolve
+
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
             AddFrameComposite( graph, textures, gbuffer, giAccum, ssrResolved, meshRenderer, lightDir, lightColor,
@@ -1289,7 +1291,7 @@ namespace Desert::Graphic
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
-        AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameBufferView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS

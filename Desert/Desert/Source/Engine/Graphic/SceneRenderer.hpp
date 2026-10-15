@@ -59,7 +59,7 @@
 #include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
 #include "Systems/Scene/Deferred/SSGIRenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
-#include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
+#include "Systems/Scene/Deferred/BufferViewRenderer.hpp"
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
@@ -724,7 +724,7 @@ namespace Desert::Graphic
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
-        void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
+        void AddFrameBufferView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );

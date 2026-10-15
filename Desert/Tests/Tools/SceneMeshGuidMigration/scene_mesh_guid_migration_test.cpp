@@ -202,7 +202,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionSSRDefaultOn, Migration::kSceneVersionShadowBiasCentimetres );
     EXPECT_LT( Migration::kSceneVersionShadowBiasCentimetres, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionHLODLayers, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionSceneDependencies );
+    EXPECT_LT( Migration::kSceneVersionSceneDependencies, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionScreenSpaceGIIntensity );
 }
 
 namespace

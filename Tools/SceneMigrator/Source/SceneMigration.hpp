@@ -266,7 +266,20 @@ namespace Desert::Migration
     //       Scenes only.
     inline constexpr int kSceneVersionSceneDependencies = 51;
 
-    static_assert( kSceneVersionSceneDependencies == kSceneVersion,
+    //  52 - SCREEN-SPACE GI IS PHYSICALLY SCALED AT 1 (SSGI2-GTAO). GlobalIllumination ScreenSpace is SSGI now:
+    //  rays
+    //       return the previous frame's lit scene, so GIIntensity is UE's IndirectLightingIntensity - 1 is the
+    //       physical bounce, and above 1 / albedo an enclosed room gains light every frame through the history.
+    //       The old gather (sun-lit neighbours only) wanted 2 for the same look, and 2 was the default every
+    //       volume was saved with. The knob's scale halved, so a stated GIIntensity on a volume whose
+    //       GlobalIllumination is ScreenSpace (stated 1, or unstated: ScreenSpace is the default) is HALVED
+    //       (MigrateScreenSpaceGIIntensityV51ToV52): the old default 2 becomes the new default 1, an authored 3
+    //       becomes 1.5. An unstated GIIntensity is the default, which moved with it. RSM's scale did not change
+    //       and its volumes are kept. A prefab override's GIIntensity is a delta against its prefab record and is
+    //       kept as stated. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionScreenSpaceGIIntensity = 52;
+
+    static_assert( kSceneVersionScreenSpaceGIIntensity == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -517,6 +530,19 @@ namespace Desert::Migration
     // States EnableSSR true on every PostProcessVolume record under the rule kSceneVersionSSRDefaultOn
     // states. PURE.
     SSRDefaultOnReport MigrateSSRDefaultOnV47ToV48( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateScreenSpaceGIIntensityV51ToV52 did to one file.
+    struct ScreenSpaceGIIntensityReport
+    {
+        std::size_t              Volumes = 0; // PostProcessVolume records whose stated GIIntensity was halved
+        std::vector<std::string> Refused;     // a volume whose Settings, GlobalIllumination or GIIntensity is
+                                              // not the declared type
+    };
+
+    // Halves the stated GIIntensity of every ScreenSpace-GI PostProcessVolume record under the rule
+    // kSceneVersionScreenSpaceGIIntensity states. PURE.
+    ScreenSpaceGIIntensityReport
+    MigrateScreenSpaceGIIntensityV51ToV52( std::vector<Assets::EntityData>& entities );
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -779,6 +805,9 @@ namespace Desert::Migration
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
 
+        bool ScreenSpaceGIIntensityRaised = false; // below kSceneVersionScreenSpaceGIIntensity
+        ScreenSpaceGIIntensityReport ScreenSpaceGIIntensity;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -791,7 +820,7 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || SceneDependenciesRaised;
+                   HLODLayersRaised || SceneDependenciesRaised || ScreenSpaceGIIntensityRaised;
         }
     };
 

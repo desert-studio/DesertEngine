@@ -86,7 +86,10 @@ namespace Desert::Core
     // v51 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
     // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
     // MigrateSceneDependenciesV50ToV51).
-    inline constexpr int kSceneVersion = 51;
+    // v52 (SSGI2-GTAO): GIIntensity under ScreenSpace GI is SSGI's, physically scaled at 1; a stated value on a
+    // ScreenSpace volume is halved (old default 2 = new default 1) (Tools/SceneMigrator,
+    // MigrateScreenSpaceGIIntensityV51ToV52).
+    inline constexpr int kSceneVersion = 52;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

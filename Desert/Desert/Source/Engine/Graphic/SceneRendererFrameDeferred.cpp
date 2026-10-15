@@ -442,42 +442,62 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures,
-                                              const RDG::TextureRef target )
+    void SceneRenderer::AddFrameBufferView( RDG::Builder& graph, FrameTextures& textures,
+                                            const RDG::TextureRef target )
     {
-        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity ||
-             m_RenderPath != Core::RenderPath::Deferred )
-            return;
-        const RDG::TextureRef velocity = textures.Transients.Velocity;
-        const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );
-        auto* const           view =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second ) : nullptr;
-        if ( view == nullptr || !target.IsValid() || !velocity.IsValid() )
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame. Drawn over the
+        // post input, after the scene colour history was copied (System::BufferViewRenderer: why not in the
+        // composite).
+        using View = System::BufferViewRenderer::View;
+        View            view;
+        RDG::TextureRef input;
+        if ( m_DebugView.DeferredDebug == DeferredDebugMode::Velocity )
         {
-            LOG_ERROR( "[SceneRenderer] Debug: Velocity not drawn: {}",
-                       view == nullptr ? "no VelocityViewSystem" : "the frame has no velocity or no post input" );
+            view  = View::Velocity;
+            input = textures.Transients.Velocity;
+        }
+        else if ( m_DebugView.DeferredDebug == DeferredDebugMode::GI )
+        {
+            view = View::Indirect;
+            // No GI this frame (GI off, or its pass unavailable): the view shows black, which is the answer.
+            input = textures.Transients.DiffuseIndirect.IsValid() ? textures.Transients.DiffuseIndirect
+                                                                  : textures.GraphRefs().System.Black;
+        }
+        else
+            return;
+        if ( m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const char* const passName = System::BufferViewRenderer::PassName( view );
+        const auto        it       = m_RenderSystems.find( "BufferViewSystem" );
+        auto* const       renderer =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::BufferViewRenderer, it->second ) : nullptr;
+        if ( renderer == nullptr || !target.IsValid() || !input.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] {} not drawn: {}", passName,
+                       renderer == nullptr ? "no BufferViewSystem" : "the frame has no input or no post input" );
             return;
         }
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )
         {
-            LOG_ERROR( "[SceneRenderer] Debug: Velocity: {}", desc.GetError() );
+            LOG_ERROR( "[SceneRenderer] {}: {}", passName, desc.GetError() );
             return;
         }
-        if ( const auto prepared = view->Prepare( desc.GetValue().Format, desc.GetValue().Samples ); !prepared )
+        if ( const auto prepared = renderer->Prepare( view, desc.GetValue().Format, desc.GetValue().Samples );
+             !prepared )
         {
-            LOG_ERROR( "[SceneRenderer] Debug: Velocity: {}", prepared.GetError() );
+            LOG_ERROR( "[SceneRenderer] {}: {}", passName, prepared.GetError() );
             return;
         }
         graph.AddPass(
-             "Debug: Velocity", RDG::PassFlags::Raster,
+             passName, RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 view->DeclareBindings( pass, velocity );
+                 renderer->DeclareBindings( pass, input );
                  pass.ColorTarget( 0, target, EngineClearColor() );
              },
-             [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
+             [renderer]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return renderer->Record( context ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 

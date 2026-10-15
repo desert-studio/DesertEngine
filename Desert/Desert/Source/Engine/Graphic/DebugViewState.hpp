@@ -21,13 +21,14 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off             = 0,
-        Albedo          = 1,
-        Normal          = 2,
-        Metallic        = 3,
-        Roughness       = 4,
-        AO              = 5,
-        GI              = 6, // indirect light only (whichever GIMode is active) — for judging GI in isolation
+        Off       = 0,
+        Albedo    = 1,
+        Normal    = 2,
+        Metallic  = 3,
+        Roughness = 4,
+        AO        = 5,
+        GI        = 6, // indirect light only (whichever GIMode is active), drawn by "Debug: Indirect" after the
+                       // temporal resolve (System::BufferViewRenderer) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -40,7 +41,7 @@ namespace Desert::Graphic
         // The view's velocity (screen-space motion since the previous frame, NDC current - previous, written by
         // the G-buffer and scene-target passes for TAA): UE's "Velocity" buffer view - the 2D vector as a colour
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
-        // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
+        // modes; drawn by "Debug: Velocity" (System::BufferViewRenderer) after the temporal resolve.
         Velocity = 12,
     };
 

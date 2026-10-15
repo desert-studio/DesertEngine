@@ -286,7 +286,8 @@ Shader "DeferredLighting"
         	// second, depth-blind blur here would bleed across edges.
         	const vec3 indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
 
-        	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only
+        	// dbg 6 (indirect only) is NOT drawn here: "Debug: Indirect" draws it after the temporal resolve, so this
+        	// pass's output - the next frame's scene colour history, which SSGI and SSR trace - stays the lit scene.
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular)
         	// plus the one-bounce indirect, attenuated by SSAO — assembled by the SAME shared function the

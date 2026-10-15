@@ -478,8 +478,8 @@ namespace
              // ── deferred shading and its screen-space passes ────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", "\"Copy\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp",
-               "\"VelocityView\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/BufferViewRenderer.hpp",
+               "kViews[index].Shader", Verdict::Shipped, "the Velocity and indirect-only view modes" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
                "\"DeferredLighting\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DepthExpandRenderer.hpp",

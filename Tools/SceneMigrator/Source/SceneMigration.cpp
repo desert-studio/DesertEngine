@@ -20,6 +20,7 @@
 #include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
@@ -990,6 +991,74 @@ namespace Desert::Migration
                                DropKey( settings, kKey );
                            }
                            settings[kKey] = rfl::Generic( true );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        }
+        return report;
+    }
+
+    ScreenSpaceGIIntensityReport MigrateScreenSpaceGIIntensityV51ToV52( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char*        kMode        = "GlobalIllumination";
+        constexpr const char*        kIntensity   = "GIIntensity";
+        constexpr int                kScreenSpace = static_cast<int>( Core::GIMode::ScreenSpace );
+        ScreenSpaceGIIntensityReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            // Only the record's own volume: an override's GIIntensity is a delta against its prefab record,
+            // which the prefab's own migration halves.
+            EditBlock( entity.Components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false; // every setting is the default, which moved with the knob
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           if ( const auto mode = settings.get( kMode ); mode.has_value() )
+                           {
+                               const auto value = mode.value().to_int();
+                               if ( !value.has_value() )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.GlobalIllumination {} is not an int", who,
+                                        rfl::json::write( mode.value() ) ) );
+                                   return false;
+                               }
+                               if ( value.value() != kScreenSpace )
+                                   return false; // Off or RSM: RSM's scale did not change
+                           }
+                           const auto intensity = settings.get( kIntensity );
+                           if ( !intensity.has_value() )
+                               return false; // the default, which moved with the knob
+                           // A whole number is a number too ("GIIntensity": 2 hand-written).
+                           std::optional<double> number;
+                           if ( const auto real = intensity.value().to_double(); real.has_value() )
+                               number = real.value();
+                           else if ( const auto whole = intensity.value().to_int(); whole.has_value() )
+                               number = static_cast<double>( whole.value() );
+                           if ( !number.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings.GIIntensity {} is not a number",
+                                                 who, rfl::json::write( intensity.value() ) ) );
+                               return false;
+                           }
+                           const double halved = 0.5 * number.value();
+                           DropKey( settings, kIntensity );
+                           settings[kIntensity] = rfl::Generic( halved );
                            DropKey( block, "Settings" );
                            block["Settings"] = rfl::Generic( std::move( settings ) );
                            ++report.Volumes;
@@ -3022,6 +3091,19 @@ namespace Desert::Migration
             {
                 report.ShadowBiasCentimetresRaised = true;
                 report.ShadowBiasesRestated        = MigrateShadowBiasCentimetresV48ToV49( entities );
+            }
+
+            // Screen-space GI is SSGI, physically scaled at 1 (SSGI2-GTAO): a stated ScreenSpace GIIntensity
+            // halves.
+            if ( statedSceneVersion < kSceneVersionScreenSpaceGIIntensity )
+            {
+                report.ScreenSpaceGIIntensityRaised = true;
+                report.ScreenSpaceGIIntensity       = MigrateScreenSpaceGIIntensityV51ToV52( entities );
+                if ( !report.ScreenSpaceGIIntensity.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ScreenSpaceGIIntensity.Refused );
+                    return;
+                }
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
