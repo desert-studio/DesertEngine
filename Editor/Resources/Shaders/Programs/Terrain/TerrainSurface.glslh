@@ -22,6 +22,9 @@
             // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
             mat4 ViewProjection;
             mat4 PrevViewProjection;
+            // The JITTERED one, which the scene depth was rasterised with: the contact shadows' march
+            // (Common/ContactShadow.glslh, the forward program's point and spot lights).
+            mat4 JitteredViewProjection;
         }
         u;
 

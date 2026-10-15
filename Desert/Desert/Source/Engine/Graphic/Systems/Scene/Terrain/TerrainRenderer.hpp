@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
@@ -73,10 +74,13 @@ namespace Desert::Graphic::System
 
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
-        // matrices — the same view every other pass of the frame draws for — and, for each of @p localLights
+        // matrices — the same view every other pass of the frame draws for — with @p scene's lights, shadow
+        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState), and, for each of
+        // @p localLights
         // (MeshRenderer::GetLocalShadowCasterLights, after UpdateLocalShadows), the tiles in its reach at the LOD
         // its own position asks for, with their cache key. Nothing may draw a terrain this frame before it ran.
-        void PrepareFrame( const ViewFrame& frame, const std::vector<LocalShadowCasterLight>& localLights );
+        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene,
+                           const std::vector<LocalShadowCasterLight>& localLights );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples

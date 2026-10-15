@@ -68,11 +68,10 @@ Shader "Terrain"
         // THE CLOUD LAYER'S SHADOW ON THE WORLD. The terrain is the surface this feature is FOR — a deck
         // of cumulus drifting over open ground is the whole picture — and it is the surface that never
         // received it: the wrapper lived inside the deferred composite, and a terrain is drawn by neither
-        // render path's mesh shaders. Slots 6/7 are the first free ones in this shader's own small layout;
-        // they need not (and do not) match the mesh shaders' 20/21, because only the NAMES are shared and
-        // every material binds by name (Graphic::CloudShadowBind).
-        Uniform(6) sampler2D u_CloudShadowMap;
-        Uniform(7) CloudShadowUB
+        // render path's mesh shaders. At the mesh shaders' slots 20/21: the point and spot lights below take
+        // the lit programs' 4/6/7/16, and every material binds these by name (Graphic::CloudShadowBind).
+        Uniform(20) sampler2D u_CloudShadowMap;
+        Uniform(21) CloudShadowUB
         {
         	mat4 u_CloudShadowWorldToMap;
         	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
@@ -83,6 +82,33 @@ Shader "Terrain"
         // THE receiver, shared verbatim with the deferred composite and the mesh shaders.
         #include <Common/CloudShadowReceiver.glslh>
         // FORWARD ONLY: in the Deferred path the composite applies it to the terrain's G-buffer texels.
+
+        // THE POINT AND SPOT LIGHTS, with their shadows, through the statement the forward meshes and the glass
+        // shade them with (Mesh/ForwardLocalLights.glslh): in the Deferred path the composite lights the
+        // terrain's G-buffer texels with them, so the Forward path's ground must not be the one surface they miss.
+        // The lights' buffers and the cascades' ShadowUB (whose contact-shadow members the march reads) are
+        // written by name by SceneFrameBinding (TerrainRenderer::PrepareFrame); the scene depth and shading word
+        // the march reads, the light grid and the local shadow atlas are the view's scene-read inputs at their
+        // reserved slots (Core::kSceneDepthBinding .., ShaderGraphBindings.hpp), bound by the terrain pass
+        // (BindSceneViewInputs). The Forward path has no opaque scene depth to march (ShadowUB says 0 steps).
+        layout( binding = 7 ) uniform ShadowUB
+        {
+            mat4 u_LightViewProj[4];
+            vec4 u_ShadowParams;
+            vec4 u_DebugParams;
+            vec4 u_CascadeTexelWorld;
+            vec4 u_CascadeDepthRange;
+            vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame
+            vec4 u_SunContactShadow;
+        };
+        layout( binding = 27 ) uniform sampler2D u_SceneDepth;          // Core::kSceneDepthBinding
+        layout( binding = 28 ) uniform usampler2D u_SceneShadingWord;   // Core::kSceneShadingWordBinding
+        #include <ShadingModels/ShadingModelContract.glslh>
+        #define CONTACT_SHADOW_DEPTH        u_SceneDepth
+        #define CONTACT_SHADOW_VP           u.JitteredViewProjection
+        #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
+        #include <Common/ContactShadow.glslh>
+        #include <Mesh/ForwardLocalLights.glslh>
 
         void main()
         {
@@ -107,7 +133,18 @@ Shader "Terrain"
             // split the deferred composite and the mesh shaders make.
             float cloudShadow = CloudShadowFactor( v_WorldPos );
 
-            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow );
+            // The point and spot lights of the pixel's froxel, each by its radiance and shadow through the
+            // engine's Lambert BRDF (albedo / PI, Mesh/DirectLighting.glslh) — the diffuse the meshes and the
+            // deferred composite give them. The ground is matte: no specular here either.
+            vec3                   localLight = vec3( 0.0 );
+            const ForwardLightList lights     = ForwardLightListAt( gl_FragCoord.xy, v_WorldPos );
+            for ( uint j = 0u; j < lights.Count; j++ )
+            {
+                const DesertLight light = ForwardLocalLightAt( lights, j, v_WorldPos, N, -1.0 );
+                localLight += light.Radiance * light.Shadow * max( dot( N, light.L ), 0.0 ) / PI;
+            }
+
+            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow + localLight );
 
             o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
             oVelocity = TerrainVelocity();

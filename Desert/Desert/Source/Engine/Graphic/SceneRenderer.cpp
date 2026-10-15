@@ -1106,12 +1106,13 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-            // With this frame's shadowed point/spot lights (UpdateLocalShadows ran above): their views draw the
-            // terrain at the LOD the light asks for, not the camera's, so a cached local shadow survives a camera
-            // move.
+            // With the scene's lit-material state (the forward terrain receives the point and spot lights the
+            // meshes do) and this frame's shadowed point/spot lights (UpdateLocalShadows ran above): their views
+            // draw the terrain at the LOD the light asks for, not the camera's, so a cached local shadow survives a
+            // camera move.
+            const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                 ->PrepareFrame( frame, UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                                             ->GetLocalShadowCasterLights() );
+                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ), meshes->GetLocalShadowCasterLights() );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         if ( const Common::BoolResultStr physical =

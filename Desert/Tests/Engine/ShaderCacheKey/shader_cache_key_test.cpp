@@ -1807,12 +1807,13 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 
     // The shared half: TerrainUB holds ONLY what every terrain of a frame agrees on — View +
     // Projection + SunDir + SunColor + the view's unjittered ViewProjection / PrevViewProjection (TAA1
-    // velocity), 4*64 + 2*16 = 288 bytes. This is a size relation, not a spot
+    // velocity) + its JitteredViewProjection (the forward lights' contact-shadow march), 5*64 + 2*16 = 352 bytes.
+    // This is a size relation, not a spot
     // value: putting any per-terrain field back (Model was the first to be forgotten here) grows the
-    // block past 288 and fails this line before it fails on screen.
+    // block past 352 and fails this line before it fails on screen.
     const auto ub = set.UniformBuffers.find( 0 );
     ASSERT_NE( ub, set.UniformBuffers.end() ) << "TerrainUB left binding 0";
-    EXPECT_EQ( ub->second.Size, 288u )
+    EXPECT_EQ( ub->second.Size, 352u )
          << "TerrainUB is no longer just the shared frame data - a per-draw field moved back in";
 
     // The per-draw half: TerrainInstances[] at binding 8, one struct per recorded draw.
@@ -1842,14 +1843,25 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 
     // The census, so a binding added or lost anywhere in the two stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 7u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 17u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     // Bindings 2-4 held the built-in grass/rock/snow layer textures until LS-16; none may come back.
     for ( const uint32_t retired : { 2u, 3u, 4u } )
         EXPECT_FALSE( HasBinding( bindings, retired, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << retired;
-    EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
-    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
+    // The point and spot lights (Mesh/ForwardLocalLights.glslh) at the lit programs' numbers, with the ShadowUB
+    // their contact shadows read; the cloud shadow at the mesh shaders' 20/21.
+    EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );  // LightsMetadata
+    EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );  // PointLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );  // ShadowUB
+    EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // SpotLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
+    EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
+    // The scene-read range: the march's depth and shading word, the light grid, the local shadow atlas and views.
+    for ( const uint32_t sampled : { 27u, 28u, 31u } )
+        EXPECT_TRUE( HasBinding( bindings, sampled, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << sampled;
+    for ( const uint32_t storage : { 29u, 30u, 32u } )
+        EXPECT_TRUE( HasBinding( bindings, storage, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << storage;
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
     EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
     EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (RGBA8)
@@ -1863,8 +1875,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 //   - the G-buffer program's Properties are the forward program's, param for param: a terrain's .demat names
 //     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
-//   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
-//     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
+//   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the view's
+//     LOD: the camera's for a cascade, the light's for a point/spot view) and the heightmap — and no Materials[] row or TerrainUB it is never given.
 TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )
