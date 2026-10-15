@@ -277,8 +277,8 @@ namespace Desert::ECS
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
-            draw.Entity        = static_cast<uint32_t>( d.Entity );
-            draw.HeightRevision = gpu.HeightRevision;
+            draw.Entity            = static_cast<uint32_t>( d.Entity );
+            draw.HeightRevision    = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
@@ -287,8 +287,8 @@ namespace Desert::ECS
             {
                 const Landscape::LandscapeWeightChannels channels =
                      Landscape::ResolveLandscapeWeightChannels( heights, surface.Layers );
-                weights.Weightmap  = gpu.Weightmap;
-                weights.Revision   = gpu.WeightRevision;
+                weights.Weightmap       = gpu.Weightmap;
+                weights.Revision        = gpu.WeightRevision;
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );

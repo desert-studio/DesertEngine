@@ -51,7 +51,7 @@ namespace Desert::Graphic::RayTracing
         uint32_t SubmeshIndex = 0;
         // OPAQUE: a hit is final (no any-hit). Not opaque: every candidate goes to the alpha test, once per
         // primitive (NO_DUPLICATE_ANY_HIT) - a landscape tile's cells that touch a hole.
-        bool Opaque = true;
+        bool Opaque                                               = true;
         bool operator==( const RayTracingGeometrySegment& ) const = default;
     };
 

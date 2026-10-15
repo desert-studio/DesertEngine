@@ -38,11 +38,11 @@ namespace Desert::Graphic::System
 
 namespace Desert::Graphic::RayTracing
 {
-    inline constexpr std::string_view kTlasPassName           = "RayTracingScene.TLAS";
-    inline constexpr std::string_view kTlasInstancesName      = "RayTracingScene.Instances";
-    inline constexpr std::string_view kTlasScratchName        = "RayTracingScene.Scratch";
-    inline constexpr std::string_view kTlasStorageName        = "RayTracingScene.TLAS";
-    inline constexpr std::string_view kPrimitiveInstancesName = "RayTracingScene.PrimitiveInstances";
+    inline constexpr std::string_view kTlasPassName               = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kTlasInstancesName          = "RayTracingScene.Instances";
+    inline constexpr std::string_view kTlasScratchName            = "RayTracingScene.Scratch";
+    inline constexpr std::string_view kTlasStorageName            = "RayTracingScene.TLAS";
+    inline constexpr std::string_view kPrimitiveInstancesName     = "RayTracingScene.PrimitiveInstances";
     inline constexpr uint64_t         kPrimitiveInstancesRowBytes = sizeof( uint32_t ) * 2u; // uint2 per row
 
     // This frame's TLAS as the graph being built sees it. Refs are valid only for that graph.
@@ -82,8 +82,8 @@ namespace Desert::Graphic::RayTracing
         return bytes;
     }
 
-    // The rows of RayTracingScene.PrimitiveInstances: {FirstInstance, InstanceCount} per GPU-scene row, at least one
-    // row (a graph buffer cannot be empty).
+    // The rows of RayTracingScene.PrimitiveInstances: {FirstInstance, InstanceCount} per GPU-scene row, at least
+    // one row (a graph buffer cannot be empty).
     [[nodiscard]] inline std::vector<std::byte>
     EncodePrimitiveInstanceRows( std::span<const RayTracingPrimitiveInstances> ranges )
     {
@@ -176,10 +176,10 @@ namespace Desert::Graphic::RayTracing
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
         // The landscape tiles (RayTracingExternalPrimitives): built / refit this frame, their vertex + index
         // buffers and their BLAS storage (also counted in TracedBlasBytes, as the variants are).
-        uint32_t LandscapeBuilt          = 0;
-        uint32_t LandscapeRefit          = 0;
-        uint64_t LandscapeVertexBytes    = 0;
-        uint64_t LandscapeBlasBytes      = 0;
+        uint32_t LandscapeBuilt       = 0;
+        uint32_t LandscapeRefit       = 0;
+        uint64_t LandscapeVertexBytes = 0;
+        uint64_t LandscapeBlasBytes   = 0;
     };
 
     // The view-memory lines of the RT scene (SceneRenderer logs them under [ViewMemory] when the TLAS storage is
@@ -208,12 +208,14 @@ namespace Desert::Graphic::RayTracing
         // custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
-        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its views.
+        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its
+        // views.
         // @p external: primitives another renderer produced this frame (the landscape tiles), instanced after the
         // meshes; their BLAS requests join RayTracingScene.DynamicGeometry.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
-                                                       const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
-                                                       const glm::vec3& viewOrigin, float drawDistanceScale,
+                                                       const System::MeshRenderer& meshes,
+                                                       RayTracingSceneCache& cache, const glm::vec3& viewOrigin,
+                                                       float                               drawDistanceScale,
                                                        const RayTracingExternalPrimitives& external = {} );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
@@ -237,13 +239,13 @@ namespace Desert::Graphic::RayTracing
         }
 
     private:
-        std::unique_ptr<RayTracingSceneTarget> m_Target;
-        RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
-        RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
-        std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
+        std::unique_ptr<RayTracingSceneTarget>      m_Target;
+        RayTracingGatherResult                      m_Gather;        // CPU scratch, capacity kept
+        RDG::ExternalBuffer                         m_BonesImport;   // this view's ObjectBones, for the skin cache
+        std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;
-        RayTracingInstanceList                 m_Instances;
-        RayTracingSceneFrame                   m_Frame;
+        RayTracingInstanceList                      m_Instances;
+        RayTracingSceneFrame                        m_Frame;
     };
 } // namespace Desert::Graphic::RayTracing

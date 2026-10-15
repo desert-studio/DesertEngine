@@ -230,9 +230,9 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions): instance
-            // i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and its GI
-            // card-table row (one row per instance, 1:1 with the TLAS instance).
+            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions):
+            // instance i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and
+            // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
             uint32_t FirstMotionRow = 0;
         };
 

@@ -79,8 +79,8 @@ namespace Desert::Graphic::RayTracing
                           !storage )
                          return Common::MakeError( storage.GetError() );
                      if ( const auto recorded = build.Target->RecordBuild(
-                               context, vertices.GetValue(), indices ? &*indices : nullptr, scratchBinding.GetValue(),
-                               build.ScratchOffset );
+                               context, vertices.GetValue(), indices ? &*indices : nullptr,
+                               scratchBinding.GetValue(), build.ScratchOffset );
                           !recorded )
                          return recorded;
                  }

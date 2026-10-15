@@ -39,8 +39,9 @@ namespace Desert::Graphic::RayTracing
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
 
-    // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the overlay
-    // says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero here.
+    // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the
+    // overlay says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero
+    // here.
     enum class RayTracingPrimitiveKind : uint8_t
     {
         Static = 0, // an asset mesh on the lit queue
@@ -62,7 +63,7 @@ namespace Desert::Graphic::RayTracing
     {
         const void*             Geometry        = nullptr;
         glm::mat4               World           = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t                GpuSceneRow     = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        uint32_t                GpuSceneRow     = 0; // the primitive's ObjectMotions row (MotionRow)
         bool                    CastShadows     = true;
         uint64_t                HiddenSubmeshes = 0; // bit i = submesh i hidden; Geometry already leaves them out
         RayTracingPrimitiveKind Kind            = RayTracingPrimitiveKind::Static;
@@ -117,13 +118,20 @@ namespace Desert::Graphic::RayTracing
     {
         switch ( kind )
         {
-            case RayTracingPrimitiveKind::Static: return "Static";
-            case RayTracingPrimitiveKind::Generic: return "Generic";
-            case RayTracingPrimitiveKind::Instanced: return "Instanced";
-            case RayTracingPrimitiveKind::Landscape: return "Landscape";
-            case RayTracingPrimitiveKind::Skinned: return "Skinned";
-            case RayTracingPrimitiveKind::Procedural: return "Procedural";
-            case RayTracingPrimitiveKind::Count: break;
+            case RayTracingPrimitiveKind::Static:
+                return "Static";
+            case RayTracingPrimitiveKind::Generic:
+                return "Generic";
+            case RayTracingPrimitiveKind::Instanced:
+                return "Instanced";
+            case RayTracingPrimitiveKind::Landscape:
+                return "Landscape";
+            case RayTracingPrimitiveKind::Skinned:
+                return "Skinned";
+            case RayTracingPrimitiveKind::Procedural:
+                return "Procedural";
+            case RayTracingPrimitiveKind::Count:
+                break;
         }
         return "?";
     }
@@ -131,11 +139,16 @@ namespace Desert::Graphic::RayTracing
     {
         switch ( reason )
         {
-            case RayTracingSkip::NoGeometry: return "No geometry";
-            case RayTracingSkip::Skinned: return "Skin cache refused";
-            case RayTracingSkip::NothingVisible: return "Nothing visible";
-            case RayTracingSkip::RowOutOfRange: return "Row out of range";
-            case RayTracingSkip::Count: break;
+            case RayTracingSkip::NoGeometry:
+                return "No geometry";
+            case RayTracingSkip::Skinned:
+                return "Skin cache refused";
+            case RayTracingSkip::NothingVisible:
+                return "Nothing visible";
+            case RayTracingSkip::RowOutOfRange:
+                return "Row out of range";
+            case RayTracingSkip::Count:
+                break;
         }
         return "?";
     }
@@ -144,8 +157,8 @@ namespace Desert::Graphic::RayTracing
     {
         std::vector<RayTracingInstance> Instances;
         // Indexed by GPU-scene row, up to the highest row the TLAS holds: the instances of each row.
-        std::vector<RayTracingPrimitiveInstances>                               Ranges;
-        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{};
+        std::vector<RayTracingPrimitiveInstances>                                        Ranges;
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          Skipped{};
         std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
 
         [[nodiscard]] uint32_t SkippedFor( RayTracingSkip reason ) const

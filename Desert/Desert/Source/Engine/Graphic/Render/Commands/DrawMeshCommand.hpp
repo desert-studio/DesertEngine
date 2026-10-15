@@ -80,15 +80,17 @@ namespace Desert::Graphic::Render
         DrawInstancedStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         const InstanceCullDistance& cullDistance, const InstanceWind& wind )
-             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CullDistance( cullDistance ), Wind( wind )
+             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ),
+               Transforms( std::move( transforms ) ), CastShadows( castShadows ), CullDistance( cullDistance ),
+               Wind( wind )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Entity, Mesh, Material, Transforms, CastShadows, CullDistance, Wind );
+                renderer.SubmitInstancedMesh( Entity, Mesh, Material, Transforms, CastShadows, CullDistance,
+                                              Wind );
         }
     };
 } // namespace Desert::Graphic::Render

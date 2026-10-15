@@ -255,8 +255,7 @@ namespace Desert::Graphic
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
-                                  const MaterialOverrides&           overrides,
-                                  const System::LandscapeWeightDraw& weights );
+                                  const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
@@ -878,7 +877,8 @@ namespace Desert::Graphic
         // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
         RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
 #if DESERT_DEV_INSTRUMENTS
-        // The TLAS storage size the RT scene's [ViewMemory] lines were last logged at (logged again when it steps).
+        // The TLAS storage size the RT scene's [ViewMemory] lines were last logged at (logged again when it
+        // steps).
         uint64_t m_LoggedRayTracingTlasBytes = 0;
 #endif
         // BuildObjectMotions' landscape tile records, kept across frames (no per-frame allocation).

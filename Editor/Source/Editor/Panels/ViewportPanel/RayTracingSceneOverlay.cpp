@@ -29,23 +29,22 @@ namespace Desert::Editor
             return;
 
         using Graphic::RayTracing::RayTracingPrimitiveKind;
-        using Graphic::RayTracing::RayTracingSkip;
         using Graphic::RayTracing::RayTracingPrimitiveKindName;
+        using Graphic::RayTracing::RayTracingSkip;
         using Graphic::RayTracing::RayTracingSkipName;
         const Localization::LocaleRow& locale = Localization::Localization::Get().Language();
 
         std::vector<std::string> rows;
         rows.emplace_back( "Ray tracing scene" );
         for ( std::size_t k = 0; k < stats.InstancesByKind.size(); ++k )
-            rows.push_back(
-                std::format( "  {}: {}", RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
-                             Localization::FormatInteger( locale, stats.InstancesByKind[k] ) ) );
+            rows.push_back( std::format( "  {}: {}",
+                                         RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
+                                         Localization::FormatInteger( locale, stats.InstancesByKind[k] ) ) );
         const std::size_t firstSkip = rows.size();
         for ( std::size_t r = 0; r < stats.SkippedByReason.size(); ++r )
-            rows.push_back(
-                std::format( "  Skipped, {}: {}",
-                             RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
-                             Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
+            rows.push_back( std::format( "  Skipped, {}: {}",
+                                         RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
+                                         Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
         const std::size_t endSkip = rows.size();
         rows.push_back( std::format( "  Traced BLAS: {}", FormatMiB( locale, stats.TracedBlasBytes ) ) );
         rows.push_back( std::format( "  Variant BLAS: {}", FormatMiB( locale, stats.VariantBlasBytes ) ) );
@@ -54,18 +53,16 @@ namespace Desert::Editor
                                      Localization::FormatInteger( locale, stats.SkinCacheEntries ),
                                      FormatMiB( locale, stats.SkinCacheBlasBytes ),
                                      FormatMiB( locale, stats.SkinCachePositionsBytes ) ) );
-        rows.push_back( std::format( "  Landscape tiles: {} (built {}, refit {}), vertices: {}, BLAS: {}",
-                                     Localization::FormatInteger(
-                                          locale, stats.InstancesByKind[static_cast<std::size_t>(
-                                                       RayTracingPrimitiveKind::Landscape )] ),
-                                     Localization::FormatInteger( locale, stats.LandscapeBuilt ),
-                                     Localization::FormatInteger( locale, stats.LandscapeRefit ),
-                                     FormatMiB( locale, stats.LandscapeVertexBytes ),
-                                     FormatMiB( locale, stats.LandscapeBlasBytes ) ) );
-        rows.push_back( std::format( "  TLAS: {}, instances: {}, primitive ranges: {}",
-                                     FormatMiB( locale, stats.TlasBytes ),
-                                     FormatMiB( locale, stats.TlasInstanceBytes ),
-                                     FormatMiB( locale, stats.PrimitiveInstanceBytes ) ) );
+        rows.push_back( std::format(
+             "  Landscape tiles: {} (built {}, refit {}), vertices: {}, BLAS: {}",
+             Localization::FormatInteger(
+                  locale, stats.InstancesByKind[static_cast<std::size_t>( RayTracingPrimitiveKind::Landscape )] ),
+             Localization::FormatInteger( locale, stats.LandscapeBuilt ),
+             Localization::FormatInteger( locale, stats.LandscapeRefit ),
+             FormatMiB( locale, stats.LandscapeVertexBytes ), FormatMiB( locale, stats.LandscapeBlasBytes ) ) );
+        rows.push_back( std::format(
+             "  TLAS: {}, instances: {}, primitive ranges: {}", FormatMiB( locale, stats.TlasBytes ),
+             FormatMiB( locale, stats.TlasInstanceBytes ), FormatMiB( locale, stats.PrimitiveInstanceBytes ) ) );
 
         // Bottom-right, right-aligned: the render-methods rows hold the bottom-left, the axis triad the top-right.
         constexpr float kMargin = 12.0f;
