@@ -785,8 +785,12 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
-        // device, each lowered axis logged once.
-        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        // device x render path, each lowered axis logged once. m_RenderPath (set above, a debug view may force
+        // forward) is what the frame graph branches on, so a method that needs the G-buffer is lowered exactly when
+        // the deferred block will not run - under forward, ray-traced sun shadows resolve to CascadedMaps and the
+        // cascades are drawn for the forward meshes that read them (UE's forward renderer does the same).
+        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
+                                                m_RenderPath == Core::RenderPath::Deferred && m_GBuffer );
         ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;

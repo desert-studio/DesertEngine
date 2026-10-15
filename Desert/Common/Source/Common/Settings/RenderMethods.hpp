@@ -106,6 +106,27 @@ namespace Common::Scalability
         return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
 
+    // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
+    // These methods work per screen pixel from the G-buffer's depth and normal (screen-space GI/reflections, the
+    // RSM gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path (no
+    // G-buffer, or a debug view that forces it) has no producer for them. UE's forward renderer drops the same set
+    // (no SSR, no SSGI, no Lumen, ray-traced shadows fall back to shadow maps).
+    [[nodiscard]] constexpr bool NeedsGBuffer( GIMethod method )
+    {
+        return method == GIMethod::ScreenSpace || method == GIMethod::ReflectiveShadowMaps ||
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
+               method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsGBuffer( ReflectionMethod method )
+    {
+        return method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsGBuffer( ShadowMethod method )
+    {
+        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+    }
+
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------
     // Attached to the reflected fields as PROPERTY( Refuse( ... ) ); the value is the stored integer. Empty =
     // admitted; otherwise the reason, one sentence. A number that is no enumerator is refused by the reflection
