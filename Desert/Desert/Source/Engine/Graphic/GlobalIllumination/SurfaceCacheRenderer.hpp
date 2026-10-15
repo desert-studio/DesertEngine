@@ -52,10 +52,9 @@ namespace Desert::Graphic::SurfaceCache
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // The captured layers this renderer owns (SurfaceCache::Layer Depth..Emissive).
-        static constexpr std::array<Layer, 5> kCapturedLayers{
-             Layer::Depth, Layer::Albedo, Layer::Opacity, Layer::Normal,
-             Layer::Emissive }; // The lit layers: the direct lighting (GI-SURFACE-CACHE-4), the indirect lighting
-                                // off the world radiance
+        static constexpr std::array<Layer, 5> kCapturedLayers{ Layer::Depth, Layer::Albedo, Layer::Opacity,
+                                                               Layer::Normal, Layer::Emissive };
+        // The lit layers: the direct lighting (GI-SURFACE-CACHE-4), the indirect lighting off the world radiance
         // cache (GI-CARD-LOOKUP) and their combine. The radiosity count arrives with the radiosity probes.
         static constexpr std::array<Layer, 3> kLitLayers{ Layer::DirectLighting, Layer::IndirectLighting,
                                                           Layer::FinalLighting };
@@ -130,10 +129,11 @@ namespace Desert::Graphic::SurfaceCache
         [[nodiscard]] GlobalIllumination::SurfaceCacheFrame HitReads( const ImportImage&  import,
                                                                       const FrameBuffers& buffers ) const;
         // UE LumenSceneDirectLighting: the frame's LightingPages relit into DirectLighting and FinalLighting.
-        [[nodiscard]] Common::BoolResultStr AddDirectLightingPass(
-             RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame, const FrameBuffers& buffers,
-             const DirectLightingInputs& inputs ); // The radiosity slot (SurfaceCacheIndirectLighting.shader): the
-                                                   // frame's LightingPages take the radiance
+        [[nodiscard]] Common::BoolResultStr AddDirectLightingPass( RDG::Builder& graph, const ImportImage& import,
+                                                                   const SceneFrame&           frame,
+                                                                   const FrameBuffers&         buffers,
+                                                                   const DirectLightingInputs& inputs );
+        // The radiosity slot (SurfaceCacheIndirectLighting.shader): the frame's LightingPages take the radiance
         // cache's irradiance as IndirectLighting and recombine FinalLighting. After the cache's update.
         [[nodiscard]] Common::BoolResultStr
         AddIndirectLightingPass( RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame,

@@ -481,7 +481,9 @@ namespace Desert::Graphic
         {
             LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
             return;
-        } // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
+        }
+
+        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
         if ( m_SurfaceCache && m_SurfaceCacheFrame )
         {
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();

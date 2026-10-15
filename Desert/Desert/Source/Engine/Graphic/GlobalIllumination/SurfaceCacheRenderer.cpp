@@ -82,8 +82,9 @@ namespace Desert::Graphic::SurfaceCache
         auto pipeline = ComputePipeline::Create( { .Shader = m_CopyShader, .DebugName = "SurfaceCacheCardCopy" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
-        m_CopyPipeline = pipeline.GetValue(); // The indirect lighting: one quad per relit page into
-                                              // IndirectLighting and FinalLighting.
+        m_CopyPipeline = pipeline.GetValue();
+
+        // The indirect lighting: one quad per relit page into IndirectLighting and FinalLighting.
         {
             GraphicsPipelineSpecification indirect;
             indirect.DebugName = "SurfaceCacheIndirectLighting";

@@ -201,7 +201,8 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Pages;        // "SurfaceCardPageBuffer"
         RDG::BufferRef  MeshCards;    // "SurfaceMeshCardsBuffer"
         RDG::BufferRef  InstanceRows; // "SurfaceCacheInstancesUB"
-        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"        RDG::TextureRef FinalLighting;
+        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"
+        RDG::TextureRef FinalLighting;
         RDG::TextureRef Depth;
         RDG::TextureRef Opacity;
     };

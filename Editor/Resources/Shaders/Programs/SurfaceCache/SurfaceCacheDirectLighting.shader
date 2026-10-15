@@ -128,7 +128,8 @@ Shader "SurfaceCacheDirectLighting"
 
         PushConstant SurfaceDirectLightingPush
         {
-            vec4 u_LightDir;   // xyz = the direction the sun's light travels            vec4  u_LightColor; // rgb = colour, a = intensity
+            vec4  u_LightDir;   // xyz = the direction the sun's light travels
+            vec4  u_LightColor; // rgb = colour, a = intensity
             uvec4 u_Flags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting)
         };
 
