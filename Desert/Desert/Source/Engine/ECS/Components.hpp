@@ -1022,6 +1022,11 @@ namespace Desert::ECS
                   Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
                            "(0 = such a mesh casts none)." ) )
         float ContactShadowNonCastingIntensity = 0.0f;
+
+        PROPERTY( DisplayName( "Volumetric Scattering Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ),
+                  Tooltip( "How much of this light the volumetric fog scatters (UE ULightComponent::"
+                           "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
+        float VolumetricScatteringIntensity = 1.0f;
     };
 
     struct DirectionLightComponent
@@ -1120,6 +1125,11 @@ namespace Desert::ECS
                   Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
                            "(0 = such a mesh casts none)." ) )
         float ContactShadowNonCastingIntensity = 0.0f;
+
+        PROPERTY( DisplayName( "Volumetric Scattering Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ),
+                  Tooltip( "How much of this light the volumetric fog scatters (UE ULightComponent::"
+                           "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
+        float VolumetricScatteringIntensity = 1.0f;
     };
 
     struct PointLightComponent
@@ -1212,6 +1222,11 @@ namespace Desert::ECS
                   Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
                            "(0 = such a mesh casts none)." ) )
         float ContactShadowNonCastingIntensity = 0.0f;
+
+        PROPERTY( DisplayName( "Volumetric Scattering Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ),
+                  Tooltip( "How much of this light the volumetric fog scatters (UE ULightComponent::"
+                           "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
+        float VolumetricScatteringIntensity = 1.0f;
     };
 
     struct SpotLightComponent

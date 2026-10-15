@@ -63,11 +63,11 @@ namespace
       "Cinematic": { "ViewDistance.MeshLOD": 0 }
     },
     "Effects": {
-      "Low":       { "Effects.CloudQuality": 0 },
-      "Medium":    { "Effects.CloudQuality": 1 },
-      "High":      { "Effects.CloudQuality": 2 },
-      "Epic":      { "Effects.CloudQuality": 2 },
-      "Cinematic": { "Effects.CloudQuality": 2 }
+      "Low":       { "Effects.CloudQuality": 0, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "Medium":    { "Effects.CloudQuality": 1, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "High":      { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "Epic":      { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 8, "Effects.VolumetricFogGridSizeZ": 128 },
+      "Cinematic": { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 4, "Effects.VolumetricFogGridSizeZ": 128 }
     },
     "Textures": {
       "Low":       { "Textures.MipBias": 100, "Textures.StreamingPoolMiB": 512 },

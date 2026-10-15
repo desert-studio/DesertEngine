@@ -129,6 +129,13 @@ namespace Common::Scalability
         LightGridPixelSize,        // tile edge in render pixels. 16..256
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
+        // Volumetric fog (Graphic::VolumetricFogQuality, VolumetricFogRenderer) - UE sg.EffectsQuality's
+        // r.VolumetricFog / r.VolumetricFog.GridPixelSize / r.VolumetricFog.GridSizeZ. The first is the machine's
+        // CEILING: at 0 a scene that authored volumetric fog keeps its analytic height fog only (UE's behaviour on
+        // Low/Medium). The other two cut the froxel grid: cost and blur, never the fog's density or colour.
+        VolumetricFog,              // 0 off, 1 on
+        VolumetricFogGridPixelSize, // froxel edge in render pixels. 4..32
+        VolumetricFogGridSizeZ,     // depth slices of the froxel grid. 32..256
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

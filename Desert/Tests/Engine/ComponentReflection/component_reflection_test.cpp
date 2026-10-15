@@ -364,7 +364,7 @@ TEST( SkyAtmosphereReflection, BothSunPairsExplainTheSplit )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// ExponentialHeightFogData — 14 fields in three groups, UE's UExponentialHeightFogComponent parameter
+// ExponentialHeightFogData — 22 fields in four groups (VOLFOG added "Volumetric Fog"), UE's UExponentialHeightFogComponent parameter
 // for parameter (Docs/Sky/UE_SKYATMOSPHERE_RESEARCH.md section 3.2). The fog HEIGHT is deliberately
 // absent: it is the entity's TransformComponent Y, as UE takes it from the component transform.
 // ---------------------------------------------------------------------------------------------------
@@ -386,14 +386,23 @@ TEST( HeightFogReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
          "DirectionalInscatteringExponent",
          "DirectionalInscatteringStartDistance",
          "DirectionalInscatteringLuminance",
+         "VolumetricFog",
+         "VolumetricFogScatteringDistribution",
+         "VolumetricFogAlbedo",
+         "VolumetricFogEmissive",
+         "VolumetricFogExtinctionScale",
+         "VolumetricFogDistance",
+         "VolumetricFogStartDistance",
+         "VolumetricFogNearFadeInDistance",
     };
 
     const TypeInfo& fog = Type( "ExponentialHeightFogData" );
-    EXPECT_EQ( fog.Fields.size(), 14u );
+    EXPECT_EQ( fog.Fields.size(), 22u );
     EXPECT_EQ( FieldNames( fog ), expected );
 
     EXPECT_EQ( CountInCategory( fog, "Exponential Height Fog" ), 8u );
     EXPECT_EQ( CountInCategory( fog, "Second Fog Layer" ), 3u );
+    EXPECT_EQ( CountInCategory( fog, "Volumetric Fog" ), 8u );
     EXPECT_EQ( CountInCategory( fog, "Directional Inscattering" ), 3u );
 
     // The fog height is NOT a field — one owner, the transform, or the fog floor and the entity that
@@ -1413,7 +1422,7 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
                                                                 "ContactShadowLength",
                                                                 "ContactShadowLengthInWorldSpace",
                                                                 "ContactShadowCastingIntensity",
-                                                                "ContactShadowNonCastingIntensity" } ) );
+                                                                "ContactShadowNonCastingIntensity", "VolumetricScatteringIntensity" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so
