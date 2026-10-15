@@ -527,12 +527,33 @@ namespace Desert::Editor
         // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
         // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
         // thumbnails.
-        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap); the
-        // template's rows then route it like any other key.
+        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
+        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
+        // any other key. Every map's meaning read from its image is logged with the material.
         for ( const auto& material : resolved.Materials )
         {
+            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
+            if ( !meaning )
+            {
+                record( Common::MakeError<bool>( meaning.GetError() ) );
+                continue;
+            }
+            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
+                 material.Source.Has( kFbxSpecularMapKey ) )
+                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
+                          sourcePath.filename().string(), material.Source.Name,
+                          Assets::FbxSpecularMapName( meaning.GetValue() ),
+                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
+                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
+                               : " (R carries data: FBX's specular colour)" );
             ImportedMaterial stated = material;
-            stated.Source           = WithFbxSpecularMap( std::move( stated.Source ), settings.SpecularMap );
+            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
+            if ( !routed )
+            {
+                record( Common::MakeError<bool>( routed.GetError() ) );
+                continue;
+            }
+            stated.Source = routed.ExtractValue();
             record( SerializeMaterialAsset( stated, sourcePath, pass ) );
         }
 

@@ -66,8 +66,13 @@ namespace Desert::Assets
     // metalness in B; `RoughnessMetallic` = roughness in G and metalness in B with R carrying NO occlusion
     // (Falcor's metal-rough convention, as Amazon Lumberyard Bistro / NVIDIA ORCA ship it: R is 0 in all 201 of
     // its Specular maps, so read as occlusion it blacks out every surface's ambient light).
+    // `FromImage` (the default) = the image's own texels decide, per map, at import (ResolveFbxSpecularMap): a map
+    // whose R is 0 on every texel while G or B carry data is the metal-rough packing (`RoughnessMetallic`), any
+    // other map is FBX's specular colour (`Specular`). As UE's texture import reads the texels to tell a normal
+    // map (NormalMapIdentification), not the file name. The import logs the meaning it read for every map.
     enum class FbxSpecularMap : uint8_t
     {
+        FromImage,
         Specular,
         OcclusionRoughnessMetallic,
         RoughnessMetallic,
@@ -120,7 +125,7 @@ namespace Desert::Assets
         // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
         std::optional<Common::Content::AssetGuid> Skeleton;
         // How the file's FBX Specular map enters the material (ImportManager, before the template fill).
-        FbxSpecularMap SpecularMap = FbxSpecularMap::Specular;
+        FbxSpecularMap SpecularMap = FbxSpecularMap::FromImage;
         // What one length of the file is (ImportUnits::Resolve, before the geometry is built): read by the
         // importer, not copied into the meshes - the geometry it writes is already in centimetres.
         MeshFileUnit FileUnit                                        = MeshFileUnit::FromFile;
