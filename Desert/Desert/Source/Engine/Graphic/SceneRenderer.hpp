@@ -73,6 +73,7 @@
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 
 namespace Desert::Core
 {
@@ -253,8 +254,9 @@ namespace Desert::Graphic
 
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
-        void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                  const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
+        void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
+                                  const MaterialOverrides&           overrides,
+                                  const System::LandscapeWeightDraw& weights );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
@@ -340,6 +342,12 @@ namespace Desert::Graphic
         [[nodiscard]] const RenderMethods& GetRenderMethods() const
         {
             return m_RenderMethods;
+        }
+        // This frame's landscape in the view's TLAS (tiles built / refit, bytes): the ray-tracing stats overlay's
+        // landscape line. Its instance count is the TLAS list's InstancesByKind[Landscape].
+        [[nodiscard]] const RayTracing::LandscapeRayTracingFrame& GetLandscapeRayTracingFrame() const
+        {
+            return m_LandscapeRayTracing.GetFrame();
         }
 
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
@@ -874,6 +882,10 @@ namespace Desert::Graphic
         RenderMethods           m_RenderMethods;
         // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
         RayTracing::RayTracingSceneRenderer m_RayTracingScene;
+        // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
+        RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
+        // BuildObjectMotions' landscape tile records, kept across frames (no per-frame allocation).
+        std::vector<MotionRecord> m_ScratchTileMotions;
 
     public:
         // This view's RT scene (instances, skips, stats) as of its last frame - the viewport's RT scene overlay.

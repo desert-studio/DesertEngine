@@ -1,6 +1,7 @@
 #include "RenderMethodsOverlay.hpp"
 
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 
@@ -22,7 +23,8 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void DrawRayTracingSceneOverlay( const Graphic::RayTracing::RayTracingSceneStats& stats,
+    void DrawRayTracingSceneOverlay( const Graphic::RayTracing::RayTracingSceneStats&     stats,
+                                     const Graphic::RayTracing::LandscapeRayTracingFrame& landscape,
                                      const ImVec2& /*viewportMin*/, const ImVec2& viewportMax )
     {
         if ( !stats.Built )
@@ -53,6 +55,13 @@ namespace Desert::Editor
         rows.push_back( std::format( "  Skin cache BLAS: {}, positions: {}",
                                      FormatMiB( locale, stats.SkinCacheBlasBytes ),
                                      FormatMiB( locale, stats.SkinCachePositionsBytes ) ) );
+        rows.push_back( std::format( "  Landscape tiles: {} (built {}, refit {}), vertices: {}, BLAS: {}",
+                                     Localization::FormatInteger(
+                                          locale, static_cast<int64_t>( landscape.Primitives.size() ) ),
+                                     Localization::FormatInteger( locale, landscape.Built ),
+                                     Localization::FormatInteger( locale, landscape.Refit ),
+                                     FormatMiB( locale, landscape.VertexBytes ),
+                                     FormatMiB( locale, landscape.BlasBytes ) ) );
         rows.push_back( std::format( "  TLAS: {}, instances: {}", FormatMiB( locale, stats.TlasBytes ),
                                      FormatMiB( locale, stats.TlasInstanceBytes ) ) );
 

@@ -311,7 +311,17 @@ namespace Desert::Graphic::System
         // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
-        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+        // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
+        // tiles) that still need a GPU-scene row - their TLAS custom index; their rows, in order, are
+        // GetOtherMotionRows().
+        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                motion,
+                                                                std::span<const MotionRecord> otherRigid );
+
+        // The rows of BuildObjectMotions' @p otherRigid records, in their order. Valid until the next build.
+        [[nodiscard]] std::span<const uint32_t> GetOtherMotionRows() const
+        {
+            return m_OtherMotionRows;
+        }
 
         // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
         // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
@@ -1063,6 +1073,7 @@ namespace Desert::Graphic::System
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
         std::vector<uint32_t>                m_InstancedMotionRows; // see GetInstancedMotionRows
+        std::vector<uint32_t>                m_OtherMotionRows;     // see GetOtherMotionRows
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

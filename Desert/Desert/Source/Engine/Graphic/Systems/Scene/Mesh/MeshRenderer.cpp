@@ -460,7 +460,8 @@ namespace Desert::Graphic::System
         return frame;
     }
 
-    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion )
+    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory&                motion,
+                                                           std::span<const MotionRecord> otherRigid )
     {
         // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
         // records of one object share it, slots stable per submission); this function only gathers the queued
@@ -470,7 +471,8 @@ namespace Desert::Graphic::System
         size_t instanceCount = 0;
         for ( const auto& data : m_InstancedQueue )
             instanceCount += data.Transforms->size();
-        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + m_SkinnedQueue.size() );
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + otherRigid.size() +
+                         m_SkinnedQueue.size() );
         for ( const auto& data : m_StaticQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
@@ -485,6 +487,7 @@ namespace Desert::Graphic::System
                                      .Part   = static_cast<uint32_t>( instance + 1 ),
                                      .World  = transforms[instance] } );
         }
+        records.insert( records.end(), otherRigid.begin(), otherRigid.end() );
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
@@ -505,6 +508,10 @@ namespace Desert::Graphic::System
             for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
                 m_InstancedMotionRows.push_back( built.RecordRows[record++] );
         }
+        m_OtherMotionRows.clear();
+        m_OtherMotionRows.reserve( otherRigid.size() );
+        for ( size_t other = 0; other < otherRigid.size(); ++other )
+            m_OtherMotionRows.push_back( built.RecordRows[record++] );
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
         const auto& rows     = built.Rows;

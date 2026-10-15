@@ -33,7 +33,8 @@ namespace Desert::Graphic::RayTracing
                                                               const System::MeshRenderer& meshes,
                                                               RayTracingSceneCache&       cache,
                                                               const glm::vec3&            viewOrigin,
-                                                              const float                 drawDistanceScale )
+                                                              const float                 drawDistanceScale,
+                                                              const RayTracingExternalPrimitives& external )
     {
         m_Frame     = {};
         m_Instances = {};
@@ -69,7 +70,14 @@ namespace Desert::Graphic::RayTracing
                   graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
              !procedural )
             return procedural;
-        // ONE pass builds every dynamic BLAS of the view (skin cache, procedural; landscape tiles join it).
+        // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
+        // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are read
+        // by the TLAS like every other dynamic BLAS.
+        m_Gather.Primitives.insert( m_Gather.Primitives.end(), external.Primitives.begin(),
+                                    external.Primitives.end() );
+        m_DynamicBuilds.insert( m_DynamicBuilds.end(), external.Builds.begin(), external.Builds.end() );
+        m_DynamicBlas.insert( m_DynamicBlas.end(), external.Resident.begin(), external.Resident.end() );
+        // ONE pass builds every dynamic BLAS of the view (skin cache, procedural, landscape tiles).
         if ( const Common::BoolResultStr built =
                   AddRayTracingDynamicGeometryPass( graph, m_DynamicBuilds, m_DynamicBlas );
              !built )

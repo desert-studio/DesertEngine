@@ -237,9 +237,10 @@ namespace Desert::ECS
             TileGpu& gpu = m_Tiles[d.Entity];
             // In place while the sample count holds (LandscapeTileImage.hpp): the image's address keys the tile's
             // terrain material, so sculpting must not replace it.
-            const auto heightmap = RefreshLandscapeTileImage(
-                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(),
-                 d.Dirty || neighbourDirty || gpu.NeighbourMask != mask,
+            const Graphic::Image2D* previousHeightmap = gpu.Heightmap.get();
+            const bool              heightsDirty      = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
+            const auto              heightmap         = RefreshLandscapeTileImage(
+                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
                  [&] { return HeightmapTexels( heights, neighbours ); }, [&]( std::vector<unsigned char> texels )
                  { return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
             if ( !heightmap.IsSuccess() )
@@ -253,6 +254,8 @@ namespace Desert::ECS
                 continue;
             }
             gpu.NeighbourMask = mask;
+            if ( heightsDirty || gpu.Heightmap.get() != previousHeightmap )
+                gpu.HeightRevision = ++m_Revision;
 
             if ( d.WeightsDirty )
             {
@@ -274,6 +277,8 @@ namespace Desert::ECS
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
+            draw.Entity        = static_cast<uint32_t>( d.Entity );
+            draw.HeightRevision = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
@@ -282,7 +287,8 @@ namespace Desert::ECS
             {
                 const Landscape::LandscapeWeightChannels channels =
                      Landscape::ResolveLandscapeWeightChannels( heights, surface.Layers );
-                weights.Weightmap  = gpu.Weightmap.get();
+                weights.Weightmap  = gpu.Weightmap;
+                weights.Revision   = gpu.WeightRevision;
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
@@ -300,7 +306,7 @@ namespace Desert::ECS
                               tileComp.TileX, tileComp.TileZ, names );
                 }
             }
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap, draw,
                                                                                     surface.Overrides, weights );
         }
 
@@ -327,6 +333,7 @@ namespace Desert::ECS
             return;
         }
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
+        const Graphic::Image2D* previousWeightmap = gpu.Weightmap.get();
         const auto weightmap = RefreshLandscapeTileImage(
              gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(),
              heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
@@ -334,7 +341,11 @@ namespace Desert::ECS
              [&]( std::vector<unsigned char> texels )
              { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
         if ( weightmap.IsSuccess() )
+        {
+            if ( weightsDirty || gpu.Weightmap.get() != previousWeightmap )
+                gpu.WeightRevision = ++m_Revision;
             return;
+        }
         gpu.Weightmap.reset();
         if ( m_WarnedWeights.insert( entity ).second )
             LOG_ERROR( "[Landscape] tile ({}, {}): RGBA8 weightmap: {}; the tile's painted layers are not drawn",

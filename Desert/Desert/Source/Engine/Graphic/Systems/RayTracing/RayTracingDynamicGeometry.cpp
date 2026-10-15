@@ -3,6 +3,7 @@
 #include <Common/Core/Core.hpp>
 
 #include <format>
+#include <optional>
 
 namespace Desert::Graphic::RayTracing
 {
@@ -12,6 +13,7 @@ namespace Desert::Graphic::RayTracing
         {
             RayTracingDynamicGeometryTarget* Target = nullptr;
             RDG::BufferRef                   Vertices;
+            RDG::BufferRef                   Indices;
             RDG::BufferRef                   Storage;
             uint64_t                         ScratchOffset = 0;
         };
@@ -34,7 +36,7 @@ namespace Desert::Graphic::RayTracing
                 return Common::MakeError(
                      std::format( "{}: build request {} of {} has no target, vertices or storage",
                                   kDynamicGeometryPassName, index, builds.size() ) );
-            scheduled.push_back( { build.Target, build.Vertices, build.Storage, scratchBytes } );
+            scheduled.push_back( { build.Target, build.Vertices, build.Indices, build.Storage, scratchBytes } );
             scratchBytes += build.ScratchBytes;
         }
 
@@ -48,6 +50,8 @@ namespace Desert::Graphic::RayTracing
                  for ( const ScheduledBuild& build : scheduled )
                  {
                      pass.Read( build.Vertices, RDG::Access::AccelStructBuildInput );
+                     if ( build.Indices.IsValid() )
+                         pass.Read( build.Indices, RDG::Access::AccelStructBuildInput );
                      pass.Write( build.Storage, RDG::Access::AccelStructBuildWrite );
                  }
              },
@@ -61,12 +65,22 @@ namespace Desert::Graphic::RayTracing
                      const auto vertices = context.GetBuffer( build.Vertices, RDG::Access::AccelStructBuildInput );
                      if ( !vertices )
                          return Common::MakeError( vertices.GetError() );
+                     std::optional<RDG::BufferBinding> indices;
+                     if ( build.Indices.IsValid() )
+                     {
+                         const auto indexBinding =
+                              context.GetBuffer( build.Indices, RDG::Access::AccelStructBuildInput );
+                         if ( !indexBinding )
+                             return Common::MakeError( indexBinding.GetError() );
+                         indices = indexBinding.GetValue();
+                     }
                      if ( const auto storage =
                                context.GetBuffer( build.Storage, RDG::Access::AccelStructBuildWrite );
                           !storage )
                          return Common::MakeError( storage.GetError() );
                      if ( const auto recorded = build.Target->RecordBuild(
-                               context, vertices.GetValue(), scratchBinding.GetValue(), build.ScratchOffset );
+                               context, vertices.GetValue(), indices ? &*indices : nullptr, scratchBinding.GetValue(),
+                               build.ScratchOffset );
                           !recorded )
                          return recorded;
                  }

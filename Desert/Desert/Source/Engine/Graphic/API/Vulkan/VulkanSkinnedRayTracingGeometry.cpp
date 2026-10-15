@@ -167,6 +167,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanSkinnedRayTracingGeometry::RecordBuild( const RDG::PassContext&   context,
                                                                         const RDG::BufferBinding& positions,
+                                                                        const RDG::BufferBinding* /*indices*/,
                                                                         const RDG::BufferBinding& scratch,
                                                                         const uint64_t            scratchOffset )
     {

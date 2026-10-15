@@ -37,6 +37,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         [[nodiscard]] Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                          const RDG::BufferBinding& vertices,
+                                                         const RDG::BufferBinding* indices,
                                                          const RDG::BufferBinding& scratch,
                                                          uint64_t                  scratchOffset ) override;
         [[nodiscard]] uint64_t              GetDeviceAddress() const override

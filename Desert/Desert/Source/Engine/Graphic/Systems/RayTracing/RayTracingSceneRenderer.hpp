@@ -3,6 +3,7 @@
 #include <Common/Core/Core.hpp> // BOOLSUCCESS (the .cpp, VulkanRayTracingScene.cpp and the tests)
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
@@ -176,6 +177,16 @@ namespace Desert::Graphic::RayTracing
         uint64_t TlasInstanceBytes       = 0; // this frame's instance rows
     };
 
+    // Primitives a renderer outside the mesh queues produced for this view's TLAS (LandscapeRayTracing): the
+    // primitives, the dynamic-geometry builds they need this frame, and the storage of their BLASes built in an
+    // earlier frame (the TLAS reads both). Refs are valid only for the graph they were declared in.
+    struct RayTracingExternalPrimitives
+    {
+        std::span<const RayTracingPrimitive>            Primitives;
+        std::span<const RayTracingDynamicGeometryBuild> Builds;
+        std::span<const RDG::BufferRef>                 Resident;
+    };
+
     class RayTracingSceneRenderer
     {
     public:
@@ -184,9 +195,12 @@ namespace Desert::Graphic::RayTracing
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
         // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its views.
+        // @p external: primitives another renderer produced this frame (the landscape tiles), instanced after the
+        // meshes; their BLAS requests join RayTracingScene.DynamicGeometry.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
                                                        const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
-                                                       const glm::vec3& viewOrigin, float drawDistanceScale );
+                                                       const glm::vec3& viewOrigin, float drawDistanceScale,
+                                                       const RayTracingExternalPrimitives& external = {} );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const

@@ -222,6 +222,7 @@ namespace Desert::Graphic::System
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
+        m_FrameInstances.clear();
         if ( m_Queue.empty() )
             return;
 
@@ -249,6 +250,7 @@ namespace Desert::Graphic::System
         // against the old one.
         std::unordered_map<std::string, size_t> groupIndex;
         m_FrameDraws.reserve( m_Queue.size() );
+        m_FrameInstances.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
@@ -258,7 +260,7 @@ namespace Desert::Graphic::System
         for ( const auto& t : m_Queue )
         {
             const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap, t.Weights.Weightmap ), m_FrameGroups.size() );
+                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ), m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
             if ( inserted )
             {
@@ -290,13 +292,13 @@ namespace Desert::Graphic::System
                     if ( img != nullptr && !surface->SetTexture( name, img ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), name );
                 }
-                surface->SetTexture( "u_Heightmap", t.Heightmap );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
+                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
-                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
                     // The caster reads the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -325,6 +327,7 @@ namespace Desert::Graphic::System
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
+            m_FrameInstances.push_back( instance );
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────

@@ -66,7 +66,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             VkAccelerationStructureGeometryKHR geometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
             geometry.geometryType                                      = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-            geometry.flags                                             = VK_GEOMETRY_OPAQUE_BIT_KHR;
+            geometry.flags = segment.Opaque ? VK_GEOMETRY_OPAQUE_BIT_KHR
+                                            : VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
             VkAccelerationStructureGeometryTrianglesDataKHR& triangles = geometry.geometry.triangles;
             triangles.sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
             triangles.vertexFormat = ToVkVertexFormat( segment.VertexFormat );
