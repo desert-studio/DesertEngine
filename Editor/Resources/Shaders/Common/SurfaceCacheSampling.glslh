@@ -120,6 +120,9 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
             const float hitDepth  = 0.5 - 0.5 * local.z / extent.z;
             const float threshold = bias / extent.z;
             const float falloff   = 0.25 * threshold;
+            // The footprint lies in t0's page: a physical page is its virtual page plus the border texel it shares
+            // with the next one (SURFACE_CACHE_PHYSICAL_PAGE_SIZE = VIRTUAL + 1), UE's bilinear page border.
+            const ivec2 atlas0    = SurfaceCacheCardAtlasTexel( card, res, t0, atlasSize );
             vec3        lighting  = vec3( 0.0 );
             float       weightSum = 0.0;
             for ( uint k = 0u; k < 4u; ++k )
@@ -127,7 +130,7 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
                 const uvec2 texel = uvec2( ( k & 1u ) != 0u ? t1.x : t0.x, ( k & 2u ) != 0u ? t1.y : t0.y );
                 const float bilinear =
                      ( ( k & 1u ) != 0u ? f.x : 1.0 - f.x ) * ( ( k & 2u ) != 0u ? f.y : 1.0 - f.y );
-                const ivec2 atlasTexel = SurfaceCacheCardAtlasTexel( card, res, texel, atlasSize );
+                const ivec2 atlasTexel = atlas0 + ivec2( texel - t0 );
                 if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
                     continue;
                 const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
