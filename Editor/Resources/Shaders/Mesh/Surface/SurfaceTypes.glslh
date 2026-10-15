@@ -24,14 +24,16 @@
 // G-buffer, post and screen-space reads are at the render resolution and keep the implicit level.
 #ifdef DESERT_SURFACE_SAMPLES_MATERIAL
 #include <Common/CameraUB.glslh>
+#include <Common/BindlessTextures.glslh>
 
-vec4 SurfaceSampleMaterial( sampler2D materialTexture, vec2 uv )
+// A material texture is its row slot (u_Material.<name>, a BindlessTexture), read through the bindless table.
+vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {
-    return texture( materialTexture, uv, cameraUB.MaterialMipBias );
+    return SampleBindlessBias( materialTexture, uv, cameraUB.MaterialMipBias );
 }
 
 // A material's normal map: the biased fetch, decoded as Common/TangentNormal.glslh decodes any normal map.
-vec3 SurfaceSampleTangentNormal( sampler2D normalMap, vec2 uv )
+vec3 SurfaceSampleTangentNormal( BindlessTexture normalMap, vec2 uv )
 {
     return DecodeTangentNormal( SurfaceSampleMaterial( normalMap, uv ).rg );
 }

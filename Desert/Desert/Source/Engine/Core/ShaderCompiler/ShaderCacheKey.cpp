@@ -32,7 +32,10 @@ namespace Desert::Core
         // v4 (BINDLESS-TEX): every stage gets all of kBindlessShaderDefines (set, both bindings, sampler count and
         // wrap count); their values are mixed in right after the fingerprint (MixCompileOptions), so moving any
         // of them moves every key.
-        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v4";
+        // v5 (MAT-BINDLESS): the parser's generated row changed without the authored text changing: every row
+        // carries Common/BindlessTextures.glslh, and a template's 2D textures are BindlessTexture row members
+        // instead of samplers (Core::Formats::IsRowTexture).
+        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v5";
 
         void FnvMix( uint64_t& h, std::string_view data )
         {

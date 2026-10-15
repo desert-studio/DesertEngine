@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <iterator>
 #include <map>
@@ -371,6 +372,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 continue;
             }
             data.UsesBindlessTable = true;
+            data.BindlessStages =
+                 ( Core::Formats::ShaderStage )( (uint32_t)data.BindlessStages | (uint32_t)stage );
         }
         for ( const auto& resource : resources.separate_images )
         {
@@ -385,6 +388,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 continue;
             }
             data.UsesBindlessTable = true;
+            data.BindlessStages =
+                 ( Core::Formats::ShaderStage )( (uint32_t)data.BindlessStages | (uint32_t)stage );
         }
 
         // Push Constants
@@ -639,6 +644,147 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                    { return a.binding < b.binding; } );
 
         return bindings;
+    }
+
+    namespace
+    {
+        // One descriptor kind of one stage: how many, and which resources, so a refusal names what to move.
+        struct StageTally
+        {
+            uint32_t    Count = 0;
+            std::string Names;
+
+            void Add( std::string_view name )
+            {
+                ++Count;
+                std::format_to( std::back_inserter( Names ), "{}{}", Names.empty() ? "" : ", ", name );
+            }
+        };
+
+        struct StageTallies
+        {
+            StageTally Samplers;
+            StageTally SampledImages;
+            StageTally UniformBuffers;
+            StageTally StorageBuffers;
+            StageTally StorageImages;
+        };
+
+        bool InStage( Core::Formats::ShaderStage mask, Core::Formats::ShaderStage stage )
+        {
+            return ( static_cast<uint32_t>( mask ) & static_cast<uint32_t>( stage ) ) != 0;
+        }
+
+        template <typename TBucket>
+        void TallyBucket( const TBucket& bucket, Core::Formats::ShaderStage stage, StageTally& first,
+                          StageTally* second )
+        {
+            for ( const auto& [binding, resource] : bucket )
+            {
+                if ( !InStage( resource.ShaderStage, stage ) )
+                    continue;
+                first.Add( resource.Name );
+                if ( second != nullptr )
+                    second->Add( resource.Name );
+            }
+        }
+
+        StageTallies TallyStage( const ShaderResource::ReflectionData& data, Core::Formats::ShaderStage stage )
+        {
+            StageTallies tallies;
+            for ( const auto& [setIndex, set] : data.ShaderDescriptorSets )
+            {
+                // A combined image sampler is one sampler AND one sampled image (VkPhysicalDeviceLimits).
+                TallyBucket( set.Image2DSamplers, stage, tallies.Samplers, &tallies.SampledImages );
+                TallyBucket( set.Image3DSamplers, stage, tallies.Samplers, &tallies.SampledImages );
+                TallyBucket( set.ImageCubeSamplers, stage, tallies.Samplers, &tallies.SampledImages );
+                TallyBucket( set.UniformBuffers, stage, tallies.UniformBuffers, nullptr );
+                TallyBucket( set.StorageBuffers, stage, tallies.StorageBuffers, nullptr );
+                TallyBucket( set.StorageImage2DSamplers, stage, tallies.StorageImages, nullptr );
+                TallyBucket( set.StorageImage3DSamplers, stage, tallies.StorageImages, nullptr );
+            }
+            return tallies;
+        }
+
+        std::string_view StageName( Core::Formats::ShaderStage stage )
+        {
+            switch ( stage )
+            {
+                case Core::Formats::ShaderStage::Vertex:
+                    return "vertex";
+                case Core::Formats::ShaderStage::TessControl:
+                    return "tessellation control";
+                case Core::Formats::ShaderStage::TessEvaluation:
+                    return "tessellation evaluation";
+                case Core::Formats::ShaderStage::Fragment:
+                    return "fragment";
+                case Core::Formats::ShaderStage::Compute:
+                    return "compute";
+                case Core::Formats::ShaderStage::None:
+                    break;
+            }
+            return "none";
+        }
+
+        void RefuseOver( std::vector<std::string>& refusals, std::string_view stage, const StageTally& tally,
+                         uint32_t limit, std::string_view kind, std::string_view limitName )
+        {
+            if ( tally.Count > limit )
+                refusals.push_back( std::format( "[{}] {} {} (device limit {}, {}): {}", stage, tally.Count, kind,
+                                                 limit, limitName, tally.Names ) );
+        }
+    } // namespace
+
+    std::vector<std::string> PerStageLimitRefusals( const ShaderResource::ReflectionData& data,
+                                                    const PerStageDescriptorLimits&       limits,
+                                                    const DescriptorIndexingLimits&       updateAfterBind )
+    {
+        using Core::Formats::ShaderStage;
+        constexpr std::array kStages{ ShaderStage::Vertex, ShaderStage::TessControl, ShaderStage::TessEvaluation,
+                                      ShaderStage::Fragment, ShaderStage::Compute };
+        std::vector<std::string> refusals;
+        for ( const ShaderStage stage : kStages )
+        {
+            const StageTallies     tallies   = TallyStage( data, stage );
+            const std::string_view stageName = StageName( stage );
+            RefuseOver( refusals, stageName, tallies.Samplers, limits.MaxSamplers, "samplers",
+                        "maxPerStageDescriptorSamplers" );
+            RefuseOver( refusals, stageName, tallies.SampledImages, limits.MaxSampledImages, "sampled images",
+                        "maxPerStageDescriptorSampledImages" );
+            RefuseOver( refusals, stageName, tallies.UniformBuffers, limits.MaxUniformBuffers, "uniform buffers",
+                        "maxPerStageDescriptorUniformBuffers" );
+            RefuseOver( refusals, stageName, tallies.StorageBuffers, limits.MaxStorageBuffers, "storage buffers",
+                        "maxPerStageDescriptorStorageBuffers" );
+            RefuseOver( refusals, stageName, tallies.StorageImages, limits.MaxStorageImages, "storage images",
+                        "maxPerStageDescriptorStorageImages" );
+
+            // maxPerStageResources also counts the fragment stage's colour attachments.
+            const uint32_t attachments =
+                 stage == ShaderStage::Fragment ? static_cast<uint32_t>( data.FragmentOutputLocations.size() ) : 0;
+            const uint32_t resources = tallies.SampledImages.Count + tallies.UniformBuffers.Count +
+                                       tallies.StorageBuffers.Count + tallies.StorageImages.Count + attachments;
+            if ( resources > limits.MaxResources )
+                refusals.push_back( std::format( "[{}] {} resources (device limit {}, maxPerStageResources): {} "
+                                                 "sampled image(s), {} uniform buffer(s), {} storage buffer(s), {} "
+                                                 "storage image(s), {} colour attachment(s)",
+                                                 stageName, resources, limits.MaxResources,
+                                                 tallies.SampledImages.Count, tallies.UniformBuffers.Count,
+                                                 tallies.StorageBuffers.Count, tallies.StorageImages.Count,
+                                                 attachments ) );
+
+            // The update-after-bind limit counts EVERY sampler the stage sees: its own and the table's.
+            if ( InStage( data.BindlessStages, stage ) )
+            {
+                const uint32_t samplers = tallies.Samplers.Count + kBindlessSamplerStateCount;
+                if ( samplers > updateAfterBind.MaxPerStageUpdateAfterBindSamplers )
+                    refusals.push_back( std::format( "[{}] {} samplers with the bindless table's {} (device limit "
+                                                     "{}, maxPerStageDescriptorUpdateAfterBindSamplers): {}",
+                                                     stageName, samplers, kBindlessSamplerStateCount,
+                                                     updateAfterBind.MaxPerStageUpdateAfterBindSamplers,
+                                                     tallies.Samplers.Names ) );
+            }
+        }
+        return refusals;
     }
 
     uint32_t CountDescriptors( const std::vector<VkDescriptorSetLayoutBinding>& bindings )

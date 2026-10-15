@@ -50,4 +50,42 @@ vec4 SampleBindless( uint textureSlot, uint samplerSlot, vec2 uv, float lod )
                        uv, lod );
 }
 
+// A material texture as the material row carries it (Core::Formats::MaterialLayout, kMaterialTextureGlslType): the
+// table slot and the sampler index, written by Graphic::DataDrivenMaterial::GetParamRow from the material's
+// Texture2DProperty. Exactly one 16-byte row slot; the two reserved words are the slot's remainder.
+struct BindlessTexture
+{
+    uint Texture;
+    uint Sampler;
+    uint Reserved0;
+    uint Reserved1;
+};
+
+vec4 SampleBindless( BindlessTexture t, vec2 uv )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv );
+}
+
+// Fragment stage only, as GLSL's own bias form.
+vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv, bias );
+}
+
+vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
+{
+    return SampleBindless( t.Texture, t.Sampler, uv, lod );
+}
+
+ivec2 BindlessTextureSize( BindlessTexture t, int lod )
+{
+    return textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                        lod );
+}
+
 #endif

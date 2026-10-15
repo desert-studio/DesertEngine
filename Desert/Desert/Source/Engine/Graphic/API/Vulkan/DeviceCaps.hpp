@@ -130,6 +130,20 @@ namespace Desert::Graphic::API::Vulkan
         }
     };
 
+    // The per-stage descriptor limits every pipeline layout is held to (VkPhysicalDeviceLimits). A descriptor of
+    // a layout made WITHOUT update-after-bind counts against these; every descriptor of the stage, the bindless
+    // table's included, counts against the update-after-bind ones (DescriptorIndexingLimits). MoltenVK reports 16
+    // samplers per stage, which is what a forward surface with per-material combined samplers used to exceed.
+    struct PerStageDescriptorLimits
+    {
+        uint32_t MaxSamplers       = 0;
+        uint32_t MaxSampledImages  = 0;
+        uint32_t MaxUniformBuffers = 0;
+        uint32_t MaxStorageBuffers = 0;
+        uint32_t MaxStorageImages  = 0;
+        uint32_t MaxResources      = 0;
+    };
+
     // What the bindless table needs from DescriptorIndexingLimits; a device below either is refused by
     // CheckRequired with both numbers. Owned here (not by the table) so this header stays pure.
     // The capacity doubles from here up to SampledImageCeiling() (BindlessTextureTable).
@@ -146,6 +160,7 @@ namespace Desert::Graphic::API::Vulkan
 
         std::array<CapabilityRow, kCapabilityCount> Rows{};
         DescriptorIndexingLimits                    DescriptorIndexing{};
+        PerStageDescriptorLimits                    PerStage{};
 
         [[nodiscard]] bool Has( Capability capability ) const
         {

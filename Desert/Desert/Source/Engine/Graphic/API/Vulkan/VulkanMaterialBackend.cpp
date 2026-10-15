@@ -16,6 +16,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanViewDescriptorPools.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -444,7 +445,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return false; // named once by ActiveSets
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): AllocateViewSets makes only this type
-        const auto& handles = static_cast<VulkanViewSets*>( sets )->GetSets();
+        std::vector<VkDescriptorSet> handles = static_cast<VulkanViewSets*>( sets )->GetSets();
+        // Material textures are read through the bindless table (BindlessTextures.glslh): its set is the one live
+        // update-after-bind set of the device, taken at bind time because growth replaces it (EndFrame).
+        if ( const VulkanBindlessTextureTable* table = BindlessTableIn( m_Layouts ) )
+            handles[kBindlessSetIndex] = table->GetDescriptorSet();
 
         vkCmdBindDescriptorSets( cmdBuffer, bindPoint, layout, 0, static_cast<uint32_t>( handles.size() ),
                                  handles.data(), 0, nullptr );

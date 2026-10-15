@@ -1022,12 +1022,17 @@ namespace Desert::Core::Preprocess
 
             if ( layout.RowBinding )
             {
+                // The table header first: it enables GL_EXT_nonuniform_qualifier, which has to precede every
+                // declaration, and every row may carry a BindlessTexture. Always, not only for a row with a
+                // texture: the surface contract's material fetch (Mesh/Surface/SurfaceTypes.glslh) takes one.
+                out << "#include <" << kParserInjectedIncludes[1] << ">\n";
                 out << "#include <" << kParserInjectedIncludes[0] << ">\n";
                 out << "struct MaterialParams\n{\n";
                 uint32_t slot = 0;
                 for ( const auto& p : layout.Params )
                 {
-                    out << "    " << MaterialLayoutGlslType( p.Type ) << " " << p.Name << ";\n";
+                    out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) ) << " "
+                        << p.Name << ";\n";
                     // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is exactly one
                     // 16-byte slot whatever the value's own type is (see Core/Formats/MaterialParamRow.hpp).
                     if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )

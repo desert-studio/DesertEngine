@@ -197,6 +197,17 @@ namespace Desert::Graphic::API::Vulkan
             return limits;
         }
 
+        PerStageDescriptorLimits PerStageDescriptorLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            const VkPhysicalDeviceLimits& limits = device.properties.limits;
+            return PerStageDescriptorLimits{ .MaxSamplers       = limits.maxPerStageDescriptorSamplers,
+                                             .MaxSampledImages  = limits.maxPerStageDescriptorSampledImages,
+                                             .MaxUniformBuffers = limits.maxPerStageDescriptorUniformBuffers,
+                                             .MaxStorageBuffers = limits.maxPerStageDescriptorStorageBuffers,
+                                             .MaxStorageImages  = limits.maxPerStageDescriptorStorageImages,
+                                             .MaxResources      = limits.maxPerStageResources };
+        }
+
         ProbedDevice Probe( const vkb::PhysicalDevice& candidate )
         {
             ProbedDevice probed;
@@ -220,6 +231,7 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( probed.Caps.Has( Capability::DescriptorIndexing ) )
                 probed.Caps.DescriptorIndexing = DescriptorIndexingLimitsOf( device );
+            probed.Caps.PerStage = PerStageDescriptorLimitsOf( device );
             return probed;
         }
 

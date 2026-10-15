@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Core/Formats/MaterialLayout.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
@@ -127,6 +128,19 @@ namespace Desert::Graphic
              { return uniformManager->GetUniformImage2D( n ); }, [&]( const std::string& n, const auto& r )
              { return std::make_shared<Texture2DProperty>( r, parameterFor( n, false )->DefaultTexture ); },
              m_Texture2DPropertiesStorage, m_Texture2DPropertiesLookup, "image2D" );
+
+        // ROW TEXTURES have no descriptor to reflect: the shader reads them from the material row through the
+        // bindless table (Core::Formats::IsRowTexture, BuildMaterialLayout). Their property holds the image and
+        // the sampler state the row slot is written from (DataDrivenMaterial::GetParamRow), so assigning a
+        // texture is the same call for both kinds. ReconcileMaterialLayout refuses a sampler of the same name.
+        for ( const auto& param : parameterSchema.Params )
+        {
+            if ( !Core::Formats::IsRowTexture( parameterSchema.LayoutBindings, param ) ||
+                 m_Texture2DPropertiesLookup.contains( param.Name ) )
+                continue;
+            m_Texture2DPropertiesStorage.push_back( std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
+            m_Texture2DPropertiesLookup[param.Name] = m_Texture2DPropertiesStorage.size() - 1;
+        }
     }
 
     RDG::OtherRouteFill MaterialExecutor::GetRouteFill() const
@@ -144,7 +158,10 @@ namespace Desert::Graphic
         for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
             if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
                 fill.Slots.push_back( name );
-        add( m_Texture2DPropertiesLookup );
+        // A row texture fills no slot of the pass: it is a row value read through the bindless table.
+        for ( const auto& [name, index] : m_Texture2DPropertiesLookup )
+            if ( !m_Texture2DPropertiesStorage[index]->IsRowTexture() )
+                fill.Slots.push_back( name );
         add( m_TextureCubePropertiesLookup );
         // Deterministic, so a validation message does not depend on hash-map order.
         std::sort( fill.Slots.begin(), fill.Slots.end() );

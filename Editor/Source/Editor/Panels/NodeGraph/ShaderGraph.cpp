@@ -601,9 +601,10 @@ namespace Desert::Editor::ShaderGraph
                     // the view's mip bias (Mesh/Surface/SurfaceTypes.glslh); a post-process graph's textures are
                     // read at the implicit level.
                     decl = doc.DomainEnum() == Domain::Surface
-                                ? std::format( "vec4 {} = SurfaceSampleMaterial( {}, {} );", var, node.ParamName,
-                                               uv )
-                                : std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
+                                ? std::format( "vec4 {} = SurfaceSampleMaterial( u_Material.{}, {} );", var,
+                                               node.ParamName, uv )
+                                : std::format( "vec4 {} = SampleBindless( u_Material.{}, {} );", var,
+                                               node.ParamName, uv );
                 }
                 else if ( node.Kind == "MediumTexture" )
                 {
@@ -1405,29 +1406,18 @@ namespace Desert::Editor::ShaderGraph
         // Exposed properties block — shared across domains (post-process effects can expose params too).
         // Scene texture (post-process) sits at set 0 / binding 0, so params start at Binding(1).
         //
-        // The graph's own textures are numbered from kGraphTextureBinding UPWARD, one per texture, and
-        // that base is the first slot of the window reserved for graph-owned resources
-        // (Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp). It used to be 2, which was safe only
-        // while the engine blocks a graph could receive were two; a lit surface grew to twelve, so the
-        // third texture in a graph would have landed on top of LightsMetadata. Nothing would have said
-        // so: two GLSL declarations at one binding is a descriptor the engine writes twice and a shader
-        // that reads whichever it got.
-        //
-        // THE SLOT LIST THAT USED TO BE WRITTEN OUT HERE IS GONE ON PURPOSE: it was prose asserting a
-        // property of a tree that moves, and the next binding added to a shader-graph surface would have
-        // left it wrong and silent. What keeps the window free now is a measurement over the compiled
-        // SPIR-V of every shipped pass (Desert/Tests/Engine/ShaderCacheKey), which no comment can go
-        // stale against.
+        // The graph's textures are row slots like its numbers: with a row and no TextureBinding the layout puts
+        // every Texture2D after the numeric params as a BindlessTexture (Core::Formats::IsRowTexture), and the
+        // generated code samples it through the bindless table as u_Material.<name>. No texture is a descriptor
+        // of the material set, so a graph with many textures adds nothing to the stage's sampler count
+        // (MoltenVK: 16 per stage) and cannot land on an engine binding.
         if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() )
         {
             out << "    Properties";
             // The row block sits beside the engine's per-pass blocks: after the scene texture of a post
             // process, and for a surface where the standard material keeps it (StaticMeshLit), because a
             // surface cell's skinned vertex path already owns binding 1 for its bones.
-            if ( !colorParams.empty() || !floatParams.empty() )
-                out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );
-            if ( !textures.empty() )
-                out << std::format( " TextureBinding({})", kGraphTextureBinding );
+            out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );
             out << "\n    {\n";
             for ( const auto* n : colorParams )
                 out << std::format( "        Color     {} (\"{}\") = ({}, {}, {}, {})\n", n->ParamName,

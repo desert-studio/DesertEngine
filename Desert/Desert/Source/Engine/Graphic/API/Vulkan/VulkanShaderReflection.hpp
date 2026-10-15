@@ -14,6 +14,7 @@
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderResource.hpp>
 #include <Engine/Graphic/VertexBuffer.hpp>
 
@@ -90,6 +91,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      */
     std::vector<VkDescriptorSetLayoutBinding>
     BuildLayoutBindings( const ShaderResource::ShaderDescriptorSet& set );
+
+    /**
+     * Every per-stage descriptor limit @p data exceeds on a device with @p limits, one line per stage and kind,
+     * naming the count, the limit, the VkPhysicalDeviceLimits member and the resources counted; empty when the
+     * program fits. A stage that declares the bindless table also counts the table's kBindlessSamplerStateCount
+     * samplers against the update-after-bind sampler limit. Device-free, like BuildLayoutBindings.
+     */
+    [[nodiscard]] std::vector<std::string> PerStageLimitRefusals( const ShaderResource::ReflectionData& data,
+                                                                  const PerStageDescriptorLimits&       limits,
+                                                                  const DescriptorIndexingLimits& updateAfterBind );
 
     /** Total descriptors across @p bindings — the number the validation layer compares. */
     uint32_t CountDescriptors( const std::vector<VkDescriptorSetLayoutBinding>& bindings );

@@ -24,16 +24,15 @@ Shader "StaticMeshGlass"
 
     Surface
     {
-        layout( binding = 12 ) uniform sampler2D u_NormalTexture;
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
             s.BaseColor     = u_Material.GlassTint.rgb;
             s.Refraction    = u_Material.IOR;
-            const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
+            const ivec2 normalSize = BindlessTextureSize( u_Material.u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = SurfaceSampleTangentNormal( u_NormalTexture, i.UV0 );
+                s.Normal = SurfaceSampleTangentNormal( u_Material.u_NormalTexture, i.UV0 );
             return s;
         }
     }

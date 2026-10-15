@@ -130,6 +130,9 @@ namespace Desert::Graphic::API::Vulkan
             // That set is in no bucket above: its layout and its descriptor set are the table's
             // (VulkanShader::CreateDescriptorsLayout, the passes' set binding), never built from this shader.
             bool UsesBindlessTable = false;
+            // The stages that declare it: the table's samplers count against those stages' update-after-bind
+            // sampler limit (ShaderReflection::PerStageLimitRefusals).
+            Core::Formats::ShaderStage BindlessStages = Core::Formats::ShaderStage::None;
         };
 
     } // namespace ShaderResource

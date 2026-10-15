@@ -108,6 +108,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanViewSets::~VulkanViewSets()
     {
+        // The bindless table's place holds no set of this pool (AllocateViewSets).
+        std::erase( m_Sets, VkDescriptorSet{ VK_NULL_HANDLE } );
         if ( m_Pool )
             Allocator()->RT_FreeDescriptorSets( m_Pool->Get(), std::move( m_Sets ) );
     }
@@ -131,21 +133,22 @@ namespace Desert::Graphic::API::Vulkan
                                             std::unique_ptr<IViewDescriptorSetCopy>&   out )
     {
         // Material sets are allocated per material and view; the bindless table's set is one per device and is
-        // bound only by render-graph passes (VulkanRenderer WriteRdgPassSets). Raster materials keep their own
-        // descriptors (BINDLESS-TEX), so a material shader that samples the table is refused by name rather than
-        // allocated a private, never-written copy of it.
-        if ( BindlessTableIn( layouts ) != nullptr )
-            return Common::MakeFormattedError(
-                 "Shader '{}' declares the bindless texture table (set {}); material descriptor sets do not carry "
-                 "it — sample it from a render-graph pass",
-                 shaderName, kBindlessSetIndex );
+        // bound as it is (VulkanMaterialBackend::BindDescriptorSets puts the live table set at its index). So the
+        // table's layout is left out of the allocation and its place in the returned vector stays VK_NULL_HANDLE:
+        // a private copy would be a never-written table, and the live one is replaced when the table grows.
+        const bool                          bindless = BindlessTableIn( layouts ) != nullptr;
+        std::vector<DescriptorSetLayoutRef> owned;
+        owned.reserve( layouts.size() );
+        for ( size_t index = 0; index < layouts.size(); ++index )
+            if ( !bindless || index != kBindlessSetIndex )
+                owned.push_back( layouts[index] );
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type
         auto& chain = static_cast<ViewPoolChain&>( view.Acquire( ChainKey(), 0, factory ) );
 
-        const std::vector<VkDescriptorSetLayout> handles = RawHandles( layouts );
-        const Graphic::DescriptorRequest         cost    = DescriptorCostOf( layouts );
+        const std::vector<VkDescriptorSetLayout> handles = RawHandles( owned );
+        const Graphic::DescriptorRequest         cost    = DescriptorCostOf( owned );
 
         // Asked of the block's own accounting BEFORE the driver, which is the whole point: a block that cannot
         // hold this material is left untouched, so no vkAllocateDescriptorSets ever fails on the turnover path
@@ -178,6 +181,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>(
                  "shader '{}', view '{}': {} descriptor set(s) not allocated -- {}", shaderName, viewName,
                  handles.size(), allocated.GetError() );
+        if ( bindless )
+            sets.insert( sets.begin() + kBindlessSetIndex, VK_NULL_HANDLE );
         out = std::make_unique<VulkanViewSets>( std::move( sets ), std::move( from ) );
         return Common::MakeSuccess( true );
     }
