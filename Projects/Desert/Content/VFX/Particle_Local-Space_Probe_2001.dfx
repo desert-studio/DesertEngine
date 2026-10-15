@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "7351c844f8e8c67ceb04ebea4e85f51b",
         "Versions": {
-            "VFXS": 1
+            "VFXS": 4
         },
         "Dependencies": []
     },
@@ -302,7 +302,8 @@
                     "Kind": "Sprite",
                     "Enabled": true
                 }
-            ]
+            ],
+            "EventHandlers": []
         }
     ]
 }

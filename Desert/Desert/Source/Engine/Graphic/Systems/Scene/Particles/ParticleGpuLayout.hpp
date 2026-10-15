@@ -43,6 +43,15 @@ namespace Desert::Graphic::System
     // z = 1 when the colour is bound, w = 1 when the lifetime is bound).
     constexpr std::uint32_t kParticleChannelSpawnStride = 64;
 
+    // VFX-PARAMS: one event row of a system's event buffer (Common/VFXEvents.glslh VFX_EVENT_ROW_SIZE uvec4s, the
+    // three vec4 of Common/VFXParticleContract.glslh `struct VFXEventSpawn`: position, velocity, normal).
+    constexpr std::uint32_t kParticleEventRowSize = 48;
+    // The first handler row of an emitter's event table (Common/VFXEvents.glslh VFX_EVENT_TABLE_HANDLERS): row 0
+    // says what the emitter raises, rows 1..3 the channel of each event kind; two rows per handler follow.
+    constexpr std::uint32_t kParticleEventTableHandlers = 4;
+    // ParticleSimulate's CollisionView (binding 12): mat4 view-projection, mat4 its inverse, vec4 camera.
+    constexpr std::uint32_t kParticleCollisionViewSize = 144;
+
     // The size of one element of an emitter's Counters buffer (Common/ParticlePool.glslh `struct
     // ParticleDrawSlot`: a VkDrawIndirectCommand - vertex count = 6 x alive, instance count 1, first vertex =
     // 6 x the start of the slot's alive half (2 x pool base + slot x count), first instance 0 - then the free

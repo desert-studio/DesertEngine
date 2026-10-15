@@ -381,14 +381,28 @@ namespace Desert::VFX
         const bool readsChannel =
              std::any_of( authoredStack.EmitterUpdate.begin(), authoredStack.EmitterUpdate.end(), isChannelRead ) &&
              std::none_of( authoredStack.ParticleSpawn.begin(), authoredStack.ParticleSpawn.end(), isChannelRead );
-        S::VFXSystemData withChannelRead;
-        if ( readsChannel )
+        // VFX-PARAMS: an emitter with Event Handlers spawns particles from events; engine:SpawnFromEvent (UE's
+        // Receive Event module) is appended after everything else, so an event newborn sits at its event.
+        const bool readsEvents = !authored.Emitters[emitterIndex].EventHandlers.empty();
+        for ( const auto* group :
+              { &authoredStack.EmitterUpdate, &authoredStack.ParticleSpawn, &authoredStack.ParticleUpdate } )
+            if ( std::any_of( group->begin(), group->end(), []( const S::VFXModuleUse& use )
+                              { return use.Module == kVFXSpawnFromEventModule; } ) )
+                return Common::MakeFormattedError<Result>(
+                     "emitter '{}' names {} in its stack: it is the Event Handlers' own module, appended by the "
+                     "compiler to an emitter that states EventHandlers",
+                     authored.Emitters[emitterIndex].Name, kVFXSpawnFromEventModule );
+        S::VFXSystemData withAppended;
+        if ( readsChannel || readsEvents )
         {
-            withChannelRead = authored;
-            withChannelRead.Emitters[emitterIndex].Stack.ParticleSpawn.push_back(
-                 { std::string( kVFXSpawnFromChannelModule ), true, {} } );
+            withAppended = authored;
+            auto& spawn  = withAppended.Emitters[emitterIndex].Stack.ParticleSpawn;
+            if ( readsChannel )
+                spawn.push_back( { std::string( kVFXSpawnFromChannelModule ), true, {} } );
+            if ( readsEvents )
+                spawn.push_back( { std::string( kVFXSpawnFromEventModule ), true, {} } );
         }
-        const S::VFXSystemData& system = readsChannel ? withChannelRead : authored;
+        const S::VFXSystemData& system = readsChannel || readsEvents ? withAppended : authored;
         // The format's own rules (every source has exactly its member, a User binding names a row of its type, a
         // Random range is ordered) are checked in one place; the compiler relies on them below.
         if ( auto valid = S::ValidateVFXSystemData( system ); !valid.IsSuccess() )

@@ -136,6 +136,10 @@ namespace Desert::VFX
         std::vector<VFXParamSlot> Slots; ///< the parameter buffer, row by row
     };
 
+    /// VFX-PARAMS: the particle half of an Event Handler (VFX/Modules/SpawnFromEvent.shader). The compiler appends
+    /// it as the last spawn module of every emitter that states EventHandlers; a stack never names it.
+    inline constexpr std::string_view kVFXSpawnFromEventModule = "engine:SpawnFromEvent";
+
     /// Where the engine module library lives: ShaderDir()/VFX/Modules; `engine:<Name>` is `<Name>.shader` there.
     [[nodiscard]] std::filesystem::path EngineModuleDir();
 

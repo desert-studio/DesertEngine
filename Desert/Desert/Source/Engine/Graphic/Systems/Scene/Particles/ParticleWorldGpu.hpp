@@ -30,7 +30,8 @@ namespace Desert::Graphic::System
     {
         glm::vec4  EmitterPos; // xyz world pos (cm), w the fixed step length (seconds)
         glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
-        glm::uvec4 Stack;      // x = the world's serial of this tick's step 0, yzw 0
+        glm::uvec4 Stack;      // x = the world's serial of this tick's step 0, y = the system's event step serial
+                               // of step 0 (VFX-PARAMS, Common/VFXEvents.glslh), zw 0
     };
 
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
@@ -46,7 +47,8 @@ namespace Desert::Graphic::System
     // indirectly over exactly that many.
     constexpr uint32_t kParticleCompactFullScan = 2u;
 
-    // ParticleDispatchArgs' push constant: x = the step whose Spawn+Update and following compact it sizes.
+    // ParticleDispatchArgs' push constant: x = the step whose Spawn+Update and following compact it sizes, y = the
+    // system's event step serial of step 0 (ParticleSimPush::Stack.y).
     struct ParticleArgsPush
     {
         glm::uvec4 Step;
@@ -94,6 +96,29 @@ namespace Desert::Graphic::System
     // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
     // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around.
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
+    // ParticleSimulate's CollisionView (binding 12): the simulating view's camera, the one its scene depth was
+    // drawn with (engine:Collision, VFX_SceneDepthCollide).
+    struct ParticleCollisionViewGpu
+    {
+        glm::mat4 ViewProjection{ 1.0f };    // the view's jittered view-projection (the depth was drawn with it)
+        glm::mat4 InvViewProjection{ 1.0f }; // its inverse
+        glm::vec4 Camera{ 0.0f };            // xyz camera position (cm), w = 1 when the frame has a scene depth
+    };
+    static_assert( sizeof( ParticleCollisionViewGpu ) == kParticleCollisionViewSize );
+
+    // THE EVENT CHANNELS OF ONE SYSTEM (VFX-PARAMS; Common/VFXEvents.glslh states the layout): a channel per
+    // (source emitter, event kind) some Event Handler of the system consumes, in the order handlers first name
+    // them (emitter order, handler order); each holds two halves of Capacity rows, Capacity = its source's
+    // particle capacity (@p capacities, 0 for an emitter that does not simulate: its channel never fills).
+    // Tables[k] is emitter k's event table; BufferRows the uvec4 rows of the system's event buffer (>= 1).
+    struct ParticleEventLayout
+    {
+        std::vector<std::vector<glm::uvec4>> Tables;
+        uint32_t                             BufferRows = 1;
+    };
+    [[nodiscard]] ParticleEventLayout BuildParticleEventLayout( const Assets::Serialization::VFXSystemData& system,
+                                                                const std::vector<uint32_t>& capacities );
+
     struct ParticleDrawLayoutGpu
     {
         glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
@@ -124,6 +149,11 @@ namespace Desert::Graphic::System
         // columns are the compiled layout's, its range and emitter position are re-uploaded every tick.
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
         ParticleDrawLayoutGpu                           DrawColumns;
+        // VFX-PARAMS: the emitter's event table (uploaded with the parameters every tick) and its SYSTEM's event
+        // buffer (one persistent buffer shared by the system's emitters: GPU-written, read the step after).
+        std::shared_ptr<ShaderResources::StorageBuffer> EventTable;
+        std::vector<glm::uvec4>                         EventTableRows;
+        std::shared_ptr<ShaderResources::StorageBuffer> Events;
         std::vector<glm::vec4>                          ParamRows;
         // VFX-PARAMS: the User rows of ParamRows, rewritten each tick from the instance's resolved User values.
         std::vector<VFX::VFXUserParamRow>               UserRows;
@@ -174,6 +204,12 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
         std::vector<ParticleEmitterGpu>                             Emitters;
+        // VFX-PARAMS: the system's event buffer (its emitters' Events) and the event step serial of the next
+        // tick's step 0 - contiguous over the system's simulated steps, so "the step before" of step 0 is the
+        // last step of the previous tick (the world's step serial skips between ticks). Starts at 1: the zeroed
+        // buffer's halves hold serial 0, which no step reads as its own.
+        std::shared_ptr<ShaderResources::StorageBuffer> Events;
+        uint32_t                                        EventSerial = 1;
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -202,13 +238,16 @@ namespace Desert::Graphic::System
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                              const ParticlePoolRange& range, uint32_t entityId, const glm::vec3& worldPos,
-                             float stepSeconds, uint32_t stepSerial );
+                             float stepSeconds, uint32_t stepSerial, uint32_t eventSerial );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.
         static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );
         // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
         void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
                            std::size_t index, uint32_t entityId );
+        // Builds @p system's event buffer and each emitter's event table (BuildParticleEventLayout), after its
+        // emitters were built; an emitter whose table could not be made sits out (Capacity 0, said by name).
+        static void BuildSystemEvents( ParticleSystemGpu& system, uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );

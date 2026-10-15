@@ -5,6 +5,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
@@ -40,7 +41,7 @@ namespace Desert::Graphic
     // The claiming view's simulation nodes (Compact 0, then per step Dispatch Args / Spawn+Update / Compact).
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer );
 
-    void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph )
+    void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph, FrameTextures& textures )
     {
         // The world's particle pool (VFX-07): the frame's fixed VFX steps (the scene's VFXWorld; no timestep is
         // read here) as Compute nodes outside any render pass, BEFORE the billboard draw. "Particles: Compact 0"
@@ -60,7 +61,18 @@ namespace Desert::Graphic
         // that claimed the VFXWorld tick adds the simulation, so two views of one scene simulate once and draw
         // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
         // compact s's GPU counts.
-        particles->ImportFrameBuffers( graph );
+        // VFX-PARAMS: the scene depth engine:Collision reads (the single-sample one the height fog and the clouds
+        // sample, "SceneDepth.Compute"). A frame without one hands the 2D fallback, never an empty slot (an
+        // unbound sampler is an invalid descriptor set), and says so: nothing collides then.
+        const std::shared_ptr<Image2D> sceneDepth = GetComputeSceneDepth();
+        RDG::TextureRef                depthRef =
+             sceneDepth ? textures.Import( sceneDepth, "SceneDepth.Compute" ) : RDG::TextureRef{};
+        const bool hasDepth = depthRef.IsValid();
+        if ( !hasDepth )
+            depthRef = textures.Import(
+                 FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ),
+                 "Particles.NoSceneDepth" );
+        particles->ImportFrameBuffers( graph, depthRef, hasDepth );
         if ( particles->ClaimsSimulation() )
             AddParticleSimulationSteps( graph, *particles );
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view

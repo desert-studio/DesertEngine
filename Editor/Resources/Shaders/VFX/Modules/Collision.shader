@@ -1,0 +1,56 @@
+// DesertAsset {"Kind":"Shader","Guid":"e9f40e7b3dae4463a5a47d725c82a1bb","Versions":{"SHDR":1},"Dependencies":[]}
+// Engine VFX module `engine:Collision` (VFX-PARAMS; UE Niagara Content/Modules/Update/Collision, GPU Scene Depth
+// mode): the particle against THIS frame's scene depth. The simulation runs post-opaque (SceneRenderer
+// AddFrameParticlesSimulate after the scene depth resolve), so the depth it reads is the frame's own; the query is
+// the host's VFX_SceneDepthCollide (Common/VFXParticleContract.glslh), the response is this module's. Place it in
+// the update group AFTER engine:SolveForcesAndVelocity: it corrects the step's integrated Position and Velocity.
+//   Radius          the particle's collision sphere, cm (0: a point)
+//   Thickness       how far behind the visible surface, cm, a particle still counts as touching it; deeper is
+//                   behind an occluder in this view, not inside it (UE: the depth collision's thickness bound)
+//   Restitution     the normal speed kept after an impact, reversed (0 stops on the surface, 1 is elastic)
+//   Friction        the share of the tangential speed an impact removes, [0, 1]
+//   KillOnCollision UE's Kill response: the particle dies where it met the scene (raising its Death event)
+// An impact (the particle moves INTO the surface) sets sim.Collided and sim.CollisionNormal, which the host turns
+// into the emitter's Collision event. A particle resting on a surface keeps meeting it each step under gravity,
+// as in UE. Off screen or behind the camera there is no depth to meet: depth collision is view-dependent by
+// construction (UE: the same limit of the Scene Depth mode).
+Shader "Collision"
+{
+    Domain Particle
+    Particle
+    {
+        Attribute Position vec3
+        Attribute Velocity vec3
+        Input Radius float
+        Input Thickness float
+        Input Restitution float
+        Input Friction float
+        Input KillOnCollision bool
+
+        void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+        {
+            const float radius = max( i.Radius, 0.0 );
+            vec3        contact;
+            vec3        normal;
+            if ( !VFX_SceneDepthCollide( sim, p.Position, radius, max( i.Thickness, 0.0 ), contact, normal ) )
+                return;
+
+            // Out of the surface: the sphere rests on it.
+            p.Position        = contact + normal * radius;
+            const float normalSpeed = dot( p.Velocity, normal );
+            if ( normalSpeed >= 0.0 )
+                return; // already leaving the surface: no impact
+
+            sim.Collided        = true;
+            sim.CollisionNormal = normal;
+            if ( i.KillOnCollision )
+            {
+                sim.Kill = true;
+                return;
+            }
+            const vec3 into       = normalSpeed * normal;
+            const vec3 tangential = p.Velocity - into;
+            p.Velocity = tangential * ( 1.0 - clamp( i.Friction, 0.0, 1.0 ) ) - into * max( i.Restitution, 0.0 );
+        }
+    }
+}

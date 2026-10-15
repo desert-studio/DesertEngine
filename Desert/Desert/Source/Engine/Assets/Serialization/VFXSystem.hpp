@@ -34,6 +34,9 @@ namespace Desert::Assets::Serialization
      *
      *   1 - VFX-02: system (Category, Tags, Duration, Loop, Seed, Bounds, UserParams, LocalModules, Emitters),
      *       emitters with lifecycle, the three-group module stack and renderer rows.
+     *   4 - VFX-PARAMS: every emitter states EventHandlers (UE emitter Event Handlers): particles spawned from
+     *       another emitter's Death / Collision / Location events. (2 and 3 are the lead's numbering of sibling
+     *       branches' layouts.)
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -59,6 +62,9 @@ namespace Desert::Assets::Serialization
     /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, engine:SpawnFromChannel;
     /// VFX/VFXDataChannel.hpp).
     inline constexpr std::string_view kVFXDataChannelPrefix = "DataChannel.";
+    /// The engine module that collides particles with the scene depth (VFX/Modules/Collision.shader): a Collision
+    /// event handler's source emitter must run it.
+    inline constexpr std::string_view kVFXCollisionModule = "engine:Collision";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.
@@ -187,6 +193,30 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };
 
+    /// The event a source emitter's particles raise (UE: the Generate Death / Collision / Location Event modules).
+    /// Death: the step's stack killed the particle. Collision: engine:Collision touched the scene this step.
+    /// Location: every step the particle lives through (UE Location Event, the classic trail source).
+    enum class VFXEventKind
+    {
+        Death,
+        Collision,
+        Location,
+    };
+
+    /// One Event Handler of an emitter (UE FNiagaraEventScriptProperties, execution mode Spawned Particles): each
+    /// event SourceEmitter's particles raised of kind Event in the previous fixed step spawns SpawnCount particles
+    /// of THIS emitter at the event's position (its spawn group, then engine:SpawnFromEvent, which the stack
+    /// compiler appends). InheritVelocity scales the event particle's velocity added to the newborn's (0: none).
+    struct VFXEventHandler
+    {
+        std::string  SourceEmitter;
+        VFXEventKind Event           = VFXEventKind::Death;
+        uint32_t     SpawnCount      = 1; ///< >= 1
+        float        InheritVelocity = 0.0f;
+
+        [[nodiscard]] bool operator==( const VFXEventHandler& ) const = default;
+    };
+
     struct VFXEmitterData
     {
         std::string                  Name;
@@ -196,6 +226,7 @@ namespace Desert::Assets::Serialization
         VFXEmitterLifecycle          Lifecycle;
         VFXEmitterStack              Stack;
         std::vector<VFXRendererData> Renderers;
+        std::vector<VFXEventHandler> EventHandlers; ///< VFXS 4
 
         [[nodiscard]] bool operator==( const VFXEmitterData& ) const = default;
     };

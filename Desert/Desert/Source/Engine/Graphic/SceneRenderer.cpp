@@ -1169,8 +1169,6 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
-        AddFrameParticlesSimulate( graph );
-
         AddFrameCloudShadowMap( graph, textures );
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
@@ -1234,6 +1232,10 @@ namespace Desert::Graphic
         }
 
         AddFrameSceneDepthResolve( graph, textures );
+        // The GPU particle simulation runs POST-OPAQUE (UE: the PostOpaque GPU tick stage): the scene depth of
+        // THIS frame is complete and single-sampled here, and engine:Collision collides against it. Particles feed
+        // no opaque pass (no shadow, no G-buffer), so nothing above waits for them; their sort and draw follow.
+        AddFrameParticlesSimulate( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
         AddFrameAtmosphericFog( graph, textures );
         AddFrameVolumetricClouds( graph, textures, frame );

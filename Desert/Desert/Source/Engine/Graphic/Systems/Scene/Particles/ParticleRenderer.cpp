@@ -31,6 +31,13 @@ namespace Desert::Graphic::System
 {
     namespace
     {
+        // Whether @p layout has a resource slot named @p name (ParticleSimulate's collision inputs).
+        bool LayoutDeclares( const RDG::ShaderBindingLayout& layout, const std::string_view name )
+        {
+            return std::any_of( layout.Slots.begin(), layout.Slots.end(),
+                                [name]( const RDG::ShaderSlot& slot ) { return slot.Name == name; } );
+        }
+
         // ParticleSort.shader's PushConstants, field for field.
         struct ParticleSortPush
         {
@@ -215,7 +222,7 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step ) )
                 continue;
-            const ParticleArgsPush push{ glm::uvec4( step, 0u, 0u, 0u ) };
+            const ParticleArgsPush push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
             const Common::BoolResultStr dispatched =
@@ -239,6 +246,8 @@ namespace Desert::Graphic::System
                  .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
                  .Storage( "DispatchArgs", ve.ArgsRef, RDG::Access::StorageWrite )
+                 .Storage( "EventTable", ve.EventTableRef, RDG::Access::StorageRead )
+                 .Storage( "Events", ve.EventsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
@@ -271,25 +280,38 @@ namespace Desert::Graphic::System
                 continue; // Simulate skips it the same way
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
-            pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
-                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
-                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
-                 .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
-                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageWrite )
-                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageWrite )
-                 .Storage( "StackParams", ve.ParamsRef, RDG::Access::StorageRead )
-                 .Storage( "StackCurves", ve.CurvesRef, RDG::Access::StorageRead )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
+            auto                   block   = pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
+                              .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
+                              .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
+                              .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
+                              .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
+                              .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
+                              .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
+                              .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageWrite )
+                              .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageWrite )
+                              .Storage( "StackParams", ve.ParamsRef, RDG::Access::StorageRead )
+                              .Storage( "StackCurves", ve.CurvesRef, RDG::Access::StorageRead )
+                              .Storage( "EventTable", ve.EventTableRef, RDG::Access::StorageRead )
+                              .Storage( "Events", ve.EventsRef, RDG::Access::StorageWrite )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
+            // engine:Collision's inputs, where the program keeps them (only a colliding stack calls
+            // VFX_SceneDepthCollide, so a compiler may drop them from any other).
+            if ( LayoutDeclares( *layout, "CollisionView" ) )
+                block.Storage( "CollisionView", m_CollisionViewRef, RDG::Access::StorageRead );
+            if ( LayoutDeclares( *layout, "u_SceneDepth" ) )
+                block.Sampled( "u_SceneDepth", m_SceneDepthRef, RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
         }
     }
 
-    void ParticleRenderer::ImportFrameBuffers( RDG::Builder& graph )
+    void ParticleRenderer::ImportFrameBuffers( RDG::Builder& graph, const RDG::TextureRef sceneDepth,
+                                               const bool hasSceneDepth )
     {
         m_Pool.Declared = false;
+        m_Events.clear();
+        m_CollisionViewRef = {};
+        m_SceneDepthRef    = sceneDepth;
         for ( ViewEmitter& ve : m_ViewEmitters )
         {
             ve.Declared = false;
@@ -362,6 +384,26 @@ namespace Desert::Graphic::System
                 ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
+                // VFX-PARAMS: the event table is the emitter's; the event buffer its system's, imported once.
+                Common::BoolResultStr events = Renderer::ImportBuffer( gpu.EventTable, ve.EventTableImport );
+                const auto [found, fresh]    = m_Events.try_emplace( ve.Frame->EntityId );
+                if ( events && fresh )
+                {
+                    events = Renderer::ImportBuffer( gpu.Events, found->second.Import );
+                    if ( events )
+                        found->second.Ref = graph.RegisterExternal(
+                             found->second.Import, std::format( "VFXEvents{}", ve.Frame->EntityId ) );
+                }
+                if ( !events || !found->second.Ref.IsValid() )
+                {
+                    LOG_ERROR( "[Particles] emitter {} sits out this frame, its event table or its system's event "
+                               "buffer is not in the frame graph: {}",
+                               i, events ? std::string( "the system's import failed above" ) : events.GetError() );
+                    continue;
+                }
+                ve.EventTableRef =
+                     graph.RegisterExternal( ve.EventTableImport, std::format( "VFXEventTable{}", i ) );
+                ve.EventsRef = found->second.Ref;
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
@@ -369,6 +411,40 @@ namespace Desert::Graphic::System
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
         }
+
+        // VFX-PARAMS: the simulating view's camera for engine:Collision - the jittered matrices, which the scene
+        // depth was drawn with.
+        if ( !m_Simulates )
+            return;
+        const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( !m_CollisionView )
+            m_CollisionView =
+                 ShaderResources::StorageBuffer::Create( "ParticleCollisionView", kParticleCollisionViewSize, 12 );
+        Common::BoolResultStr written = Common::MakeError( "the view has no frame this frame" );
+        if ( view != nullptr )
+        {
+            ParticleCollisionViewGpu collision;
+            collision.ViewProjection    = view->JitteredViewProjection;
+            collision.InvViewProjection = view->InvJitteredViewProjection;
+            collision.Camera            = glm::vec4( view->CameraPosition, hasSceneDepth ? 1.0f : 0.0f );
+            written = m_CollisionView ? m_CollisionView->SetData( &collision, kParticleCollisionViewSize )
+                                      : Common::BoolResultStr( Common::MakeError( "the buffer was not created" ) );
+        }
+        if ( written )
+            written = Renderer::ImportBuffer( m_CollisionView, m_CollisionViewImport );
+        if ( !written )
+        {
+            // A colliding stack's Spawn+Update block binds the view, and a frame that cannot hand it simulates
+            // nothing: this view then neither simulates nor draws the pool this frame.
+            LOG_ERROR( "[Particles] no particle is simulated or drawn this frame, the collision view is not in "
+                       "the frame graph: {}",
+                       written.GetError() );
+            for ( ViewEmitter& ve : m_ViewEmitters )
+                ve.Declared = false;
+            m_Pool.Declared = false;
+            return;
+        }
+        m_CollisionViewRef = graph.RegisterExternal( m_CollisionViewImport, "ParticleCollisionView" );
     }
 
     void ParticleRenderer::AddSortPasses( RDG::Builder& graph )

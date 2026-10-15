@@ -725,6 +725,18 @@ namespace Desert::Migration
     // an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text );
 
+    // VFXS 4 (VFX-PARAMS): every emitter of a `.dfx` states its EventHandlers (UE emitter Event Handlers). The
+    // number is the lead's: 2 and 3 are sibling branches' layouts, whose steps run before this one.
+    inline constexpr uint32_t kVFXSystemVersionEventHandlers = 4;
+    static_assert( kVFXSystemVersionEventHandlers == Assets::kVFXSystemSchemaVersion,
+                   "a later VFXS layout adds its own step after this one" );
+
+    // The VFXS 4 text of a `.dfx` stating VFXS 3: each emitter states `"EventHandlers": []` (a file of the layout
+    // before spawned from no event), every other value and the header's GUID kept, the result a valid VFXS 4
+    // system. A file stating another version, or an emitter that already states EventHandlers (a hand edit ahead
+    // of its version), is an error naming what it states, never overwritten. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemEventHandlers( const std::string& text );
+
     // The v7 text of a v6 `.decloudtype`: every v6 value kept, `Shape.BodyDiameterKm` written as the default
     // type's (FIELD-GRAIN: the exponential body-size law's D0), the header's GUID kept. A file that does not
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.

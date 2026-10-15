@@ -762,7 +762,9 @@ namespace Desert::Graphic
         void AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef sceneCopy,
                           const ViewFrame& frame );
-        void AddFrameParticlesSimulate( RDG::Builder& graph );
+        // VFX-PARAMS: post-opaque (after the scene depth resolve); hands the particles this frame's single-sample
+        // scene depth, which engine:Collision reads.
+        void AddFrameParticlesSimulate( RDG::Builder& graph, FrameTextures& textures );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( FrameTextures& textures );
