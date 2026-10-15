@@ -21,13 +21,13 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off             = 0,
-        Albedo          = 1,
-        Normal          = 2,
-        Metallic        = 3,
-        Roughness       = 4,
-        AO              = 5,
-        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
+        Off       = 0,
+        Albedo    = 1,
+        Normal    = 2,
+        Metallic  = 3,
+        Roughness = 4,
+        AO        = 5,
+        GI        = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -42,6 +42,12 @@ namespace Desert::Graphic
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
         // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
+        // The WORLD light grid (Graphic/LightGrid.hpp, LightGridLayout::WorldClipmaps): per pixel, the number of
+        // point/spot lights the radiance-cache clipmap cell around its surface lists — what a GI ray hitting that
+        // surface is lit by — heat-mapped, cell edges drawn. Deferred only; drawn by "Debug: LightGridWorld" after
+        // the temporal resolve, and the only reason the frame builds the world grid until GI-RADIANCE-CACHE reads
+        // it.
+        LightGridWorld = 13,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

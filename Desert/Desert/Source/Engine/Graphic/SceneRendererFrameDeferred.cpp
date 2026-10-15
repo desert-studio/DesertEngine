@@ -32,6 +32,7 @@
 #include <format>
 #include <cmath>
 #include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
@@ -384,8 +385,43 @@ namespace Desert::Graphic
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.
         graph.AddPass(
-             "LightGrid", RDG::PassFlags::Compute,
-             [deferred, lights]( RDG::PassBuilder& pass ) { deferred->DeclareGridBindings( pass, lights ); },
+             "LightGrid", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
+             [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordGrid( context, cells ); } );
+    }
+
+    bool SceneRenderer::WorldLightGridRead() const
+    {
+#if DESERT_DEV_INSTRUMENTS
+        return m_RenderPath == Core::RenderPath::Deferred &&
+               m_DebugView.DeferredDebug == DeferredDebugMode::LightGridWorld;
+#else
+        return false;
+#endif // DESERT_DEV_INSTRUMENTS
+    }
+
+    void SceneRenderer::AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures,
+                                                const ViewFrame& frame )
+    {
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        ViewLightBuffers& lights = textures.Transients.Lights;
+        if ( deferred == nullptr || !lights.Point.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGridWorld: {}",
+                       deferred == nullptr ? "no DeferredLightingSystem"
+                                           : "the view's lights were not uploaded this frame" );
+            return;
+        }
+        // The radiance cache's clipmaps around the camera (snapped to whole cells, so they move with it), and the
+        // SAME point/spot buffers the frustum grid listed — one light list, two layouts.
+        const LightGridParamsPayload grid = MakeLightGridWorldParams( frame.CameraPosition, m_RadianceCacheInputs,
+                                                                      GetPointLights(), GetSpotLights() );
+        System::DeferredLightingRenderer::UploadWorldGrid( graph, grid, lights );
+        graph.AddPass(
+             "LightGridWorld", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
     }
@@ -523,6 +559,50 @@ namespace Desert::Graphic
                  pass.ColorTarget( 0, target, EngineClearColor() );
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
+    }
+
+    void SceneRenderer::AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures,
+                                                    const RDG::TextureRef target, const ViewFrame& frame )
+    {
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::LightGridWorld ||
+             m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        auto* const deferred =
+             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+        const ViewLightBuffers& lights = textures.Transients.Lights;
+        if ( deferred == nullptr || !target.IsValid() || !lights.WorldGridCells.IsValid() || !m_GBuffer )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld not drawn: {}",
+                       deferred == nullptr ? "no DeferredLightingSystem"
+                                           : "the frame has no post input, no G-buffer or no world light grid" );
+            return;
+        }
+        const auto desc = graph.GetTextureDesc( target );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld: {}", desc.GetError() );
+            return;
+        }
+        if ( const auto prepared = deferred->PrepareWorldView( desc.GetValue().Format, desc.GetValue().Samples );
+             !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: LightGridWorld: {}", prepared.GetError() );
+            return;
+        }
+        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
+        const RDG::BufferRef  view =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( glm::mat4 ) }, "Debug.LightGridWorldView" );
+        graph.QueueBufferUpload(
+             view, std::as_bytes( std::span<const glm::mat4>( &frame.InvJitteredViewProjection, 1 ) ) );
+        graph.AddPass(
+             "Debug: LightGridWorld", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 deferred->DeclareWorldViewBindings( pass, depth, view, lights );
+                 pass.ColorTarget( 0, target, EngineClearColor() );
+             },
+             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordWorldView( context ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 

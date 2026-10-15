@@ -1209,6 +1209,7 @@ namespace Desert::Editor
                 VM_ShadingModel,
                 VM_SunShadowReceive,
                 VM_Velocity,
+                VM_LightGridWorld,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1228,6 +1229,7 @@ namespace Desert::Editor
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
+                                         ICON_MDI_GRID "  Light Grid (World)",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1267,6 +1269,8 @@ namespace Desert::Editor
                 vm = VM_SunShadowReceive;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
                 vm = VM_Velocity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LightGridWorld )
+                vm = VM_LightGridWorld;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1449,6 +1453,9 @@ namespace Desert::Editor
                         break;
                     case VM_Velocity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
+                        break;
+                    case VM_LightGridWorld:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LightGridWorld;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

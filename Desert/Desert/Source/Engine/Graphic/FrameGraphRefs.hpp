@@ -38,6 +38,11 @@ namespace Desert::Graphic
         RDG::BufferRef ShadowViews; // "Upload: Lights.ShadowViews"
         RDG::BufferRef GridParams;  // "Upload: Lights.GridParams"
         RDG::BufferRef GridCells;   // written by "LightGrid"
+        // The world layout of the same lights (LightGridLayout::WorldClipmaps: the radiance cache's clipmap cells,
+        // for GI hits off screen). Invalid unless the frame has a reader of it
+        // (SceneRenderer::WorldLightGridRead).
+        RDG::BufferRef WorldGridParams; // "Upload: Lights.WorldGridParams"
+        RDG::BufferRef WorldGridCells;  // written by "LightGridWorld"
     };
 
     struct FrameTransients
@@ -151,6 +156,9 @@ namespace Desert::Graphic
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
+    // either layout through kLightGridCellsBlockName.
+    inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
