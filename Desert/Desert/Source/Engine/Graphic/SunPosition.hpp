@@ -71,8 +71,9 @@ namespace Desert::Graphic
     // Where the sun is at @p localHours on @p calendar's date. The date must be valid (IsValidSunDate): the
     // caller refuses a bad one by name, this function does not invent a neighbouring day.
     //
-    // Horizon frame: +X east, +Y up, +Z north; NorthOffsetDeg rotates solar north onto the scene's north about
-    // world +Y.
+    // Horizon frame: -X east, +Y up, +Z north. The engine is right-handed (X x Y = Z), so with north on +Z east
+    // must be -X: +X east made the sky a mirror image (facing south, the sun rose on the right). NorthOffsetDeg
+    // rotates solar north onto the scene's north about world +Y.
     inline SunPosition SunPositionAt( const SunCalendar& calendar, float localHours )
     {
         using namespace std::chrono;
@@ -158,11 +159,11 @@ namespace Desert::Graphic
         // Refraction lifts the sun in its own vertical plane: the heading is kept, the elevation replaced.
         // Above 85 degrees the correction is 0 and the horizontal part may vanish, so the vector is kept.
         const double horizontal = std::sqrt( east * east + north * north );
-        glm::dvec3   towardSolar( east, up, north );
+        glm::dvec3   towardSolar( -east, up, north );
         if ( refractionArcSec != 0.0 && horizontal > 1e-9 )
         {
             const double scale = std::cos( correctedDeg * toRad ) / horizontal;
-            towardSolar        = glm::dvec3( east * scale, std::sin( correctedDeg * toRad ), north * scale );
+            towardSolar        = glm::dvec3( -east * scale, std::sin( correctedDeg * toRad ), north * scale );
         }
 
         const double northOffset = static_cast<double>( calendar.NorthOffsetDeg ) * toRad;

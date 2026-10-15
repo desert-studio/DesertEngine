@@ -94,7 +94,7 @@
                 "Year": 2026,
                 "Month": 3,
                 "Day": 20,
-                "NorthOffset": 0.0
+                "NorthOffset": 146.87
             },
             "VolumetricCloud": {
                 "Enabled": true,
