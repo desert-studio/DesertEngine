@@ -193,8 +193,7 @@ namespace Desert::Graphic::System
             // finer key so a second offending shader is not silenced by the first.
             //
             // The entity may still cast a shadow: the shadow pass draws depth with its own shader and
-            // never executes this material, and the caster belongs to the ENTITY (see
-            // Rules::RouteMeshShadowCaster), whose other submeshes may be drawing correctly.
+            // never executes this material: every draw casts its own submeshes (Rules::SplitMeshSlotDraws).
             if ( const auto domain = shader->GetProgramMeta().Domain; !Core::Formats::DrawnByMeshPath( domain ) )
             {
                 static std::unordered_set<std::string> s_RefusedShaders;
@@ -545,7 +544,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const auto [surfaceInst, mat] = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
             if ( surfaceInst == nullptr || !IsTranslucent( mat ) )
             {
                 continue; // opaque -> drawn by the opaque pass, not here
@@ -706,18 +705,15 @@ namespace Desert::Graphic::System
 
         for ( const auto& data : m_StaticQueue )
         {
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
-                 data.MaterialSlots->Slots[0] == nullptr )
+            if ( data.Mesh == nullptr || !data.MaterialSlots )
                 continue;
 
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
-            // First lit slot drives the batch. Slots holding a custom-shader material
-            // (DataDrivenMaterial) are not lit — their submeshes were routed to the generic
-            // path at submit and are masked out of this draw; an object with NO Lit slot at
-            // all has nothing for this path to do.
-            if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static ) )
+            // The entry's section slot drives its batch (one entry per section material, made at submit by
+            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
+            if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
                 groupFor( slot.Surface ).push_back( &data );
         }
 
@@ -883,7 +879,7 @@ namespace Desert::Graphic::System
             bool twoSided = mat->IsTwoSided();
             for ( const auto* obj : members )
                 if ( const auto* inst =
-                          FirstSurfaceSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance )
+                          SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance )
                     twoSided = twoSided || inst->IsTwoSided();
             return cellDrawOf( mat, twoSided, /*perObject*/ true );
         };
@@ -919,13 +915,15 @@ namespace Desert::Graphic::System
             // Sub-group this material's objects by Mesh*; a sub-group of >= 2 identical meshes collapses into
             // one instanced draw. Singletons (and everything when instancing is off / wireframe) take the
             // classic per-object path below — which also preserves their individual material overrides.
-            std::vector<std::pair<Desert::StaticMesh*, std::vector<ObjDraw>>> byMesh;
-            const auto bucketFor = [&]( Desert::StaticMesh* mesh ) -> std::vector<ObjDraw>&
+            // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
+            // section of its twins, one mask for the whole instanced draw.
+            std::vector<std::pair<std::pair<Desert::StaticMesh*, uint64_t>, std::vector<ObjDraw>>> byMesh;
+            const auto bucketFor = [&]( Desert::StaticMesh* mesh, uint64_t hidden ) -> std::vector<ObjDraw>&
             {
-                for ( auto& [m, v] : byMesh )
-                    if ( m == mesh )
+                for ( auto& [key, v] : byMesh )
+                    if ( key.first == mesh && key.second == hidden )
                         return v;
-                byMesh.emplace_back( mesh, std::vector<ObjDraw>{} );
+                byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<ObjDraw>{} );
                 return byMesh.back().second;
             };
 
@@ -942,7 +940,7 @@ namespace Desert::Graphic::System
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
                 od.Inst = mat == standInKey
                                ? standIn->Instance.get()
-                               : FirstSurfaceSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
+                               : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
                 od.Row  = EffectiveRow( mat, od.Inst );
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
@@ -951,14 +949,16 @@ namespace Desert::Graphic::System
                             od.HasOverrides = true;
                             break;
                         }
-                bucketFor( obj->Mesh ).push_back( od );
+                bucketFor( obj->Mesh, obj->HiddenSubmeshes ).push_back( od );
             }
 
             auto& singles = m_ScratchSingles;
             singles.clear();
-            for ( auto& [mesh, bucket] : byMesh )
+            for ( auto& [meshKey, bucket] : byMesh )
             {
-                // Per-object state a shared batch entry can't carry: hidden submeshes, the
+                Desert::StaticMesh* const mesh   = meshKey.first;
+                const uint64_t            hidden = meshKey.second;
+                // Per-object state a shared batch entry can't carry: the
                 // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
                 // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
@@ -966,8 +966,7 @@ namespace Desert::Graphic::System
                 std::vector<ObjDraw> batchable;
                 for ( auto& od : bucket )
                 {
-                    if ( od.Obj->HiddenSubmeshes != 0 || !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow ||
-                         od.HasOverrides )
+                    if ( !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow || od.HasOverrides )
                         singles.push_back( od );
                     else
                         batchable.push_back( od );
@@ -1020,6 +1019,7 @@ namespace Desert::Graphic::System
                         // No batchable object carries overrides (filtered above), so every instance of
                         // the batch genuinely shares the parent material's effective values.
                         d.MaterialIndex = AppendRow( groupSet->Materials, batchable[0].Row );
+                        d.HiddenSubmeshMask = hidden;
                         d.LodLevel      = level;
                         groupSet->Draws.push_back( d );
                     }
@@ -1257,6 +1257,7 @@ namespace Desert::Graphic::System
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = materialIndex;
+                    d.HiddenSubmeshMask = ism.HiddenSubmeshes;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                     d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
@@ -1316,6 +1317,7 @@ namespace Desert::Graphic::System
                                 .Material      = set.Mat->GetMaterialExecutor(),
                                 .InstanceCount = d.InstanceCount,
                                 .FirstInstance = d.FirstInstance,
+                                .HiddenSubmeshMask = d.HiddenSubmeshMask,
                                 .LodLevel      = d.LodLevel,
                                 .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
                                               wind = d.Wind, flags = d.PrimitiveFlags]
@@ -1358,18 +1360,31 @@ namespace Desert::Graphic::System
         //     slice with a push constant. The old path uploaded a pose per draw into a buffer the
         //     already-recorded draws still pointed at, so two skinned meshes sharing a material both
         //     rendered in the pose of whichever was submitted last.
-        std::vector<std::pair<DataDrivenMaterial*, std::vector<const SkinnedMeshRenderData*>>> groups;
-        const auto groupFor = [&]( DataDrivenMaterial* mat ) -> std::vector<const SkinnedMeshRenderData*>&
+        //
+        // The unit is a SECTION of an entry (its own material, masked to its own submeshes); an entry's sections
+        // share its motion row, so the pose is skinned once whatever the number of materials.
+        struct SectionRef
+        {
+            const SkinnedMeshRenderData* Obj     = nullptr;
+            const SkinnedSection*        Section = nullptr;
+        };
+        std::vector<std::pair<DataDrivenMaterial*, std::vector<SectionRef>>> groups;
+        const auto groupFor = [&]( DataDrivenMaterial* mat ) -> std::vector<SectionRef>&
         {
             for ( auto& [m, v] : groups )
                 if ( m == mat )
                     return v;
-            groups.emplace_back( mat, std::vector<const SkinnedMeshRenderData*>{} );
+            groups.emplace_back( mat, std::vector<SectionRef>{} );
             return groups.back().second;
         };
         for ( const auto& data : m_SkinnedQueue )
-            if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
-                groupFor( data.Material ).push_back( &data );
+        {
+            if ( data.Mesh == nullptr )
+                continue;
+            for ( const auto& section : data.Sections )
+                if ( section.Material != nullptr && section.Instance != nullptr )
+                    groupFor( section.Material ).push_back( { &data, &section } );
+        }
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
         // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its
@@ -1380,12 +1395,12 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
         {
-            std::vector<const SkinnedMeshRenderData*> standingIn;
+            std::vector<SectionRef> standingIn;
             for ( auto& [mat, objects] : groups )
             {
                 bool twoSided = mat->IsTwoSided();
-                for ( const auto* obj : objects )
-                    twoSided = twoSided || obj->Instance->IsTwoSided();
+                for ( const auto& obj : objects )
+                    twoSided = twoSided || obj.Section->Instance->IsTwoSided();
                 const CellDraw draw = ChooseCellDraw( pipeline, *mat, twoSided, standInPipeline );
                 if ( draw == CellDraw::DefaultSurface )
                     standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
@@ -1407,11 +1422,11 @@ namespace Desert::Graphic::System
             // A stand-in object is the default surface: its own instance and defaults row, not the waiting
             // material's overrides.
             const bool standsIn = standIn != nullptr && mat == standIn->Material.get();
-            const auto instOf   = [&]( const SkinnedMeshRenderData* obj ) -> MaterialInstance*
-            { return standsIn ? standIn->Instance.get() : obj->Instance; };
+            const auto instOf   = [&]( const SectionRef& obj ) -> MaterialInstance*
+            { return standsIn ? standIn->Instance.get() : obj.Section->Instance; };
             gpuMaterials.clear();
             gpuMaterials.reserve( objects.size() );
-            for ( const auto* obj : objects )
+            for ( const auto& obj : objects )
                 AppendRow( gpuMaterials, EffectiveRow( mat, instOf( obj ) ) );
 
             // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
@@ -1425,15 +1440,16 @@ namespace Desert::Graphic::System
 
             for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
             {
-                const auto*             obj = objects[i];
+                const SectionRef&       obj = objects[i];
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
                                       instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );
-                list.Add( { .Pipeline  = twin,
-                            .Mesh      = obj->Mesh,
-                            .Transform = glm::mat4( 1.0f ), // relative to the motion row's World
-                            .Material  = mat->GetMaterialExecutor(),
-                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj->MotionRow, i]
+                list.Add( { .Pipeline          = twin,
+                            .Mesh              = obj.Obj->Mesh,
+                            .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
+                            .Material          = mat->GetMaterialExecutor(),
+                            .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
+                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->MotionRow, i]
                             {
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );
