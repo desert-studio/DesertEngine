@@ -44,7 +44,7 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
              ++calls;
              return Common::MakeSuccess( true );
          },
-         NotCalled(), NotCalled(), NotCalled() );
+         NotCalled(), NotCalled(), NotCalled() , NotCalled());
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr ) << "no \"Assets / New Level Sequence\" palette entry";
     EXPECT_EQ( calls, 0 ) << "building the palette created an asset";
@@ -57,7 +57,7 @@ TEST( ContentCreateCommands, ACreationThatFailedAnswersWithItsOwnReason )
 {
     const auto commands = ContentCreatePaletteCommands(
          [] { return Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); },
-         NotCalled(), NotCalled(), NotCalled() );
+         NotCalled(), NotCalled(), NotCalled() , NotCalled());
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr );
     const auto outcome = command->Run();
@@ -82,7 +82,7 @@ TEST( ContentCreateCommands, NewInputActionAndMappingContextRunTheirOwnCreation 
              ++contexts;
              return Common::MakeSuccess( true );
          },
-         NotCalled() );
+         NotCalled() , NotCalled());
     const PaletteCommand* action  = FindAsset( commands, Desert::Editor::kNewInputActionLabel );
     const PaletteCommand* context = FindAsset( commands, Desert::Editor::kNewInputMappingContextLabel );
     ASSERT_NE( action, nullptr ) << "no \"Assets / New Input Action\" palette entry";
@@ -110,7 +110,7 @@ TEST( ContentCreateCommands, NewVFXDataChannelIsOfferedAndRunsItsOwnCreation )
          {
              ++channels;
              return Common::MakeSuccess( true );
-         } );
+         } , NotCalled());
     const PaletteCommand* command = nullptr;
     for ( const PaletteCommand& c : commands )
         if ( c.Group == "Assets" && c.Label == Desert::Editor::kNewVFXDataChannelLabel )

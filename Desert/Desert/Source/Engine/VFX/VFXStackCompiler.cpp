@@ -248,6 +248,9 @@ namespace Desert::VFX
         std::set<std::string> attributeNames;
         std::set<std::string> inputNames;
         std::size_t           pos    = 0;
+        // Blank and comment lines after the last declaration belong to the GLSL that follows them (a note above
+        // the function stays with it through a parse and a write); those before any declaration are skipped.
+        std::size_t bodyStart = std::string::npos;
         while ( pos < source.size() )
         {
             const std::size_t  end  = std::min( source.find( '\n', pos ), source.size() );
@@ -257,6 +260,8 @@ namespace Desert::VFX
             words >> keyword;
             if ( keyword.empty() || keyword.starts_with( "//" ) )
             {
+                if ( bodyStart == std::string::npos )
+                    bodyStart = pos;
                 pos = end + 1;
                 continue;
             }
@@ -276,9 +281,14 @@ namespace Desert::VFX
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
                                                                       keyword, name );
             ( keyword == "Attribute" ? module.Attributes : module.Inputs ).push_back( { name, type } );
-            pos = end + 1;
+            bodyStart = std::string::npos;
+            pos       = end + 1;
         }
-        module.Body = pos < source.size() ? source.substr( pos ) : std::string{};
+        const bool declared = !module.Attributes.empty() || !module.Inputs.empty();
+        if ( pos >= source.size() )
+            module.Body.clear(); // no GLSL (a CPU-only module): trailing blank lines are not a body
+        else
+            module.Body = source.substr( declared && bodyStart != std::string::npos ? bodyStart : pos );
 
         // The function the stack calls must be there; anything else in the body is the shader compiler's to judge.
         bool        definesModule = false;
@@ -395,8 +405,9 @@ namespace Desert::VFX
                     moduleOrder.push_back( key );
                 }
                 const ResolvedModule& resolvedUse = modules.at( key );
-                const VFXModuleStage  stage       = group == VFXStackGroup::ParticleSpawn ? VFXModuleStage::ParticleSpawn
-                                                                                          : VFXModuleStage::ParticleUpdate;
+                const VFXModuleStage  stage       = group == VFXStackGroup::ParticleSpawn
+                                                         ? VFXModuleStage::ParticleSpawn
+                                                         : VFXModuleStage::ParticleUpdate;
                 if ( ( resolvedUse.Stages & static_cast<uint8_t>( stage ) ) == 0 )
                     return Common::MakeFormattedError<Result>( "{}: module '{}' does not state Stage {}", where,
                                                                resolvedUse.Name, GroupName( group ) );

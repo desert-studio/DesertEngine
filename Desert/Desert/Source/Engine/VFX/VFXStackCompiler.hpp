@@ -54,6 +54,8 @@ namespace Desert::VFX
         std::vector<VFXModuleDecl> Attributes;
         std::vector<VFXModuleDecl> Inputs; ///< in declaration order (the slot order)
         std::string                Body;   ///< the GLSL after the declarations
+
+        [[nodiscard]] bool operator==( const VFXParticleModule& ) const = default;
     };
 
     /// The inside of a `.dfxmod` module block (VFXModuleFormat.hpp): the `Attribute` / `Input` declaration

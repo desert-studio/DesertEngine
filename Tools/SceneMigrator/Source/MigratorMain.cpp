@@ -1485,8 +1485,8 @@ namespace Desert::Migration
                     const auto raised = Desert::Migration::MigrateVFXSystemToModuleAssets( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — VFXS 1 -> " << Desert::Assets::kVFXSystemSchemaVersion
-                            << ": " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — VFXS 1 -> "
+                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }

@@ -14,6 +14,12 @@ namespace Desert::VFX
         return { Common::Content::AssetGuidToText( module.Guid ), std::string( module.Path ) };
     }
 
+    bool HasCpuBehaviour( const Common::Content::AssetGuid& guid )
+    {
+        return guid == kVFXSpawnRateModule.Guid || guid == kVFXSpawnBurstModule.Guid ||
+               guid == kVFXSpawnFromChannelModule.Guid;
+    }
+
     bool UsesModule( const S::VFXModuleUse& use, const VFXEngineCpuModule& module )
     {
         const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );

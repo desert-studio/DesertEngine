@@ -20,6 +20,8 @@ namespace Desert::Editor
     inline constexpr std::string_view kNewInputMappingContextLabel = "New Input Mapping Context";
     // UE's "Niagara Data Channel" under the FX category; the same one-spelling rule.
     inline constexpr std::string_view kNewVFXDataChannelLabel = "New VFX Data Channel";
+    // UE's "Niagara Module Script" under the FX category; the same one-spelling rule.
+    inline constexpr std::string_view kNewVFXModuleLabel = "New VFX Module";
 
     // "Assets / New Level Sequence". The creation itself is FileExplorerPanel::CreateNewLevelSequence and
     // nothing here: the entry is handed that one route and answers with its outcome, so the palette, the
@@ -29,7 +31,8 @@ namespace Desert::Editor
     ContentCreatePaletteCommands( std::function<Common::BoolResultStr()> newLevelSequence,
                                   std::function<Common::BoolResultStr()> newInputAction,
                                   std::function<Common::BoolResultStr()> newInputMappingContext,
-                                  std::function<Common::BoolResultStr()> newVFXDataChannel )
+                                  std::function<Common::BoolResultStr()> newVFXDataChannel,
+                                  std::function<Common::BoolResultStr()> newVFXModule )
     {
         std::vector<PaletteCommand> commands;
         commands.push_back( { "Assets", std::string( kNewLevelSequenceLabel ), std::move( newLevelSequence ) } );
@@ -37,6 +40,7 @@ namespace Desert::Editor
         commands.push_back(
              { "Assets", std::string( kNewInputMappingContextLabel ), std::move( newInputMappingContext ) } );
         commands.push_back( { "Assets", std::string( kNewVFXDataChannelLabel ), std::move( newVFXDataChannel ) } );
+        commands.push_back( { "Assets", std::string( kNewVFXModuleLabel ), std::move( newVFXModule ) } );
         return commands;
     }
 } // namespace Desert::Editor

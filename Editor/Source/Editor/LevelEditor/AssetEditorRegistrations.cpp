@@ -27,6 +27,7 @@
 #include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include "Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp"
+#include "Editor/Panels/VFXModule/VFXModuleDocument.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -143,6 +144,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::ControlRigDocument>( Assets::AssetHandle( subject.Owner ),
                                                                            assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE VFX MODULE EDITOR. The `.dfxmod` metadata, declarations and GLSL; no renderer slot.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::VFXModule ) ),
+             Registration{
+                  "VFXModule", ICON_MDI_PUZZLE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::VFXModuleDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                          assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -550,6 +566,10 @@ namespace Desert::Editor
              { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( VFX::kVFXModuleExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestVFXModuleDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Animation::Timeline::kLevelSequenceExtension ) },
              [&documents, &assetManager]( const std::string& path ) {

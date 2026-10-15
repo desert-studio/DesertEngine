@@ -298,6 +298,11 @@ namespace Desert::Editor
         return m_NewAssetMenu.CreateNewVFXDataChannel( m_CurrentDir );
     }
 
+    Common::BoolResultStr FileExplorerPanel::CreateNewVFXModule()
+    {
+        return m_NewAssetMenu.CreateNewVFXModule( m_CurrentDir );
+    }
+
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
     {
         const float aspect = originalSize.x / originalSize.y;

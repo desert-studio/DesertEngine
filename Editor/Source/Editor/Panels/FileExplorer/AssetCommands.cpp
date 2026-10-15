@@ -134,6 +134,12 @@ namespace Desert::Editor
                        if ( Explorer() == nullptr )
                            return Common::MakeError( "New VFX Data Channel: the Assets window does not exist" );
                        return Explorer()->CreateNewVFXDataChannel();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New VFX Module: the Assets window does not exist" );
+                       return Explorer()->CreateNewVFXModule();
                    } ) )
             commands.push_back( std::move( command ) );
     }

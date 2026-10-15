@@ -83,6 +83,9 @@ namespace Desert::Editor
         Common::BoolResultStr CreateNewInputMappingContext( const DirectoryInformation* folder );
         // UE's new UNiagaraDataChannel, with the Position field every channel spawn binds first.
         Common::BoolResultStr CreateNewVFXDataChannel( const DirectoryInformation* folder );
+        // UE's new Niagara module script: one Float input, a Module() that does nothing yet, Stage ParticleUpdate,
+        // under a fresh GUID.
+        Common::BoolResultStr CreateNewVFXModule( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are
         /// generated on a worker (see m_Bake).
         void CreateNewCloudAsset( const DirectoryInformation& folder, CloudAssetKind kind );

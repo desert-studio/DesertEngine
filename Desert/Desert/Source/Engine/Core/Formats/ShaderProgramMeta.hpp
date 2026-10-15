@@ -343,8 +343,8 @@ namespace Desert::Core::Formats
         std::string MediumSource;
 
         // THE BODY OF A `Particle { ... }` BLOCK — the second program fragment, in `Domain Particle`
-        // (VFX-04): either one stack module (Engine/VFX/VFXStackCompiler.hpp ParseParticleModule reads its
-        // declarations) or the whole simulation body an emitter's stack compiles to. Like the medium it has
+        // (VFX-04): the whole simulation body an emitter's stack compiles to (a stack module is a `.dfxmod`,
+        // Engine/VFX/VFXModuleFormat.hpp, not a shader). Like the medium it has
         // no stages of its own: the simulation program includes it. Empty for every other program.
         std::string ParticleSource;
 

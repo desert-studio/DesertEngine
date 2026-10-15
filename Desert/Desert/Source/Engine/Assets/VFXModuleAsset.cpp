@@ -65,10 +65,10 @@ namespace Desert::Assets
     Common::BoolResultStr VFXModuleAsset::Save( const Common::Filepath&         filepath,
                                                 const VFX::VFXModuleDefinition& module )
     {
-        const std::string text = VFX::WriteVFXModule( module );
-        if ( auto back = VFX::ParseVFXModule( text, filepath.string() ); !back )
+        if ( auto valid = VFX::ValidateVFXModule( module ); !valid )
             return Common::MakeFormattedError<bool>( "refusing to write VFX module '{}': {}", filepath.string(),
-                                                     back.GetError() );
+                                                     valid.GetError() );
+        const std::string text = VFX::WriteVFXModule( module );
         std::error_code ec;
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
@@ -77,6 +77,9 @@ namespace Desert::Assets
                                                      filepath.parent_path().string(), ec.message() );
         if ( auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( filepath, text ); !ok )
             return ok;
+        // The registry records the write: VFXSystemService reissues every system that uses this module, so the
+        // particle world recompiles it (ContentRegistry::WrittenSince).
+        ContentRegistry::NoteFile( filepath );
         LOG_INFO( "[VFX] Module written: '{}' ({}).", filepath.string(), module.DisplayName );
         return BOOLSUCCESS;
     }

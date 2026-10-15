@@ -210,7 +210,7 @@ namespace
              parsed.GetValue().Meta.ParticleSource );
 
         // A file in the shader root, so the includer finds <Common/VFXParticleContract.glslh> as the engine does.
-        const auto              path = Common::Constants::Path::ShaderDir() / "VFX" / "StackCompileHost.comp";
+        const auto              path = Common::Constants::Path::ShaderDir() / "StackCompileHost.comp";
         const shaderc::Compiler compiler;
         shaderc::CompileOptions options;
         options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );

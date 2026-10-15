@@ -80,6 +80,8 @@ namespace Desert::VFX
         uint8_t                    Stages = 0; ///< VFXModuleStage bits
         VFXParticleModule          Block;      ///< declarations + GLSL (GLSL empty for a CPU module)
 
+        [[nodiscard]] bool operator==( const VFXModuleDefinition& ) const = default;
+
         [[nodiscard]] bool AllowsStage( VFXModuleStage stage ) const
         {
             return ( Stages & static_cast<uint8_t>( stage ) ) != 0;
@@ -101,6 +103,13 @@ namespace Desert::VFX
 
     /// The canonical text of @p module (the header line, the block; the GLSL body verbatim).
     std::string WriteVFXModule( const VFXModuleDefinition& module );
+
+    /// The format's rules for a definition held in memory (an editor's working copy): its canonical text parses
+    /// back to the same definition. The refusal is the reader's own, naming the module.
+    Common::BoolResultStr ValidateVFXModule( const VFXModuleDefinition& module );
+
+    /// The stage names of the file format ("EmitterUpdate", "ParticleSpawn", "ParticleUpdate").
+    [[nodiscard]] std::string_view StageName( VFXModuleStage stage );
 
     /**
      * @brief What the stack compiler asks for a module: the definition a GUID names.

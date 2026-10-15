@@ -48,7 +48,8 @@ namespace
         spawn.Inputs.push_back( rate );
         flames.Stack.EmitterUpdate.push_back( spawn );
 
-        VFXModuleUse init{ { "2d5323b9c4d349f8b91c4fc795599f4f", "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod" },
+        VFXModuleUse init{ { "2d5323b9c4d349f8b91c4fc795599f4f",
+                             "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod" },
                            true,
                            {} };
         VFXModuleInput life{ "Lifetime", VFXValueType::Float, VFXInputSource::Random };

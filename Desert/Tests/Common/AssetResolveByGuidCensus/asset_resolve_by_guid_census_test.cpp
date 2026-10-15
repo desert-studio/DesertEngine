@@ -336,9 +336,9 @@ namespace
             {
                 // The `.dfxmod` header is its first line's comment, as a shader's; the body is the least
                 // ParseVFXModule accepts (a CPU-stage module declares no GLSL).
+                const std::array versions{ Common::Content::SubsystemVersion{ Common::Content::FourCC( "VFXM" ), 1u } };
                 const std::string text =
-                     Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader(
-                          kind, guid, std::array{ Common::Content::SubsystemVersion{ Common::Content::FourCC( "VFXM" ), 1u } } ) ) +
+                     Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader( kind, guid, versions ) ) +
                      "Module \"AF10a_Probe\"
 {
     Stage EmitterUpdate

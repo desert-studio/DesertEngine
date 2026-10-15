@@ -184,12 +184,33 @@ namespace Desert::VFX
             std::format_to( std::back_inserter( out ), "    Attribute {} {}\n", a.Name, GlslTypeName( a.Type ) );
         for ( const VFXModuleDecl& in : module.Block.Inputs )
             std::format_to( std::back_inserter( out ), "    Input {} {}\n", in.Name, GlslTypeName( in.Type ) );
-        if ( !module.Block.Body.empty() )
-            std::format_to( std::back_inserter( out ), "\n{}", module.Block.Body );
+        // The body carries its own leading blank or comment lines (ParseModuleBlock keeps them with the GLSL).
+        out += module.Block.Body;
         if ( !out.ends_with( '\n' ) )
             out += '\n';
         out += "}\n";
         return out;
+    }
+
+    Common::BoolResultStr ValidateVFXModule( const VFXModuleDefinition& module )
+    {
+        const std::string where  = std::format( "VFX module '{}'", module.DisplayName );
+        auto              parsed = ParseVFXModule( WriteVFXModule( module ), where );
+        if ( !parsed )
+            return Common::MakeError<bool>( parsed.GetError() );
+        if ( parsed.GetValue() != module )
+            return Common::MakeFormattedError<bool>( "{}: its text does not read back as the same module (a name or "
+                                                     "description with a quote or a line break?)",
+                                                     where );
+        return BOOLSUCCESS;
+    }
+
+    std::string_view StageName( const VFXModuleStage stage )
+    {
+        for ( const auto& s : kStageNames )
+            if ( s.Stage == stage )
+                return s.Word;
+        return {};
     }
 
     Common::BoolResultStr VFXModuleLibrary::AddDirectory(

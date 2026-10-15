@@ -82,7 +82,8 @@ namespace Desert::Runtime
             if ( std::any_of( dependencies.begin(), dependencies.end(),
                               [&]( const std::string& guid ) { return modules.contains( guid ); } ) )
             {
-                LOG_INFO( "[VFX] System {} recompiles: a module it uses was written.", static_cast<uint64_t>( handle ) );
+                LOG_INFO( "[VFX] System {} recompiles: a module it uses was written.",
+                          static_cast<uint64_t>( handle ) );
                 system = std::make_shared<const Assets::Serialization::VFXSystemData>( *system );
             }
         }

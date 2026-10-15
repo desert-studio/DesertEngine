@@ -63,6 +63,9 @@ namespace Desert::VFX
     /// The stack row reference to @p module ({Guid, Path}).
     [[nodiscard]] Assets::AssetGuidRef ModuleRef( const VFXEngineCpuModule& module );
 
+    /// Whether the engine has C++ for the EmitterUpdate stage of the module of @p guid (one of the three above).
+    [[nodiscard]] bool HasCpuBehaviour( const Common::Content::AssetGuid& guid );
+
     /// Whether @p use names @p module (by GUID; the Path is not compared).
     [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
 
