@@ -112,10 +112,9 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
-    using MeshRendererDetail::FirstSurfaceSlot;
     using MeshRendererDetail::GenericTextureKey;
-    using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
+    using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::SurfaceSlot;
 } // namespace Desert::Graphic::System
