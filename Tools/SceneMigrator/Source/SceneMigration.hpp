@@ -281,7 +281,23 @@ namespace Desert::Migration
     //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
-    static_assert( kSceneVersionRenderMethods == kSceneVersion,
+    //  54 - A SCRIPT SLOT HOLDS ONLY WHAT DIFFERS FROM THE SCRIPT (SCR-DETAILS, UE's delta against the CDO). Every
+    //       earlier build seeded a slot's Props with ALL the script's properties, so a changed default never
+    //       reached an entity that never changed the value. A stated value equal to the default its script
+    //       declares (`Name = Property.Float( 300 )`, ...) is dropped; a Number the script now declares Int is
+    //       re-stated Int. A value whose declaration states no literal default, a script that is not found, and
+    //       a name the script no longer declares keep their values and are listed (MigrateScriptDefaultsV53ToV54).
+    //       Scenes and prefabs alike.
+    inline constexpr int kSceneVersionScriptDefaults = 54;
+
+    //  55 - THE SUN STATES ITS SOURCE ANGLE (RT-SHADOWS; UE UDirectionalLightComponent::LightSourceAngle).
+    //       ECS::DirectionalLightData::SourceAngle (degrees, the sun's angular diameter) drives the cascades'
+    //       penumbra and the ray-traced sun shadow's cone. Every DirectionLight record that does not state it is
+    //       given kSourceAngleDefault, the component's default (MigrateSourceAngleV54ToV55). A prefab override
+    //       is a delta and is left alone. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSourceAngle = 55;
+
+    static_assert( kSceneVersionSourceAngle == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -334,6 +350,14 @@ namespace Desert::Migration
     // Re-states every DirectionLight block's ShadowBias of @p entities (records and their prefab overrides)
     // as kShadowBiasCentimetresDefault. Returns how many it re-stated. PURE.
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities );
+
+    // What a pre-v55 DirectionLight is given: ECS::DirectionalLightData::SourceAngle's default, in degrees (UE's
+    // LightSourceAngle default, the sun's angular diameter).
+    inline constexpr float kSourceAngleDefault = 0.5357f;
+
+    // States kSourceAngleDefault in every DirectionLight record of @p entities that has no SourceAngle (prefab
+    // overrides are deltas: untouched). Returns how many it stated. PURE.
+    std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -541,6 +565,21 @@ namespace Desert::Migration
     // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
     // override. PURE.
     RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateScriptDefaultsV53ToV54 did to one file.
+    struct ScriptDefaultsReport
+    {
+        std::size_t              Dropped = 0; // stated values equal to their script's default, gone
+        std::size_t              Retyped = 0; // Number values the script declares Int, re-stated Int
+        std::vector<std::string> Kept;        // values kept with the reason (no literal default, no script, ...)
+        std::vector<std::string> Refused;     // a Script block or slot that is not the declared shape
+    };
+
+    // Drops every script property value equal to the default its script declares, under the rule
+    // kSceneVersionScriptDefaults states, in the record and in every prefab override. Reads the scripts under
+    // @p assetsRoot (the `assets:` mount).
+    ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
+                                                        const std::filesystem::path&     assetsRoot );
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -809,6 +848,12 @@ namespace Desert::Migration
         bool                RenderMethodsRaised = false; // below kSceneVersionRenderMethods
         RenderMethodsReport RenderMethods;
 
+        bool                 ScriptDefaultsRaised = false; // below kSceneVersionScriptDefaults
+        ScriptDefaultsReport ScriptDefaults;
+
+        bool        SourceAngleRaised  = false; // below kSceneVersionSourceAngle
+        std::size_t SourceAnglesStated = 0;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -821,7 +866,8 @@ namespace Desert::Migration
                    UIAnimationsRaised || UIAnimationTimelinesRaised || CollisionProfilesRaised ||
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
-                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised || RenderMethodsRaised;
+                   HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
+                   RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised;
         }
     };
 

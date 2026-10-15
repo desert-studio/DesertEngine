@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <algorithm>
@@ -27,15 +28,18 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     {
         const auto& image = type.image;
 
-        // Arrayed images need a different view type and a different bind path. The one the engine builds is
-        // the CUBE ARRAY, and only through the render graph: an RDG::TextureDim::CubeArray texture's views are
-        // CUBE_ARRAY views at every layer count (the reflection captures, samplerCubeArray / imageCubeArray),
-        // so it shares the cube buckets - the view, not the bucket, carries the type. Every other arrayed
+        // Arrayed images need a different view type and a different bind path. The ones the engine builds are
+        // the CUBE ARRAY and the 2D ARRAY, and only through the render graph: an RDG::TextureDim::CubeArray /
+        // Tex2DArray texture's views are CUBE_ARRAY / 2D_ARRAY views at every layer count (the reflection
+        // captures, samplerCubeArray / imageCubeArray; the sun's shadow cascades, sampler2DArray), so each
+        // shares its base dimension's bucket - the view, not the bucket, carries the type. Every other arrayed
         // image is refused rather than approximated by its base dimension.
         if ( image.arrayed )
         {
             if ( image.dim == spv::DimCube && !image.ms )
                 return ImageKind::ImageCube;
+            if ( image.dim == spv::Dim2D && !image.ms )
+                return ImageKind::Image2D;
             return ImageKind::Unsupported;
         }
         // A multisampled image is only ever 2D (Vulkan has no 3D or cube MS image); its view is a plain 2D
@@ -160,6 +164,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             const uint32_t set     = compiler.get_decoration( resource.id, spv::DecorationDescriptorSet );
             const uint32_t binding = compiler.get_decoration( resource.id, spv::DecorationBinding );
 
+            // The bindless set belongs to the global table (BindlessTextures.glslh): its layout is the table's,
+            // never one built from this shader, so a resource of the shader's own there has no descriptor.
+            if ( set == kBindlessSetIndex )
+            {
+                diagnostics.push_back( std::format(
+                     "resource '{}' (set {}, binding {}) is in the set reserved for the bindless texture table; "
+                     "only Common/BindlessTextures.glslh declares set {} — move the resource to another set",
+                     resource.name, set, binding, kBindlessSetIndex ) );
+                return;
+            }
             const auto [it, inserted] = claimed.emplace( std::pair{ set, binding }, resource.name );
             if ( !inserted && it->second != resource.name )
             {
@@ -328,6 +342,51 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             auto& as         = data.ShaderDescriptorSets[set].AccelerationStructures[binding];
             as.DescriptorSet = set;
             FillResource( as, binding, resource.name, stage );
+        }
+
+        // THE BINDLESS TABLE: separate samplers and sampled images exist only as Common/BindlessTextures.glslh
+        // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the runtime
+        // array u_BindlessTextures[] at kBindlessTextureBinding, both in kBindlessSetIndex. Recognised by set,
+        // binding and type (not by name); VulkanShader then takes the table's own layout for that set. Any other
+        // separate sampler or image is refused by name: no layout here would describe it.
+        const auto refuseBindless = [&]( const spirv_cross::Resource& resource, std::string_view expected )
+        {
+            diagnostics.push_back( std::format(
+                 "resource '{}' (set {}, binding {}) is a separate sampler/texture, which only the bindless table "
+                 "declares ({}); include Common/BindlessTextures.glslh instead of declaring one",
+                 resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
+                 compiler.get_decoration( resource.id, spv::DecorationBinding ), expected ) );
+        };
+        const auto isBindlessSlot = [&]( const spirv_cross::Resource& resource, uint32_t binding )
+        {
+            return compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ) == kBindlessSetIndex &&
+                   compiler.get_decoration( resource.id, spv::DecorationBinding ) == binding;
+        };
+        for ( const auto& resource : resources.separate_samplers )
+        {
+            const auto& type = compiler.get_type( resource.type_id );
+            if ( !isBindlessSlot( resource, kBindlessSamplerBinding ) || type.array.size() != 1 ||
+                 !type.array_size_literal[0] || type.array[0] != kBindlessSamplerStateCount )
+            {
+                refuseBindless( resource, std::format( "sampler[{}] at set {}, binding {}", kBindlessSamplerStateCount,
+                                                       kBindlessSetIndex, kBindlessSamplerBinding ) );
+                continue;
+            }
+            data.UsesBindlessTable = true;
+        }
+        for ( const auto& resource : resources.separate_images )
+        {
+            const auto& type = compiler.get_type( resource.type_id );
+            // A runtime array (`[]`) reflects as one literal dimension of 0.
+            if ( !isBindlessSlot( resource, kBindlessTextureBinding ) || type.image.dim != spv::Dim2D ||
+                 type.image.arrayed || type.image.ms || type.array.size() != 1 || !type.array_size_literal[0] ||
+                 type.array[0] != 0 )
+            {
+                refuseBindless( resource, std::format( "texture2D[] at set {}, binding {}", kBindlessSetIndex,
+                                                       kBindlessTextureBinding ) );
+                continue;
+            }
+            data.UsesBindlessTable = true;
         }
 
         // Push Constants

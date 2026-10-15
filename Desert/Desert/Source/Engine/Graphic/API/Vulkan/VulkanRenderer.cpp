@@ -170,6 +170,9 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
@@ -441,11 +444,23 @@ namespace Desert::Graphic::API::Vulkan
             using Sets = std::vector<VkDescriptorSet>;
             Sets sets;
             sets.reserve( layouts.size() );
+            // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
+            // bound as it is, and slots written into it later reach commands already recorded. A layout is the
+            // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
+            // table exists whenever this matches.
+            const VulkanBindlessTextureTable* bindless   = BindlessTableIn( layouts );
+            const auto                        isBindless = [bindless]( size_t set )
+            { return bindless != nullptr && set == kBindlessSetIndex; };
             for ( size_t index = 0; index < layouts.size(); ++index )
             {
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
+                if ( isBindless( index ) )
+                {
+                    sets.push_back( bindless->GetDescriptorSet() );
+                    continue;
+                }
                 const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
@@ -459,6 +474,11 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry.Slot.Set >= sets.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
                                                              pass, name, entry.Slot.Set, sets.size() );
+                if ( isBindless( entry.Slot.Set ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
+                         "through BindlessTextureTable::Register",
+                         pass, name, entry.Slot.Set );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
@@ -1448,6 +1468,49 @@ namespace Desert::Graphic::API::Vulkan
         region.extent         = { src->GetWidth(), src->GetHeight(), 1 };
         vkCmdCopyImage( m_CurrentCommandBuffer, vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                         vdst->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                                    const RDG::TextureRef   source,
+                                                                    const RDG::TextureRef   target,
+                                                                    const uint32_t          targetLayer )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetTexture( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to =
+             context.GetTexture( target, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( targetLayer ) );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromImage = VulkanRdgBackend::TextureOf( from.GetValue() );
+        if ( !fromImage )
+            return Common::MakeError( fromImage.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& src = *from.GetValue().Desc;
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        if ( src.Size.Width != dst.Size.Width || src.Size.Height != dst.Size.Height ||
+             src.Samples != dst.Samples || targetLayer >= dst.Layers )
+            return Common::MakeError( std::format(
+                 "CopyGraphDepthToLayer: '{}' is {}x{} with {} sample(s), layer {} of '{}' ({}x{}, {} sample(s), "
+                 "{} layer(s)); a copy needs the same size and sample count and an existing layer",
+                 from.GetValue().Name, src.Size.Width, src.Size.Height, src.Samples, targetLayer,
+                 to.GetValue().Name, dst.Size.Width, dst.Size.Height, dst.Samples, dst.Layers ) );
+
+        // The graph's Copy node put the source in TRANSFER_SRC and the target layer in TRANSFER_DST.
+        VkImageCopy region{};
+        region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+        region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, targetLayer, 1 };
+        region.extent         = { src.Size.Width, src.Size.Height, 1 };
+        vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
 

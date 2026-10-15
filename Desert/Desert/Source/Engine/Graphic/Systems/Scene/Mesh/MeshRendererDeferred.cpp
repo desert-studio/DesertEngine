@@ -66,8 +66,10 @@ namespace Desert::Graphic::System
         // And not the same PROGRAM: the RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation, which writes
         // no shading word (Pass_GBuffer.glslh) — GI takes VPL positions from the RSM depth. The define lives in
         // this variant only; the pipeline references the program compiled under it and carries no define list.
-        // Its descriptor layout is the G-buffer cell's (the macro gates an output, never a binding), so the
-        // RSM material below, allocated from the cell by name, binds against this pipeline unchanged.
+        // The macro also gates a BINDING: a light view has no previous frame, so the permutation's vertex stage
+        // reads no ObjectMotions rows (SurfaceTypes.glslh DESERT_SURFACE_VIEW_PASS). The RSM material below is
+        // therefore built over this permutation, not the cell by name - a material of the base cell fills
+        // ObjectMotions (binding 25), which this pipeline's set 0 does not have, and the pass fails every frame.
         m_RSMShader = DefaultSurfaceProgramVariant( MeshVertexPath::Static, MeshPass::GBuffer,
                                                     ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } );
         if ( !m_RSMShader )
@@ -100,9 +102,7 @@ namespace Desert::Graphic::System
         // sun. A DEDICATED material (rather than the objects' own) because this pass writes a camera UB
         // holding the SUN's matrices, and two writes to one per-frame UB in a frame is the hazard the
         // glass pass was split out to avoid.
-        m_RSMMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::GBuffer );
-        if ( !m_RSMMaterial )
-            return false;
+        m_RSMMaterial = std::make_shared<DataDrivenMaterial>( m_RSMShader );
         m_RSMInstance = m_RSMMaterial->CreateInstance();
 
         // (Static x GBuffer) for the meshes whose FORWARD material is not service-owned. There is exactly

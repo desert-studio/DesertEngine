@@ -7,6 +7,7 @@
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 
+#include <Editor/Core/EntityPickRequest.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 #include <Editor/Core/Selection/UIPreview.hpp>
@@ -1655,6 +1656,13 @@ namespace Desert::Editor
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+
+        // Play gives this viewport the keyboard (UE PIE): the played world's keys reach the player at once.
+        const bool playingNow = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+        if ( playingNow && !m_WasPlaying )
+            ImGui::SetWindowFocus();
+        m_WasPlaying = playingNow;
+
         m_ViewportData.IsFocused = ImGui::IsWindowFocused();
 
         // Focus moved away (a Details field, another panel): the releases of the keys the player holds will
@@ -2604,6 +2612,23 @@ namespace Desert::Editor
         // pick the object behind it.
         if ( m_ViewAxisGizmoHovered || m_PilotOverlayHovered )
             return false;
+
+        // THE EYEDROPPER (EntityPickRequest): a Details reference field is waiting for an entity, so this click
+        // answers it instead of selecting — in a played world too, before the player takes the button. A click
+        // off the scene image leaves the request armed; one on the image that hits nothing ends it unanswered.
+        if ( EntityPickRequest::IsArmed() && e.GetMouseButton() == Common::MouseButton::Left &&
+             m_ViewportData.IsHovered )
+        {
+            const ImVec2 at = ::ImGui::GetMousePos();
+            const auto&  v  = m_ViewportData;
+            if ( at.x >= v.ViewportPos.x && at.y >= v.ViewportPos.y && at.x < v.ViewportPos.x + v.Size.x &&
+                 at.y < v.ViewportPos.y + v.Size.y )
+            {
+                const std::optional<::Desert::Core::RaycastHit> hit = SurfaceAtCursor();
+                EntityPickRequest::Deliver( hit ? std::optional<Common::UUID>( hit->Entity ) : std::nullopt );
+                return false;
+            }
+        }
 
         // A played world's button, over its image: the player's, not a pick.
         if ( Input::LocalPlayerInput* player = PlayedPlayerInput(); player != nullptr && m_ViewportData.IsHovered )

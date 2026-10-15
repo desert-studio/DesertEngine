@@ -194,11 +194,52 @@ namespace Desert::Assets
 
     inline constexpr uint32_t kCloudProceduralBytesPerVoxel = 4u;
 
-    /// How far past a cluster's rank the Coverage slider must run before the cluster stands at its full
-    /// profile, at CoverageContrast 1 (the softness is this over the contrast). It is what makes a cloud near
-    /// its threshold ERODE to its core instead of vanishing whole — Nubis's remap threshold 1 - g, with
-    /// g = (Coverage - rank) / softness (CloudProceduralClusterReach), applied by the bake per cluster.
-    inline constexpr float kCloudRankSoftness = 0.25f;
+    /// HOW FAR THE BODIES' PEAKS SPREAD BELOW ONE, at CoverageContrast 1 (COVERAGE-FIELD, owner 10-12): a
+    /// body's field peaks at its strength `1 - spread * u`, u uniform per body, so the Coverage threshold
+    /// 1 - Coverage meets the strongest bodies first and every body stands once Coverage passes the spread.
+    /// The spread is this over the contrast (CloudProceduralBodyStrengthSpread). 0.8, measured on the shipped
+    /// congestus at W = 1 (KeptCover, 128 and 256 alike): the bodies carry the sky's cover from 0 to about
+    /// 0.7 while the slider goes from 0 to 0.8 — Coverage 0.2 / 0.35 / 0.5 / 0.65 / 0.79 cover 0.20 / 0.37 /
+    /// 0.50 / 0.61 / 0.69 of the sky — and the fill field between them (kCloudFillCeiling) takes over from
+    /// Coverage 0.65 and closes the deck.
+    inline constexpr float kCloudBodyStrengthSpread = 0.8f;
+
+    /// The share of a body's deepest lump over which its field rises to kCloudBodyPlateau of its strength
+    /// (COVERAGE-FIELD): the edge of a body, so a body the threshold keeps is kept nearly whole, eroded only
+    /// along a soft rim, and the rest of the profile is the core gradient the lighting reads. NOT floored at
+    /// the grid: a base lump is halved by the flat base and carved by the silhouette noise, so its deepest
+    /// voxel lies well inside half its depth, and a rim deeper than that never reaches the strength the
+    /// threshold reads. 0.15 is the measured share at which the cover follows Coverage (above).
+    inline constexpr float kCloudBodyEdgeShare = 0.15f;
+
+    /// How much of a body's strength its edge carries; the remaining share rises through the whole body to
+    /// the core (the Dimensional Profile, PROFILE-BODY), whose depth IS floored at two voxels — so a body
+    /// thinner than that peaks at no less than this share of its strength. 0.95: at 0.75 the bodies under
+    /// two voxels peaked at three quarters of their strength and the cover at Coverage 0.2 was 0.12, not 0.2.
+    inline constexpr float kCloudBodyPlateau = 0.95f;
+
+    /// THE FILL FIELD'S FLOOR (COVERAGE-FIELD), a share of its ceiling: the presence and the noise between
+    /// the bodies never fall below this inside the type's band, so Coverage 1 under W = 1 leaves no column
+    /// empty.
+    inline constexpr float kCloudFillFloor = 0.15f;
+
+    /// THE FILL FIELD'S CEILING (COVERAGE-FIELD-2): the peak of the field between the bodies, where the
+    /// presence mask is one. Its OWN number, not the weakest body's peak (1 - spread): tied to the spread it
+    /// was 0.2, so the air between the bodies only began at Coverage 0.8 — after the bodies' Boolean
+    /// footprint had already saturated near 0.7 of the sky — and a weather W under 0.8 erased it entirely.
+    /// Because the presence is a uniform rank per column (CloudProceduralFillPresence), the fill alone covers
+    /// about `(ceiling - (1 - Coverage)) / ceiling` of the sky, linear in the slider, and 0.35 is where it
+    /// takes over as the bodies fall behind the slider. Measured (KeptCover, shipped congestus, W = 1, side
+    /// 128): Coverage 0.1/0.2/0.3/0.4/0.5/0.6/0.7/0.75/0.8/0.85/0.9/0.95/1 covers
+    /// 0.08/0.20/0.32/0.41/0.50/0.57/0.68/0.76/0.84/0.90/0.95/1.00/1.00; side 256 at 0.7/0.8: 0.67/0.83. At
+    /// 0.4 the sky ran 0.05-0.06 over the slider from 0.75 to 0.9.
+    inline constexpr float kCloudFillCeiling = 0.35f;
+
+    /// THE FILL PRESENCE'S WAVELENGTHS (COVERAGE-FIELD-2), in the species' cells: one octave of the 2D mask
+    /// between the bodies, from the silhouette noise's cell (kCloudShapeNoiseCellsPerCell of a cell) up to
+    /// a whole cell — the gaps between a cell's bodies, which is what the fill closes.
+    inline constexpr float kCloudFillPresenceShortestCells = 0.4f;
+    inline constexpr float kCloudFillPresenceLongestCells  = 1.0f;
 
     /// THE WEATHER MAP'S SHORE (CloudWeatherPresence, FIELD-GRAIN-b): the half-width of the step from busy
     /// to clear, in the weather's uniform rank, as a fraction of the smaller side. The shader's
@@ -308,17 +349,19 @@ namespace Desert::Assets
         /// of eight — and the radius only decides how sharp the crease between them is.
         float BlendRadiusKm = 0.06f;
 
-        /// HOW BUSY THE WEATHER IS WHERE THERE IS WEATHER, 0..1 (owner, 10-08; Nubis' coverage). The march
-        /// keeps a cluster where its core rank is under `Coverage * W`, W >= 0 being the weather map
-        /// (CloudWeatherPresence), so 0 is exactly empty, the sky's cover rises monotonically with it, and
-        /// the weather's true zeros stay clear at EVERY setting. It is NOT the fraction of the sky with
-        /// cloud: an overcast sky is its own cloud type (a stratus deck), not Coverage 1.
+        /// HOW MUCH OF THE WEATHER IS CLOUD, 0..1 — THE THRESHOLD OF A CONTINUOUS FIELD (COVERAGE-FIELD,
+        /// owner 10-12; Unreal's Volumetric Cloud and Nubis' weather map): the bake writes
+        /// `remap(field, 1 - Coverage, 1, 0, 1)` (CloudProceduralCoverageRemap) of one field made of the
+        /// type's bodies and the fill noise between them (CloudProceduralFillField). The bodies set only the
+        /// FORM and their number is the type's, never the slider's, so the bake costs the same at every
+        /// Coverage. 0 is exactly empty, the sky's cover rises monotonically with it, and 1 under W = 1 is a
+        /// solid deck; the weather's true zeros (CloudWeatherPresence) stay clear at EVERY setting.
         float Coverage = 0.24f;
 
-        /// How sharply a cell goes from empty to full, > 0. A cell whose hash lands just under the coverage
-        /// threshold grows a SMALL cluster; one well under it grows a full-sized one, and this is the width
-        /// of that ramp inverted. It is the same field the layer already exposes and it keeps its meaning:
-        /// above 1 the sky is decisively cloud or decisively clear, below 1 the sizes spread out.
+        /// How decisively the bodies stand, > 0: the spread of their peaks is kCloudBodyStrengthSpread over
+        /// this (CloudProceduralBodyStrengthSpread). Above 1 the bodies are alike and the sky goes from clear
+        /// to all its bodies over a short run of the slider; below 1 they appear one by one and their sizes
+        /// spread out.
         float CoverageContrast = 1.0f;
 
         /// The realization. Two layers with different seeds have unrelated skies; the same seed and the
@@ -825,10 +868,21 @@ namespace Desert::Assets
     /// and w are not read (Graphic::kCloudUnreadSlots).
     glm::vec2 CloudLayoutStrengthUniform( const CloudProceduralFieldParams& params );
 
-    /// How far the Coverage slider runs past a cluster's rank before the cluster stands at its full profile.
-    inline float CloudProceduralRankSoftness( const CloudProceduralFieldParams& params )
+    /// The spread of the bodies' peaks below one (kCloudBodyStrengthSpread over the contrast), kept inside
+    /// [0.05, 0.8] so the bodies never all peak at one value and the weakest still peaks at a fifth —
+    /// a body the eye sees, not one quantised away.
+    inline float CloudProceduralBodyStrengthSpread( const CloudProceduralFieldParams& params )
     {
-        return kCloudRankSoftness / ( params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f );
+        const float contrast = params.CoverageContrast > 1e-2f ? params.CoverageContrast : 1e-2f;
+        const float spread   = kCloudBodyStrengthSpread / contrast;
+        return spread < 0.05f ? 0.05f : ( spread > 0.8f ? 0.8f : spread );
+    }
+
+    /// A BODY'S STRENGTH (COVERAGE-FIELD), the peak of its field: `1 - spread * u` for the body's own uniform
+    /// draw @p u. The slider keeps the body where its field passes 1 - Coverage, strongest first.
+    inline float CloudProceduralBodyStrength( const CloudProceduralFieldParams& params, float u )
+    {
+        return 1.0f - CloudProceduralBodyStrengthSpread( params ) * u;
     }
 
     /// THE WEATHER MAP W (WX-NUBIS; Nubis' weather-map coverage, Schneider 2015/2022): the presence of
@@ -861,53 +915,46 @@ namespace Desert::Assets
         return Graphic::CloudProfileDensity( shape.Profile, ( altitudeKm - shape.BaseAltitudeKm ) / bandKm );
     }
 
-    /// THE CLUSTER'S REACH (CUT-AT-BAKE), the bake's per-cluster decision: g = saturate((Coverage - rank) /
-    /// softness), how far the slider has run past the cluster's rank. Zero — the cluster is not baked — when
-    /// the slider is not over the rank, so a Coverage of 0 bakes nothing; one past a softness.
-    inline float CloudProceduralClusterReach( float rank, float coverage, float softness )
+    /// THE COVERAGE THRESHOLD (COVERAGE-FIELD, owner 10-12): `remap(field, 1 - coverage, 1, 0, 1)` — Unreal's
+    /// and Nubis's weather-map remap on the continuous field the bake builds (bodies and fill). Zero at a
+    /// Coverage of 0 and wherever the field is under the threshold; the field itself at a Coverage of 1, so
+    /// the core of a full-strength body is 1 at every Coverage and the slider moves where cloud is, not how
+    /// dense its core is.
+    inline float CloudProceduralCoverageRemap( float field, float coverage )
     {
-        const float run = coverage - rank;
-        if ( run <= 0.0f )
+        if ( coverage <= 0.0f || field <= 0.0f )
             return 0.0f;
-        return run < softness ? run / ( softness > 1e-4f ? softness : 1e-4f ) : 1.0f;
+        const float c     = coverage < 1.0f ? coverage : 1.0f;
+        const float value = ( field - ( 1.0f - c ) ) / c;
+        return value < 0.0f ? 0.0f : ( value > 1.0f ? 1.0f : value );
     }
 
-    /// HOW MANY TIMES THE BODIES ONE PATCH NEEDS AT THE MARGIN IT DRAWS (FIELD-FILL), so that Coverage 1 under
-    /// W = 1 is a solid deck. A patch's bodies are a Boolean model: at a unit fill they cover 1 - e^-1 of it
-    /// whatever survives the slider, so a slider that only THINNED them topped out at 0.69 of the sky for a
-    /// stratus deck. The patch draws kCloudBodyRankDepth times that fill and the slider keeps the share
-    /// CloudBodyRankThreshold says, so the kept bodies' intensity is -ln(1 - Coverage (1 - e^-K)) fills: the
-    /// slider at the margin (Coverage) and the sky at one. EIGHT, MEASURED: a stratus deck's bodies cover the
-    /// sky at about three quarters of a unit body's efficiency (their profile taper and the eroding share), so
-    /// at five the deck at Coverage 1 was 0.976 of the sky; at eight it is 1 - e^-(8 * 0.75) past 0.99.
-    inline constexpr float kCloudBodyRankDepth = 8.0f;
+    /// THE FILL PRESENCE (COVERAGE-FIELD-2; the UE/Nubis weather map's coverage channel): a 2D mask over
+    /// the region, the same for every altitude of a column, as a UNIFORM RANK in [0, 1] — Phi of a
+    /// unit-variance sum of random-phase plane waves (the world weather's construction, CloudFarWeather),
+    /// whole wave numbers across the region so it repeats where the volume does. Uniform, so a threshold on
+    /// it keeps exactly that share of the columns: the fill's cover is linear in Coverage.
+    float CloudProceduralFillPresence( const CloudProceduralFieldParams& params, uint32_t slot,
+                                       const glm::vec2& pointXZKm );
 
-    /// The share of a patch's drawn bodies the slider keeps at @p coverage: -ln(1 - c (1 - e^-K)) / K.
-    inline float CloudBodyRankThreshold( float coverage )
-    {
-        const float c    = coverage < 0.0f ? 0.0f : ( coverage > 1.0f ? 1.0f : coverage );
-        const float full = 1.0f - std::exp( -kCloudBodyRankDepth );
-        return -std::log( 1.0f - c * full ) / kCloudBodyRankDepth;
-    }
-
-    /// A BODY'S REACH past the slider (CloudProceduralClusterReach) from its uniform @p rank: kept when the
-    /// rank is under CloudBodyRankThreshold, and the kept ranks spread over [0, Coverage) so the same share
-    /// of the kept bodies erodes towards its core at every Coverage as when the slider thinned one fill.
-    inline float CloudProceduralBodyReach( const CloudProceduralFieldParams& params, float rank )
-    {
-        const float threshold = CloudBodyRankThreshold( params.Coverage );
-        if ( rank >= threshold || threshold <= 0.0f )
-            return 0.0f;
-        const float coverage = params.Coverage < 1.0f ? params.Coverage : 1.0f;
-        return CloudProceduralClusterReach( coverage * rank / threshold, coverage,
-                                            CloudProceduralRankSoftness( params ) );
-    }
+    /// THE FILL FIELD (COVERAGE-FIELD), the field between the bodies in the continuous field the Coverage
+    /// threshold cuts, at @p pointKm for species @p slot: COLUMN-COHERENT (COVERAGE-FIELD-2) —
+    /// kCloudFillCeiling times the 2D presence (CloudProceduralFillPresence) lifted to kCloudFillFloor, times
+    /// the altitude density, eroded by the slot's low-frequency Perlin-Worley (the noise
+    /// CloudProceduralShapeNoise shapes the silhouettes with, lifted to kCloudFillFloor). The presence, not
+    /// the 3D noise, decides which columns carry cloud: a 3D noise's maximum over a column is near its
+    /// ceiling everywhere, so the fill came in as a step (0.69 -> 1.00 of the sky over Coverage 0.80..0.85).
+    /// Zero outside the type's own band. A stratus deck is a type whose slab profile makes this field the
+    /// whole sky at Coverage 1.
+    float CloudProceduralFillField( const CloudProceduralFieldParams& params, uint32_t slot,
+                                    const glm::vec3& pointKm );
 
     /// NUBIS'S COVERAGE REMAP, ValueRemap(profile, 1 - reach, 1, 0, 1) * reach = max(0, profile - (1 - reach))
-    /// (Schneider, "Nubis" 2017: `remap(base, 1 - coverage, 1, 0, 1) * coverage`) — the one remap both halves
-    /// make: the bake on each cluster's own profile with its CloudProceduralClusterReach, the march on the
-    /// baked profile with the column's CloudProceduralLocalWeather (the shader's CloudCoverRemap). Zero at a
-    /// reach of zero and wherever the profile is zero (air is never cloud); the profile itself at a reach of one.
+    /// (Schneider, "Nubis" 2017: `remap(base, 1 - coverage, 1, 0, 1) * coverage`) — the WEATHER's remap, made
+    /// on the baked profile with the column's CloudProceduralLocalWeather by the march (the shader's
+    /// CloudCoverRemap) and the census (CloudProceduralColumnKept); the bake thresholds by Coverage with
+    /// CloudProceduralCoverageRemap. Zero at a reach of zero and wherever the profile is zero (air is never
+    /// cloud); the profile itself at a reach of one.
     ///
     /// TIMES THE REACH, NOT DIVIDED BACK TO ONE (PROFILE-BODY): the slope of the result in the profile is 1 at
     /// every reach, so the cut keeps the profile's own gradient — at least two voxels per unit
@@ -975,7 +1022,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001cULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x000000000000001fULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
@@ -1114,20 +1161,13 @@ namespace Desert::Assets
                                     const glm::ivec2&                    originVoxel,
                                     const CloudProceduralBakeProgressFn& onProgress );
 
-    /// Which cells GenerateCloudProceduralLumps emits: every cell (the placement measured apart from the
-    /// slider) or only those the Coverage slider keeps (CloudProceduralClusterReach > 0) — what the bake
-    /// draws, and the view the panels use.
-    enum class CloudProceduralLumpSet
-    {
-        EveryCell,
-        KeptCells
-    };
-
-    /// A lump and the rank of the cell it was born in.
+    /// A lump and the strength of the body it belongs to. EVERY body the type places is a lump of the bake
+    /// (COVERAGE-FIELD): the Coverage slider thresholds the field they make, it does not choose among them.
     struct CloudProceduralLump
     {
         CloudModellingBlob Blob;
-        float              Rank = 0.0f;
+        /// CloudProceduralBodyStrength of the lump's body — its massif's for a lobe — the peak of its field.
+        float Strength = 1.0f;
         /// Where the cluster this lump belongs to was placed — its MASSIF's centre (FIELD-GRAIN-c: a lobe on a
         /// massif's rim carries the massif's site, so the bake joins and cuts the two as one cloud) — so the
         /// placement can be measured apart from the shape drawn around it.
@@ -1138,28 +1178,27 @@ namespace Desert::Assets
     };
 
     std::vector<CloudProceduralLump> GenerateCloudProceduralLumps( const CloudProceduralFieldParams& params,
-                                                                   uint32_t slot, const glm::vec2& regionOriginKm,
-                                                                   CloudProceduralLumpSet set );
+                                                                   uint32_t                          slot,
+                                                                   const glm::vec2& regionOriginKm );
 
     /// The same generator over any rectangle: the lumps of every cell whose centre lies in
     /// [windowMinKm, windowMinKm + windowSizeKm). The region form above is this with a square of RegionSizeKm;
     /// a clip level asks for its box widened by the lumps' reach (BakeCloudProceduralBox).
     std::vector<CloudProceduralLump>
     GenerateCloudProceduralLumpsInWindow( const CloudProceduralFieldParams& params, uint32_t slot,
-                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm,
-                                          CloudProceduralLumpSet set );
+                                          const glm::vec2& windowMinKm, const glm::vec2& windowSizeKm );
 
     /**
-     * @brief What the bake writes for species @p slot at one point, gathered over @p lumps — 0 outside the
-     *        body, 1 at its cluster's core (CloudProceduralBodyDepthKm), times the altitude density, cut by
-     *        each cluster's reach.
+     * @brief What the bake writes for species @p slot at one point, gathered over @p lumps — the continuous
+     *        field (each cluster's strength times its edge and core profile, the clusters met by `max`, then
+     *        the fill field), times the altitude density, thresholded by CloudProceduralCoverageRemap.
      *
      * ONE HOME WITH THE BAKE (CUT-AT-BAKE-b): the voxel is the same function the bake calls — the join per
-     * cluster, the altitude density, each cluster cut by its CloudProceduralClusterReach before the clusters
-     * meet by `max`. What differs is the SET: this gathers every lump it is handed where the bake asks a
-     * spatial bin, and Desert/Tests/Engine/CloudProceduralField holds the two against each other at four
-     * hundred probes to within one 255th. A cluster is identified by its ClusterKm, so a caller handing
-     * wrapped copies shifts ClusterKm with each copy.
+     * cluster, the altitude density, the clusters met by `max` with the fill, one Coverage threshold. What differs
+     * is the SET: this gathers every lump it is handed where the bake asks a spatial bin, and
+     * Desert/Tests/Engine/CloudProceduralField holds the two against each other at four hundred probes to within
+     * one 255th. A cluster is identified by its ClusterKm, so a caller handing wrapped copies shifts ClusterKm
+     * with each copy.
      *
      * It exists because the Cloud Type panel has to draw the silhouette a type produces, and a preview
      * computed from a formula written a second time is a preview that agrees with a picture nobody renders.
@@ -1171,6 +1210,14 @@ namespace Desert::Assets
     float EvaluateCloudProceduralProfile( const CloudProceduralFieldParams& params, uint32_t slot,
                                           const std::vector<CloudProceduralLump>& lumps,
                                           const glm::vec3&                        pointKm );
+
+    /// THE TYPE'S FORM at one point (COVERAGE-FIELD): the body half of the field EvaluateCloudProceduralProfile
+    /// thresholds — each cluster's strength times its edge and core profile times the altitude density, the
+    /// clusters met by `max` — before the fill field joins it and before the Coverage threshold. What the
+    /// Cloud Type panel draws and the type suites measure: the shape a type gives its bodies, which no
+    /// Coverage setting shows alone (at Coverage 1 the fill fills the band around them).
+    float EvaluateCloudProceduralBodies( const CloudProceduralFieldParams& params, uint32_t slot,
+                                         const std::vector<CloudProceduralLump>& lumps, const glm::vec3& pointKm );
 
     /// How many lumps the whole region holds, summed over the species — the quantity the bake's cost is
     /// linear in, exposed so the renderer can log it beside the milliseconds rather than guessing.

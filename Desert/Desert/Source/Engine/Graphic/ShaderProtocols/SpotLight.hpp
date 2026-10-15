@@ -8,7 +8,7 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // std430 layout matching `struct SpotLight` in Mesh/LightSources.glslh (64 bytes). CosInner/CosOuter are the
+    // std430 layout matching `struct SpotLight` in Mesh/LightSources.glslh (80 bytes). CosInner/CosOuter are the
     // COSINES of the inner/outer cone half-angles (precomputed on the CPU so the shader avoids acos).
     struct SpotLightPayload
     {
@@ -24,7 +24,14 @@ namespace Desert::Graphic::ShaderProtocols
         // faces are that row and the five after it), or kNoLocalShadowView. Written by
         // MeshRenderer::UpdateLocalShadows, never by the light system.
         int32_t   ShadowView = -1;   // 56
-        float     _pad1 = 0.0f; // -> 64
+        // UE ULightComponent::ContactShadowLength / bContactShadowLengthInWS (PointLightPayload says how).
+        float   ContactShadowLength  = 0.0f; // 60
+        int32_t ContactShadowInWorld = 0;    // 64
+        // UE ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: the occlusion of a hit on a mesh
+        // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
+        float ContactShadowCastingIntensity    = 1.0f; // 68
+        float ContactShadowNonCastingIntensity = 0.0f; // 72
+        float _pad2                            = 0.0f; // 76 -> 80
     };
 
     struct SpotLight

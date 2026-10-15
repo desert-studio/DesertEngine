@@ -417,10 +417,10 @@ namespace Desert::Graphic::System
         // UpdateCascades. The two differ whenever the fit does not run or degenerates (no sun in the
         // scene, most commonly), and publishing the allocation then sends the shader through matrices no
         // frame ever wrote.
-        frame.CascadeCount = GetValidCascadeCount();
-        for ( uint32_t c = 0; c < frame.CascadeCount; ++c )
-            frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetColorAttachmentImage().get() : nullptr;
+        frame.CascadeCount      = GetValidCascadeCount();
         frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
+        frame.CascadeDepthRange = m_CascadeDepthRange;
+        frame.SunSourceTanHalf  = GetSunSourceTanHalf();
         frame.ShadowsEnabled    = m_ShadowsEnabled;
         frame.ShadowDebugMode   = m_ShadowDebugMode;
         frame.ShowNormals       = m_ShowNormals;
@@ -451,6 +451,13 @@ namespace Desert::Graphic::System
         // records, so it is final by the time any mesh pass runs — in both render paths.
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
 
+        // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
+        // and the glass march the opaque scene depth (u_SceneDepth): the deferred path has it (the G-buffer
+        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        if ( view != nullptr )
+            frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
+                 *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
+
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
         // and ApplyTo binds them by name only into a template that does.
@@ -467,11 +474,24 @@ namespace Desert::Graphic::System
         // records, writes each one's row back and uploads.
         auto& records = m_ScratchMotionRecords;
         records.clear();
-        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
+        size_t instanceCount = 0;
+        for ( const auto& data : m_InstancedQueue )
+            instanceCount += data.Transforms->size();
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + m_SkinnedQueue.size() );
         for ( const auto& data : m_StaticQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
+        // Every ISM instance is a primitive row of its own (UE instance scene data; the GI card table and the TLAS
+        // custom index are keyed per instance). Part = instance + 1 keeps each instance's previous world its own.
+        for ( const auto& data : m_InstancedQueue )
+        {
+            const std::vector<glm::mat4>& transforms = *data.Transforms;
+            for ( size_t instance = 0; instance < transforms.size(); ++instance )
+                records.push_back( { .Entity = data.Entity,
+                                     .Part   = static_cast<uint32_t>( instance + 1 ),
+                                     .World  = transforms[instance] } );
+        }
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
@@ -484,6 +504,14 @@ namespace Desert::Graphic::System
             data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_GenericQueue )
             data.MotionRow = built.RecordRows[record++];
+        m_InstancedMotionRows.clear();
+        m_InstancedMotionRows.reserve( instanceCount );
+        for ( auto& data : m_InstancedQueue )
+        {
+            data.FirstMotionRow = static_cast<uint32_t>( m_InstancedMotionRows.size() );
+            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
+                m_InstancedMotionRows.push_back( built.RecordRows[record++] );
+        }
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
         const auto& rows     = built.Rows;
@@ -539,6 +567,7 @@ namespace Desert::Graphic::System
                 staticData.LODBias         = data.LODBias;
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
+                staticData.CastContactShadow        = data.CastContactShadow;
                 staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );

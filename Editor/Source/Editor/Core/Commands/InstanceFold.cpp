@@ -18,6 +18,8 @@ namespace Desert::Editor::Commands
             return false;
         if ( CastShadows != other.CastShadows )
             return false;
+        if ( CastContactShadow != other.CastContactShadow )
+            return false;
         return Materials == other.Materials;
     }
 
@@ -34,6 +36,8 @@ namespace Desert::Editor::Commands
         out << " with " << Materials.size() << ( Materials.size() == 1 ? " material slot" : " material slots" );
         if ( !CastShadows )
             out << ", shadows off";
+        if ( !CastContactShadow )
+            out << ", contact shadow off";
         return out.str();
     }
 

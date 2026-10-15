@@ -39,6 +39,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_StorageBytes;
+        }
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, false );
+        }
         [[nodiscard]] VkAccelerationStructureKHR GetHandle() const
         {
             return m_Handle;
@@ -52,8 +60,13 @@ namespace Desert::Graphic::API::Vulkan
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;
         VmaAllocation                         m_StorageMemory = nullptr;
+        VkDeviceSize                          m_StorageBytes  = 0; // the allocation's size (stats overlay)
         VkDeviceAddress                       m_DeviceAddress = 0;
         PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
         ResourceOwnership                     m_Ledger; // the storage's row; released with this object
+        // What the BLAS was built from (GetMetadataLayout); the mesh holds the buffers as long as it holds this.
+        std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
+        VkDeviceAddress                                    m_VertexAddress = 0;
+        VkDeviceAddress                                    m_IndexAddress  = 0;
     };
 } // namespace Desert::Graphic::API::Vulkan

@@ -280,14 +280,14 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const auto&    m       = *it;
             const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
-            const bool        sceneReadHeader =
-                 entry.path().filename() == "ObjectMotion.glslh" ||
-                 ( entry.path().filename() == "SurfaceTypes.glslh" && name == "u_SceneDepth" );
-            // The view's light grid: the forward cell and the deferred composite declare its two blocks at the
-            // same two numbers of the range.
+            const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
+                                         ( entry.path().filename() == "SurfaceTypes.glslh" &&
+                                           ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
+            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range
+            // (the deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both
+            // outside it).
             if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
             {
-                // (The build shader's own compute layout numbers them from 0, outside the range.)
                 if ( Desert::Core::IsSceneReadBinding( binding ) )
                 {
                     EXPECT_EQ( binding, name == "LightGridParamsUB" ? Desert::Core::kLightGridParamsBinding
@@ -306,12 +306,13 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 5u );
+    ASSERT_EQ( sceneRead.size(), 6u );
     EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
     EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
+    EXPECT_EQ( sceneRead["u_SceneShadingWord"], Desert::Core::kSceneShadingWordBinding );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
@@ -1029,7 +1030,6 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
          { "HeightFogApply", E / "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
          { "CloudComposite", E / "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
          { "DeferredLighting", E / "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
-         { "SSRComposite", E / "Deferred/SSRRenderer.hpp" },                  // reflection composite
          { "DebugLine", E / "Mesh/MeshRendererDebug.cpp" },                   // debug lines
          { "OverdrawResolve", E / "Mesh/MeshRendererDebug.cpp" },             // debug view
          { "ParticleSpriteDefault", E / "Particles/ParticleRenderer.cpp" },   // translucent particles

@@ -159,9 +159,9 @@ void main()
 TEST( ShaderReflection, RefusesArrayedImagesInsteadOfGuessing )
 {
     const char* kArrayed = R"(#version 450
-layout(binding = 0) uniform sampler2DArray u_Slices;
+layout(binding = 0) uniform sampler1DArray u_Slices;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = texture(u_Slices, vec3(0.5)); }
+void main() { o_Color = texture(u_Slices, vec2(0.5)); }
 )";
 
     const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
@@ -172,7 +172,6 @@ void main() { o_Color = texture(u_Slices, vec3(0.5)); }
 
     ASSERT_EQ( diagnostics.size(), 1u );
     EXPECT_NE( diagnostics.front().find( "u_Slices" ), std::string::npos ) << diagnostics.front();
-    EXPECT_NE( diagnostics.front().find( "sampler2DArray" ), std::string::npos ) << diagnostics.front();
 
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
     {
@@ -180,6 +179,29 @@ void main() { o_Color = texture(u_Slices, vec3(0.5)); }
         EXPECT_TRUE( descriptorSet.Image3DSamplers.empty() ) << "set " << set;
         EXPECT_TRUE( descriptorSet.ImageCubeSamplers.empty() ) << "set " << set;
     }
+}
+
+// sampler2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
+// 2D_ARRAY view at every layer count, so it shares the Image2D bucket with no diagnostic.
+TEST( ShaderReflection, BindsSampler2DArrayThroughTheImage2DBucket )
+{
+    const char* kArrayed = R"(#version 450
+layout(binding = 0) uniform sampler2DArray u_ShadowCascades;
+layout(location = 0) out vec4 o_Color;
+void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
+)";
+
+    const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Fragment, data );
+    EXPECT_TRUE( diagnostics.empty() );
+
+    size_t found = 0;
+    for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
+        found += descriptorSet.Image2DSamplers.size();
+    EXPECT_EQ( found, 1u );
 }
 
 // sampler2DMS is a combined image sampler over a 2D view of a multisampled image (the MSAA scene depth read

@@ -21,10 +21,10 @@ namespace Desert::Graphic
         }
 
         // The one rule, per axis: min( request, ceiling ), then down the ladder (the enum's order) past every
-        // method the device cannot run or this build does not implement. The ladder's front (Off /
-        // CascadedMaps) is implemented and needs nothing, so the walk always ends.
+        // method the device cannot run, the render path cannot feed or this build does not implement. The
+        // ladder's front (Off / CascadedMaps) is implemented and needs nothing, so the walk always ends.
         template <typename Method>
-        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, bool rayQuery )
+        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, bool rayQuery, bool gBuffer )
         {
             ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
             if ( ceiling < requested )
@@ -37,6 +37,8 @@ namespace Desert::Graphic
                 MethodLimit blocked = MethodLimit::None;
                 if ( NeedsRayQuery( r.Effective ) && !rayQuery )
                     blocked = MethodLimit::Device;
+                else if ( NeedsGBuffer( r.Effective ) && !gBuffer )
+                    blocked = MethodLimit::RenderPath;
                 else if ( !IsImplemented( r.Effective ) )
                     blocked = MethodLimit::NotImplemented;
                 if ( blocked == MethodLimit::None )
@@ -60,6 +62,8 @@ namespace Desert::Graphic
                     return scratch;
                 case MethodLimit::Device:
                     return "the device offers no ray query";
+                case MethodLimit::RenderPath:
+                    return "the forward render path has no G-buffer";
                 case MethodLimit::NotImplemented:
                     return "not implemented in this build";
             }
@@ -84,17 +88,18 @@ namespace Desert::Graphic
     } // namespace
 
     RenderMethods ResolveRenderMethods( const Core::PostProcessSettings& post, const ResolvedQuality& quality,
-                                        const CapabilityCatalog& catalog )
+                                        const CapabilityCatalog& catalog, bool gBuffer )
     {
         const bool    rayQuery = OffersRayQuery( catalog );
         RenderMethods out;
         out.GlobalIllumination =
              ResolveAxis( post.GlobalIlluminationMethod,
-                          quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery );
+                          quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery, gBuffer );
         out.Reflections = ResolveAxis( post.ReflectionsMethod,
-                                       quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), rayQuery );
-        out.Shadows =
-             ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), rayQuery );
+                                       quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), rayQuery,
+                                       gBuffer );
+        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
+                                   rayQuery, gBuffer );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;

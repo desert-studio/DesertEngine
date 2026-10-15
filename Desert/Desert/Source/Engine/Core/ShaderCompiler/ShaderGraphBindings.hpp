@@ -29,7 +29,7 @@ namespace Desert::Core
      * added tomorrow reddens it whatever spelled the number.
      *
      * 24 WAS ONE ABOVE THE HIGHEST BINDING THE TREE DECLARED, and that was not comfortable headroom —
-     * it was none; the window now opens at 30, above the scene-read range below. The lit shader-graph surface
+     * it was none; the window now opens at 31, above the scene-read range below. The lit shader-graph surface
      * layout reaches 23 (the fourth cascade shadow map in Programs/Graph/MatLitConst.shader), so the next binding
      * that layout grows lands here. That is what the census is for: the collision becomes a red test rather than a
      * wrong picture.
@@ -63,20 +63,25 @@ namespace Desert::Core
     inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
     inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
     inline constexpr uint32_t kSceneDepthBinding = kSceneReadBindingFirst + 2u; // Mesh/Surface/SurfaceTypes.glslh
+    // The view's opaque shading word beside its depth (`u_SceneShadingWord`, Forward cells only): the caster bit
+    // of the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
+    // Declared in Mesh/Surface/SurfaceTypes.glslh.
+    inline constexpr uint32_t kSceneShadingWordBinding = kSceneReadBindingFirst + 3u;
     // The view's light grid (Graphic/LightGrid.hpp), read by the forward cell (Mesh/Surface/Pass_Forward.glslh) to
     // shade a pixel with its froxel's point and spot lights only: its parameters, then its cells. Bound by name
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.
-    inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 3u;
-    inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 4u;
-    inline constexpr uint32_t kSceneReadBindingCount  = 5u;
+    inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 4u;
+    inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 5u;
+    inline constexpr uint32_t kSceneReadBindingCount  = 6u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
         return binding >= kSceneReadBindingFirst && binding < kSceneReadBindingFirst + kSceneReadBindingCount;
     }
 
-    // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the light grid
-    // joined it), to sit above the scene-read range; see the paragraph on moving it above.
+    // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
+    // shading word and the light grid joined it), to sit above the scene-read range; see the paragraph on moving
+    // it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 30u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 31u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

@@ -843,6 +843,11 @@ namespace Desert::Scripting::LuauBinder
                                       [owner, entity]() { return LuauEntityRef{ owner, entity }; } ) );
     }
 
+    void PushAssetHandle( lua_State* L, std::uint64_t handle )
+    {
+        PushHandle( L, handle );
+    }
+
     void PushObject( lua_State* L, const LuauBinding& binding )
     {
         void* memory = lua_newuserdatataggedwithmetatable( L, sizeof( LuauBinding ), kObjectTag );

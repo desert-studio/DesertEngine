@@ -67,7 +67,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
-#include <Engine/Scripting/ScriptEngine.hpp>
+#include <Editor/Panels/SceneProperties/ScriptDetails.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 
@@ -1430,6 +1430,13 @@ namespace Desert::Editor
                 U::ImGuiUtilities::EndPropertyRow();
 
                 U::ImGuiUtilities::BeginPropertyRow(
+                     "Cast Contact Shadow",
+                     "A light's contact-shadow ray that hits an instance darkens with the light's Contact Shadow "
+                     "Casting Intensity; off = its Non Casting Intensity" );
+                ::ImGui::Checkbox( "##ism_castcontactshadow", &c.CastContactShadow );
+                U::ImGuiUtilities::EndPropertyRow();
+
+                U::ImGuiUtilities::BeginPropertyRow(
                      "Max Draw Distance",
                      "cm from the camera beyond which an instance is not drawn (0 = no limit); scaled by the "
                      "camera's field of view, so a zoomed-in camera draws farther. A foliage type's Cull "
@@ -2217,60 +2224,6 @@ namespace
     const int _desert_uilayout_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUILayoutEntry() );
 
-    // ── THE SCRIPT PICKER'S LIST, and the two things it used to get wrong at once ──────────────────
-    //
-    // It walked the LITERAL relative path "Resources" with a raw recursive_directory_iterator. That is
-    // two defects in one expression, and they fail in different directions:
-    //
-    //   1. it bypassed the shared enumeration, so a project served from a mounted .dpak offered an
-    //      empty dropdown — indistinguishable from a project with no scripts (§1.4);
-    //   2. it bypassed the PROJECT PATH census entirely. "Resources" is resolved against the PROCESS's
-    //      working directory and is never remapped by SetProjectRoot, so opening a second project still
-    //      listed the FIRST tree's scripts and wrote a path pointing outside the open project into the
-    //      scene. That is the same sentence four other defects in this engine were: a path resolved
-    //      from where the process is standing rather than from the content it is about.
-    //
-    // The list now comes from Constants::Path::SCRIPT_PATH — the census row for a project's scripts —
-    // through Common::Utils::FileSystem::ListFilesRecursive, which returns the loose files and the
-    // mounted ones together. Moving the project moves the list; there is nothing here to forget.
-    //
-    // The examples that used to sit in the ENGINE resource tree (Resources/Scripts/Examples) were moved
-    // under the assets root by the same change, because that is where this census row says a project's
-    // scripts live — and the engine tree is not one of the five trees a package is built from, so
-    // nothing under it could ever have shipped with a game.
-    // Returns KEYS, not paths (I9). What a slot stores is the root-tagged key
-    // `Common::AssetHandle::StableKeyForPath` mints, because a rooted path does not survive packaging —
-    // see ECS::ScriptSlot::ScriptKey. Minting it HERE, at the one place the picker turns a file into a
-    // reference, is what keeps every stored value in that form: a widget that offered paths and left the
-    // tagging to whoever assigned them would be one forgotten call site away from the old defect.
-    std::vector<std::string> ProjectScriptKeys()
-    {
-        std::vector<std::string> scripts;
-        for ( const std::filesystem::path& file :
-              Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SCRIPT_PATH ) )
-        {
-            if ( file.extension() == ".lua" )
-                scripts.push_back( Common::AssetHandle::StableKeyForPath( file ) );
-        }
-        // Neither half of the enumeration promises an order, and a dropdown that reshuffles between
-        // sessions is one nobody can learn.
-        std::sort( scripts.begin(), scripts.end() );
-        return scripts;
-    }
-
-    // What to CALL a script in the dropdown. The file name alone was ambiguous the moment two folders
-    // held a `Main.lua`, and the walk was recursive even before this change — so the label is the path
-    // relative to the scripts root, which is unique by construction. Takes a KEY and resolves it first:
-    // the label has to name a place on this machine, and the key deliberately does not.
-    std::string ScriptLabel( const std::string& scriptKey )
-    {
-        const std::filesystem::path file = Common::AssetHandle::PathForStableKey( scriptKey );
-
-        std::error_code   ec;
-        const std::string relative =
-             std::filesystem::relative( file, Common::Constants::Path::SCRIPT_PATH, ec ).generic_string();
-        return ( ec || relative.empty() ) ? file.filename().generic_string() : relative;
-    }
 } // namespace
 
 // SINGLE SOURCE OF TRUTH: materials (shader + params + textures) are authored ONLY in the Material Editor
@@ -2283,133 +2236,10 @@ namespace
 // Script component: an entity can run SEVERAL scripts (like UE ActorComponents), shown as a list of slots.
 // Per slot: pick the .lua from a dropdown OR drag one from the File Explorer, Reload (hot-reload), and edit
 // the script's exposed Properties. "+ Add Script" appends a slot; the X removes one.
-DESERT_REGISTER_CUSTOM_COMPONENT(
-     ::Desert::ECS::ScriptComponent, "Script", true,
-     (
-          []( ::Desert::ECS::Entity& e, ::Desert::Core::Scene*, const ::Desert::Editor::ComponentEditContext& )
-          {
-              namespace fs = std::filesystem;
-              auto& sc     = e.GetComponent<::Desert::ECS::ScriptComponent>();
-
-              int removeIndex = -1;
-              for ( size_t i = 0; i < sc.Scripts.size(); ++i )
-              {
-                  ImGui::PushID( static_cast<int>( i ) );
-                  auto& slot = sc.Scripts[i];
-
-                  const std::string preview =
-                       slot.ScriptKey.empty() ? "Select script..." : slot.ResolvedPath().filename().string();
-
-                  ImGui::SetNextItemWidth( -60.0f ); // leave room for the remove button
-                  if ( ImGui::BeginCombo( "##ScriptSel", preview.c_str() ) )
-                  {
-                      const std::vector<std::string> scripts = ProjectScriptKeys();
-                      for ( const std::string& script : scripts )
-                      {
-                          if ( ImGui::Selectable( ScriptLabel( script ).c_str(), slot.ScriptKey == script ) )
-                          {
-                              slot.ScriptKey = script;
-                              slot.Started   = false;
-                              slot.Properties.clear(); // re-seed from the new script's schema below
-                          }
-                      }
-                      // AN EMPTY LIST SAYS SO, and says where it looked. An empty popup is the shape
-                      // §1.4 forbids: "this project has no scripts" and "the picker is looking in the
-                      // wrong place" used to render as the same three blank pixels.
-                      if ( scripts.empty() )
-                          ImGui::TextDisabled( "no .lua under %s",
-                                               Common::Constants::Path::SCRIPT_PATH.generic_string().c_str() );
-                      ImGui::EndCombo();
-                  }
-
-                  // Drag a .lua from the File Explorer onto the combo.
-                  if ( ImGui::BeginDragDropTarget() )
-                  {
-                      if ( const ImGuiPayload* payload = ImGui::AcceptDragDropPayload( "AssetFile" ) )
-                      {
-                          const std::string dropped( static_cast<const char*>( payload->Data ) );
-                          if ( dropped.size() > 4 && dropped.substr( dropped.size() - 4 ) == ".lua" )
-                          {
-                              // Through the SAME minting as the dropdown: the payload is a path the File
-                              // Explorer is standing on, and storing it verbatim is precisely how the
-                              // rooted spelling got into the three scenes I9 had to migrate.
-                              slot.ScriptKey = Common::AssetHandle::StableKeyForPath( fs::path( dropped ) );
-                              slot.Started   = false;
-                              slot.Properties.clear();
-                          }
-                      }
-                      ImGui::EndDragDropTarget();
-                  }
-
-                  ImGui::SameLine();
-                  if ( ImGui::Button( "X" ) )
-                      removeIndex = static_cast<int>( i );
-
-                  if ( !slot.ScriptKey.empty() )
-                  {
-                      ImGui::TextDisabled( "%s", slot.ScriptKey.c_str() );
-
-                      if ( ImGui::Button( "Reload" ) )
-                          slot.Started = false; // re-read on the next Play frame (hot-reload)
-
-                      // ---- Exposed properties (the script's `Properties` table) ----
-                      if ( slot.Properties.empty() )
-                          slot.Properties =
-                               ::Desert::Scripting::ReadScriptProperties( slot.ResolvedPath().generic_string() );
-
-                      ImGui::SameLine();
-                      if ( ImGui::Button( "Refresh Props" ) )
-                      {
-                          // Re-read the schema, keeping existing values for properties that still exist.
-                          auto schema =
-                               ::Desert::Scripting::ReadScriptProperties( slot.ResolvedPath().generic_string() );
-                          for ( auto& s : schema )
-                          {
-                              auto old = std::find_if( slot.Properties.begin(), slot.Properties.end(),
-                                                       [&]( const auto& p )
-                                                       { return p.Name == s.Name && p.Type == s.Type; } );
-                              if ( old != slot.Properties.end() )
-                                  s = *old;
-                          }
-                          slot.Properties = std::move( schema );
-                      }
-
-                      for ( auto& p : slot.Properties )
-                      {
-                          switch ( p.Type )
-                          {
-                              case ::Desert::Scripting::PropertyType::Number:
-                              {
-                                  float v = static_cast<float>( p.Number );
-                                  if ( ImGui::DragFloat( p.Name.c_str(), &v, 0.01f ) )
-                                      p.Number = v;
-                                  break;
-                              }
-                              case ::Desert::Scripting::PropertyType::Bool:
-                                  ImGui::Checkbox( p.Name.c_str(), &p.Bool );
-                                  break;
-                              case ::Desert::Scripting::PropertyType::String:
-                              {
-                                  char buf[256] = { 0 };
-                                  std::strncpy( buf, p.Str.c_str(), sizeof( buf ) - 1 );
-                                  if ( ImGui::InputText( p.Name.c_str(), buf, sizeof( buf ) ) )
-                                      p.Str = buf;
-                                  break;
-                              }
-                          }
-                      }
-                  }
-
-                  ImGui::Separator();
-                  ImGui::PopID();
-              }
-
-              if ( removeIndex >= 0 )
-                  sc.Scripts.erase( sc.Scripts.begin() + removeIndex );
-
-              if ( ImGui::Button( "+ Add Script" ) )
-                  sc.Scripts.emplace_back();
-          } ) )
+DESERT_REGISTER_CUSTOM_COMPONENT( ::Desert::ECS::ScriptComponent, "Script", true,
+                                  ( []( ::Desert::ECS::Entity& e, ::Desert::Core::Scene* scene,
+                                        const ::Desert::Editor::ComponentEditContext& ctx )
+                                    { ::Desert::Editor::DrawScriptComponent( e, scene, ctx ); } ) )
 
 // Text (SDF world-space label). Simple field editor; the mesh rebuilds automatically when Text/
 // Font/Size change (TextECSSystem compares against its Built* cache).

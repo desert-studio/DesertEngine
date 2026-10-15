@@ -131,6 +131,10 @@ namespace
 
          { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "ThumbnailOf", Role::Shows, "RequestMesh",
            "the Foliage palette's type tiles: each shows its type's mesh (FO-UI1)" },
+         { "Editor/Source/Editor/Panels/SceneProperties/ScriptDetails.cpp", "AssetThumbnailOf", Role::Shows,
+           "RequestMesh",
+           "a script's Property.Asset slot in Details (SCR-DETAILS): a StaticMesh value shows its picture, asked "
+           "through the shared service like the 3D Model row's slot" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/AssetTileThumbnail.cpp",
            "AssetTileThumbnail::DrawPaintedThumbnail", Role::Shows, "RequestPainted",

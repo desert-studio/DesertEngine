@@ -33,6 +33,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Assets
@@ -58,6 +59,12 @@ namespace Desert::Scripting
         // Last OnUpdate error per (entity, slot): a runtime error repeats every frame — log it ONCE until it
         // changes or the script reloads, so the Logs panel stays readable.
         std::unordered_map<uint64_t, std::string> LastUpdateError;
+        // Per slot: the held property values already reported as not applicable (ApplyProperties runs every
+        // frame; the report is once).
+        std::unordered_map<uint64_t, std::unordered_set<std::string>> StaleProperties;
+        // Per slot: the names that held an override at the last SyncProperties — one missing now went back to
+        // its default in Details, and the running script is given that default once.
+        std::unordered_map<uint64_t, std::unordered_set<std::string>> SyncedOverrides;
 
         // A Luau function handed to the engine (Timer.after's callback) becomes a Callable OWNED by the (entity,
         // slot) running when it was made: CurrentOwner is set right before the engine enters script code (top

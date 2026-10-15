@@ -926,6 +926,18 @@ namespace Desert::Graphic::RDG
                 views[use.Resource].Used =
                      views[use.Resource].Used || !substituted( compiledPass.Pass, use.Resource );
         }
+        // UE (FRDGBuilder::Execute, the epilogue's BeginResourceRHI of every extracted texture): an extraction or
+        // a final access is a use at the end of the graph, so the resource has a physical image even when no
+        // executed pass touched it (its producers were never added - an empty scene - or were removed by a
+        // fault). CollectFinalBarriers transitions it to its final access, and the extraction hands it out.
+        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        {
+            const ResourceRecord& record = m_Resources[r];
+            if ( !record.IsExtracted() || views[r].Used )
+                continue;
+            views[r].Used = true;
+            views[r].AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
+        }
         // A LATE fault substitutes through PassContext at record time, so the system textures are bound whenever
         // a FaultDefault exists, not only when Compile already substituted one.
         for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )

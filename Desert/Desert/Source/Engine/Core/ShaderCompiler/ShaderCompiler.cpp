@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include "ShaderCompiler.hpp"
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
@@ -115,6 +116,13 @@ namespace Desert::Core
                 const std::string_view name  = ShaderDefineName( define );
                 const std::string_view value = ShaderDefineValue( define );
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
+            }
+            // Every stage, not only those that include BindlessTextures.glslh: the define is the engine's set index
+            // (BindlessSetIndex.hpp), and the cache key mixes it in (ShaderCacheKey.cpp OptionsFingerprint).
+            {
+                const std::string bindlessSet = std::to_string( kBindlessSetIndex );
+                options.AddMacroDefinition( kBindlessSetDefine.data(), kBindlessSetDefine.size(), bindlessSet.data(),
+                                            bindlessSet.size() );
             }
             // The oldest accepted device's version (ShaderTarget.hpp), never a literal here.
             options.SetTargetEnvironment( shaderc_target_env_vulkan, kShaderTargetEnvVersion );

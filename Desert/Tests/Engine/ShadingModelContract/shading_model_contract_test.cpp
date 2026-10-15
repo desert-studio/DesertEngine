@@ -153,6 +153,7 @@ TEST( ShadingWord, GlslDefinesAreTheCppTable )
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD0" ).BitCount );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD1" ).BitCount );
     EXPECT_EQ( glsl.at( "NO_SUN_SHADOWS_BIT" ), Field( "NO_SUN_SHADOWS" ).FirstBit );
+    EXPECT_EQ( glsl.at( "NO_CONTACT_SHADOW_BIT" ), Field( "NO_CONTACT_SHADOW" ).FirstBit );
     EXPECT_FALSE( glsl.contains( "EXACT_BITS" ) ) << "the word is a uint: no float-exactness limit is left";
 }
 

@@ -23,6 +23,8 @@ namespace Desert::Graphic
         class Builder;
         class IPhysicalTexture;
         class PassBindings;
+        class PassContext;
+        struct TextureRef;
         struct ExternalTexture;
         struct ExternalBuffer;
     } // namespace RDG
@@ -194,6 +196,13 @@ namespace Desert::Graphic
         // The caller brings src into TRANSFER_SRC and dst into TRANSFER_DST (the frame graph's Copy node
         // does); a size or sample-count mismatch is refused, named, and returned.
         virtual Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) = 0;
+        // Copy the DEPTH aspect of the graph texture @p source (one layer) into layer @p targetLayer of the graph
+        // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
+        // that layer of @p target CopyDst (the sun's static cascade cache into its layer of the cascade array).
+        // Same extent and sample count, else refused and named.
+        virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                             RDG::TextureRef source, RDG::TextureRef target,
+                                                             uint32_t targetLayer ) = 0;
 
         virtual void                         ResizeWindowEvent( uint32_t width, uint32_t height ) = 0;
         virtual void                         WaitDeviceIdle()                                     = 0;

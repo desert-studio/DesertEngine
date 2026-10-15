@@ -54,13 +54,6 @@ namespace Desert::Graphic::API::Vulkan
             return sizes;
         }
 
-        VkDeviceAddress BufferAddress( const RayTracingDeviceFunctions& functions, VkDevice device,
-                                       VkBuffer buffer )
-        {
-            VkBufferDeviceAddressInfo info{ VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-            info.buffer = buffer;
-            return functions.GetBufferDeviceAddress( device, &info );
-        }
 
         std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
         {
@@ -155,11 +148,11 @@ namespace Desert::Graphic::API::Vulkan
         const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
         const VkAccelerationStructureGeometryKHR geometry =
-             TlasGeometry( BufferAddress( functions, device, instanceBuffer.GetValue()->GetBuffer() ) );
+             TlasGeometry( functions.BufferAddress( device, instanceBuffer.GetValue()->GetBuffer() ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = TlasBuildInfo( geometry );
         build.dstAccelerationStructure                    = m_Handle;
         build.scratchData.deviceAddress =
-             AlignScratchAddress( BufferAddress( functions, device, scratchBuffer.GetValue()->GetBuffer() ) );
+             AlignScratchAddress( functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) );
 
         VkAccelerationStructureBuildRangeInfoKHR range{};
         range.primitiveCount                                   = instanceCount;

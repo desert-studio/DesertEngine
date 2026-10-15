@@ -325,6 +325,10 @@ namespace Desert::Editor
         // A key or button went down into the player through this viewport: when the viewport loses focus,
         // its releases will go elsewhere, so the player's held keys are flushed (UE FlushPressedKeys).
         bool m_PlayerHoldsKeys = false;
+        // UE's PIE viewport takes the keyboard the moment Play starts: the toolbar's Play click left the focus
+        // on the toolbar, so the player's Escape (release the locked cursor) went nowhere until the user
+        // clicked into the picture. The Edit -> played transition of THIS viewport's scene focuses it once.
+        bool m_WasPlaying = false;
 
         // WHAT THIS ONE VIEWPORT IS DOING — not what the user has chosen to see. 2D UI-editing mode
         // (toolbar "2D") hides the grid and the orientation triad so a screen-space canvas reads like a UI

@@ -1,0 +1,143 @@
+#ifndef DESERT_RAY_QUERY_VISIBILITY_GLSLH
+#define DESERT_RAY_QUERY_VISIBILITY_GLSLH
+
+// THE ONE HARDWARE VISIBILITY WALK (UE RayTracingOcclusionRGS.usf + a masked material's any-hit, inline): a ray query
+// over the view's TLAS that answers 1 when nothing between origin and origin + dir * tMax blocks the ray, 0 when
+// something does. Opaque segments (VK_GEOMETRY_OPAQUE_BIT) are confirmed by the hardware; a masked segment's
+// triangles come back as candidates and are alpha-tested here against the material's opacity texture through the
+// bindless table, with the UV fetched from the segment's own vertex buffer by device address.
+// The metadata is RayTracingSceneMetadata.hpp's, one record per BLAS segment:
+//   record = the instance's SBT record offset (RayTracingInstance::GeometryRecordOffset) + the geometry index.
+// The hardware GITraceVisibility(origin, dir, maxT) IS this function with RAY_TRACING_MASK_SHADOW_CASTER (GI-HWRT's
+// GITraceRayQuery.glslh defines it by calling it). There is no second path.
+//
+// The includer names the bindings (set 0): RAY_QUERY_VISIBILITY_TLAS_BINDING, RAY_QUERY_VISIBILITY_GEOMETRY_BINDING,
+// RAY_QUERY_VISIBILITY_MATERIALS_BINDING. The bindless table is Common/BindlessTextures.glslh's.
+
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+#include <Common/BindlessTextures.glslh>
+
+#if !defined( RAY_QUERY_VISIBILITY_TLAS_BINDING ) || !defined( RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) || \
+     !defined( RAY_QUERY_VISIBILITY_MATERIALS_BINDING )
+#error "RayQueryVisibility.glslh: the includer defines the TLAS, geometry and material record bindings"
+#endif
+
+// UE RAY_TRACING_MASK_* (RayTracingScene.hpp kMaskOpaque / kMaskShadowCaster).
+#define RAY_TRACING_MASK_OPAQUE        0x01u
+#define RAY_TRACING_MASK_SHADOW_CASTER 0x02u
+
+// RayTracingSceneMetadata.hpp RayTracingGeometryRecord (std430, 48 B). Addresses travel as uvec2 (lo, hi).
+struct RayTracingGeometryRecord
+{
+    uvec2 VertexAddress;
+    uvec2 IndexAddress;
+    uint  VertexStride;
+    uint  FirstVertex;
+    uint  FirstIndex;
+    uint  Material; // RayTracingMaterialRecord row; 0xFFFFFFFF = opaque, no record
+    uint  NormalOffset;
+    uint  UvOffset; // bytes into the vertex; 0xFFFFFFFF = none
+    uint  SubmeshIndex;
+    uint  Pad;
+};
+
+// RayTracingSceneMetadata.hpp RayTracingMaterialRecord (std430, 16 B).
+struct RayTracingMaterialRecord
+{
+    uint  OpacityTexture; // BindlessTextureSlot
+    uint  OpacitySampler; // BindlessSamplerSlot
+    float OpacityCutoff;
+    uint  Flags; // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B)
+};
+
+const uint kRayTracingNoRecord = 0xFFFFFFFFu;
+
+layout( set = 0, binding = RAY_QUERY_VISIBILITY_TLAS_BINDING ) uniform accelerationStructureEXT u_SceneTLAS;
+layout( std430, set = 0, binding = RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) readonly buffer RayTracingGeometryRecords
+{
+    RayTracingGeometryRecord u_RayTracingGeometry[];
+};
+layout( std430, set = 0, binding = RAY_QUERY_VISIBILITY_MATERIALS_BINDING ) readonly buffer RayTracingMaterialRecords
+{
+    RayTracingMaterialRecord u_RayTracingMaterials[];
+};
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer RayQueryUintRef
+{
+    uint Value;
+};
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer RayQueryVec2Ref
+{
+    vec2 Value;
+};
+
+uvec2 RayQueryAddressAdd( uvec2 address, uint bytes )
+{
+    uint carry;
+    const uint lo = uaddCarry( address.x, bytes, carry );
+    return uvec2( lo, address.y + carry );
+}
+
+// The UV of triangle @p primitive at @p barycentrics (the hit's two weights), read from the segment's vertices.
+vec2 RayQueryHitUv( RayTracingGeometryRecord record, uint primitive, vec2 barycentrics )
+{
+    const float weights[3] = float[3]( 1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y );
+    vec2        uv         = vec2( 0.0 );
+    for ( uint corner = 0u; corner < 3u; ++corner )
+    {
+        const uint indexByte = ( record.FirstIndex + primitive * 3u + corner ) * 4u;
+        const uint index     = RayQueryUintRef( RayQueryAddressAdd( record.IndexAddress, indexByte ) ).Value;
+        const uint vertex    = index + record.FirstVertex;
+        const uint uvByte    = vertex * record.VertexStride + record.UvOffset;
+        uv += weights[corner] * RayQueryVec2Ref( RayQueryAddressAdd( record.VertexAddress, uvByte ) ).Value;
+    }
+    return uv;
+}
+
+// Does the candidate triangle of @p query block the ray (the masked material's alpha test)?
+bool RayQueryCandidateBlocks( rayQueryEXT query )
+{
+    const uint recordIndex = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT( query, false ) +
+                             uint( rayQueryGetIntersectionGeometryIndexEXT( query, false ) );
+    const RayTracingGeometryRecord record = u_RayTracingGeometry[recordIndex];
+    if ( record.Material == kRayTracingNoRecord || record.UvOffset == kRayTracingNoRecord )
+        return true; // a non-opaque segment with nothing to test against is a surface
+    const RayTracingMaterialRecord material = u_RayTracingMaterials[record.Material];
+    if ( ( material.Flags & 1u ) == 0u && !rayQueryGetIntersectionFrontFaceEXT( query, false ) )
+        return false; // a one-sided masked surface blocks from the face it rasterises
+    const vec2 uv = RayQueryHitUv( record, uint( rayQueryGetIntersectionPrimitiveIndexEXT( query, false ) ),
+                                   rayQueryGetIntersectionBarycentricsEXT( query, false ) );
+    const vec4  texel   = SampleBindless( material.OpacityTexture, material.OpacitySampler, uv, 0.0 );
+    const uint  channel = ( material.Flags >> 1u ) & 3u;
+    const float opacity = channel == 0u ? texel.a : texel[int( channel ) - 1];
+    return opacity >= material.OpacityCutoff;
+}
+
+// 1 = the ray reaches tMax unblocked, 0 = blocked; @p hitT = the blocking hit's distance (unchanged when lit).
+float RayQueryVisibilityHit( vec3 origin, vec3 dir, float tMax, uint cullMask, inout float hitT )
+{
+    rayQueryEXT query;
+    rayQueryInitializeEXT( query, u_SceneTLAS, gl_RayFlagsTerminateOnFirstHitEXT, cullMask & 0xFFu, origin, 0.0, dir,
+                           tMax );
+    while ( rayQueryProceedEXT( query ) )
+    {
+        if ( rayQueryGetIntersectionTypeEXT( query, false ) == gl_RayQueryCandidateIntersectionTriangleEXT &&
+             RayQueryCandidateBlocks( query ) )
+            rayQueryConfirmIntersectionEXT( query );
+    }
+    if ( rayQueryGetIntersectionTypeEXT( query, true ) == gl_RayQueryCommittedIntersectionNoneEXT )
+        return 1.0;
+    hitT = rayQueryGetIntersectionTEXT( query, true );
+    return 0.0;
+}
+
+float RayQueryVisibility( vec3 origin, vec3 dir, float tMax, uint cullMask )
+{
+    float hitT = tMax;
+    return RayQueryVisibilityHit( origin, dir, tMax, cullMask, hitT );
+}
+
+#endif

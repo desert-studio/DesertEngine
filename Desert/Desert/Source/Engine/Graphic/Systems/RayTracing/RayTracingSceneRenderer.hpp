@@ -5,6 +5,8 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +78,9 @@ namespace Desert::Graphic::RayTracing
         RDG::BufferRef Tlas;
         RDG::BufferRef Instances;
         uint32_t       InstanceCount = 0;
+        // The per-segment geometry and material records the TLAS rows' SBT offsets index (a ray query's hit ->
+        // its vertex/index streams and alpha-test material). Valid exactly when Built.
+        RayTracingMetadataFrame Metadata;
     };
 
     // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
@@ -92,7 +97,9 @@ namespace Desert::Graphic::RayTracing
             std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
             const uint32_t indexAndMask =
                  ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
-            const uint32_t sbtAndFlags = 0; // one hit group; culling is the ray's choice, not the instance's
+            // The SBT record offset is the instance's first geometry record (RayTracingSceneMetadata.hpp); no
+            // instance flags: culling is the ray's choice, and a masked segment is non-opaque in its BLAS.
+            const uint32_t sbtAndFlags = instance.GeometryRecordOffset & kMaxGpuSceneRow;
             const uint64_t address =
                  static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
             std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );
@@ -104,10 +111,11 @@ namespace Desert::Graphic::RayTracing
 
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
     // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
-    // no TLAS, and a reader must not be declared).
+    // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
+    // (RayTracingScene.DynamicGeometry); the TLAS build reads them, which orders it after their builds.
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
-                            RayTracingSceneTarget& target )
+                            RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {} )
     {
         RayTracingSceneFrame frame;
         if ( !required )
@@ -133,6 +141,8 @@ namespace Desert::Graphic::RayTracing
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( instances, RDG::Access::AccelStructBuildInput );
+                 for ( const RDG::BufferRef blas : blasInputs )
+                     pass.Read( blas, RDG::Access::AccelStructBuildInput );
                  pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
                  pass.Write( tlas, RDG::Access::AccelStructBuildWrite );
              },
@@ -156,13 +166,33 @@ namespace Desert::Graphic::RayTracing
     // One view's ray-tracing scene (SceneRenderer owns one per view): gathers the primitives MeshRenderer queued
     // and gave a GPU-scene row, builds the instance list and declares the TLAS pass. The API target is created on
     // the first frame that needs a TLAS and kept for the view's life.
+    // What one view's RT scene holds this frame (the viewport's RT scene overlay). Bytes are the storage
+    // allocations; the ledger rows of the same allocations are the census.
+    struct RayTracingSceneStats
+    {
+        bool Built = false; // the frame built a TLAS: the rest is meaningful
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          SkippedByReason{};
+        uint64_t TracedBlasBytes         = 0; // every distinct BLAS this view's TLAS instances, variants included
+        uint64_t VariantBlasBytes        = 0; // the scene's hidden-submesh variants
+        uint64_t ProceduralBlasBytes     = 0; // the scene's procedural BLASes
+        uint64_t SkinCacheBlasBytes      = 0; // the scene's skin-cache BLASes
+        uint64_t SkinCachePositionsBytes = 0; // the scene's skin-cache positions buffers
+        uint64_t TlasBytes               = 0; // this view's TLAS storage
+        uint64_t TlasInstanceBytes       = 0; // this frame's instance rows
+    };
+
     class RayTracingSceneRenderer
     {
     public:
         // Called once per frame per view, after MeshRenderer::BuildObjectMotions (the rows are the instances'
         // custom indices) and before any pass that reads the TLAS is declared.
+        // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
+        // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
+        // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its views.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
-                                                       const System::MeshRenderer& meshes );
+                                                       const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
+                                                       const glm::vec3& viewOrigin, float drawDistanceScale );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
@@ -174,10 +204,23 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Instances;
         }
+        // The variant BLAS builds that failed this frame, one line each (the caller logs them).
+        [[nodiscard]] const RayTracingSceneStats& GetStats() const
+        {
+            return m_Stats;
+        }
+        [[nodiscard]] const std::vector<std::string>& GetGatherErrors() const
+        {
+            return m_Gather.Errors;
+        }
 
     private:
         std::unique_ptr<RayTracingSceneTarget> m_Target;
-        std::vector<RayTracingPrimitive>       m_Primitives; // CPU scratch, capacity kept
+        RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
+        RDG::ExternalBuffer                    m_BonesImport; // this view's ObjectBones, for the skin cache
+        std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
+        std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
+        RayTracingSceneStats                        m_Stats;
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;
     };
