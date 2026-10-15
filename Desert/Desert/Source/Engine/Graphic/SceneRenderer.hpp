@@ -60,6 +60,7 @@
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
@@ -531,6 +532,10 @@ namespace Desert::Graphic
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
         // The view's global distance field (clipmaps follow this view's camera), made on first use.
         std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
+        // The surface cache (GI-SURFACE-CACHE-2): the Lumen scene of the view's mesh cards, its atlases and
+        // capture. Brought up by its view modes until the card lighting gives it a reader in the lit frame.
+        std::unique_ptr<SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
+        uint64_t m_SurfaceCacheLoggedCensus = 0; // cards << 32 | captured
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -727,6 +732,12 @@ namespace Desert::Graphic
         // Distance Field" over @p target.
         void AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                               RDG::TextureRef target );
+        // The surface cache view modes (DeferredDebugMode::SurfaceCacheAtlas / SurfaceCacheScene, Deferred only):
+        // brings the view's surface cache up to this frame's static and instanced meshes (add, remove, move,
+        // resolution by distance), captures the cards it picks through the G-buffer light-view pass, copies them
+        // into the atlas, then draws "Debug: Surface Cache Atlas" or "Debug: Lumen Scene" over @p target.
+        void AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );

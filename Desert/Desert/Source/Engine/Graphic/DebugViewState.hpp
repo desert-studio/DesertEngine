@@ -21,13 +21,13 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off             = 0,
-        Albedo          = 1,
-        Normal          = 2,
-        Metallic        = 3,
-        Roughness       = 4,
-        AO              = 5,
-        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
+        Off       = 0,
+        Albedo    = 1,
+        Normal    = 2,
+        Metallic  = 3,
+        Roughness = 4,
+        AO        = 5,
+        GI        = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -48,6 +48,14 @@ namespace Desert::Graphic
         // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
         // field is built only while this mode is on.
         GlobalDistanceField = 13,
+        // The surface cache (Graphic/GlobalIllumination/SurfaceCacheRenderer): UE's r.Lumen.Visualize views. The
+        // atlas
+        // - its captured layers, a quadrant each (albedo, normal, depth, opacity) - and the Lumen Scene: the world
+        // drawn from the captured cards alone, each card's albedo placed back at its captured depth. Deferred
+        // only; drawn after the temporal resolve. The only readers of the surface cache until the card lighting,
+        // so the cache is brought up only while one of them is on.
+        SurfaceCacheAtlas = 14,
+        SurfaceCacheScene = 15,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

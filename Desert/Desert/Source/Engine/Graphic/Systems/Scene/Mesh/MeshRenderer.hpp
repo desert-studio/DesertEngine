@@ -24,6 +24,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -405,6 +406,19 @@ namespace Desert::Graphic::System
         // written here) and declares its binding block; the exec records that list.
         void                                DeclareRSMDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
+
+        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2, UE LumenSceneCardCapture). Gather: this frame's
+        // static and instanced mesh instances that carry cards, keyed stably (entity + part; batch + index), each
+        // naming its row of this renderer's capture sources. Declare: the G-buffer light-view permutation (the
+        // RSM pipeline: world from the push transform, standard-Z, the RSM's slots) draws each capture's mesh
+        // through its card camera into its rectangle of the capture atlas (viewport + scissor per draw, as a
+        // local shadow tile is drawn). A DEDICATED material whose instances each hold one card camera (the RSM's
+        // reason: one per-frame camera block written once per frame); the surface's effective parameter row is
+        // what it shades - the material's textures are not captured (REMAINDER, GI-SURFACE-CACHE-2).
+        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        void DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
+                                      const std::vector<SurfaceCache::CardCapture>& captures );
+        [[nodiscard]] Common::BoolResultStr RenderCardCaptureManual( const RDG::PassContext& context ) const;
         // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
         // sun's view. Valid after UpdateCascades(); identity before the first frame.
         glm::mat4 GetRSMViewProj() const
@@ -706,6 +720,19 @@ namespace Desert::Graphic::System
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
+        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source.
+        struct CardCaptureSource
+        {
+            const Desert::Mesh* Mesh     = nullptr;
+            glm::mat4           World    = glm::mat4( 1.0f );
+            MaterialInstance*   Instance = nullptr;
+            DataDrivenMaterial* Surface  = nullptr;
+            uint64_t            Hidden   = 0;
+        };
+        std::vector<CardCaptureSource>      m_CardCaptureSources;
+        std::shared_ptr<DataDrivenMaterial> m_CardCaptureMaterial;
+        std::vector<MaterialInstancePtr>    m_CardCaptureInstances; // one card camera each, grown on demand
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 

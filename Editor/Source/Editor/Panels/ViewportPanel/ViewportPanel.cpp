@@ -1210,6 +1210,8 @@ namespace Desert::Editor
                 VM_SunShadowReceive,
                 VM_Velocity,
                 VM_GlobalDistanceField,
+                VM_SurfaceCacheAtlas,
+                VM_SurfaceCacheScene,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1230,6 +1232,8 @@ namespace Desert::Editor
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
                                          ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
+                                         ICON_MDI_TEXTURE "  Surface Cache Atlas",
+                                         ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1271,6 +1275,10 @@ namespace Desert::Editor
                 vm = VM_Velocity;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
                 vm = VM_GlobalDistanceField;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheAtlas )
+                vm = VM_SurfaceCacheAtlas;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheScene )
+                vm = VM_SurfaceCacheScene;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1457,6 +1465,12 @@ namespace Desert::Editor
                         break;
                     case VM_GlobalDistanceField:
                         view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                        break;
+                    case VM_SurfaceCacheAtlas:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;
+                        break;
+                    case VM_SurfaceCacheScene:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheScene;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

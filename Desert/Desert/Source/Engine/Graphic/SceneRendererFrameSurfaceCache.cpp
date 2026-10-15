@@ -1,0 +1,119 @@
+// SceneRenderer's surface-cache node (GI-SURFACE-CACHE-2): the Lumen scene update, the card capture through the
+// G-buffer light-view pass, the copy into the atlas and the two view modes that show it.
+#include <Common/Core/DevInstruments.hpp>
+#include <Engine/Core/Projection.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+
+#include <format>
+
+namespace Desert::Graphic
+{
+#if DESERT_DEV_INSTRUMENTS
+    void SceneRenderer::AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame, const RDG::TextureRef target )
+    {
+        const bool atlasView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheAtlas;
+        const bool sceneView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheScene;
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
+        if ( ( !atlasView && !sceneView ) || m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        auto* const meshRenderer =
+             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+        if ( meshRenderer == nullptr || !target.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Surface Cache not drawn: {}",
+                       meshRenderer == nullptr ? "no MeshSystem" : "the frame has no post input" );
+            return;
+        }
+        if ( !m_SurfaceCache )
+        {
+            auto cache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            if ( const auto initialized = cache->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", initialized.GetError() );
+                return;
+            }
+            m_SurfaceCache = std::move( cache );
+        }
+        // The machine's budget (Scalability GlobalIllumination group), every frame: a quality change re-cuts it.
+        if ( const auto configured =
+                  m_SurfaceCache->Configure( SurfaceCache::MakeSurfaceCacheBudget( m_Quality ) );
+             !configured )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", configured.GetError() );
+            return;
+        }
+
+        // THE LUMEN SCENE: every static and instanced mesh of the frame that carries cards, whole - the cache
+        // holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
+        std::vector<SurfaceCache::SceneInstance> instances;
+        meshRenderer->GatherSurfaceCacheInstances( instances );
+        const SurfaceCache::SceneFrame scene =
+             m_SurfaceCache->GetScene().Update( instances, frame.CameraPosition );
+
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+
+        // THE CAPTURE: the cards picked this frame, each drawn by MeshRenderer into its rectangle of the capture
+        // atlas (G-buffer light-view permutation: albedo, normal, emissive, standard-Z depth cleared to far).
+        if ( !scene.Captures.empty() )
+        {
+            const std::string passName =
+                 std::format( "SurfaceCache: Card Capture ({} cards)", scene.Captures.size() );
+            const auto targets =
+                 TargetsOf( textures, m_SurfaceCache->GetCaptureBuffer(), "SurfaceCacheCapture", passName );
+            if ( !targets || targets->Colors.size() < 4 || !targets->Depth.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: the capture atlas cannot be declared" );
+                return;
+            }
+            const std::vector<SurfaceCache::CardCapture>& captures = scene.Captures;
+            graph.AddPass(
+                 passName, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     meshRenderer->DeclareCardCaptureDraws( pass, captures );
+                     // An invalid colour is the unused shading-word slot: no target.
+                     for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
+                         if ( targets->Colors[slot].IsValid() )
+                             pass.ColorTarget( slot, targets->Colors[slot],
+                                               RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.DepthTarget( targets->Depth, RDG::LoadOp::ClearDepth( 1.0f ), true );
+                 },
+                 [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderCardCaptureManual( context ); } );
+            const SurfaceCache::SurfaceCacheRenderer::CaptureTextures capture{ .Albedo   = targets->Colors[0],
+                                                                               .Normal   = targets->Colors[1],
+                                                                               .Emissive = targets->Colors[3],
+                                                                               .Depth    = targets->Depth };
+            if ( const auto copied = m_SurfaceCache->AddCopyPass( graph, import, capture, scene ); !copied )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", copied.GetError() );
+                return;
+            }
+        }
+
+        // Said when the scene settles or grows, not per frame.
+        const uint64_t census = ( static_cast<uint64_t>( scene.Cards.size() ) << 32 ) | scene.CapturedCards;
+        if ( scene.Captures.empty() && census != m_SurfaceCacheLoggedCensus )
+        {
+            m_SurfaceCacheLoggedCensus = census;
+            LOG_INFO( "[SurfaceCache] settled: {} instance(s), {} card(s), {} resident, {} captured, {} page(s)",
+                      scene.MeshCards.size(), scene.Cards.size(), scene.ResidentCards, scene.CapturedCards,
+                      scene.Pages.size() );
+        }
+
+        const auto drawn = atlasView
+                                ? m_SurfaceCache->AddAtlasViewPass( graph, import, target )
+                                : m_SurfaceCache->AddSceneViewPass( graph, import, target, scene,
+                                                                    frame.ViewProjection, frame.CameraPosition );
+        if ( !drawn )
+            LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", drawn.GetError() );
+    }
+#endif // DESERT_DEV_INSTRUMENTS
+} // namespace Desert::Graphic

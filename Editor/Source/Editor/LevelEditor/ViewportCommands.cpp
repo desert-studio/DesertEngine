@@ -156,6 +156,24 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // The surface cache's two views under names: the frames that show the cards captured and the scene they
+        // rebuild are taken over the channel.
+        commands.push_back( { "View", "View mode: Surface Cache Atlas", []
+                              {
+                                  auto& view = EditorPreferences::Get().DebugView;
+                                  view.ClearViewMode();
+                                  view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "View", "View mode: Lumen Scene (Cards)", []
+                              {
+                                  auto& view = EditorPreferences::Get().DebugView;
+                                  view.ClearViewMode();
+                                  view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheScene;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

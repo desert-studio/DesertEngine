@@ -1270,6 +1270,8 @@ namespace Desert::Graphic
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
         AddFrameGlobalDistanceFieldView( graph, textures, frame,
                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameSurfaceCacheView( graph, textures, frame,
+                                  postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
