@@ -522,7 +522,7 @@ TEST( CornellSymmetry, TheOrangeCubesFrontFaceIsTurnedAwayFromBothLights )
     const glm::vec3 topNormal{ 0.0f, 1.0f, 0.0f };
 
     const PointLightPayload light = LoadPointLight( scene, "CB_BackLight" );
-    const glm::vec3 towardSun = TowardSun( EntityByTag( scene, "CB_Sun" ) );
+    const glm::vec3         towardSun = TowardSun( EntityByTag( scene, "CB_Sun" ) );
 
     EXPECT_LE( glm::dot( frontNormal, glm::normalize( light.Position - frontFace ) ), 0.0f )
          << "the point light is no longer behind the orange cube";

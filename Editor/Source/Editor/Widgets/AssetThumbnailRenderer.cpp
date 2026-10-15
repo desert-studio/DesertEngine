@@ -178,7 +178,7 @@ namespace Desert::Editor
         // the light TRAVELS; the shader lights along -Direction. From above + the camera's side. The sky
         // below takes the same vector, so the one constant is named once.
         const glm::vec3 keyTravel( 2.0f, -6.0f, 5.0f );
-        auto            light = m_Scene->CreateNewEntity( "ThumbLight" );
+        auto            light           = m_Scene->CreateNewEntity( "ThumbLight" );
         auto& lightC          = light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = 3.5f;
         lightC.Data.Color     = { 1.0f, 0.97f, 0.92f }; // warm key

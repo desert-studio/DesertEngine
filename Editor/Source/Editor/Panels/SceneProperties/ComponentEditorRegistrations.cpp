@@ -540,7 +540,7 @@ namespace Desert::Editor
                 return; // while searching, only the matched fields are on screen
 
             entt::registry& registry = *en.GetRegistry();
-            const glm::vec3  toSun    = ::Desert::ECS::Rules::AtmosphereSunDirection(
+            const glm::vec3 toSun    = ::Desert::ECS::Rules::AtmosphereSunDirection(
                  ::Desert::ECS::WorldRotation( registry, en.GetHandle() ) );
 
             float elevation = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
