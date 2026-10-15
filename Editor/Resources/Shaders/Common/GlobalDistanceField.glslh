@@ -78,6 +78,26 @@ struct GlobalDistanceFieldHit
 // 39 cm voxels, its two neighbouring voxel centres both outside it - never reconstructs to a negative distance,
 // so a test against a fixed small threshold sees through it; the expansion catches it. The ramp keeps a ray that
 // starts on a surface from hitting itself.
+//
+// THE FIRST HIT IS REFINED BY BISECTION (not in UE). Such a sheet reconstructs to a V whose bottom is the voxel
+// centre nearest to it, not the sheet, and trilinear interpolation of a V overestimates the distance by up to half
+// a voxel, so a full sphere step can land anywhere in the band where the field is under the expansion - also in
+// its lower half, past the sheet, where the gradient points away from the ray (the dark pits of the 80 m Bistro
+// view: every clipmap-2 voxel of the plaza floor has a V of minimum ~0.3 voxel at its centre). The band is one
+// interval along the ray between the last miss and the first hit, so bisecting that segment finds its entry: the
+// expanded surface every ray reports, whatever its step phase.
+float GlobalDistanceFieldExcess(vec3 origin, vec3 direction, float t, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    const vec3 p     = origin + direction * t;
+    const int  level = GlobalDistanceFieldLevelAt(p, levels);
+    if (level < 0)
+        return 1.0;
+    const float voxel          = levels[level].w;
+    const float expandDistance = 0.5 * voxel;
+    const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
+    return SampleGlobalDistanceFieldLevel(level, p, voxel) - expand;
+}
+
 GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
                                                 vec4 levels[GDF_NUM_CLIPMAPS])
 {
@@ -86,7 +106,8 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
     result.T     = 0.0;
     result.Level = -1;
     result.Steps = 0;
-    float t = 0.0;
+    float t         = 0.0;
+    float previousT = 0.0;
     for (int step = 0; step < maxSteps && t < maxT; ++step)
     {
         const vec3 p     = origin + direction * t;
@@ -100,11 +121,22 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
         if (distance < expand)
         {
+            float lo = previousT;
+            float hi = t;
+            for (int i = 0; i < 6 && step > 0; ++i)
+            {
+                const float mid = 0.5 * (lo + hi);
+                if (GlobalDistanceFieldExcess(origin, direction, mid, levels) < 0.0)
+                    hi = mid;
+                else
+                    lo = mid;
+            }
             result.Hit   = true;
-            result.T     = max(t + distance - expand, 0.0);
-            result.Level = level;
+            result.T     = max(hi + min(GlobalDistanceFieldExcess(origin, direction, hi, levels), 0.0), 0.0);
+            result.Level = GlobalDistanceFieldLevelAt(origin + direction * hi, levels);
             return result;
         }
+        previousT = t;
         t += max(distance, voxel * 0.1);
     }
     result.T = t;
