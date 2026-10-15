@@ -10,7 +10,8 @@ Shader "DiffuseIrradiance"
         const uint NumSamples = 64 * 1024;
         const float InvNumSamples = 1.0 / float(NumSamples);
 
-        // The source is a separate texture read through the bake's one shared state (Graphic::kComputeImagesSamplerBinding).
+        // The source is a separate texture read through the bake's one shared state
+        // (Graphic::kComputeImagesSamplerBinding).
         Uniform(0) texture2D inputTexture;
         Uniform(2) sampler u_LinearRepeatSampler;
         #define inputTexture sampler2D(inputTexture, u_LinearRepeatSampler)

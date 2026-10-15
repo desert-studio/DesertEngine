@@ -11,7 +11,8 @@ Shader "PrefilterEnvMap"
         const float InvNumSamples = 1.0 / float(NumSamples);
 
 
-        // The source is a separate texture read through the bake's one shared state (Graphic::kComputeImagesSamplerBinding).
+        // The source is a separate texture read through the bake's one shared state
+        // (Graphic::kComputeImagesSamplerBinding).
         Uniform(0, 0) textureCube inputTexture;
         Uniform(2, 0) sampler u_LinearRepeatSampler;
         #define inputTexture samplerCube(inputTexture, u_LinearRepeatSampler)

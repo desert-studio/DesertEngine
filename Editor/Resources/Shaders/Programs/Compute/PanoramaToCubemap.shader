@@ -6,7 +6,8 @@ Shader "PanoramaToCubemap"
         const float PI = 3.141592;
         const float TWOPI = 2 * PI;
 
-        // The source is a separate texture read through the bake's one shared state (Graphic::kComputeImagesSamplerBinding).
+        // The source is a separate texture read through the bake's one shared state
+        // (Graphic::kComputeImagesSamplerBinding).
         Uniform(0, 0) texture2D inputTexture;
         Uniform(2, 0) sampler u_LinearRepeatSampler;
         #define inputTexture sampler2D(inputTexture, u_LinearRepeatSampler)
