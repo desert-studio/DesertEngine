@@ -83,10 +83,10 @@ namespace Desert::Graphic::RayTracing
     // the frame the rays cannot see.
     enum class RayTracingSkip : uint8_t
     {
-        NoGeometry = 0,  // no resident BLAS for the mesh
-        Skinned,         // a deformed mesh with no dynamic BLAS built this frame (SelectDynamicGeometry)
-        NothingVisible,  // every submesh of the row is hidden: there is no triangle to trace
-        RowOutOfRange,   // the GPU-scene row does not fit the 24-bit custom index
+        NoGeometry = 0, // no resident BLAS for the mesh
+        Skinned, // a deformed mesh whose skin-cache entry was refused this frame (logged, RayTracingSkinCache)
+        NothingVisible, // every submesh of the row is hidden: there is no triangle to trace
+        RowOutOfRange,  // the GPU-scene row does not fit the 24-bit custom index
         Count
     };
 

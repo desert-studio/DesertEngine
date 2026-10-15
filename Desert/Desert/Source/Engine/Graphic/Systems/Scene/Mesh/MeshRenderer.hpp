@@ -319,7 +319,7 @@ namespace Desert::Graphic::System
         {
             return m_StaticQueue;
         }
-        // This frame's skinned queue, rows assigned: counted by the TLAS as Skinned until a skin cache exists.
+        // This frame's skinned queue, rows assigned: what the ray-tracing skin cache skins (RayTracingSkinCache).
         [[nodiscard]] std::span<const SkinnedMeshRenderData> GetSkinnedQueue() const
         {
             return m_SkinnedQueue;
@@ -338,6 +338,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
         {
             return m_InstancedMotionRows;
+        }
+        // This frame's rows and the view's ObjectBones (BuildObjectMotions): the skin cache skins from the same
+        // palette at the same BoneOffset the raster does - one source of the pose.
+        [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
+        {
+            return m_ScratchMotionRows;
+        }
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetObjectBones() const
+        {
+            return m_ObjectBones;
         }
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below

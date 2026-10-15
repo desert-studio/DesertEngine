@@ -46,6 +46,15 @@ namespace Desert::Graphic::RayTracing
                                       .DrawDistanceScale   = drawDistanceScale },
                                     m_Variants, m_Gather );
         m_Variants.EndFrame();
+        // Skinned primitives trace their per-frame BLAS: the skin cache skins and builds them below. The gather
+        // appends one skinned primitive per skinned record, last.
+        m_DynamicBlas.clear();
+        const auto firstSkinned =
+             static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
+        if ( const Common::BoolResultStr skinned =
+                  m_SkinCache.AddPasses( graph, meshes, m_Gather.Primitives, firstSkinned, m_DynamicBlas );
+             !skinned )
+            return skinned;
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
@@ -53,7 +62,7 @@ namespace Desert::Graphic::RayTracing
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
-             AddRayTracingScenePass( graph, required, m_Instances, *m_Target );
+             AddRayTracingScenePass( graph, required, m_Instances, *m_Target, m_DynamicBlas );
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();
