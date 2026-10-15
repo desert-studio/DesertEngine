@@ -125,7 +125,8 @@ namespace Desert::Graphic
             sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
     }
 
-    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
+                                               const ViewFrame& frame )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
@@ -180,10 +181,10 @@ namespace Desert::Graphic
         if ( textures.Transients.HeightFog.IsValid() )
             AddSystemRaster( graph, textures, fog->ApplyPass() );
 
-        // What every translucent surface after this point fogs itself with, at its own depth (Common/ViewFog.glslh,
-        // bound by name through SceneViewInputs): DeclareFrameNodes published the parameter block (always - gates
-        // 0 without fog); here the three images it reads, each the engine's fallback when absent (the block's
-        // gates say it is not sampled), so a translucent cell never has an unbound slot.
+        // What every translucent surface after this point fogs itself with, at its own depth
+        // (Common/ViewFog.glslh, bound by name through SceneViewInputs): DeclareFrameNodes published the parameter
+        // block (always - gates 0 without fog); here the three images it reads, each the engine's fallback when
+        // absent (the block's gates say it is not sampled), so a translucent cell never has an unbound slot.
         const AtmosphereEnv&         atmosphere = GetAtmosphere();
         const std::shared_ptr<Image> fallback3D =
              FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );

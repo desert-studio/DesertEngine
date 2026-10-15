@@ -43,8 +43,8 @@ namespace Desert::Graphic
         // The VOLUMETRIC FOG this pass composes under the analytic fog (VolumetricFogRenderer's integrated volume,
         // UE's CombineVolumetricFog). Not authored data: PackFogParams leaves both zero (no volume) and
         // HeightFogRenderer fills them from the frame's VolumetricFogFrameResult when the volume ran.
-        //   Volumetric0: x = froxel edge (render pixels), y/z = froxels across/down, w = 1 when the volume is bound
-        //   Volumetric1: x/y/z = B, O, S of slice = log2(depth * B + O) * S (depth in cm), w = slices
+        //   Volumetric0: x = froxel edge (render pixels), y/z = froxels across/down, w = 1 when the volume is
+        //   bound Volumetric1: x/y/z = B, O, S of slice = log2(depth * B + O) * S (depth in cm), w = slices
         glm::vec4 Volumetric0;
         glm::vec4 Volumetric1;
 
@@ -82,10 +82,10 @@ namespace Desert::Graphic
     static_assert( offsetof( FogGpuPayload, Camera ) == 176 );
     static_assert( sizeof( FogGpuPayload ) == 192, "Twelve vec4s, nothing else — the shader reads exactly this." );
 
-    // The block is a buffer of each frame's graph (HeightFogRenderer::DeclareFrameNodes, sized by the struct: already
-    // a multiple of std430's 16-byte alignment), found BY ITS NAME (kSceneFogParamsBlockName) in every layout that
-    // declares it - the fog compute at FOG_PARAMS_BINDING 1, a surface cell at Core::kSceneFogParamsBinding - so no
-    // binding number is spelled on this side.
+    // The block is a buffer of each frame's graph (HeightFogRenderer::DeclareFrameNodes, sized by the struct:
+    // already a multiple of std430's 16-byte alignment), found BY ITS NAME (kSceneFogParamsBlockName) in every
+    // layout that declares it - the fog compute at FOG_PARAMS_BINDING 1, a surface cell at
+    // Core::kSceneFogParamsBinding - so no binding number is spelled on this side.
 
     /**
      * Per-dispatch data: everything that changes with the CAMERA rather than with the fog settings.
@@ -101,8 +101,8 @@ namespace Desert::Graphic
 
     static_assert( sizeof( FogPush ) == 64 );
 
-    // The camera's forward axis from a world -> view matrix (the camera looks down -z of its view space): the axis a
-    // froxel slice is measured along, by the volumetric fog that fills the grid and by every reader of it.
+    // The camera's forward axis from a world -> view matrix (the camera looks down -z of its view space): the axis
+    // a froxel slice is measured along, by the volumetric fog that fills the grid and by every reader of it.
     inline glm::vec3 FogCameraForward( const glm::mat4& view )
     {
         return -glm::normalize( glm::vec3( view[0][2], view[1][2], view[2][2] ) );

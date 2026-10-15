@@ -321,8 +321,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_EQ( sceneRead["u_SceneFogDistantSkyLight"], Desert::Core::kSceneFogDistantSkyLightBinding );
     EXPECT_EQ( sceneRead["u_SceneFogVolume"], Desert::Core::kSceneFogVolumeBinding );
     const std::string sceneFog = ReadFile( shaders / "Mesh/Surface/SceneFog.glslh" );
-    EXPECT_NE( sceneFog.find( std::format( "#define FOG_PARAMS_BINDING {}", Desert::Core::kSceneFogParamsBinding ) ),
-               std::string::npos )
+    EXPECT_NE(
+         sceneFog.find( std::format( "#define FOG_PARAMS_BINDING {}", Desert::Core::kSceneFogParamsBinding ) ),
+         std::string::npos )
          << "Mesh/Surface/SceneFog.glslh does not put the fog block at Core::kSceneFogParamsBinding";
 }
 

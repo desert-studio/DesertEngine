@@ -134,7 +134,8 @@ namespace Desert::Graphic::System
             return;
         const auto& layout = m_Layout.Get( m_Pipeline->GetSpecification().Shader );
         auto        block  = pass.Bindings( layout, m_Material->GetMaterialExecutor()->GetRouteFill() );
-        // The surface fogs itself at its own depth (Mesh/Surface/SceneFog.glslh): the frame's fog block and images.
+        // The surface fogs itself at its own depth (Mesh/Surface/SceneFog.glslh): the frame's fog block and
+        // images.
         BindSceneFogInputs( block, view, *layout );
     }
 

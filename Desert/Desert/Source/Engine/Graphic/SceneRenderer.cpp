@@ -491,7 +491,8 @@ namespace Desert::Graphic
                 // The volumetric fog (froxel grid) the height fog composes; non-fatal like it.
                 RegisterSystem<System::VolumetricFogRenderer>( "VolumetricFogSystem", this, m_TargetFramebuffer );
                 if ( const auto volumeInit =
-                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )->Initialize();
+                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
+                               ->Initialize();
                      !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
                 return "HeightFog";

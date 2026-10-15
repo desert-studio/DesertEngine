@@ -72,11 +72,11 @@ namespace Desert::Core
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.
     inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 4u;
     inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 5u;
-    // The view's FOG, which a translucent surface applies at its own depth (UE: translucency fogs itself, it is not
-    // fogged by the opaque depth behind it): the height fog's parameter block (`FogParamsBuffer`), the sky's aerial
-    // perspective volume, its distant sky light and the volumetric fog's integrated froxels. Declared by
-    // Mesh/Surface/SceneFog.glslh in the translucent mesh cell and the particle sprite cell (and by the water program
-    // through the same header), bound by name (BindSceneFogInputs).
+    // The view's FOG, which a translucent surface applies at its own depth (UE: translucency fogs itself, it is
+    // not fogged by the opaque depth behind it): the height fog's parameter block (`FogParamsBuffer`), the sky's
+    // aerial perspective volume, its distant sky light and the volumetric fog's integrated froxels. Declared by
+    // Mesh/Surface/SceneFog.glslh in the translucent mesh cell and the particle sprite cell (and by the water
+    // program through the same header), bound by name (BindSceneFogInputs).
     inline constexpr uint32_t kSceneFogParamsBinding            = kSceneReadBindingFirst + 6u;
     inline constexpr uint32_t kSceneFogAerialPerspectiveBinding = kSceneReadBindingFirst + 7u;
     inline constexpr uint32_t kSceneFogDistantSkyLightBinding   = kSceneReadBindingFirst + 8u;

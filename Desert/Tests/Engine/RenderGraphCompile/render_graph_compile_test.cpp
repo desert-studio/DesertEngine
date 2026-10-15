@@ -2133,12 +2133,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     };
     const auto bodyOf = [&source]( std::string_view function ) -> std::string
     {
-        // A definition returns void, or whether it added its node (AddFrameWater: the depth consumers after it need
-        // the resolve again), or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid),
-        // or the screen traces' shared inputs (AddFrameSSR's FrameSSR; AddFrameScreenTrace, whose nested return
-        // type clang-format puts on its own line). A definition this misses would extend the body before it over
-        // its own, and a call back into that one (AddFrameSSR / AddFrameScreenTrace call AddFrameHZB) would
-        // recurse without end.
+        // A definition returns void, or whether it added its node (AddFrameWater: the depth consumers after it
+        // need the resolve again), or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid), or
+        // the screen traces' shared inputs (AddFrameSSR's FrameSSR; AddFrameScreenTrace, whose nested return type
+        // clang-format puts on its own line). A definition this misses would extend the body before it over its
+        // own, and a call back into that one (AddFrameSSR / AddFrameScreenTrace call AddFrameHZB) would recurse
+        // without end.
         const auto definition = [&source]( std::string_view name, size_t from )
         {
             return std::min(

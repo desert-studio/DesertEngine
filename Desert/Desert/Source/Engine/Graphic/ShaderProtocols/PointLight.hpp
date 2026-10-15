@@ -32,7 +32,7 @@ namespace Desert::Graphic::ShaderProtocols
         // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
         float ContactShadowCastingIntensity    = 1.0f; // 52
         float ContactShadowNonCastingIntensity = 0.0f; // 56
-        float VolumetricScatteringIntensity = 1.0f; // 60 -> 64
+        float VolumetricScatteringIntensity    = 1.0f; // 60 -> 64
     };
 
     struct PointLight

@@ -187,9 +187,9 @@ namespace Desert::Graphic::System
 
         // The history is last frame's of THIS view (a new grid recreated the volumes and dropped it), and only
         // if the view did not reset it - otherwise the reprojection would blend in a different picture.
-        const bool historyValid = m_History.ReadableIn( frame );
-        const uint32_t current = historyValid ? 1u - m_Current : m_Current;
-        const uint32_t history = 1u - current;
+        const bool     historyValid = m_History.ReadableIn( frame );
+        const uint32_t current      = historyValid ? 1u - m_Current : m_Current;
+        const uint32_t history      = 1u - current;
 
         const AtmosphereEnv& atmosphere = m_SceneRenderer->GetAtmosphere();
         const bool           physical   = atmosphere.Valid && atmosphere.DistantSkyLight != nullptr;

@@ -1433,7 +1433,7 @@ namespace Desert::Core::Preprocess
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
                                                        : std::string(),
                  blend == SurfaceBlendMode::Additive ? std::format( "#define {} 1\n", kSurfaceAdditiveDefine )
-                                                     : std::string(),
+                                                      : std::string(),
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
