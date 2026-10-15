@@ -92,8 +92,10 @@ namespace Desert::Core
     // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
     // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
     // script slot's Props are only the values that differ from the script's declared defaults
-    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
-    inline constexpr int kSceneVersion = 54;
+    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54). v62 (POST-LOOK): a volume's grade is UE's -
+    // auto-exposure on by default with UE's bias / speeds / EV100 range, the Filmic curve, white balance
+    // (Tools/SceneMigrator, MigrateUEGradeToV62).
+    inline constexpr int kSceneVersion = 62;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

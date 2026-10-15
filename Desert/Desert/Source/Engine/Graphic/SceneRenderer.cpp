@@ -835,12 +835,7 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetParams( post.Exposure, post.Gamma );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetTonemapOperator( post.Tonemapper );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetWhitePoint( post.WhitePoint );
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetGrade( post );
 
         // The systems map is keyed by the name each system was registered under, so the downcast is to the type
         // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
@@ -878,10 +873,11 @@ namespace Desert::Graphic
         // space the number was written in; neither authored number was retuned.
         //
         // AUTO-EXPOSURE IS NOT FIXED BY THIS AND IS NOT PRETENDED TO BE. There the exposure is
-        // `key / adaptedLuminance` evaluated in the composite from a 1x1 image the CPU never reads, so
-        // this function has nothing to divide by and leaves the threshold in raw radiance — the behaviour
-        // it has always had. No repository scene enables auto-exposure. Closing it means giving the bloom
-        // pass the adapted-luminance image and doing the comparison on the GPU, which is a binding this
+        // `2^Bias x 0.18 / adaptedLuminance` evaluated in the composite from a 1x1 image the CPU never reads,
+        // so this function has nothing to divide by and leaves the threshold in raw radiance — the behaviour
+        // it has always had. Auto-exposure is the default since SCNE 62 (UE's), so this is now the common
+        // path for a view with bloom on. Closing it means giving the bloom pass the adapted-luminance image
+        // and doing the comparison on the GPU (UE thresholds the exposed colour), which is a binding this
         // pass does not have; it is written down in Docs/Clouds/CALIBRATION.md rather than left to be
         // rediscovered.
         const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
@@ -938,10 +934,7 @@ namespace Desert::Graphic
              .Rings =
                   DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
 
-        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetParams( post.AutoExposureSpeed, post.AutoExposureMin, post.AutoExposureMax );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )->SetSettings( post );
 
         return BOOLSUCCESS;
     }

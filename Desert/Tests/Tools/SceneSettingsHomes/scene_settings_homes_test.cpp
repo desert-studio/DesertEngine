@@ -213,7 +213,7 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     stated.EnableSSAO           = false;
     stated.GIIntensity          = 7.25f;
     stated.SSRIntensity         = 0.3f;
-    stated.AutoExposureMax      = 3.0f;
+    stated.WhitePoint           = 3.0f;
     stated.BloomThreshold       = 0.7f;
     stated.LensDispersion       = 1.1f;
     stated.LensFlareStreakAngle = 33.0f;
@@ -221,14 +221,40 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
 
     auto scene        = Parse( kSceneV32 );
     const auto all          = Reflection::SerializeReflected( *type, &stated );
-    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods): no Settings
-    // block ever stated them, so the step has no key for them (the methods replace GlobalIllumination/EnableSSR,
-    // which the step moves and SCNE 53 converts). A field added to the grade must be added to the step or named
-    // here.
-    constexpr std::array<std::string_view, 12> kBornAfterTheStep = {
-         "DepthOfFieldFocalDistance", "DepthOfFieldFstop", "DepthOfFieldSensorWidth", "DepthOfFieldMaxBokehSize",
-         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS",     "GlobalIlluminationMethod",
-         "ReflectionsMethod",         "ShadowsMethod",     "ContactShadows",          "DistanceFieldShadows" };
+    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods, the SCNE 62 UE
+    // film, white balance and eye adaptation): no Settings block ever stated them, so the step has no key for them
+    // (the methods replace GlobalIllumination/EnableSSR, which the step moves and SCNE 53 converts; SCNE 62
+    // re-states AutoExposureKey and drops Speed/Min/Max). A field added to the grade must be added to the step or
+    // named here.
+    constexpr std::array<std::string_view, 29> kBornAfterTheStep = { "DepthOfFieldFocalDistance",
+                                                                     "DepthOfFieldFstop",
+                                                                     "DepthOfFieldSensorWidth",
+                                                                     "DepthOfFieldMaxBokehSize",
+                                                                     "MotionBlurAmount",
+                                                                     "MotionBlurMax",
+                                                                     "MotionBlurTargetFPS",
+                                                                     "GlobalIlluminationMethod",
+                                                                     "ReflectionsMethod",
+                                                                     "ShadowsMethod",
+                                                                     "ContactShadows",
+                                                                     "DistanceFieldShadows",
+                                                                     "FilmSlope",
+                                                                     "FilmToe",
+                                                                     "FilmShoulder",
+                                                                     "FilmBlackClip",
+                                                                     "FilmWhiteClip",
+                                                                     "BlueCorrection",
+                                                                     "ExpandGamut",
+                                                                     "ToneCurveAmount",
+                                                                     "WhiteTemp",
+                                                                     "WhiteTint",
+                                                                     "AutoExposureBias",
+                                                                     "AutoExposureLowPercent",
+                                                                     "AutoExposureHighPercent",
+                                                                     "AutoExposureMinBrightness",
+                                                                     "AutoExposureMaxBrightness",
+                                                                     "AutoExposureSpeedUp",
+                                                                     "AutoExposureSpeedDown" };
     for ( const std::string_view key : kBornAfterTheStep )
         ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
     rfl::Generic::Object block;
@@ -260,7 +286,8 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_EQ( v.Post.Exposure, 2.5f );
     EXPECT_EQ( v.Post.Gamma, 2.4f );
     EXPECT_EQ( v.Post.WhitePoint, 11.0f );
-    EXPECT_EQ( v.Post.AutoExposureKey, 0.21f );
+    // SCNE 62: Key 0.21 is re-stated exactly as UE's bias, 2^Bias x 0.18 = 0.21.
+    EXPECT_NEAR( v.Post.AutoExposureBias, std::log2( 0.21 / 0.18 ), 1e-6 );
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );
     EXPECT_EQ( v.Post.SSRMaxDistance, 2500.0f );
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );

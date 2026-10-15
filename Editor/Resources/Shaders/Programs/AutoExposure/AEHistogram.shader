@@ -56,7 +56,11 @@ Shader "AEHistogram"
                     bin     = uint( t * 255.0 + 0.5 );
                 }
 
-                atomicAdd( s_Bins[bin], 1u );
+                // UE's r.EyeAdaptation.BlackHistogramBucketInfluence, default 0 (PostProcessHistogram.usf:172-177):
+                // the bottom bucket carries no weight, so black pixels (the editor's empty background, the void
+                // under a floor, an unlit interior) do not drag the metered average toward -10 EV.
+                if ( bin != 0u )
+                    atomicAdd( s_Bins[bin], 1u );
             }
             barrier();
 

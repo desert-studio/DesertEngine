@@ -24,21 +24,11 @@ namespace Desert::Graphic::System
         constexpr float kMinLogLum = -10.0f;
         constexpr float kMaxLogLum = 10.0f;
 
-        // Outlier rejection, UNCHANGED. It was the obvious suspect for "the sun does not move the
-        // exposure" and it is not the cause, so it keeps its values — see AutoExposureRules.hpp for the
-        // measurement. The short version: the sun disc subtends half a degree, which at this field of
-        // view is about forty PIXELS, four thousandths of one percent of the frame. A pixel-count
-        // weighted average of log luminance shifts by (that fraction) x (its excess in stops), i.e. by
-        // ten-thousandths of a stop. Widening this tail to 99.5% was tried and measured: the metered
-        // background moved by one 8-bit level. The tail is not what is stopping the response; the
-        // disc's solid angle is, and no percentile can change that.
-        constexpr float kLowPercent  = 0.0f;
-        constexpr float kHighPercent = 0.95f;
-
-        // The one description of the meter's window, shared with the tests that pin it against the sky's
-        // own luminance clamp. The dispatch below reads its fields rather than the constants above, so
-        // there is no second copy to drift.
-        constexpr AutoExposureWindow kWindow{ kMinLogLum, kMaxLogLum, kLowPercent, kHighPercent };
+        // The outlier tails are the view's (AutoExposureLowPercent / HighPercent, UE's 10 / 90 by default) and are
+        // set per frame through ComputeEyeAdaptationParameters; the window here only fixes what the meter can see.
+        // The tails used to be 0 / 95 here: with no dark tail every black pixel of a frame (an unlit interior, the
+        // void under a floor) pulled the metered average down a bin at -10 EV, i.e. brightened the whole frame.
+        constexpr AutoExposureWindow kWindow{ kMinLogLum, kMaxLogLum, 0.0f, 1.0f };
 
         struct HistogramPush
         {
@@ -46,16 +36,22 @@ namespace Desert::Graphic::System
             float InvLogLumRange;
         };
 
+        // AEAverage's push block, in its declaration order: UE's EyeAdaptation_* parameters it reads.
         struct AveragePush
         {
             float Dt;
-            float AdaptSpeed;
-            float MinLuma;
-            float MaxLuma;
+            float SpeedUp;
+            float SpeedDown;
+            float ExponentialUpM;
+            float ExponentialDownM;
+            float StartDistance;
+            float MinAverageLuminance;
+            float MaxAverageLuminance;
             float MinLogLum;
             float LogLumRange;
             float LowPct;
             float HighPct;
+            float ForceTarget; // 1 = land on the target this dispatch (scene replaced, camera cut)
         };
 
         inline uint32_t GroupCount( uint32_t dim )
@@ -184,21 +180,29 @@ namespace Desert::Graphic::System
     {
         if ( !m_AveragePipeline )
             return Common::MakeError( "PostFX: AutoExposureAverage: the average pipeline is not initialised" );
-        // 3) Resolve: percentile-clipped weighted average + temporal adaptation -> newLum (1x1).
-        //
-        // kSnapAdaptSpeed makes `1 - exp(-dt * speed)` exactly 1 in float for any dt this engine produces,
-        // so the shader's mix lands on the measured luminance with no ramp at all. Consumed here, once, so
-        // a scene load costs one instant adaptation and every frame after it adapts normally.
-        constexpr float kSnapAdaptSpeed = 1.0e6f;
+        // 3) Resolve: percentile-clipped log average, clamped into the EV100 range, adapted in EV toward it at the
+        //    up / down speed (UE's ComputeEyeAdaptation) -> newLum (1x1).
+        const EyeAdaptationParameters eye = ComputeEyeAdaptationParameters(
+             m_Settings.AutoExposureMinBrightness, m_Settings.AutoExposureMaxBrightness,
+             m_Settings.AutoExposureLowPercent, m_Settings.AutoExposureHighPercent, m_Settings.AutoExposureSpeedUp,
+             m_Settings.AutoExposureSpeedDown );
 
-        const float adaptSpeed = m_SnapNextAdaptation ? kSnapAdaptSpeed : m_AdaptSpeed;
-        // A snap needs a step to act through: a frozen world's step is 0, and `1 - exp(-0 * speed)` is 0 —
-        // the new scene would keep the old scene's exposure until time moved.
-        const float deltaSeconds = m_SnapNextAdaptation ? 1.0f : m_DeltaSeconds;
-        m_SnapNextAdaptation     = false;
+        const float forceTarget = m_SnapNextAdaptation ? 1.0f : 0.0f;
+        m_SnapNextAdaptation    = false;
 
-        const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
-                              kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
+        const AveragePush ap{ .Dt                  = m_DeltaSeconds,
+                              .SpeedUp             = eye.SpeedUp,
+                              .SpeedDown           = eye.SpeedDown,
+                              .ExponentialUpM      = eye.ExponentialUpM,
+                              .ExponentialDownM    = eye.ExponentialDownM,
+                              .StartDistance       = eye.StartDistance,
+                              .MinAverageLuminance = eye.MinAverageLuminance,
+                              .MaxAverageLuminance = eye.MaxAverageLuminance,
+                              .MinLogLum           = kWindow.MinLogLum,
+                              .LogLumRange         = kWindow.Range(),
+                              .LowPct              = eye.LowPercent,
+                              .HighPct             = eye.HighPercent,
+                              .ForceTarget         = forceTarget };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );

@@ -16,16 +16,19 @@ Shader "SceneComposite"
             float u_Exposure;
             float u_Gamma;
             float u_BloomIntensity;
-            float u_ExposureKey;          // middle-grey target for auto-exposure
+            float u_AutoExposureCompensation; // 2^AutoExposureBias: UE's ExposureCompensationSettings
             float u_AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float u_ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
             float u_WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
-            float u_TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
+            float u_TonemapOperator;      // Core::TonemapOperator: < 0.5 = Filmic, otherwise extended Reinhard
             vec4  u_LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  u_LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
+            vec4  u_FilmCurve;    // UE FilmSlope, FilmToe, FilmShoulder, FilmBlackClip
+            vec4  u_FilmLook;     // UE FilmWhiteClip, BlueCorrection, ExpandGamut, ToneCurveAmount
+            vec4  u_WhiteBalance; // UE WhiteTemp, WhiteTint; z > 0.5 = not the identity (6500 / 0), so it applies
         };
 
-        #include <Common/TonemapACES.glslh>
+        #include <Common/FilmToneMap.glslh>
 
         // Extended Reinhard, on luminance, preserving the colour's ratio to it.
         // see: "Photographic Tone Reproduction for Digital Images", eq. 4
@@ -46,12 +49,14 @@ Shader "SceneComposite"
 
         void main()
         {
-            // Auto-exposure: scale so the adapted average luminance maps to the key value; else manual exposure.
+            // Auto-exposure, UE's EyeAdaptationCommon: the adapted average luminance is placed on middle grey
+            // (0.18) and then moved by the compensation, ExposureScale = 2^Bias * 0.18 / AverageLuminance.
+            // Manual exposure otherwise.
             float exposure = u_Exposure;
             if (u_AutoExposureEnabled > 0.5)
             {
                 float adaptedLum = texture(u_AvgLuminance, vec2(0.5)).r;
-                exposure = u_ExposureKey / max(adaptedLum, 1e-4);
+                exposure = u_AutoExposureCompensation * 0.18 / max(adaptedLum, 1e-4);
             }
 
             vec3 scene = texture(u_GeometryTexture, v_TexCoord).rgb;
@@ -90,13 +95,16 @@ Shader "SceneComposite"
 
             vec3 color = (scene + bloom + shafts + flare) * exposure;
 
-        	// The scene's chosen operator. Both branches return LINEAR colour — the gamma encode below is
-        	// the display transfer function and belongs to neither of them.
-        	vec3 mappedColor = (u_TonemapOperator < 0.5) ? TonemapACES(color)
-        	                                             : TonemapReinhard(color, u_WhitePoint);
+            // White balance first, for either operator: it is the scene's white, not a property of a curve.
+            if (u_WhiteBalance.z > 0.5)
+                color = FilmWhiteBalance(color, u_WhiteBalance.x, u_WhiteBalance.y);
 
-        	// Gamma correction.
-        	vec3 mapped = pow(mappedColor, vec3(1.0 / u_Gamma));
+            // The scene's chosen operator. Both branches return DISPLAY-linear colour; FilmEncodeDisplay below is
+            // the display transfer function (UE's gamma adjustment + sRGB inverse EOTF) and belongs to neither.
+            vec3 displayLinear = (u_TonemapOperator < 0.5) ? FilmGrade(color, u_FilmCurve, u_FilmLook)
+                                                           : TonemapReinhard(color, u_WhitePoint);
+
+            vec3 mapped = FilmEncodeDisplay(displayLinear, u_Gamma);
 
         	// Ordered dithering on the FINAL 8-bit output to break gradient banding. Without it, smooth gradients
         	// (esp. the procedural sky) quantize into 8-bit steps; under camera motion those steps sweep across the

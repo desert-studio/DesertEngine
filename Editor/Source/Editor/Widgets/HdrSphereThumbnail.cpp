@@ -3,6 +3,8 @@
 #include <Editor/Widgets/CloudThumbnail.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>
+#include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
 
 // STB_IMAGE_IMPLEMENTATION is compiled once, in ThirdParty/stb/stb_image.cpp; this only declares.
 #include <stb_image/stb_image.h>
@@ -18,8 +20,9 @@ namespace Desert::Editor::HdrSphereThumbnail
         // THE SHADER'S OWN TEXT, NOT A PARAPHRASE OF IT. `PanoramaSampleUV` is the one mapping the
         // PanoramaToCubemap and DiffuseIrradiance bakes read an equirectangular file with; compiling the
         // same file here means a change to the convention moves the ball and the skybox together, instead
-        // of leaving a C++ copy that reads correct alone. `TonemapACES` is likewise the viewport's own film
-        // curve (SceneComposite includes the same file), so the ball is graded as the frame is. Included by a path
+        // of leaving a C++ copy that reads correct alone. `FilmGrade` / `FilmEncodeDisplay` are likewise the
+        // viewport's own film curve and display transform (SceneComposite includes the same file), so the ball is
+        // graded as the frame is. Included by a path
         // relative to this file rather than through an include directory, because the Editor project does not put
         // the shader tree on its include path and one producer is not a reason to make every Editor TU see it. The
         // anonymous namespace and the glm spellings are the house arrangement for shader maths compiled as C++
@@ -27,12 +30,21 @@ namespace Desert::Editor::HdrSphereThumbnail
         using vec2 = glm::vec2;
         using vec3 = glm::vec3;
         using mat3 = glm::mat3;
+        using glm::abs;
         using glm::acos;
         using glm::atan;
         using glm::clamp;
+        using glm::exp2;
+        using glm::log;
+        using glm::log2;
+        using glm::max;
+        using glm::min;
+        using glm::sign;
+        using glm::smoothstep;
+        using glm::sqrt;
         DESERT_GLSL_AS_CPP_BEGIN
 #include "../../../Resources/Shaders/Common/SkyPanorama.glslh"
-#include "../../../Resources/Shaders/Common/TonemapACES.glslh"
+#include "../../../Resources/Shaders/Common/FilmToneMap.glslh"
         DESERT_GLSL_AS_CPP_END
 
         glm::vec3 Texel( const EquirectMap& map, uint32_t x, uint32_t y )
@@ -41,11 +53,6 @@ namespace Desert::Editor::HdrSphereThumbnail
             return { map.Rgb[at + 0], map.Rgb[at + 1], map.Rgb[at + 2] };
         }
 
-        float EncodeSrgb( float linear )
-        {
-            const float c = std::clamp( linear, 0.0f, 1.0f );
-            return c <= 0.0031308f ? 12.92f * c : 1.055f * std::pow( c, 1.0f / 2.4f ) - 0.055f;
-        }
     } // namespace
 
     glm::vec3 CameraDirection( const SphereView& view )
@@ -87,12 +94,19 @@ namespace Desert::Editor::HdrSphereThumbnail
 
     std::array<unsigned char, 3> ToDisplay( const glm::vec3& linear )
     {
-        constexpr float kExposure = 1.0f; // SceneComposite's manual default; a tile has no scene to adapt to
-        const glm::vec3 mapped    = TonemapACES( linear * kExposure );
+        // A view no volume touches, graded through the frame's own steps: white balance, the Filmic grade, the
+        // display transform. The exposure is the manual default - a tile has no scene to meter.
+        const Core::PostProcessSettings grade{};
+        glm::vec3                       balanced = linear * grade.Exposure;
+        if ( !Core::IsIdentityWhiteBalance( grade.WhiteTemp, grade.WhiteTint ) )
+            balanced = FilmWhiteBalance( balanced, grade.WhiteTemp, grade.WhiteTint );
+        const glm::vec3 display =
+             FilmEncodeDisplay( FilmGrade( balanced, Graphic::MaterialTonemap::FilmCurveOf( grade ),
+                                           Graphic::MaterialTonemap::FilmLookOf( grade ) ),
+                                grade.Gamma );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
-            out[static_cast<size_t>( c )] =
-                 static_cast<unsigned char>( std::lround( 255.0f * EncodeSrgb( mapped[c] ) ) );
+            out[static_cast<size_t>( c )] = static_cast<unsigned char>( std::lround( 255.0f * display[c] ) );
         return out;
     }
 

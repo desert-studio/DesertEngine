@@ -1084,6 +1084,155 @@ namespace Desert::Migration
         return report;
     }
 
+    UEGradeReport MigrateUEGradeToV62( std::vector<Assets::EntityData>& entities )
+    {
+        // The v54 auto-exposure defaults, as the writer stated them (floats widened to double).
+        constexpr double kOldKey     = 0.18;
+        constexpr double kOldSpeed   = 1.5;
+        constexpr double kOldMin     = 0.02;
+        constexpr double kOldMax     = 8.0;
+        constexpr double kOldManual  = 1.0;
+        constexpr double kFloatMatch = 1e-6;
+        const auto       isOld = []( double value, double old ) { return std::abs( value - old ) <= kFloatMatch; };
+
+        UEGradeReport report;
+
+        // `record` is false for a prefab override: its Settings is a delta against the prefab's record, which that
+        // prefab's own migration re-grades, so only the renamed keys are re-stated there.
+        const auto regrade = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who, bool record )
+        {
+            EditBlock(
+                 components, "PostProcessVolume",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "Settings" );
+                     if ( !stated.has_value() )
+                         return false;
+                     auto fields = stated.value().to_object();
+                     if ( !fields.has_value() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                           rfl::json::write( stated.value() ) ) );
+                         return false;
+                     }
+                     rfl::Generic::Object settings = std::move( fields.value() );
+                     bool                 changed  = false;
+                     bool                 refused  = false;
+
+                     const auto number = [&]( const char* key ) -> std::optional<double>
+                     {
+                         const auto value = settings.get( key );
+                         if ( !value.has_value() )
+                             return std::nullopt;
+                         const auto d = value.value().to_double();
+                         if ( !d.has_value() )
+                         {
+                             report.Refused.push_back(
+                                  std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who, key,
+                                               rfl::json::write( value.value() ) ) );
+                             refused = true;
+                             return std::nullopt;
+                         }
+                         return d.value();
+                     };
+
+                     if ( const auto key = number( "AutoExposureKey" ); key.has_value() )
+                     {
+                         if ( isOld( key.value(), kOldKey ) )
+                             ++report.KeysDropped;
+                         else
+                         {
+                             if ( !( key.value() > 0.0 ) )
+                             {
+                                 report.Refused.push_back( std::format(
+                                      "{}: PostProcessVolume.Settings.AutoExposureKey {} is not a positive "
+                                      "middle grey, so it has no AutoExposureBias",
+                                      who, key.value() ) );
+                                 return false;
+                             }
+                             settings["AutoExposureBias"] = rfl::Generic( std::log2( key.value() / kOldKey ) );
+                             ++report.BiasesStated;
+                         }
+                         DropKey( settings, "AutoExposureKey" );
+                         changed = true;
+                     }
+                     constexpr std::array<std::pair<const char*, double>, 3> kOldRange{
+                          { { "AutoExposureSpeed", kOldSpeed },
+                            { "AutoExposureMin", kOldMin },
+                            { "AutoExposureMax", kOldMax } } };
+                     for ( const auto& [oldKey, oldDefault] : kOldRange )
+                     {
+                         const auto value = number( oldKey );
+                         if ( !value.has_value() )
+                             continue;
+                         if ( !isOld( value.value(), oldDefault ) )
+                         {
+                             report.Refused.push_back( std::format(
+                                  "{}: PostProcessVolume.Settings.{} {} is not the old default {}; UE's eye "
+                                  "adaptation (AutoExposureSpeedUp / SpeedDown in EV per second, Min / "
+                                  "MaxBrightness in EV100) has no exact equivalent - set the new keys by hand",
+                                  who, oldKey, value.value(), oldDefault ) );
+                             refused = true;
+                             continue;
+                         }
+                         DropKey( settings, oldKey );
+                         ++report.KeysDropped;
+                         changed = true;
+                     }
+                     if ( refused )
+                         return false;
+
+                     if ( record )
+                     {
+                         if ( const auto autoExposure = settings.get( "AutoExposure" ); autoExposure.has_value() )
+                         {
+                             const auto flag = autoExposure.value().to_bool();
+                             if ( !flag.has_value() )
+                             {
+                                 report.Refused.push_back(
+                                      std::format( "{}: PostProcessVolume.Settings.AutoExposure {} is not a bool",
+                                                   who, rfl::json::write( autoExposure.value() ) ) );
+                                 return false;
+                             }
+                             const auto manual = number( "Exposure" );
+                             if ( refused )
+                                 return false;
+                             if ( !flag.value() )
+                             {
+                                 if ( manual.has_value() && !isOld( manual.value(), kOldManual ) )
+                                     ++report.KeptManual;
+                                 else
+                                 {
+                                     DropKey( settings, "AutoExposure" );
+                                     settings["AutoExposure"] = rfl::Generic( true );
+                                     ++report.AutoExposureOn;
+                                     changed = true;
+                                 }
+                             }
+                         }
+                     }
+
+                     if ( !changed )
+                         return false;
+                     DropKey( block, "Settings" );
+                     block["Settings"] = rfl::Generic( std::move( settings ) );
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            regrade( entity.Components, who, true );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    regrade( override_.Components, who, false );
+        }
+        return report;
+    }
+
     namespace
     {
         // A literal default a script declares: what `Name = Property.<Kind>( <literal>` states.
@@ -3415,6 +3564,18 @@ namespace Desert::Migration
                 }
             }
 
+            // The grade is UE's (POST-LOOK): auto-exposure on, UE's exposure keys, the Filmic curve.
+            if ( statedSceneVersion < kSceneVersionUEGrade )
+            {
+                report.UEGradeRaised = true;
+                report.UEGrade       = MigrateUEGradeToV62( entities );
+                if ( !report.UEGrade.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.UEGrade.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3830,6 +3991,20 @@ namespace Desert::Migration
             {
                 const RenderMethodsReport lifted = MigrateRenderMethodsV52ToV53( scene.Entities );
                 report.RenderMethods.Rewritten += lifted.Rewritten;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its pre-v62 auto-exposure keys: re-graded the same way (idempotent - a re-stated key is gone).
+            if ( report.UEGradeRaised )
+            {
+                const UEGradeReport lifted = MigrateUEGradeToV62( scene.Entities );
+                report.UEGrade.AutoExposureOn += lifted.AutoExposureOn;
+                report.UEGrade.KeptManual += lifted.KeptManual;
+                report.UEGrade.BiasesStated += lifted.BiasesStated;
+                report.UEGrade.KeysDropped += lifted.KeysDropped;
                 if ( !lifted.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );

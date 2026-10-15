@@ -1,0 +1,413 @@
+// #pragma once
+
+// Ported from UE 5.8 Engine/Shaders/Private/TonemapCommon.ush:110-225 (FilmToneMap), :535-617 (WhiteBalance and its
+// chromaticity helpers); ACES/ACESCommon.ush:17-125 (matrices), :140-300 (rgb_2_saturation, rgb_2_hue, center_hue,
+// xyY_2_XYZ, ChromaticAdaptation, glow_fwd, rgb_2_yc, sigmoid_shaper); PostProcessCombineLUTs.usf:160-192 and
+// :344-403 (the Filmic order: white balance, gamut expansion, blue correction, film curve);
+// GammaCorrectionCommon.ush:16-21 (LinearToSrgbBranchless). Adapted: GLSL that also compiles as C++ through glm;
+// evaluated per pixel instead of baked into UE's 32^3 LUT; sRGB working colour space (UE's default); only the
+// temperature white-balance mode; no ColorCorrectAll grading wheels; two black guards (FilmToneMap, FilmExpandGamut).
+//
+// THE ONE PLACE THE FILM CURVE IS WRITTEN. SceneComposite grades every frame through it, and the editor's HDR
+// thumbnail (Editor/Widgets/HdrSphereThumbnail.cpp) includes this same text compiled as C++, so the ball in the
+// Content Browser is graded by the operator the viewport uses rather than by a transcription that drifts.
+//
+// WHY UE'S FILMIC AND NOT AN ACES FIT. This file used to hold Stephen Hill's fit of the ACES RRT+ODT. Unreal does
+// not grade through that: its default (ETonemappingMethod::Filmic) is the parametric film curve below with
+// Slope 0.88 / Toe 0.55 / Shoulder 0.26 / BlackClip 0 / WhiteClip 0.04, matched so scene 0.18 leaves at 0.18
+// before the post-desaturation. Hill's fit puts 0.18 at 0.106 - 0.77 stop darker in every mid-tone - and
+// carries no gamut expansion, so every comparison against a UE frame read the gap between two tone curves.
+//
+// Spelling rules for the C++ side: every literal has an `f` suffix (glm has no vec3 (op) double, and the double
+// would narrow), log10 is log2 * log10(2) (GLSL has no log10), and per-channel selects go through step() rather
+// than a vector comparison neither language spells the same way. HLSL tables are copied ROW by ROW and turned
+// into GLSL's column-major mat3 by FilmRows, so the numbers below can be read against UE's file line by line.
+
+mat3 FilmRows(float m00, float m01, float m02, float m10, float m11, float m12, float m20, float m21, float m22)
+{
+    return transpose(mat3(m00, m01, m02, m10, m11, m12, m20, m21, m22));
+}
+
+mat3 AP0_2_XYZ_MAT()
+{
+    return FilmRows(0.9525523959f, 0.0000000000f, 0.0000936786f,
+                    0.3439664498f, 0.7281660966f, -0.0721325464f,
+                    0.0000000000f, 0.0000000000f, 1.0088251844f);
+}
+
+mat3 XYZ_2_AP0_MAT()
+{
+    return FilmRows(1.0498110175f, 0.0000000000f, -0.0000974845f,
+                    -0.4959030231f, 1.3733130458f, 0.0982400361f,
+                    0.0000000000f, 0.0000000000f, 0.9912520182f);
+}
+
+mat3 AP1_2_XYZ_MAT()
+{
+    return FilmRows(0.6624541811f, 0.1340042065f, 0.1561876870f,
+                    0.2722287168f, 0.6740817658f, 0.0536895174f,
+                    -0.0055746495f, 0.0040607335f, 1.0103391003f);
+}
+
+mat3 XYZ_2_AP1_MAT()
+{
+    return FilmRows(1.6410233797f, -0.3248032942f, -0.2364246952f,
+                    -0.6636628587f, 1.6153315917f, 0.0167563477f,
+                    0.0117218943f, -0.0082844420f, 0.9883948585f);
+}
+
+mat3 AP0_2_AP1_MAT()
+{
+    return FilmRows(1.4514393161f, -0.2365107469f, -0.2149285693f,
+                    -0.0765537734f, 1.1762296998f, -0.0996759264f,
+                    0.0083161484f, -0.0060324498f, 0.9977163014f);
+}
+
+mat3 AP1_2_AP0_MAT()
+{
+    return FilmRows(0.6954522414f, 0.1406786965f, 0.1638690622f,
+                    0.0447945634f, 0.8596711185f, 0.0955343182f,
+                    -0.0055258826f, 0.0040252103f, 1.0015006723f);
+}
+
+vec3 AP1_RGB2Y()
+{
+    return vec3(0.2722287168f, 0.6740817658f, 0.0536895174f);
+}
+
+mat3 XYZ_2_sRGB_MAT()
+{
+    return FilmRows(3.2409699419f, -1.5373831776f, -0.4986107603f,
+                    -0.9692436363f, 1.8759675015f, 0.0415550574f,
+                    0.0556300797f, -0.2039769589f, 1.0569715142f);
+}
+
+mat3 sRGB_2_XYZ_MAT()
+{
+    return FilmRows(0.4123907993f, 0.3575843394f, 0.1804807884f,
+                    0.2126390059f, 0.7151686788f, 0.0721923154f,
+                    0.0193308187f, 0.1191947798f, 0.9505321522f);
+}
+
+// Bradford chromatic adaptation between the ACES white (D60) and the sRGB white (D65).
+mat3 D65_2_D60_CAT()
+{
+    return FilmRows(1.0130349146f, 0.0061052578f, -0.0149709436f,
+                    0.0076982301f, 0.9981633521f, -0.0050320385f,
+                    -0.0028413174f, 0.0046851567f, 0.9245061375f);
+}
+
+mat3 D60_2_D65_CAT()
+{
+    return FilmRows(0.9872240087f, -0.0061132286f, 0.0159532883f,
+                    -0.0075983718f, 1.0018614847f, 0.0053300358f,
+                    0.0030725771f, -0.0050959615f, 1.0816806031f);
+}
+
+// The sRGB working colour space's ToAP1 / FromAP1 (UE FWorkingColorSpaceShaderParameters for sRGB).
+mat3 FilmSRGB_2_AP1()
+{
+    return XYZ_2_AP1_MAT() * D65_2_D60_CAT() * sRGB_2_XYZ_MAT();
+}
+
+mat3 FilmAP1_2_SRGB()
+{
+    return XYZ_2_sRGB_MAT() * D60_2_D65_CAT() * AP1_2_XYZ_MAT();
+}
+
+float rgb_2_saturation(vec3 rgb)
+{
+    float minrgb = min(min(rgb.x, rgb.y), rgb.z);
+    float maxrgb = max(max(rgb.x, rgb.y), rgb.z);
+    return (max(maxrgb, 1e-10f) - max(minrgb, 1e-10f)) / max(maxrgb, 1e-2f);
+}
+
+float rgb_2_hue(vec3 rgb)
+{
+    // A neutral colour has no hue; UE returns 0 for it (the CTL returns NaN), and so does this.
+    float hue = 0.0f;
+    if (!(rgb.x == rgb.y && rgb.y == rgb.z))
+        hue = (180.0f / 3.14159265f) * atan(sqrt(3.0f) * (rgb.y - rgb.z), 2.0f * rgb.x - rgb.y - rgb.z);
+    if (hue < 0.0f)
+        hue = hue + 360.0f;
+    return clamp(hue, 0.0f, 360.0f);
+}
+
+float center_hue(float hue, float centerH)
+{
+    float hueCentered = hue - centerH;
+    if (hueCentered < -180.0f)
+        hueCentered += 360.0f;
+    else if (hueCentered > 180.0f)
+        hueCentered -= 360.0f;
+    return hueCentered;
+}
+
+vec3 xyY_2_XYZ(vec3 xyY)
+{
+    return vec3(xyY.x * xyY.z / max(xyY.y, 1e-10f),
+                xyY.z,
+                (1.0f - xyY.x - xyY.y) * xyY.z / max(xyY.y, 1e-10f));
+}
+
+// Von Kries adaptation in the Bradford cone space.
+mat3 ChromaticAdaptation(vec2 src_xy, vec2 dst_xy)
+{
+    mat3 ConeResponse = FilmRows(0.8951f, 0.2664f, -0.1614f,
+                                 -0.7502f, 1.7135f, 0.0367f,
+                                 0.0389f, -0.0685f, 1.0296f);
+    mat3 InvConeResponse = FilmRows(0.9869929f, -0.1470543f, 0.1599627f,
+                                    0.4323053f, 0.5183603f, 0.0492912f,
+                                    -0.0085287f, 0.0400428f, 0.9684867f);
+
+    vec3 src_coneResp = ConeResponse * xyY_2_XYZ(vec3(src_xy, 1.0f));
+    vec3 dst_coneResp = ConeResponse * xyY_2_XYZ(vec3(dst_xy, 1.0f));
+
+    mat3 VonKriesMat = mat3(dst_coneResp.x / src_coneResp.x, 0.0f, 0.0f,
+                            0.0f, dst_coneResp.y / src_coneResp.y, 0.0f,
+                            0.0f, 0.0f, dst_coneResp.z / src_coneResp.z);
+
+    return InvConeResponse * VonKriesMat * ConeResponse;
+}
+
+float glow_fwd(float ycIn, float glowGainIn, float glowMid)
+{
+    if (ycIn <= 2.0f / 3.0f * glowMid)
+        return glowGainIn;
+    if (ycIn >= 2.0f * glowMid)
+        return 0.0f;
+    return glowGainIn * (glowMid / ycIn - 0.5f);
+}
+
+// The CTL's ycRadiusWeight default, 1.75.
+float rgb_2_yc(vec3 rgb)
+{
+    float r      = rgb.x;
+    float g      = rgb.y;
+    float b      = rgb.z;
+    float chroma = sqrt(b * (b - g) + g * (g - r) + r * (r - b));
+    return (b + g + r + 1.75f * chroma) / 3.0f;
+}
+
+float sigmoid_shaper(float x)
+{
+    float t = max(1.0f - abs(0.5f * x), 0.0f);
+    float y = 1.0f + sign(x) * (1.0f - t * t);
+    return 0.5f * y;
+}
+
+// Accurate for 1000K < Temp < 15000K [Krystek 1985, "An algorithm to calculate correlated colour temperature"]
+vec2 PlanckianLocusChromaticity(float Temp)
+{
+    float u = (0.860117757f + 1.54118254e-4f * Temp + 1.28641212e-7f * Temp * Temp) /
+              (1.0f + 8.42420235e-4f * Temp + 7.08145163e-7f * Temp * Temp);
+    float v = (0.317398726f + 4.22806245e-5f * Temp + 4.20481691e-8f * Temp * Temp) /
+              (1.0f - 2.89741816e-5f * Temp + 1.61456053e-7f * Temp * Temp);
+
+    float x = 3.0f * u / (2.0f * u - 8.0f * v + 4.0f);
+    float y = 2.0f * v / (2.0f * u - 8.0f * v + 4.0f);
+    return vec2(x, y);
+}
+
+// Accurate for 4000K < Temp < 25000K; CIE 1931 chromaticity of the daylight illuminant at Temp.
+vec2 D_IlluminantChromaticity(float Temp)
+{
+    // Correct for the revision of Planck's law, which makes 6500 == D65.
+    Temp *= 1.4388f / 1.438f;
+    float OneOverTemp = 1.0f / Temp;
+    float x = Temp <= 7000.0f
+                  ? 0.244063f + (0.09911e3f + (2.9678e6f - 4.6070e9f * OneOverTemp) * OneOverTemp) * OneOverTemp
+                  : 0.237040f + (0.24748e3f + (1.9018e6f - 2.0064e9f * OneOverTemp) * OneOverTemp) * OneOverTemp;
+    float y = -3.0f * x * x + 2.87f * x - 0.275f;
+    return vec2(x, y);
+}
+
+vec2 PlanckianIsothermal(float Temp, float Tint)
+{
+    float u = (0.860117757f + 1.54118254e-4f * Temp + 1.28641212e-7f * Temp * Temp) /
+              (1.0f + 8.42420235e-4f * Temp + 7.08145163e-7f * Temp * Temp);
+    float v = (0.317398726f + 4.22806245e-5f * Temp + 4.20481691e-8f * Temp * Temp) /
+              (1.0f - 2.89741816e-5f * Temp + 1.61456053e-7f * Temp * Temp);
+
+    float udDenominator = 1.41213984e6f + 1189.62f * Temp + Temp * Temp;
+    float vdDenominator = 6.19363586e6f - 179.456f * Temp + Temp * Temp;
+    float ud = (-1.13758118e9f - 1.91615621e6f * Temp - 1.53177f * Temp * Temp) / (udDenominator * udDenominator);
+    float vd = (1.97471536e9f - 705674.0f * Temp - 308.607f * Temp * Temp) / (vdDenominator * vdDenominator);
+
+    vec2 uvd = normalize(vec2(ud, vd));
+
+    // Correlated colour temperature is meaningful within +/- 0.05.
+    u += uvd.y * Tint * 0.05f;
+    v += -uvd.x * Tint * 0.05f;
+
+    float x = 3.0f * u / (2.0f * u - 8.0f * v + 4.0f);
+    float y = 2.0f * v / (2.0f * u - 8.0f * v + 4.0f);
+    return vec2(x, y);
+}
+
+// UE's WhiteBalance in its default mode (ETemperatureMethod::TEMP_WhiteBalance): the white the scene was lit
+// with (WhiteTemp, offset along the isotherm by WhiteTint) is adapted to D65. 6500 / 0 is the identity, and the
+// caller skips the call there exactly as CombineLUTsCommon does.
+vec3 FilmWhiteBalance(vec3 linearColor, float whiteTemp, float whiteTint)
+{
+    vec2 SrcWhiteDaylight = D_IlluminantChromaticity(whiteTemp);
+    vec2 SrcWhitePlankian = PlanckianLocusChromaticity(whiteTemp);
+
+    vec2 SrcWhite = whiteTemp < 4000.0f ? SrcWhitePlankian : SrcWhiteDaylight;
+    vec2 D65White = vec2(0.31270f, 0.32900f);
+
+    // Offset along the isotherm.
+    SrcWhite += PlanckianIsothermal(whiteTemp, whiteTint) - SrcWhitePlankian;
+
+    mat3 WhiteBalanceMat = XYZ_2_sRGB_MAT() * ChromaticAdaptation(SrcWhite, D65White) * sRGB_2_XYZ_MAT();
+    return WhiteBalanceMat * linearColor;
+}
+
+// Expands bright saturated colours outside the sRGB gamut, to fake wide-gamut rendering (CombineLUTsCommon).
+// BLACK GUARD: UE divides by the luma unguarded; its LUT never evaluates an exact black, a per-pixel pass does,
+// and 0/0 would poison the mix. At luma 0 the second factor is exactly 0, so the floor changes no value.
+vec3 FilmExpandGamut(vec3 colorAP1, float expandGamut)
+{
+    float LumaAP1       = dot(colorAP1, AP1_RGB2Y());
+    vec3  ChromaAP1     = colorAP1 / max(LumaAP1, 1e-10f);
+    float ChromaDistSqr = dot(ChromaAP1 - vec3(1.0f), ChromaAP1 - vec3(1.0f));
+    float ExpandAmount  = (1.0f - exp2(-4.0f * ChromaDistSqr)) * (1.0f - exp2(-4.0f * expandGamut * LumaAP1 * LumaAP1));
+
+    // Expands sRGB to between P3 and AP1. CIE 1931 chromaticities: red 0.6965 0.3065, green 0.245 0.718,
+    // blue 0.1302 0.0456, white 0.3127 0.329.
+    mat3 Wide_2_XYZ_MAT = FilmRows(0.5441691f, 0.2395926f, 0.1666943f,
+                                   0.2394656f, 0.7021530f, 0.0583814f,
+                                   -0.0023439f, 0.0361834f, 1.0552183f);
+    mat3 ExpandMat = XYZ_2_AP1_MAT() * Wide_2_XYZ_MAT * FilmAP1_2_SRGB();
+
+    return mix(colorAP1, ExpandMat * colorAP1, ExpandAmount);
+}
+
+// UE's FilmToneMap: AP1 in, tone-mapped AP1 out. curve = (Slope, Toe, Shoulder, BlackClip); whiteClip = WhiteClip.
+// BLACK GUARD: UE clamps the working colour at 0 and takes log10 of it; log10(0) is -inf, and -inf in the straight
+// segment times a zero blend weight is NaN in a per-pixel pass. 1e-10 is twenty stops under anything the toe can
+// lift off zero (its output there is below 1e-9), so the floor is invisible.
+vec3 FilmToneMap(vec3 colorAP1, vec4 curve, float whiteClip)
+{
+    float FilmSlope     = curve.x;
+    float FilmToe       = curve.y;
+    float FilmShoulder  = curve.z;
+    float FilmBlackClip = curve.w;
+    float FilmWhiteClip = whiteClip;
+
+    vec3 ColorAP0 = AP1_2_AP0_MAT() * colorAP1;
+
+    // "Glow" module.
+    float saturation = rgb_2_saturation(ColorAP0);
+    float ycIn       = rgb_2_yc(ColorAP0);
+    float s          = sigmoid_shaper((saturation - 0.4f) / 0.2f);
+    float addedGlow  = 1.0f + glow_fwd(ycIn, 0.05f * s, 0.08f);
+    ColorAP0 *= addedGlow;
+
+    // Red modifier: RRT_RED_SCALE 0.82, RRT_RED_PIVOT 0.03, RRT_RED_HUE 0, RRT_RED_WIDTH 135.
+    float hue         = rgb_2_hue(ColorAP0);
+    float centeredHue = center_hue(hue, 0.0f);
+    float hueShape    = smoothstep(0.0f, 1.0f, 1.0f - abs(2.0f * centeredHue / 135.0f));
+    float hueWeight   = hueShape * hueShape;
+    ColorAP0.x += hueWeight * saturation * (0.03f - ColorAP0.x) * (1.0f - 0.82f);
+
+    // ACEScg primaries as the working space.
+    vec3 WorkingColor = max(AP0_2_AP1_MAT() * ColorAP0, vec3(1e-10f));
+
+    // Pre-desaturate.
+    WorkingColor = mix(vec3(dot(WorkingColor, AP1_RGB2Y())), WorkingColor, 0.96f);
+
+    float ToeScale      = 1.0f + FilmBlackClip - FilmToe;
+    float ShoulderScale = 1.0f + FilmWhiteClip - FilmShoulder;
+
+    float InMatch  = 0.18f;
+    float OutMatch = 0.18f;
+    float kLog10Of2 = 0.30102999566f;
+
+    float ToeMatch;
+    if (FilmToe > 0.8f)
+    {
+        // 0.18 will be on the straight segment.
+        ToeMatch = (1.0f - FilmToe - OutMatch) / FilmSlope + log2(InMatch) * kLog10Of2;
+    }
+    else
+    {
+        // 0.18 will be on the toe segment: solve for ToeMatch such that InMatch maps to OutMatch.
+        float bt = (OutMatch + FilmBlackClip) / ToeScale - 1.0f;
+        ToeMatch = log2(InMatch) * kLog10Of2 - 0.5f * log((1.0f + bt) / (1.0f - bt)) * (ToeScale / FilmSlope);
+    }
+
+    float StraightMatch = (1.0f - FilmToe) / FilmSlope - ToeMatch;
+    float ShoulderMatch = FilmShoulder / FilmSlope - StraightMatch;
+
+    vec3 LogColor      = log2(WorkingColor) * kLog10Of2;
+    vec3 StraightColor = FilmSlope * (LogColor + vec3(StraightMatch));
+
+    vec3 ToeColor = vec3(-FilmBlackClip) +
+                    (2.0f * ToeScale) / (vec3(1.0f) + exp((-2.0f * FilmSlope / ToeScale) * (LogColor - vec3(ToeMatch))));
+    vec3 ShoulderColor = vec3(1.0f + FilmWhiteClip) -
+                         (2.0f * ShoulderScale) /
+                             (vec3(1.0f) + exp((2.0f * FilmSlope / ShoulderScale) * (LogColor - vec3(ShoulderMatch))));
+
+    // select(LogColor < ToeMatch, Toe, Straight) and select(LogColor > ShoulderMatch, Shoulder, Straight).
+    vec3 onToe      = vec3(1.0f) - step(vec3(ToeMatch), LogColor);
+    vec3 onShoulder = vec3(1.0f) - step(LogColor, vec3(ShoulderMatch));
+    ToeColor        = mix(StraightColor, ToeColor, onToe);
+    ShoulderColor   = mix(StraightColor, ShoulderColor, onShoulder);
+
+    vec3 t = clamp((LogColor - vec3(ToeMatch)) / (ShoulderMatch - ToeMatch), 0.0f, 1.0f);
+    if (ShoulderMatch < ToeMatch)
+        t = vec3(1.0f) - t;
+    t = (vec3(3.0f) - 2.0f * t) * t * t;
+    vec3 ToneColor = mix(ToeColor, ShoulderColor, t);
+
+    // Post-desaturate.
+    ToneColor = mix(vec3(dot(ToneColor, AP1_RGB2Y())), ToneColor, 0.93f);
+
+    return max(ToneColor, vec3(0.0f));
+}
+
+// UE's Filmic grade of a white-balanced, scene-linear sRGB colour (CombineLUTsCommon up to ColorCorrectAll, then
+// ComputeFilmColorNoGamma): gamut expansion, blue correction around the film curve, back to sRGB with the
+// out-of-gamut clipped. curve = (Slope, Toe, Shoulder, BlackClip); look = (WhiteClip, BlueCorrection,
+// ExpandGamut, ToneCurveAmount). Returns DISPLAY-linear sRGB; FilmEncodeDisplay is the transfer function.
+vec3 FilmGrade(vec3 balancedColor, vec4 curve, vec4 look)
+{
+    float BlueCorrection  = look.y;
+    float ExpandGamut     = look.z;
+    float ToneCurveAmount = look.w;
+
+    vec3 ColorAP1 = FilmExpandGamut(FilmSRGB_2_AP1() * balancedColor, ExpandGamut);
+
+    mat3 AP0_2_AP1 = XYZ_2_AP1_MAT() * AP0_2_XYZ_MAT();
+    mat3 AP1_2_AP0 = XYZ_2_AP0_MAT() * AP1_2_XYZ_MAT();
+    mat3 BlueCorrect = FilmRows(0.9404372683f, -0.0183068787f, 0.0778696104f,
+                                0.0083786969f, 0.8286599939f, 0.1629613092f,
+                                0.0005471261f, -0.0008833746f, 1.0003362486f);
+    mat3 BlueCorrectInv = FilmRows(1.06318f, 0.0233956f, -0.0865726f,
+                                   -0.0106337f, 1.20632f, -0.19569f,
+                                   -0.000590887f, 0.00105248f, 0.999538f);
+    mat3 BlueCorrectAP1    = AP0_2_AP1 * BlueCorrect * AP1_2_AP0;
+    mat3 BlueCorrectInvAP1 = AP0_2_AP1 * BlueCorrectInv * AP1_2_AP0;
+
+    // Blue correction.
+    ColorAP1 = mix(ColorAP1, BlueCorrectAP1 * ColorAP1, BlueCorrection);
+
+    // Tone-mapped colour in the AP1 gamut.
+    ColorAP1 = mix(ColorAP1, FilmToneMap(ColorAP1, curve, look.x), ToneCurveAmount);
+
+    // Uncorrect blue to keep the white point.
+    ColorAP1 = mix(ColorAP1, BlueCorrectInvAP1 * ColorAP1, BlueCorrection);
+
+    return max(FilmAP1_2_SRGB() * ColorAP1, vec3(0.0f));
+}
+
+// UE's sRGB output device: the "gamma" adjustment pow(c, InverseGamma.y) with InverseGamma.y = 2.2 / DisplayGamma
+// (the identity at UE's default 2.2), then the sRGB inverse EOTF - NOT a pure power. A pure 1/2.2 power lifts
+// everything under linear 0.0031 off the floor (linear 0.002 -> 15/255 against sRGB's 6.6/255), which is the
+// milky black this replaced.
+vec3 FilmEncodeDisplay(vec3 displayLinear, float displayGamma)
+{
+    vec3 lin = clamp(pow(max(displayLinear, vec3(0.0f)), vec3(2.2f / displayGamma)), 0.0f, 1.0f);
+    return min(lin * 12.92f, pow(max(lin, vec3(0.00313067f)), vec3(1.0f / 2.4f)) * 1.055f - vec3(0.055f));
+}

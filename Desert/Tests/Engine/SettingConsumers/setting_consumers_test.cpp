@@ -537,6 +537,13 @@ namespace
          { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
     };
 
+    constexpr const char* kTonemapMaterial =
+         "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.cpp";
+    constexpr const char* kTonemapMaterialHeader =
+         "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp";
+    constexpr const char* kAutoExposureRenderer =
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp";
+
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
          { "GlobalIlluminationMethod", kRenderMethods },
@@ -547,15 +554,30 @@ namespace
          { "ShadowsMethod", kRenderMethods },
          { "ContactShadows", kRenderMethods },
          { "DistanceFieldShadows", kRenderMethods },
-         { "Tonemapper", kSceneRenderer },
-         { "Exposure", kSceneRenderer },
-         { "Gamma", kSceneRenderer },
-         { "WhitePoint", kSceneRenderer },
-         { "AutoExposure", kSceneRenderer },
-         { "AutoExposureKey", kSceneRenderer },
-         { "AutoExposureSpeed", kSceneRenderer },
-         { "AutoExposureMin", kSceneRenderer },
-         { "AutoExposureMax", kSceneRenderer },
+         // The tonemap's grade is handed over whole (TonemapRenderer::SetGrade) and read where the uniform block
+         // is filled; the eye adaptation's where its dispatch's parameters are derived (SCNE 62, POST-LOOK).
+         { "Tonemapper", kTonemapMaterial },
+         { "Exposure", kTonemapMaterial },
+         { "Gamma", kTonemapMaterial },
+         { "WhitePoint", kTonemapMaterial },
+         { "AutoExposure", kTonemapMaterial },
+         { "AutoExposureBias", kTonemapMaterial },
+         { "FilmSlope", kTonemapMaterialHeader },
+         { "FilmToe", kTonemapMaterialHeader },
+         { "FilmShoulder", kTonemapMaterialHeader },
+         { "FilmBlackClip", kTonemapMaterialHeader },
+         { "FilmWhiteClip", kTonemapMaterialHeader },
+         { "BlueCorrection", kTonemapMaterialHeader },
+         { "ExpandGamut", kTonemapMaterialHeader },
+         { "ToneCurveAmount", kTonemapMaterialHeader },
+         { "WhiteTemp", kTonemapMaterialHeader },
+         { "WhiteTint", kTonemapMaterialHeader },
+         { "AutoExposureLowPercent", kAutoExposureRenderer },
+         { "AutoExposureHighPercent", kAutoExposureRenderer },
+         { "AutoExposureMinBrightness", kAutoExposureRenderer },
+         { "AutoExposureMaxBrightness", kAutoExposureRenderer },
+         { "AutoExposureSpeedUp", kAutoExposureRenderer },
+         { "AutoExposureSpeedDown", kAutoExposureRenderer },
          { "EnableBloom", kSceneRenderer },
          { "BloomThreshold", kSceneRenderer },
          { "BloomIntensity", kSceneRenderer },

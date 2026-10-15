@@ -8,14 +8,18 @@ namespace Desert::Graphic
 
     void MaterialTonemap::BindValues( const Params& params )
     {
-        SetExposure( params.Exposure );
-        SetGamma( params.Gamma );
+        const Core::PostProcessSettings& grade = params.Grade;
+        SetExposure( grade.Exposure );
+        SetGamma( grade.Gamma );
         SetBloomIntensity( params.BloomIntensity );
-        SetExposureKey( params.ExposureKey );
-        SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );
+        SetAutoExposureCompensation( Core::AutoExposureCompensation( grade.AutoExposureBias ) );
+        SetAutoExposureEnabled( grade.AutoExposure ? 1.0f : 0.0f );
         SetChromaticBloom( params.ChromaticBloom );
-        SetWhitePoint( params.WhitePoint );
-        SetTonemapOperator( static_cast<float>( static_cast<int>( params.Operator ) ) );
+        SetWhitePoint( grade.WhitePoint );
+        SetTonemapOperator( static_cast<float>( static_cast<int>( grade.Tonemapper ) ) );
+        SetFilmCurve( FilmCurveOf( grade ) );
+        SetFilmLook( FilmLookOf( grade ) );
+        SetWhiteBalance( WhiteBalanceOf( grade ) );
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
 

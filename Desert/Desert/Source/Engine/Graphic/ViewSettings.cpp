@@ -67,10 +67,27 @@ namespace Desert::Graphic
         target.Exposure          = Lerp( target.Exposure, volume.Exposure, weight );
         target.Gamma             = Lerp( target.Gamma, volume.Gamma, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
-        target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
-        target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );
-        target.AutoExposureMin   = Lerp( target.AutoExposureMin, volume.AutoExposureMin, weight );
-        target.AutoExposureMax   = Lerp( target.AutoExposureMax, volume.AutoExposureMax, weight );
+        target.WhiteTemp             = Lerp( target.WhiteTemp, volume.WhiteTemp, weight );
+        target.WhiteTint             = Lerp( target.WhiteTint, volume.WhiteTint, weight );
+        target.FilmSlope             = Lerp( target.FilmSlope, volume.FilmSlope, weight );
+        target.FilmToe               = Lerp( target.FilmToe, volume.FilmToe, weight );
+        target.FilmShoulder          = Lerp( target.FilmShoulder, volume.FilmShoulder, weight );
+        target.FilmBlackClip         = Lerp( target.FilmBlackClip, volume.FilmBlackClip, weight );
+        target.FilmWhiteClip         = Lerp( target.FilmWhiteClip, volume.FilmWhiteClip, weight );
+        target.BlueCorrection        = Lerp( target.BlueCorrection, volume.BlueCorrection, weight );
+        target.ExpandGamut           = Lerp( target.ExpandGamut, volume.ExpandGamut, weight );
+        target.ToneCurveAmount       = Lerp( target.ToneCurveAmount, volume.ToneCurveAmount, weight );
+        target.AutoExposureBias      = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
+        target.AutoExposureSpeedUp   = Lerp( target.AutoExposureSpeedUp, volume.AutoExposureSpeedUp, weight );
+        target.AutoExposureSpeedDown = Lerp( target.AutoExposureSpeedDown, volume.AutoExposureSpeedDown, weight );
+        target.AutoExposureMinBrightness =
+             Lerp( target.AutoExposureMinBrightness, volume.AutoExposureMinBrightness, weight );
+        target.AutoExposureMaxBrightness =
+             Lerp( target.AutoExposureMaxBrightness, volume.AutoExposureMaxBrightness, weight );
+        target.AutoExposureLowPercent =
+             Lerp( target.AutoExposureLowPercent, volume.AutoExposureLowPercent, weight );
+        target.AutoExposureHighPercent =
+             Lerp( target.AutoExposureHighPercent, volume.AutoExposureHighPercent, weight );
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );

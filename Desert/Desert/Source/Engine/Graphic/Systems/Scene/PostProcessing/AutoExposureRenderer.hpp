@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -75,8 +76,8 @@ namespace Desert::Graphic::System
         // the one it now holds belongs to a world that is gone. Adapting out of it would be a ~1 s ramp
         // from the old scene's brightness, which is right when a player walks out of a cave and wrong when
         // a level is loaded. Handled as a one-frame snap rather than by writing the 1x1 image from the CPU:
-        // the adaptation is `mix(prev, target, 1 - exp(-dt * speed))` on the GPU, so an effectively
-        // infinite speed for one dispatch lands exactly on the new scene's own measured luminance.
+        // UE's EyeAdaptation_ForceTarget, which lerps the adapted value all the way onto the target for one
+        // dispatch, so it lands exactly on the new scene's own measured luminance.
         void OnSceneReplaced() override
         {
             m_SnapNextAdaptation = true;
@@ -96,11 +97,11 @@ namespace Desert::Graphic::System
             m_DeltaSeconds = seconds;
         }
 
-        void SetParams( float adaptSpeed, float minLuma, float maxLuma )
+        // The view's grade (Graphic::ResolveViewSettings), refreshed each frame by SceneRenderer::BeginScene: the
+        // metering percentiles, the EV100 brightness range and the up / down adaptation speeds are read from it.
+        void SetSettings( const Core::PostProcessSettings& settings )
         {
-            m_AdaptSpeed = adaptSpeed;
-            m_MinLuma    = minLuma;
-            m_MaxLuma    = maxLuma;
+            m_Settings = settings;
         }
 
         // The 1x1 image holding the latest adapted luminance (sampled by tonemap); after Prepare, the one this
@@ -125,10 +126,8 @@ namespace Desert::Graphic::System
 
         int m_ReadIndex = 0; // holds the latest adapted luminance; Prepare points it at this frame's write
         // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.
-        bool  m_SnapNextAdaptation = false;
-        float m_AdaptSpeed         = 1.5f;
-        float m_DeltaSeconds       = 0.0f;
-        float m_MinLuma    = 0.02f;
-        float m_MaxLuma    = 8.0f;
+        bool                      m_SnapNextAdaptation = false;
+        float                     m_DeltaSeconds       = 0.0f;
+        Core::PostProcessSettings m_Settings;
     };
 } // namespace Desert::Graphic::System

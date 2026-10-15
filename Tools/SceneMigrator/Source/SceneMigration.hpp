@@ -290,7 +290,23 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionScriptDefaults = 54;
 
-    static_assert( kSceneVersionScriptDefaults == kSceneVersion,
+    //  62 - THE GRADE IS UE'S (POST-LOOK). Auto-exposure is on by default, as UE's FPostProcessSettings has it,
+    //  and
+    //       is UE's model: AutoExposureBias (EV, 2^Bias times middle grey), AutoExposureSpeedUp / SpeedDown (EV
+    //       per second), AutoExposureMin / MaxBrightness (EV100) and AutoExposureLow / HighPercent replace
+    //       AutoExposureKey / Speed / Min / Max. In a PostProcessVolume's Settings (the record and every prefab
+    //       override's delta, MigrateUEGradeToV62): a stated AutoExposureKey is re-stated EXACTLY as
+    //       AutoExposureBias = log2(Key / 0.18) - UE's ExposureScale 2^Bias x 0.18 / L is the old Key / L - except
+    //       the old default 0.18, which was no choice and is dropped for the new default; AutoExposureSpeed / Min
+    //       / Max at their old defaults (1.5 / 0.02 / 8) are dropped, any other value is refused (no exact UE
+    //       equivalent: UE adapts in EV, ours adapted luminance linearly). In the record only: a stated
+    //       AutoExposure false is the old default, not a choice, and becomes true - UNLESS the volume states a
+    //       manual Exposure other than the old default 1, which IS a choice of manual exposure and keeps false.
+    //       The film curve, white balance, blue correction and gamut expansion are new keys with UE's defaults.
+    //       Scenes and prefabs alike.
+    inline constexpr int kSceneVersionUEGrade = 62;
+
+    static_assert( kSceneVersionUEGrade == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -550,6 +566,20 @@ namespace Desert::Migration
     // ReflectionsMethod under the rule kSceneVersionRenderMethods states, in the record and in every prefab
     // override. PURE.
     RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateUEGradeToV62 did to one file.
+    struct UEGradeReport
+    {
+        std::size_t              AutoExposureOn = 0; // records whose stated AutoExposure false became true
+        std::size_t              KeptManual   = 0; // records keeping AutoExposure false for a stated Exposure != 1
+        std::size_t              BiasesStated = 0; // a non-default AutoExposureKey re-stated as AutoExposureBias
+        std::size_t              KeysDropped  = 0; // old auto-exposure keys at their old defaults, gone
+        std::vector<std::string> Refused;          // a non-default Speed / Min / Max, or a value of the wrong type
+    };
+
+    // Re-states PostProcessVolume.Settings under the rule kSceneVersionUEGrade states, in the record and in every
+    // prefab override. PURE.
+    UEGradeReport MigrateUEGradeToV62( std::vector<Assets::EntityData>& entities );
 
     // What MigrateScriptDefaultsV53ToV54 did to one file.
     struct ScriptDefaultsReport
@@ -836,6 +866,9 @@ namespace Desert::Migration
         bool                 ScriptDefaultsRaised = false; // below kSceneVersionScriptDefaults
         ScriptDefaultsReport ScriptDefaults;
 
+        bool          UEGradeRaised = false; // below kSceneVersionUEGrade
+        UEGradeReport UEGrade;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -849,7 +882,7 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || UEGradeRaised;
         }
     };
 

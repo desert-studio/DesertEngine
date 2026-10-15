@@ -62,6 +62,70 @@ namespace Desert::Graphic
         return static_cast<uint32_t>( Common::Math::RoundToNearest( std::clamp( t, 0.0f, 1.0f ) * last ) );
     }
 
+    // What AEAverage adapts with, derived from a view's auto-exposure settings the way UE derives its eye
+    // adaptation parameters. Ported from UE 5.8 Engine/Source/Runtime/Renderer/Private/PostProcess/
+    // PostProcessEyeAdaptation.cpp:376-389 (LuminanceMaxFromLensAttenuation), :596-715
+    // (GetEyeAdaptationParameters), adapted: the extended (EV100) luminance range only - UE's project default;
+    // plain floats in and out so the tests need no renderer; no physical camera, meter mask, compensation curve or
+    // debug view.
+    struct EyeAdaptationParameters
+    {
+        float MinAverageLuminance; // the metered average is clamped to [Min, Max] before it becomes a target
+        float MaxAverageLuminance;
+        float LowPercent;  // fraction of the darkest histogram samples discarded
+        float HighPercent; // cumulative fraction kept (the brightest above it discarded)
+        float SpeedUp;     // EV per second toward a brighter target
+        float SpeedDown;   // EV per second toward a darker target
+        float ExponentialUpM;
+        float ExponentialDownM;
+        float StartDistance; // EV: further than this from the target the adaptation is linear, nearer exponential
+    };
+
+    // r.EyeAdaptation.LensAttenuation's default 0.78 against ISO 12232's saturation constant 0.78: the white point
+    // luminance of EV100 0 is exactly 1.
+    inline constexpr float kEyeAdaptationLuminanceMax = 0.78f / 0.78f;
+    // r.EyeAdaptation.ExponentialTransitionDistance's default.
+    inline constexpr float kEyeAdaptationStartDistance = 1.5f;
+    // UE's middle grey: the average a target exposure puts at 0.18.
+    inline constexpr float kEyeAdaptationMiddleGrey = 0.18f;
+
+    // UE EV100ToLuminance: the white point luminance of an EV100.
+    inline float EV100ToLuminance( float ev100 )
+    {
+        return kEyeAdaptationLuminanceMax * std::exp2( ev100 );
+    }
+
+    inline EyeAdaptationParameters ComputeEyeAdaptationParameters( float minBrightnessEV100,
+                                                                   float maxBrightnessEV100, float lowPercent,
+                                                                   float highPercent, float speedUp,
+                                                                   float speedDown )
+    {
+        constexpr float kPercentToScale = 0.01f;
+        const float     high            = std::clamp( highPercent, 1.0f, 99.0f ) * kPercentToScale;
+        const float     low = std::min( std::clamp( lowPercent, 1.0f, 99.0f ) * kPercentToScale, high );
+
+        const float maxWhitePoint = EV100ToLuminance( maxBrightnessEV100 );
+        const float minWhitePoint = std::min( EV100ToLuminance( minBrightnessEV100 ), maxWhitePoint );
+
+        // At t = StartTime the exponential curve's slope equals the linear curve's, so the two join without a
+        // kink; UE evaluates the limit at a 60 Hz frame for simplicity, and so does this.
+        constexpr float kFrameTimeEps = 1.0f / 60.0f;
+        const float     startTimeUp   = kEyeAdaptationStartDistance / std::max( speedUp, 0.001f );
+        const float     startTimeDown = kEyeAdaptationStartDistance / std::max( speedDown, 0.001f );
+        const float     upM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedUp ) ) * startTimeUp );
+        const float downM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedDown ) ) * startTimeDown );
+
+        return { minWhitePoint * kEyeAdaptationMiddleGrey,
+                 maxWhitePoint * kEyeAdaptationMiddleGrey,
+                 low,
+                 high,
+                 speedUp,
+                 speedDown,
+                 upM,
+                 downM,
+                 kEyeAdaptationStartDistance };
+    }
+
     // The luminance a bin index stands for when the average is reconstructed — AEAverage's own formula.
     // Paired with AutoExposureBin so a round-trip test can bound the meter's quantisation error.
     inline float AutoExposureBinLuminance( const AutoExposureWindow& window, uint32_t bin, uint32_t bins )

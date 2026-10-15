@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+#include <cmath>
+
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
@@ -11,14 +13,16 @@ namespace Desert::Core
     // The curve that maps HDR scene luminance onto the 0..1 the display can show. Both branches are
     // authored features, and which one a view is graded through is part of its grade.
     //
-    //  ACES     — the filmic curve Unreal ships as its default. It is OURS by default too (decision D-10,
-    //             Docs/Clouds/ANALYSIS_APPROACH.md §7): the reference frame the sky programme calibrates
-    //             against was captured through it. It takes no white point — the ODT carries its own.
+    //  Filmic   — UE's default operator (ETonemappingMethod::Filmic): its parametric film curve (the Film*
+    //             fields below) with gamut expansion and blue correction, Common/FilmToneMap.glslh. Ours by
+    //             default too (decision D-10, Docs/Clouds/ANALYSIS_APPROACH.md §7): the reference frames are
+    //             captured through it. Until POST-LOOK this value was a fit of the ACES RRT+ODT, which is NOT
+    //             what UE grades through (mid grey 0.77 stop darker); the number 0 is unchanged.
     //  Reinhard — extended Reinhard with an explicit WhitePoint (below). Scenes authored before
     //             2026-08-19 had their Exposure and WhitePoint chosen by eye on this curve.
     enum class TonemapOperator : int
     {
-        ACES     = 0,
+        Filmic   = 0,
         Reinhard = 1,
     };
 
@@ -81,25 +85,65 @@ namespace Desert::Core
                   Refuse( "Common::Scalability::RefuseDistanceFieldShadows" ) )
         bool DistanceFieldShadows = false;
 
+        // THE FILM, as UE's FPostProcessSettings defaults it (Engine/Private/Scene.cpp, FPostProcessSettings
+        // ctor): the Filmic operator with Slope 0.88 / Toe 0.55 / Shoulder 0.26 / BlackClip 0 / WhiteClip 0.04,
+        // blue correction 0.6, gamut expansion 1, the whole tone curve. Read by Common/FilmToneMap.glslh.
         PROPERTY( DisplayName( "Tonemapper" ), Category( "Film" ) )
-        TonemapOperator Tonemapper = TonemapOperator::ACES;
-        PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
+        TonemapOperator Tonemapper = TonemapOperator::Filmic;
+        PROPERTY( DisplayName( "Slope" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmSlope = 0.88f;
+        PROPERTY( DisplayName( "Toe" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmToe = 0.55f;
+        PROPERTY( DisplayName( "Shoulder" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmShoulder = 0.26f;
+        PROPERTY( DisplayName( "Black Clip" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmBlackClip = 0.0f;
+        PROPERTY( DisplayName( "White Clip" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float FilmWhiteClip = 0.04f;
+        PROPERTY( DisplayName( "Blue Correction" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float BlueCorrection = 0.6f;
+        PROPERTY( DisplayName( "Expand Gamut" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float ExpandGamut = 1.0f;
+        PROPERTY( DisplayName( "Tone Curve Amount" ), Category( "Film" ), Range( 0.0f, 1.0f ) )
+        float ToneCurveAmount = 1.0f;
+        // UE's DisplayGamma: the film colour is raised to 2.2 / Gamma before the sRGB encoding, the identity
+        // at 2.2.
         PROPERTY( DisplayName( "Gamma" ), Category( "Film" ), Range( 1.0f, 3.0f ) )
         float Gamma = 2.2f;
         PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Film" ), Range( 1.0f, 20.0f ) )
         float WhitePoint = 8.0f;
 
+        // UE's white balance (ETemperatureMethod::TEMP_WhiteBalance): the colour temperature, in kelvin, of the
+        // white the scene is lit by, adapted to D65; Tint moves it along the isotherm (green - / magenta +).
+        // 6500 / 0 is the identity.
+        PROPERTY( DisplayName( "Temp" ), Category( "White Balance" ), Range( 1500.0f, 15000.0f ) )
+        float WhiteTemp = 6500.0f;
+        PROPERTY( DisplayName( "Tint" ), Category( "White Balance" ), Range( -1.0f, 1.0f ) )
+        float WhiteTint = 0.0f;
+
+        PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
+        float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
+
+        // UE's histogram eye adaptation, with UE's defaults (FPostProcessSettings, extended luminance range): on;
+        // the metered log-average puts 0.18 at 2^Bias x middle grey; outside [Low, High] percent of the histogram
+        // is not metered; the average is clamped to the white points of Min / Max Brightness (EV100) times 0.18;
+        // the eye adapts in EV per second, faster toward bright than toward dark.
         PROPERTY( DisplayName( "Auto Exposure" ), Category( "Exposure" ) )
-        bool AutoExposure = false;
-        PROPERTY( DisplayName( "Auto Exposure Key" ), Category( "Exposure" ), Range( 0.0f, 1.0f ) )
-        float AutoExposureKey = 0.18f; // middle-grey target
-        PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float AutoExposureSpeed = 1.5f; // higher = adapts faster
-        PROPERTY( DisplayName( "Auto Exposure Min" ), Category( "Exposure" ), Range( 0.0f, 5.0f ) )
-        float AutoExposureMin = 0.02f; // luminance clamp
-        PROPERTY( DisplayName( "Auto Exposure Max" ), Category( "Exposure" ), Range( 0.0f, 20.0f ) )
-        float AutoExposureMax = 8.0f;
+        bool AutoExposure = true;
+        PROPERTY( DisplayName( "Exposure Compensation" ), Category( "Exposure" ), Range( -15.0f, 15.0f ) )
+        float AutoExposureBias = 1.0f;
+        PROPERTY( DisplayName( "Low Percent" ), Category( "Exposure" ), Range( 0.0f, 100.0f ) )
+        float AutoExposureLowPercent = 10.0f;
+        PROPERTY( DisplayName( "High Percent" ), Category( "Exposure" ), Range( 0.0f, 100.0f ) )
+        float AutoExposureHighPercent = 90.0f;
+        PROPERTY( DisplayName( "Min EV100" ), Category( "Exposure" ), Range( -10.0f, 20.0f ) )
+        float AutoExposureMinBrightness = -10.0f;
+        PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -10.0f, 20.0f ) )
+        float AutoExposureMaxBrightness = 20.0f;
+        PROPERTY( DisplayName( "Speed Up" ), Category( "Exposure" ), Range( 0.02f, 20.0f ) )
+        float AutoExposureSpeedUp = 3.0f;
+        PROPERTY( DisplayName( "Speed Down" ), Category( "Exposure" ), Range( 0.02f, 20.0f ) )
+        float AutoExposureSpeedDown = 1.0f;
 
         PROPERTY( DisplayName( "Enable Bloom" ), Category( "Bloom" ) )
         bool EnableBloom = false; // off by default -> no glow out of the box
@@ -174,4 +218,20 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Chromatic Shift" ), Category( "Lens Flare" ), Range( 0.0f, 1.0f ) )
         float LensFlareChromaShift = 0.15f;
     };
+
+    // UE's GetAutoExposureCompensationFromSettings (PostProcessEyeAdaptation.cpp:446-460, desktop path): the bias
+    // is in EV, the compensation the metered average is scaled by is 2^Bias.
+    inline float AutoExposureCompensation( float autoExposureBias )
+    {
+        return std::exp2( autoExposureBias );
+    }
+
+    // UE's CombineLUTsCommon skips the white balance when both values are within its 1e-8 of the identity
+    // (6500 K, tint 0) - the matrix there is the identity, and the shader is spared building it.
+    inline bool IsIdentityWhiteBalance( float whiteTemp, float whiteTint )
+    {
+        constexpr float kDefaultTemperature = 6500.0f;
+        constexpr float kEpsilon            = 1e-8f;
+        return std::abs( whiteTemp - kDefaultTemperature ) <= kEpsilon && std::abs( whiteTint ) <= kEpsilon;
+    }
 } // namespace Desert::Core

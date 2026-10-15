@@ -67,26 +67,12 @@ namespace Desert::Graphic::System
 
         void Resize( uint32_t width, uint32_t height );
 
-        // Tonemap parameters, refreshed from SceneSettings each frame (SceneRenderer::BeginScene).
-        void SetParams( float exposure, float gamma )
+        // The view's grade (Graphic::ResolveViewSettings), refreshed each frame by SceneRenderer::BeginScene: the
+        // operator and its film curve, white balance, display gamma, manual exposure and the auto-exposure
+        // compensation all come from this one copy, so no field can be set from two places.
+        void SetGrade( const Core::PostProcessSettings& grade )
         {
-            m_Exposure = exposure;
-            m_Gamma    = gamma;
-        }
-
-        // The scene's tonemapping curve. ACES is the default and the one the sky programme measures
-        // against a UE frame; Reinhard is what every scene authored before 2026-08-19 was graded on.
-        void SetTonemapOperator( Core::TonemapOperator op )
-        {
-            m_TonemapOperator = op;
-        }
-
-        // The luminance that maps to pure white — REINHARD only. At 1 that operator is the identity and
-        // every HDR value above 1 clips flat; see the note in SceneComposite.shader. The ACES branch
-        // never reads it, which is why the editor hides the slider in that mode.
-        void SetWhitePoint( float whitePoint )
-        {
-            m_WhitePoint = whitePoint;
+            m_Grade = grade;
         }
 
         // The bloom strength (0 disables bloom). The bloom image itself is a graph transient (GraphInputs).
@@ -100,16 +86,12 @@ namespace Desert::Graphic::System
             m_ChromaticBloom = strength;
         }
 
-        // Auto-exposure (eye adaptation): the 1x1 adapted-luminance image + key, set per-frame. When
-        // disabled, the manual Exposure is used instead.
+        // Auto-exposure (eye adaptation): the 1x1 adapted-luminance image. Whether it is read, and the
+        // compensation it is read with, are the grade's (SetGrade); with auto-exposure off the manual Exposure is
+        // used instead.
         void SetAutoExposureImage( const std::shared_ptr<Image2D>& image )
         {
             m_AutoExposureImage = image;
-        }
-        void SetAutoExposure( bool enabled, float key )
-        {
-            m_AutoExposureEnabled = enabled;
-            m_ExposureKey         = key;
         }
 
         // The sun light's radial streaks (LightShaftRenderer) and their strength — the intensity is
@@ -135,17 +117,12 @@ namespace Desert::Graphic::System
 
         std::unique_ptr<MaterialTonemap> m_MaterialTonemap;
 
-        Core::TonemapOperator m_TonemapOperator = Core::TonemapOperator::ACES;
-        float                 m_Exposure        = 1.0f;
-        float                 m_Gamma           = 2.2f;
-        float                 m_WhitePoint      = 8.0f;
+        Core::PostProcessSettings m_Grade;
 
         float                  m_BloomIntensity = 0.0f;
         float                  m_ChromaticBloom = 0.0f;
 
         std::weak_ptr<Image2D> m_AutoExposureImage;
-        bool                   m_AutoExposureEnabled = false;
-        float                      m_ExposureKey         = 0.18f;
 
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );

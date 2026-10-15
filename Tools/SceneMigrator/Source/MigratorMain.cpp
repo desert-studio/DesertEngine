@@ -508,6 +508,13 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.UEGradeRaised )
+            out << std::format(
+                 " scene v{}->v{} ({} volume(s) auto-exposed, {} kept on a stated manual Exposure, {} "
+                 "AutoExposureKey re-stated as AutoExposureBias, {} old auto-exposure key(s) dropped)",
+                 Desert::Migration::kSceneVersionScriptDefaults, Desert::Migration::kSceneVersionUEGrade,
+                 report.UEGrade.AutoExposureOn, report.UEGrade.KeptManual, report.UEGrade.BiasesStated,
+                 report.UEGrade.KeysDropped );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
