@@ -232,7 +232,7 @@ namespace Desert::Graphic
     // constructs, and every scene system and panel between Init and the first frame reaches those systems,
     // so "not built yet" would become a state all of them had to handle. 64 keeps every derived target
     // non-empty with room to spare (the smallest divisor in the census is 1/4 and
-    // bloom's 6-level chain starts at 32 px) for 0.99 MiB of view-scaled targets.
+    // bloom's 6-level chain starts at 32 px) for 1.14 MiB of view-scaled targets.
     inline constexpr ViewExtent kUnsizedViewExtent{ 64, 64 };
 
     struct ViewTarget

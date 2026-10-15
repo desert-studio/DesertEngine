@@ -45,8 +45,9 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
     // the word is RG32UI for UE's four CustomData floats, +4) + 4 velocity (TAA1, RG16F) + 72 post stack + 17.8
     // half/quarter chains and fog + 9 clouds + 46 SSR (SSR2: the trace and its hit points at half resolution, 2 +
     // 4; DENOISE-CORE: the screen-space denoiser's reconstruction + output, 16, its history pair, 16, and their
-    // sample counts, 8) + 48 GI (the gather, 8, and the same denoiser, 40).
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 252.83, 0.01 );
+    // sample counts, 8) + 48 GI (the gather, 8, and the same denoiser, 40) + 44 AO (SSGI2-GTAO: GTAO's bent normal
+    // and visibility, 4, and the same denoiser, 40 - SSAO's 4 gone).
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 292.83, 0.01 );
     // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with
     // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — there is no RGBA32F position and no
     // velocity).
@@ -55,7 +56,7 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
-    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 158.83, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 198.83, 0.01 );
     // One 1024 cascade (R32F + D24S8).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 8388608u );
 }
@@ -104,8 +105,8 @@ TEST( ViewMemory, ViewScaledBytesScaleWithPixels )
 
 // RT1h: a view built before its surface has a size is built at kUnsizedViewExtent. Every target the census
 // names must still exist there (a zero-sized image is a device error, not a small allocation), and the whole
-// view must cost what the constant's comment says — under a mebibyte — instead of the window's 1.3-2.1 GiB.
-TEST( ViewMemory, TheUnsizedViewBuildsEveryTargetForUnderAMebibyte )
+// view must cost what the constant's comment says — 1.14 MiB, under two — instead of the window's 1.3-2.1 GiB.
+TEST( ViewMemory, TheUnsizedViewBuildsEveryTargetForUnderTwoMebibytes )
 {
     using namespace Desert::Graphic;
     const auto rows = ViewTargetCensus( kSceneViewProfile, kUnsizedViewExtent.Width, kUnsizedViewExtent.Height );
@@ -120,7 +121,7 @@ TEST( ViewMemory, TheUnsizedViewBuildsEveryTargetForUnderAMebibyte )
             EXPECT_LE( row.Height, kUnsizedViewExtent.Height ) << row.Name;
         }
     }
-    EXPECT_LT( SumViewTargets( rows ).ViewScaledBytes, 1ull << 20 );
+    EXPECT_LT( SumViewTargets( rows ).ViewScaledBytes, 2ull << 20 );
 }
 
 // A view built for a W x H surface allocates its full-resolution targets at exactly W x H: the census the

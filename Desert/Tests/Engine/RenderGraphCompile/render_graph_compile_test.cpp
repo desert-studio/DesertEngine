@@ -2423,6 +2423,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = close + 1;
             }
+            else if ( first == pass && pass != node )
+            {
+                // A graph node named by an expression (the shadow cache copies' `copy.Name`): the entry names the
+                // expression. Read as a literal, its name would be the next quote anywhere after it - or, with
+                // none left in the body, a search from 0 that sent `at` backwards and looped without end.
+                const size_t open  = text.find( '(', pass ) + 1;
+                const size_t comma = text.find( ',', open );
+                ASSERT_NE( comma, std::string::npos ) << "graph.AddPass with one argument";
+                added.push_back( std::format( "named[{}]", squeeze( text.substr( open, comma - open ) ) ) );
+                at = comma + 1;
+            }
             else
             {
                 // graph.AddPass / AddRaster: the node's name literal.
@@ -2437,6 +2448,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     collect( body, 0 );
 
     const std::vector<std::string> frameOrder = {
+         // The scene's reflection captures refresh before the view's own frame (their cube faces are views).
+         "temporal[m_FrameReflectionCaptures]",
          "ClearMainFramebuffer",
          // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
          // next compact.
@@ -2449,8 +2462,14 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
          // target - the sky CLEARS it, the meshes then the terrain LOAD over it - then the outline silhouette
          // mask (cleared).
-         "system[mesh->ShadowCascadePasses(maps)]",
-         "rasters[cascades,true]",
+         // SHADOW-CSM2: the stale static layers (each clearing its cascade's cache), each rebuilt cascade copied
+         // from its cache (a node per copy, named by the copy), the movable casters LOADING over it, then the
+         // local lights' atlas tiles (LOAD: a still tile keeps last frame's depth).
+         "rasters[cascades.StaticPasses,true]",
+         "named[copy.Name]",
+         "rasters[cascades.MovablePasses,false]",
+         "system[mesh->LocalShadowPasses()]",
+         "rasters[local,false]",
          "system[sky->SkyPass()]",
          "system[mesh->GeometryPass()]",
          "system[terrain->GeometryPass()]",
@@ -2461,7 +2480,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "TerrainGBuffer",
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
+         // SSGI2-GTAO: GTAO (bent normals + its denoiser) on the resolved depth, the view's HZB the screen traces
+         // share, SSR, then SSGI over last frame's lit scene - all before the GI resolve that reads them.
+         "temporal[gtao]",
+         "temporal[hzb]",
          "Deferred: SSR",
+         "temporal[ssgi]",
          "Deferred: RSM",
          "Deferred: GIResolve",
          "Deferred: Composite",
@@ -3835,7 +3859,8 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
             "node.ColorTarget(slot,targets->Colors[slot],colors[slot])", "targets->Colors[0]=overlay.Color;",
             "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;", "targets->Depth=overlay.Depth;",
-            "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)",
+            "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly,layered?pass.TargetLayer:RDG::"
+            "kAllRemaining)",
             "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
             "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )

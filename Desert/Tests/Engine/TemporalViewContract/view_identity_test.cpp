@@ -236,11 +236,23 @@ TEST( ViewIdentityCensus, NoRendererKeepsItsOwnPreviousViewProjection )
 
 TEST( ViewIdentityCensus, TemporalPassesKeepAPassHistoryStamp )
 {
-    const auto graphic = EngineSource() / "Graphic" / "Systems" / "Scene";
-    for ( const auto& path :
-          { graphic / "Deferred" / "SSRRenderer.hpp", graphic / "Deferred" / "GIResolveRenderer.hpp",
-            graphic / "Clouds" / "VolumetricCloudRenderer.hpp" } )
-        EXPECT_NE( ReadText( path ).find( "PassHistoryStamp m_History;" ), std::string::npos ) << path.string();
+    // Each history is stamped where it lives: the screen-space signals' in the shared denoiser (one stamp per
+    // history slot, DENOISE-CORE), which each of their passes holds; the clouds' in their own renderer; the
+    // scene colour the screen traces read in its view-owned copy (SSGI2-GTAO).
+    const auto              deferred = EngineSource() / "Graphic" / "Systems" / "Scene" / "Deferred";
+    static const std::regex slotStamp( R"(PassHistoryStamp\s+Stamp;)" );
+    EXPECT_TRUE( std::regex_search( ReadText( deferred / "ScreenSpaceDenoiser.hpp" ), slotStamp ) )
+         << "the denoiser's history slot carries no PassHistoryStamp";
+    static const std::regex denoiser( R"(ScreenSpaceDenoiser\s+m_Denoiser\{)" );
+    for ( const char* pass :
+          { "SSRRenderer.hpp", "GIResolveRenderer.hpp", "GTAORenderer.hpp", "SSGIRenderer.hpp" } )
+        EXPECT_TRUE( std::regex_search( ReadText( deferred / pass ), denoiser ) )
+             << pass << " keeps a history outside the stamped denoiser";
+    EXPECT_NE( ReadText( deferred / "SceneColorHistoryRenderer.hpp" ).find( "PassHistoryStamp" ),
+               std::string::npos );
+    const auto clouds =
+         EngineSource() / "Graphic" / "Systems" / "Scene" / "Clouds" / "VolumetricCloudRenderer.hpp";
+    EXPECT_NE( ReadText( clouds ).find( "PassHistoryStamp m_History;" ), std::string::npos ) << clouds.string();
 }
 
 TEST( ViewIdentityCensus, OnUpdateOpensTheViewFrameBeforeItsReadersAndClosesItAfterExecute )

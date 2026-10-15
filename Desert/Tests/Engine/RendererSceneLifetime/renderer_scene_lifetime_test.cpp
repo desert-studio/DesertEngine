@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -206,7 +207,9 @@ TEST( RendererSceneLifetime, TheRendererReadsExtensionPassesFromTheSceneItIsHand
     ASSERT_NE( end, std::string::npos );
     EXPECT_NE( source.find( "m_FrameExtensions = &scene.GetExtensionPasses();", begin ), std::string::npos )
          << "BeginScene no longer takes the scene's extension passes";
-    EXPECT_NE( source.find( "m_FrameExtensions = nullptr;", end ), std::string::npos )
+    // clang-format aligns the `=` with the assignments around it: any run of spaces.
+    static const std::regex release( R"(m_FrameExtensions\s+=\s+nullptr;)" );
+    EXPECT_TRUE( std::regex_search( source.substr( end ), release ) )
          << "EndScene no longer lets go of the scene's extension passes";
 }
 
@@ -261,6 +264,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
            "frame" },
          { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false, false,
            "a copy of this frame's target" },
+         { "HZBSystem", "Graphic/Systems/Scene/Deferred/HZBRenderer.hpp", false, false,
+           "THIS frame's closest-depth hierarchy, a graph transient; it holds only the shader, its layout and the "
+           "pipeline" },
          { "BufferViewSystem", "Graphic/Systems/Scene/Deferred/BufferViewRenderer.hpp", false, false,
            "a picture of THIS frame's velocity or indirect light; it holds only the shaders, their block layouts "
            "and one pipeline per view, target format and sample count" },
@@ -383,8 +389,13 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
                  << s.Name
                  << ": OnTemporalHistoryReset leaves m_FrameIndex counting on — the jitter, the "
                     "noise seed and the history parity then depend on the frames before the cut.";
-            const bool        stamped = header.find( "PassHistoryStamp m_History" ) != std::string::npos;
-            const char* const drop    = stamped ? "m_History.Invalidate()" : "m_HistoryValid = false";
+            // A screen-space signal's history lives in its ScreenSpaceDenoiser, stamped per slot (DENOISE-CORE).
+            const bool stamped = header.find( "PassHistoryStamp m_History" ) != std::string::npos;
+            const bool denoised =
+                 std::regex_search( header, std::regex( R"(ScreenSpaceDenoiser\s+m_Denoiser\{)" ) );
+            const char* const drop = denoised  ? "m_Denoiser.InvalidateHistory()"
+                                     : stamped ? "m_History.Invalidate()"
+                                               : "m_HistoryValid = false";
             EXPECT_NE( body.find( drop ), std::string::npos )
                  << s.Name << ": OnTemporalHistoryReset keeps the reprojected history valid across the cut (no `"
                  << drop << "`).";
