@@ -140,9 +140,25 @@ namespace Desert::Graphic
         // has its cell (ParticleSprite.Forward); it has no G-buffer, glass or shadow-depth cell: sprites are drawn
         // over the lit scene by ParticleRenderer and cast nothing.
         ParticleSprite = 3,
+        // A static mesh per alive particle (UE: the Niagara mesh vertex factory, "Used with Mesh Particles"): the
+        // mesh's vertex streams, gl_InstanceIndex an entry of the alive list (Vertex_ParticleMesh.glslh). Only a
+        // template that declares `Usage ParticleMeshes` has its cell (ParticleMesh.Forward).
+        ParticleMesh = 4,
+        // Particles joined into strips (UE: the Niagara ribbon vertex factory, "Used with Beam Trails"): six vertices
+        // per entry of the view's ribbon order (Vertex_ParticleRibbon.glslh). Only a template that declares
+        // `Usage ParticleRibbons` has its cell (ParticleRibbon.Forward).
+        ParticleRibbon = 5,
     };
 
-    inline constexpr uint32_t kMeshVertexPathCount = 4;
+    inline constexpr uint32_t kMeshVertexPathCount = 6;
+
+    // The particle paths: one Forward cell each, only on a template declaring the path's Usage, drawn by the
+    // particle pass alone (no G-buffer, glass or shadow-depth cell).
+    [[nodiscard]] constexpr bool IsParticlePath( const MeshVertexPath path )
+    {
+        return path == MeshVertexPath::ParticleSprite || path == MeshVertexPath::ParticleMesh ||
+               path == MeshVertexPath::ParticleRibbon;
+    }
 
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a

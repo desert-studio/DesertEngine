@@ -1,5 +1,6 @@
-// Surface cell pass: particle SPRITES — the Forward cell of the ParticleSprite vertex path (DShaderParser
-// kSurfaceParticleSpritePassInclude). Drawn by ParticleRenderer::DrawPass in the translucency, depth-TESTED against
+// Surface cell pass: PARTICLES — the Forward cell of the ParticleSprite, ParticleMesh and ParticleRibbon vertex
+// paths (DShaderParser kSurfaceParticleSpritePassInclude, kSurfaceParticleUsages); each path writes the flat
+// particle varyings at 12 / 13. Drawn by ParticleRenderer::DrawPass in the translucency, depth-TESTED against
 // the scene depth and never writing it. The material's own surface function shades the sprite UNLIT (UE's default
 // for particle materials): the colour is BaseColor + Emissive, the coverage is Opacity — a graph that wants soft
 // particles multiplies its opacity through Depth Fade (SurfaceTypes.glslh DesertDepthFade, which reads the scene

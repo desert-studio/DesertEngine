@@ -38,7 +38,10 @@ namespace Desert::Assets::Serialization
      *       emitters with lifecycle, the three-group module stack and renderer rows.
      *   2 - VFX-RENDER: a renderer row names its Material ({Guid, Path}, UE UNiagaraSpriteRendererProperties::
      *       Material); absent = the engine's default sprite template. The header's Dependencies are exactly the
-     *       materials the rows name (VFXSystemDependencies). A v1 file differs only by its version: the repository's
+     *       materials and meshes the rows name (VFXSystemDependencies). Every enabled row is its own draw; a Mesh
+     *       row carries Mesh {Mesh {Guid, Path}, Facing}, a Ribbon row Ribbon {Facing, UVTiling} (UE
+     *       UNiagaraMeshRendererProperties / UNiagaraRibbonRendererProperties). A v1 file differs only by its
+     *       version (v1 refused every Mesh / Ribbon row and a second Sprite row): the repository's
      *       files were raised in place; a v1 file is refused with its number.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
@@ -185,16 +188,60 @@ namespace Desert::Assets::Serialization
         Mesh,
     };
 
+    /// UE ENiagaraMeshFacingMode: how a mesh particle's local axes are turned.
+    enum class VFXMeshFacing
+    {
+        Default,        ///< the particle's MeshOrientation quaternion (identity when the stack declares none)
+        Velocity,       ///< local +X along the particle's Velocity
+        CameraPosition, ///< local +X toward the camera position
+        CameraPlane,    ///< local +X against the camera's forward axis
+    };
+
+    /// UE UNiagaraMeshRendererProperties: every particle draws one instance of a static mesh.
+    struct VFXMeshRendererData
+    {
+        /// The `.dmesh` static mesh, by its header GUID (`Path`, relative to the content root, only locates it).
+        AssetGuidRef  Mesh;
+        VFXMeshFacing Facing = VFXMeshFacing::Default;
+
+        [[nodiscard]] bool operator==( const VFXMeshRendererData& ) const = default;
+    };
+
+    /// UE ENiagaraRibbonFacingMode.
+    enum class VFXRibbonFacing
+    {
+        Screen, ///< the width runs across the view: cross( tangent, toward the eye )
+        Custom, ///< the width runs across the particle's RibbonFacing vector: cross( tangent, RibbonFacing )
+    };
+
+    /// UE UNiagaraRibbonRendererProperties: the emitter's particles, ordered by RibbonID then by age (newest
+    /// first, UE's NormalizedAge order), are joined into strips; consecutive particles of one RibbonID form a
+    /// segment. A stack without RibbonID draws one ribbon (Niagara's default).
+    struct VFXRibbonRendererData
+    {
+        VFXRibbonFacing Facing   = VFXRibbonFacing::Screen;
+        float           UVTiling = 1.0f; ///< U repeats this many times over the ribbon's normalised age; > 0
+
+        [[nodiscard]] bool operator==( const VFXRibbonRendererData& ) const = default;
+    };
+
     /// One renderer of an emitter (UE UNiagaraRendererProperties): what draws the emitter's particles and with
-    /// which material. The particles are the emitter's; a renderer only reads them.
+    /// which material. The particles are the emitter's; a renderer only reads them. Every enabled row is its own
+    /// draw (UE FNiagaraRenderer per renderer properties), so an emitter has any number of rows of each kind.
     struct VFXRendererData
     {
         VFXRendererKind Kind    = VFXRendererKind::Sprite;
         bool            Enabled = true;
         /// The `.demat` the particles draw with, by its header GUID (the reference; `Path`, relative to the
-        /// content root, is only a locator). Absent = the engine's ParticleSpriteDefault template. The material's
-        /// template must declare `Usage ParticleSprites`; one that does not is refused by the renderer, by name.
+        /// content root, is only a locator). Absent = the engine's default template of the row's kind
+        /// (ParticleSpriteDefault / ParticleMeshDefault / ParticleRibbonDefault). The material's template must
+        /// declare the kind's Usage (ParticleSprites / ParticleMeshes / ParticleRibbons); one that does not is
+        /// refused by the renderer, by name, and the row draws with the kind's default template.
         std::optional<AssetGuidRef> Material{};
+        /// Present exactly when Kind == Mesh.
+        std::optional<VFXMeshRendererData> Mesh{};
+        /// Present exactly when Kind == Ribbon.
+        std::optional<VFXRibbonRendererData> Ribbon{};
 
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };
@@ -288,13 +335,16 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXSystemData& ) const = default;
     };
 
-    /// The GUIDs (AssetGuidToText) of every material the renderer rows name, sorted and unique: what the header's
+    /// The GUIDs (AssetGuidToText) of every material and mesh the renderer rows name, sorted and unique: what the header's
     /// Dependencies state, so a registry walk sees the edges without reading the body.
     [[nodiscard]] std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data );
 
     /// The runtime handle of a renderer's material (Common::Content::HandleForGuid of its GUID); Null when the row
     /// names none. The GUID was validated on load (ValidateVFXSystemData).
     [[nodiscard]] Common::AssetHandle VFXRendererMaterialHandle( const VFXRendererData& renderer );
+
+    /// The runtime handle of a Mesh row's static mesh (Common::Content::HandleForGuid); Null for another kind.
+    [[nodiscard]] Common::AssetHandle VFXRendererMeshHandle( const VFXRendererData& renderer );
 
     /// Rejects what no later stage could honour, naming the emitter, group, module and input.
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data );

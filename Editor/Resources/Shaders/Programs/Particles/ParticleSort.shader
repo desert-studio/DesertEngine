@@ -13,6 +13,9 @@ Shader "ParticleSort"
         //   3 MERGE  each group finishes k = u_Step.y for every j < 1024 in shared memory;
         //   4 WRITE  thread t < alive: the sorted index into SortedAlive at the emitter's alive half, so the draw
         //            binds SortedAlive in place of AliveList and its slot (FirstVertex) is unchanged.
+        // u_Step.w is the order (ParticleSortKind): 0 VIEW = the view depth above; 1 RIBBON = (RibbonID << 16 |
+        // quantised normalised age, newest first) written into the view's RibbonOrder, which the ribbon draw walks
+        // as consecutive segments (UE's ribbon sort by RibbonID and NormalizedAge).
         // Ascending keys = far first (Common/ParticleSortKey.glslh). The stages are separate graph nodes: the graph
         // places the barrier between two writes of the key buffer.
         LocalSize(512, 1, 1);
@@ -32,6 +35,12 @@ Shader "ParticleSort"
         {
             ParticleDrawLayout u_DrawLayout;
         };
+        // The emitter's int columns: the ribbon order reads RibbonID from them.
+        ReadBuffer(6) AttributeInts
+        {
+            int u_DrawInts[];
+        };
+        #define PARTICLE_DRAW_INTS 1
 
         #include <Common/ParticleDrawRead.glslh>
 
@@ -58,7 +67,7 @@ Shader "ParticleSort"
         PushConstant PushConstants
         {
             uvec4 u_Range;       // x = the alive half's offset in AliveList, y = the draw slot, z = key base, w = N
-            uvec4 u_Step;        // x = stage, y = k, z = j
+            uvec4 u_Step;        // x = stage, y = k, z = j, w = order (0 view, 1 ribbon)
             vec4  u_ViewOrigin;  // xyz = the view's position (cm)
             vec4  u_ViewForward; // xyz = the view's forward axis (unit)
         };
@@ -98,10 +107,19 @@ Shader "ParticleSort"
                 uvec2 key = uvec2( PARTICLE_SORT_PAD_KEY, 0u );
                 if ( t < alive )
                 {
-                    uint  index = u_Alive[u_Range.x + t];
-                    float depth = dot( ParticleWorldPosition( ParticleLocalIndex( index ) ) - u_ViewOrigin.xyz,
-                                       u_ViewForward.xyz );
-                    key         = uvec2( ParticleSortKey( depth ), index );
+                    uint index = u_Alive[u_Range.x + t];
+                    uint local = ParticleLocalIndex( index );
+                    if ( u_Step.w == 1u )
+                    {
+                        float lifetime = ParticleLifetime( local );
+                        float age      = lifetime > 0.0 ? clamp( ParticleAge( local ) / lifetime, 0.0, 1.0 ) : 0.0;
+                        key = uvec2( ( ParticleRibbonId( local ) & 0xFFFFu ) << 16u | uint( age * 65535.0 ), index );
+                    }
+                    else
+                    {
+                        float depth = dot( ParticleWorldPosition( local ) - u_ViewOrigin.xyz, u_ViewForward.xyz );
+                        key         = uvec2( ParticleSortKey( depth ), index );
+                    }
                 }
                 u_Keys[keyBase + t] = key;
                 return;

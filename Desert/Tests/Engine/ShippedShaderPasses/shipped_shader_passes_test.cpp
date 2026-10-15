@@ -367,7 +367,10 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          "FoliageSurface.shader",
          "MatProbe.shader",
          "MatProbeUnlit.shader",
-         // The particle sprite templates' cells read the generated row of the material their emitter names.
+         // The particle templates' cells read the generated row of the material their renderer row names
+         // (VFX-RENDER: the mesh and ribbon defaults beside the sprite ones).
+         "ParticleMeshDefault.shader",
+         "ParticleRibbonDefault.shader",
          "ParticleSpriteAdditive.shader",
          "ParticleSpriteDefault.shader",
          // MAT1a: the mesh lit programs read the one generated row the renderer writes per object (their
@@ -725,9 +728,10 @@ TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams 
         if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
             continue;
         ++vertexHeaders;
-        // The sprite path (MeshVertexPath::ParticleSprite) binds NO vertex buffer: it pulls each corner from the
-        // particle pool through the alive list, so it has no vertex streams to declare. Counted, not checked.
-        if ( file.filename() == "Vertex_ParticleSprite.glslh" )
+        // The sprite and ribbon paths (MeshVertexPath::ParticleSprite / ParticleRibbon) bind NO vertex buffer: they
+        // pull each corner from the emitter's columns through the alive list / ribbon order, so they have no vertex
+        // streams to declare. Counted, not checked. (ParticleMesh reads its static mesh's streams: checked.)
+        if ( file.filename() == "Vertex_ParticleSprite.glslh" || file.filename() == "Vertex_ParticleRibbon.glslh" )
             continue;
         const std::string source = ReadFile( file );
         EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;

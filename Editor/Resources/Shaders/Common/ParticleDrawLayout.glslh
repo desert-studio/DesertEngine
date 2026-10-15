@@ -6,7 +6,8 @@
 // compiled layout by ParticleWorldGpu (its kDrawnAttributes, the one table of what a renderer reads) and uploaded
 // with the emitter's range and world position every tick. A stack that does not declare an
 // attribute has PARTICLE_ATTR_NONE there and the reader gets UE's default (Position 0, Color white, SpriteSize
-// 50 x 50 cm, SpriteRotation 0, Age 0, Lifetime 0).
+// 50 x 50 cm, SpriteRotation 0, Age 0, Lifetime 0, Velocity 0, Scale 1, MeshOrientation identity, RibbonWidth =
+// SpriteSize.x, RibbonID 0, RibbonFacing +Z). RibbonID is an Int attribute: its lane names an INT column.
 //
 // The C++ statement is Graphic::System::ParticleDrawLayoutGpu (ParticleWorldGpu.hpp, kParticleDrawLayoutSize).
 //
@@ -19,10 +20,22 @@
 
 struct ParticleDrawLayout
 {
-    uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space
+    uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space,
+                      // w = the draw slot the last compact filled (the drawn alive half)
     uvec4 Columns0;   // first float column of x = Position, y = SpriteSize, z = Color, w = SpriteRotation
     uvec4 Columns1;   // first float column of x = Age, y = Lifetime; zw = PARTICLE_ATTR_NONE
+    uvec4 Columns2;   // first float column of x = Velocity, y = Scale, z = MeshOrientation, w = RibbonWidth
+    uvec4 Columns3;   // x = RibbonID's first INT column, y = RibbonFacing's first float column; zw = NONE
     vec4  EmitterPos; // xyz = the emitter's world position (cm): a Local emitter's Position is relative to it
+};
+
+// One renderer row's settings (C++ Graphic::System::ParticleRendererParamsGpu, kParticleRendererParamsSize), read by
+// the mesh and ribbon vertex paths at binding 14: Mode.x = the row's facing (VFXMeshFacing / VFXRibbonFacing),
+// Values.x = the ribbon's UVTiling.
+struct ParticleRendererParams
+{
+    uvec4 Mode;
+    vec4  Values;
 };
 
 #endif // PARTICLE_DRAW_LAYOUT_GLSLH

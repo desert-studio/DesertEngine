@@ -1426,13 +1426,18 @@ namespace Desert::Core::Preprocess
                                               const std::string_view shadingModelDefine, const bool responsiveAA )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool        particle = path == kSurfaceParticleSpritePath;
+            const bool particle = std::ranges::any_of( kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u )
+                                                       { return u.Path == path; } );
+            const bool sprite   = path == kSurfaceParticleSpritePath;
             const std::string defines  = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
                                                        : std::string(),
-                 particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
+                 particle ? std::format( "#define {} 1\n{}", kSurfaceParticleDefine,
+                                         sprite ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine )
+                                                : std::string() )
+                          : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
@@ -1573,7 +1578,8 @@ namespace Desert::Core::Preprocess
         for ( const std::string_view pass : kSurfaceCellPasses )
             includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.emplace_back( kSurfaceTranslucentPassInclude );
-        includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        for ( const SurfaceParticleUsage& usage : kSurfaceParticleUsages )
+            includes.push_back( SurfaceVertexInclude( usage.Path ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         return includes;
     }
@@ -1859,13 +1865,20 @@ namespace Desert::Core::Preprocess
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
                 // meshes.
                 const std::string stated = ReadIdent( c );
-                if ( Lower( stated ) != "particlesprites" )
+                const std::string folded = Lower( stated );
+                if ( folded == "particlesprites" )
+                    result.Surface.UsedWithParticleSprites = true;
+                else if ( folded == "particlemeshes" )
+                    result.Surface.UsedWithParticleMeshes = true;
+                else if ( folded == "particleribbons" )
+                    result.Surface.UsedWithParticleRibbons = true;
+                else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", stated ) };
+                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, ParticleMeshes, ParticleRibbons)",
+                                               stated ) };
                     return fail();
                 }
-                result.Surface.UsedWithParticleSprites = true;
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
@@ -2144,19 +2157,24 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
-            // `Usage ParticleSprites`: the sprite cell, after every mesh cell (the mesh cells' order is
-            // unchanged).
-            if ( result.Surface.UsedWithParticleSprites )
+            // The particle usages: one cell each, after every mesh cell (the mesh cells' order is unchanged),
+            // in kSurfaceParticleUsages order.
+            const bool declared[] = { result.Surface.UsedWithParticleSprites, result.Surface.UsedWithParticleMeshes,
+                                      result.Surface.UsedWithParticleRibbons };
+            static_assert( std::size( declared ) == kSurfaceParticleUsages.size() );
+            for ( std::size_t u = 0; u < kSurfaceParticleUsages.size(); ++u )
             {
-                DShaderPass cell;
-                cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
+                if ( !declared[u] )
+                    continue;
+                const std::string_view path = kSurfaceParticleUsages[u].Path;
+                DShaderPass            cell;
+                cell.Name  = SurfaceCellName( path, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA ) );
+                         stage, AssembleSurfaceCellStage( stage, path, kSurfaceParticleSpritePass, *surfaceBlock,
+                                                          includeBlock, autoDecls, result.Surface.Blend,
+                                                          shadingModelDefine, result.Surface.ResponsiveAA ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

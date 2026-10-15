@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <string_view>
 
 namespace Desert::Assets::Serialization
 {
@@ -163,33 +164,44 @@ namespace Desert::Assets::Serialization
             return BOOLSUCCESS;
         }
 
-        /// A renderer row: a kind the particle renderer draws, a well-formed material reference, and at most one
-        /// enabled Sprite row per emitter (ParticleRenderer draws one sprite per emitter; REMAINDER VFX-RENDER).
+        Common::BoolResultStr CheckGuidRef( const AssetGuidRef& ref, const VFXEmitterData& e, const std::size_t i,
+                                            const std::string_view member )
+        {
+            const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names {} '{}', not a well-formed "
+                                                         "GUID",
+                                                         e.Name, i, member, ref.Guid );
+            if ( ref.Path.empty() )
+                return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names {} {} without a Path",
+                                                         e.Name, i, member, ref.Guid );
+            return BOOLSUCCESS;
+        }
+
+        /// A renderer row (UE UNiagaraRendererProperties): exactly the settings member its Kind names, well-formed
+        /// material and mesh references, and settings a draw can honour. Any number of rows of any kind: every
+        /// enabled row is its own draw (ParticleRenderer's ViewDraw).
         Common::BoolResultStr CheckRenderers( const VFXEmitterData& e )
         {
-            uint32_t sprites = 0;
             for ( std::size_t i = 0; i < e.Renderers.size(); ++i )
             {
-                const VFXRendererData& r = e.Renderers[i];
-                if ( r.Kind != VFXRendererKind::Sprite )
+                const VFXRendererData& r      = e.Renderers[i];
+                const bool             mesh   = r.Kind == VFXRendererKind::Mesh;
+                const bool             ribbon = r.Kind == VFXRendererKind::Ribbon;
+                if ( r.Mesh.has_value() != mesh || r.Ribbon.has_value() != ribbon )
                     return Common::MakeFormattedError<bool>(
-                         "emitter '{}' renderer {} is a {} renderer; the particle renderer draws Sprite rows only",
-                         e.Name, i, r.Kind == VFXRendererKind::Mesh ? "Mesh" : "Ribbon" );
-                if ( r.Enabled && ++sprites > 1 )
-                    return Common::MakeFormattedError<bool>(
-                         "emitter '{}' renderer {} is a second enabled Sprite row; an emitter draws one sprite",
+                         "emitter '{}' renderer {}: exactly the member its Kind names must be present (Mesh/Ribbon)",
                          e.Name, i );
-                if ( !r.Material )
-                    continue;
-                const auto guid = Common::Content::AssetGuidFromText( r.Material->Guid );
-                if ( !guid || guid.GetValue().IsNull() )
+                if ( r.Material )
+                    if ( auto ok = CheckGuidRef( *r.Material, e, i, "Material" ); !ok )
+                        return ok;
+                if ( mesh )
+                    if ( auto ok = CheckGuidRef( r.Mesh->Mesh, e, i, "Mesh" ); !ok )
+                        return ok;
+                if ( ribbon && !( r.Ribbon->UVTiling > 0.0f ) )
                     return Common::MakeFormattedError<bool>(
-                         "emitter '{}' renderer {} names Material '{}', not a well-formed GUID", e.Name, i,
-                         r.Material->Guid );
-                if ( r.Material->Path.empty() )
-                    return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names Material {} without a "
-                                                             "Path",
-                                                             e.Name, i, r.Material->Guid );
+                         "emitter '{}' renderer {}: Ribbon UVTiling is {}, it must be > 0", e.Name, i,
+                         r.Ribbon->UVTiling );
             }
             return BOOLSUCCESS;
         }
@@ -200,8 +212,12 @@ namespace Desert::Assets::Serialization
         std::set<std::string> guids;
         for ( const VFXEmitterData& e : data.Emitters )
             for ( const VFXRendererData& r : e.Renderers )
+            {
                 if ( r.Material )
                     guids.insert( r.Material->Guid );
+                if ( r.Mesh )
+                    guids.insert( r.Mesh->Mesh.Guid );
+            }
         return { guids.begin(), guids.end() };
     }
 
@@ -210,6 +226,16 @@ namespace Desert::Assets::Serialization
         if ( !renderer.Material )
             return Common::AssetHandle::Null();
         const auto guid = Common::Content::AssetGuidFromText( renderer.Material->Guid );
+        if ( !guid )
+            return Common::AssetHandle::Null();
+        return Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+    }
+
+    Common::AssetHandle VFXRendererMeshHandle( const VFXRendererData& renderer )
+    {
+        if ( !renderer.Mesh )
+            return Common::AssetHandle::Null();
+        const auto guid = Common::Content::AssetGuidFromText( renderer.Mesh->Mesh.Guid );
         if ( !guid )
             return Common::AssetHandle::Null();
         return Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
@@ -345,11 +371,12 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // The header's edges are the materials the renderer rows name, no more and no fewer.
+        // The header's edges are the materials and meshes the renderer rows name, no more and no fewer.
         if ( const std::vector<std::string> named = VFXSystemDependencies( data );
              data.Header && data.Header->Dependencies != named )
             return Common::MakeFormattedError<VFXSystemData>(
-                 "the header states {} Dependencies, the renderer rows name {} material(s); they must be the same "
+                 "the header states {} Dependencies, the renderer rows name {} material(s) and mesh(es); they must "
+                 "be the same "
                  "sorted GUIDs",
                  data.Header->Dependencies.size(), named.size() );
         return Common::MakeSuccess( std::move( data ) );

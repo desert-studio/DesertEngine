@@ -92,6 +92,21 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // THE PARTICLE USAGES, the sprite's and its two siblings (UE bUsedWithMeshParticles, bUsedWithBeamTrails): each
+    // declared `Usage <Usage>` adds ONE cell `<Path>.Forward` after the mesh cells, in this table's order, built from
+    // the path's vertex header and the one particle pass header (kSurfaceParticleSpritePassInclude). Every particle
+    // cell gets kSurfaceParticleDefine in both stages (the scene depth Depth Fade reads, SurfaceTypes.glslh).
+    struct SurfaceParticleUsage
+    {
+        std::string_view Usage;
+        std::string_view Path;
+    };
+    inline constexpr std::array<SurfaceParticleUsage, 3> kSurfaceParticleUsages = { {
+         { "ParticleSprites", kSurfaceParticleSpritePath },
+         { "ParticleMeshes", "ParticleMesh" },
+         { "ParticleRibbons", "ParticleRibbon" },
+    } };
+    inline constexpr std::string_view kSurfaceParticleDefine = "DESERT_SURFACE_PARTICLE";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // Defined in every cell of a `ResponsiveAA` template (UE: the material's bResponsiveAA): the translucent pass
@@ -153,6 +168,8 @@ namespace Desert::Core::Preprocess
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
+        bool UsedWithParticleMeshes       = false; // `Usage ParticleMeshes`: + ParticleMesh.Forward
+        bool UsedWithParticleRibbons      = false; // `Usage ParticleRibbons`: + ParticleRibbon.Forward
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;

@@ -1,0 +1,136 @@
+// Surface cell vertex path: RIBBON particles (UE: the Niagara ribbon vertex factory, a material's "Used with Beam
+// Trails" usage). A cell of this path exists only in a template that declares `Usage ParticleRibbons`
+// (DShaderParser kSurfaceParticleUsages), only for the Forward pass: drawn by the particle pass alone.
+//
+// Vertexless, six vertices per alive particle like the sprite (the same indirect draw over the last compact's slot),
+// but the list read at binding 10 is the view's RIBBON ORDER (ParticleSort kind Ribbon: by RibbonID, then newest
+// first), and entry k draws the quad from particle k to particle k + 1. The quad is degenerate (all six vertices at
+// one point, no fragments) when k is the slot's last entry or k + 1 belongs to another ribbon: each ribbon is the
+// strip of its consecutive entries. U runs along the ribbon by normalised age times the row's UVTiling; V across.
+#define PARTICLE_DRAW_INTS 1
+#include <Common/CameraUB.glslh>
+#include <Common/VFXRandom.glslh>
+#include <Common/ParticleDrawLayout.glslh>
+
+layout( std430, binding = 9 ) readonly buffer AttributeFloats
+{
+    float u_DrawFloats[];
+};
+
+layout( std430, binding = 10 ) readonly buffer AliveList
+{
+    uint u_Alive[];
+};
+
+layout( std430, binding = 11 ) readonly buffer DrawLayout
+{
+    ParticleDrawLayout u_DrawLayout;
+};
+
+// The draw's renderer row settings (Common/ParticleDrawLayout.glslh ParticleRendererParams).
+layout( std430, binding = 14 ) readonly buffer RendererParams
+{
+    ParticleRendererParams u_Renderer;
+};
+
+// The emitter's int columns (RibbonID) and its draw slots (the alive count of the drawn half, DrawLayout.Range.w).
+layout( std430, binding = 12 ) readonly buffer AttributeInts
+{
+    int u_DrawInts[];
+};
+
+#include <Common/ParticlePool.glslh>
+layout( std430, binding = 13 ) readonly buffer Counters
+{
+    ParticleDrawSlot u_Slots[];
+};
+
+#include <Common/ParticleDrawRead.glslh>
+#include <Common/MaterialTransport.glslh>
+DESERT_SURFACE_VARYINGS( out )
+
+layout( location = 12 ) out flat vec4 v_ParticleColor;
+layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
+
+float RibbonAge( uint n )
+{
+    const float lifetime = ParticleLifetime( n );
+    return lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0;
+}
+
+// The half-width offset at particle n with the ribbon running along @p tangent.
+vec3 RibbonSide( uint n, vec3 position, vec3 tangent )
+{
+    const vec3 across = u_Renderer.Mode.x == 1u ? ParticleRibbonFacing( n ) : cameraUB.CameraPos - position;
+    vec3       side   = cross( tangent, across );
+    side              = dot( side, side ) > 1e-8 ? normalize( side ) : vec3( 0.0, 0.0, 1.0 );
+    return side * ( 0.5 * ParticleRibbonWidth( n ) );
+}
+
+void main()
+{
+    const ParticleDrawSlot slot   = u_Slots[u_DrawLayout.Range.w];
+    const uint             entry  = uint( gl_VertexIndex ) / 6u; // absolute: FirstVertex / 6 is the half's start
+    const uint             last   = ( slot.FirstVertex + slot.VertexCount ) / 6u - 1u;
+    const uint             corner = uint( gl_VertexIndex ) % 6u;
+
+    const uint i0 = u_Alive[entry];
+    const uint n0 = ParticleLocalIndex( i0 );
+    const vec3 p0 = ParticleWorldPosition( n0 );
+
+    bool joined = entry < last;
+    uint i1     = i0;
+    if ( joined )
+    {
+        i1     = u_Alive[entry + 1u];
+        joined = ParticleRibbonId( ParticleLocalIndex( i1 ) ) == ParticleRibbonId( n0 );
+    }
+    if ( !joined )
+    {
+        // No segment starts here: a degenerate triangle pair, culled before rasterisation.
+        gl_Position             = vec4( 0.0, 0.0, 0.0, 1.0 );
+        v_Surface.WorldPosition = p0;
+        v_Surface.Normal        = vec3( 0.0, 0.0, 1.0 );
+        v_Surface.UV0           = vec2( 0.0 );
+        v_Surface.UV1           = vec2( 0.0 );
+        v_Surface.VertexColor   = vec4( 0.0 );
+        v_Surface.TBN           = mat3( 1.0 );
+        v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
+        v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
+        v_ParticleColor         = vec4( 0.0 );
+        v_ParticleTimeRandom    = vec2( 0.0 );
+        return;
+    }
+
+    const uint n1 = ParticleLocalIndex( i1 );
+    const vec3 p1 = ParticleWorldPosition( n1 );
+    vec3       tangent = p1 - p0;
+    tangent            = dot( tangent, tangent ) > 1e-8 ? normalize( tangent ) : vec3( 1.0, 0.0, 0.0 );
+
+    // Corners: (end, side) per vertex; end 0 = particle k, 1 = particle k + 1; side -1 / +1.
+    const vec2 corners[6] = vec2[6]( vec2( 0.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( 0.0, 1.0 ), vec2( 1.0, -1.0 ),
+                                     vec2( 1.0, 1.0 ), vec2( 0.0, 1.0 ) );
+    const vec2 c          = corners[corner];
+    const uint n          = c.x < 0.5 ? n0 : n1;
+    const uint index      = c.x < 0.5 ? i0 : i1;
+    const vec3 position   = c.x < 0.5 ? p0 : p1;
+    const vec3 side       = RibbonSide( n, position, tangent );
+    const vec3 worldPos   = position + side * c.y;
+    const vec3 normal     = normalize( cross( normalize( side ), tangent ) );
+    const vec4 colour     = ParticleColor( n );
+    const float age       = RibbonAge( n );
+
+    v_Surface.WorldPosition = worldPos;
+    v_Surface.Normal        = normal;
+    v_Surface.UV0           = vec2( age * u_Renderer.Values.x, c.y * 0.5 + 0.5 );
+    v_Surface.UV1           = v_Surface.UV0;
+    v_Surface.VertexColor   = colour;
+    v_Surface.TBN           = mat3( tangent, normalize( side ), normal );
+    v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+
+    v_ParticleColor      = colour;
+    v_ParticleTimeRandom = vec2( age, VFXRandomFloat4( uvec4( index, floatBitsToUint( ParticleLifetime( n ) ), 0u, 0u ) ).x );
+
+    gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );
+}

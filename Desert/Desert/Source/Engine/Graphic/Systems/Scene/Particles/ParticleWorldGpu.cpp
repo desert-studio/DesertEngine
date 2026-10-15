@@ -33,7 +33,8 @@ namespace Desert::Graphic::System
     namespace
     {
         // THE ONE TABLE of the attributes a renderer reads (UE: the sprite renderer's attribute bindings), each
-        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xy). The
+        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (lane l = Columns{l / 4}[l % 4];
+        // an Int attribute's lane holds its first INT column, the others their first float column). The
         // sprite vertex path and the sort read them out of the emitter's columns through
         // Common/ParticleDrawRead.glslh.
         struct DrawnAttribute
@@ -46,6 +47,12 @@ namespace Desert::Graphic::System
              { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
              { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
              { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
+             // The mesh renderer (UE UNiagaraMeshRendererProperties' Velocity / Scale / MeshOrientation bindings).
+             { "Velocity", VFX::VFXValueType::Vec3, 8 },  { "Scale", VFX::VFXValueType::Vec3, 9 },
+             { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
+             // The ribbon renderer (UE UNiagaraRibbonRendererProperties' RibbonWidth / RibbonID / RibbonFacing).
+             { "RibbonWidth", VFX::VFXValueType::Float, 11 }, { "RibbonID", VFX::VFXValueType::Int, 12 },
+             { "RibbonFacing", VFX::VFXValueType::Vec3, 13 },
         };
 
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
@@ -68,7 +75,10 @@ namespace Desert::Graphic::System
                          VFX::GlslTypeName( drawn.Type ) );
                     continue;
                 }
-                ( drawn.Lane < 4 ? columns.Columns0 : columns.Columns1 )[drawn.Lane % 4] = a->FloatStart;
+                glm::uvec4* const rows[] = { &columns.Columns0, &columns.Columns1, &columns.Columns2,
+                                             &columns.Columns3 };
+                ( *rows[drawn.Lane / 4] )[drawn.Lane % 4] =
+                     drawn.Type == VFX::VFXValueType::Int ? a->IntStart : a->FloatStart;
             }
             return columns;
         }
@@ -151,15 +161,32 @@ namespace Desert::Graphic::System
                                          const Assets::Serialization::VFXSystemData& system,
                                          const std::size_t index, const uint32_t entityId )
     {
-        // VFXS 2: the emitter's renderer rows. Validation leaves at most one enabled Sprite row (CheckRenderers).
-        gpu.DrawsSprite    = false;
-        gpu.SpriteMaterial = Common::AssetHandle::Null();
-        for ( const Assets::Serialization::VFXRendererData& r : system.Emitters[index].Renderers )
-            if ( r.Enabled && r.Kind == Assets::Serialization::VFXRendererKind::Sprite )
+        // VFXS 2: every enabled renderer row is one draw (UE FNiagaraRenderer per renderer properties).
+        gpu.Index = static_cast<uint32_t>( index );
+        gpu.Renderers.clear();
+        gpu.RendererParams.clear();
+        const auto& rows = system.Emitters[index].Renderers;
+        for ( uint32_t row = 0; row < static_cast<uint32_t>( rows.size() ); ++row )
+        {
+            const Assets::Serialization::VFXRendererData& r = rows[row];
+            if ( !r.Enabled )
+                continue;
+            ParticleRendererGpu drawn;
+            drawn.Kind     = r.Kind;
+            drawn.Row      = row;
+            drawn.Material = Assets::Serialization::VFXRendererMaterialHandle( r );
+            drawn.Mesh     = Assets::Serialization::VFXRendererMeshHandle( r );
+            if ( r.Mesh )
+                drawn.MeshFacing = r.Mesh->Facing;
+            if ( r.Ribbon )
             {
-                gpu.DrawsSprite    = true;
-                gpu.SpriteMaterial = Assets::Serialization::VFXRendererMaterialHandle( r );
+                drawn.RibbonFacing   = r.Ribbon->Facing;
+                drawn.RibbonUVTiling = r.Ribbon->UVTiling;
             }
+            gpu.Renderers.push_back( drawn );
+            gpu.RendererParams.push_back(
+                 ShaderResources::StorageBuffer::Create( "ParticleRendererParams", kParticleRendererParamsSize, 14 ) );
+        }
 
         const auto& emitter = system.Emitters[index];
         gpu.Capacity        = emitter.Enabled ? emitter.Capacity : 0u;
@@ -407,7 +434,8 @@ namespace Desert::Graphic::System
         // Where this tick's draw finds the particles: the compiled columns, the range they are strided by, and the
         // emitter position a Local emitter's particles are drawn around (the one the simulation placed them by).
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
-        layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
+        // w = the slot the last compact (index StepCount) fills: the ribbon draw reads its alive count from it.
+        layout.Range = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
         {
@@ -416,13 +444,28 @@ namespace Desert::Graphic::System
             return false;
         }
 
+        for ( std::size_t r = 0; r < gpu.Renderers.size(); ++r )
+        {
+            const ParticleRendererGpu& row    = gpu.Renderers[r];
+            const uint32_t             facing = row.Kind == Assets::Serialization::VFXRendererKind::Mesh
+                                                     ? static_cast<uint32_t>( row.MeshFacing )
+                                                     : static_cast<uint32_t>( row.RibbonFacing );
+            const ParticleRendererParamsGpu params{ glm::uvec4( facing, 0u, 0u, 0u ),
+                                                    glm::vec4( row.RibbonUVTiling, 0.0f, 0.0f, 0.0f ) };
+            if ( const auto set = gpu.RendererParams[r]->SetData( &params, kParticleRendererParamsSize );
+                 !set.IsSuccess() )
+            {
+                LOG_ERROR( "[Particles] emitter {} sits out this tick, renderer row {}'s settings did not upload: {}",
+                           entityId, row.Row, set.GetError() );
+                return false;
+            }
+        }
+
         ParticleFrameEmitter fe;
         fe.EntityId        = entityId;
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
-        fe.Material        = gpu.SpriteMaterial;
-        fe.DrawsSprite     = gpu.DrawsSprite;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
