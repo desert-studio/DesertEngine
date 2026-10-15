@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
 #include <cstddef>
@@ -161,8 +162,11 @@ namespace Desert::Graphic::RayTracing
     public:
         // Called once per frame per view, after MeshRenderer::BuildObjectMotions (the rows are the instances'
         // custom indices) and before any pass that reads the TLAS is declared.
+        // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
+        // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
-                                                       const System::MeshRenderer& meshes );
+                                                       const System::MeshRenderer& meshes, const glm::vec3& viewOrigin,
+                                                       float drawDistanceScale );
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
@@ -174,10 +178,21 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Instances;
         }
+        // The variant BLAS builds that failed this frame, one line each (the caller logs them).
+        [[nodiscard]] const std::vector<std::string>& GetGatherErrors() const
+        {
+            return m_Gather.Errors;
+        }
+        // (mesh, hidden mask) BLAS variants alive (RayTracingGeometryVariants).
+        [[nodiscard]] std::size_t GetLiveVariants() const
+        {
+            return m_Variants.LiveVariants();
+        }
 
     private:
         std::unique_ptr<RayTracingSceneTarget> m_Target;
-        std::vector<RayTracingPrimitive>       m_Primitives; // CPU scratch, capacity kept
+        RayTracingGatherResult                 m_Gather; // CPU scratch, capacity kept
+        RayTracingGeometryVariants             m_Variants{ MakeVariantBuild() };
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;
     };

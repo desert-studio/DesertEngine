@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 // THE RAY-TRACING SCENE — what a view's TLAS holds this frame (UE FRayTracingScene, its instance list built from
@@ -102,6 +103,21 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] uint32_t InstancesFor( RayTracingPrimitiveKind kind ) const
         {
             return InstancesByKind[static_cast<std::size_t>( kind )];
+        }
+    };
+
+    // What GatherRayTracingPrimitives (RayTracingGather.hpp) produced this frame.
+    struct RayTracingGatherResult
+    {
+        std::vector<RayTracingPrimitive>                                        Primitives;
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{}; // decided by the gather
+        std::vector<std::string> Errors; // one line per variant build that failed this frame
+
+        void Clear()
+        {
+            Primitives.clear();
+            Skipped = {};
+            Errors.clear();
         }
     };
 

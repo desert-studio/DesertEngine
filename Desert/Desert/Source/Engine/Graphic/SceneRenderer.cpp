@@ -1174,9 +1174,20 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            if ( const Common::BoolResultStr tlas = m_RayTracingScene.AddPasses(
-                      graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ), *meshes );
-                 !tlas )
+            const auto* camera = GetMainCamera();
+            const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+            const float     lensScale =
+                 camera != nullptr
+                          ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } )
+                          : 1.0f;
+            const Common::BoolResultStr tlas = m_RayTracingScene.AddPasses(
+                 graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ), *meshes, viewOrigin, lensScale );
+            for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}", m_ViewResources.GetName(),
+                           error );
+            }
+            if ( !tlas )
                 LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
                            "nothing this frame: {}",
                            m_ViewResources.GetName(), tlas.GetError() );
