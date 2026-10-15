@@ -1012,8 +1012,9 @@ namespace Desert::Graphic::System
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
                     block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
                                    RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
-                declared.Read( kind == VFXRendererKind::Mesh ? m_MeshArgsRef : ve.CountersRef,
-                               RDG::Access::IndirectArgs );
+                // Named, not a conditional inline in the by-value argument (the MSVC 19.44 hang of 2026-10-07).
+                const RDG::BufferRef args = kind == VFXRendererKind::Mesh ? m_MeshArgsRef : ve.CountersRef;
+                declared.Read( args, RDG::Access::IndirectArgs );
             }
         };
         return pass;
