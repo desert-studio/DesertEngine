@@ -12,6 +12,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Settings/ProductName.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
@@ -42,9 +43,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <span>
 #include <sstream>
+#include <string>
 #include <system_error>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -66,6 +70,25 @@ namespace Desert::Editor
             size_t   Files = 0;
             uintmax_t Bytes = 0;
         };
+
+        // A vendor runtime pinned by release (ThirdParty/<Vendor>/manifest.json): the binaries are downloaded and
+        // hash-checked by scripts/Windows/FetchVendorBinaries.py, never committed. Files IS the list that ships.
+        struct VendorRuntimeFile
+        {
+            std::string Archive;
+            std::string Sha256;
+        };
+
+        struct VendorRuntimeManifest
+        {
+            std::string                    Name;
+            std::string                    Version;
+            std::string                    Url;
+            std::string                    ArchiveSha256;
+            std::string                    Destination;
+            std::vector<VendorRuntimeFile> Files;
+        };
+        DESERT_JSON_STRUCT( VendorRuntimeManifest, "VendorRuntimeManifest", 1 )
 
         // The pak key the cooked registry ships under — the one path the packager writes rather than stages.
         std::string ShippedRegistryKey()
@@ -827,29 +850,38 @@ namespace Desert::Editor
 
             // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
             // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
-            // StreamlineRuntime), so without these files the packaged game silently has no DLSS. The vendored
-            // directory IS the list — the build copies the same directory beside every executable
-            // (Desert/Dependencies.lua: DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution
-            // licence, which must ship with nvngx_dlss.dll. FSR needs nothing here: the FidelityFX SDK is a
-            // static library with its shaders compiled in.
-            const fs::path streamline =
-                 Common::Constants::Path::EngineDir().parent_path() / "ThirdParty" / "Streamline" / "bin" / "x64";
-            std::error_code dirEc;
-            for ( fs::directory_iterator it( streamline, dirEc ), end; !dirEc && it != end; it.increment( dirEc ) )
-                if ( it->is_regular_file( dirEc ) )
-                    vendorRuntime.push_back( it->path() );
-            if ( dirEc )
-                return {
-                     false,
-                     std::format( "The DLSS runtime (NVIDIA Streamline) the game loads could not be listed from "
-                                  "{}: {}",
-                                  streamline.string(), dirEc.message() ),
-                     "" };
-            if ( std::ranges::none_of( vendorRuntime, []( const fs::path& file )
-                                       { return file.filename() == "sl.interposer.dll"; } ) )
+            // StreamlineRuntime), so without these files the packaged game has no DLSS. The manifest's Files are the
+            // list — the build copies the same list beside every executable (Desert/Dependencies.lua:
+            // DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution licence, which must ship with
+            // nvngx_dlss.dll. The files are downloaded, not committed: one that was never fetched refuses the package
+            // by name, because a shipped game without them would only say so on the player's machine. FSR needs
+            // nothing here: the FidelityFX SDK is a static library with its shaders compiled in.
+            const fs::path streamlineManifest =
+                 Common::Constants::Path::EngineDir().parent_path() / "ThirdParty" / "Streamline" / "manifest.json";
+            auto manifest = Common::Json::ReadFile<VendorRuntimeManifest>( streamlineManifest );
+            if ( !manifest )
                 return { false,
-                         std::format( "{} has no sl.interposer.dll, the DLSS runtime the game loads",
-                                      streamline.string() ),
+                         std::format( "The DLSS runtime (NVIDIA Streamline) manifest could not be read: {}",
+                                      manifest.GetError() ),
+                         "" };
+            const fs::path streamlineDir = streamlineManifest.parent_path() / manifest.GetValue().Destination;
+            std::string missing;
+            for ( const VendorRuntimeFile& entry : manifest.GetValue().Files )
+            {
+                const fs::path file = streamlineDir / fs::path( entry.Archive ).filename();
+                std::error_code fileEc;
+                if ( fs::is_regular_file( file, fileEc ) )
+                    vendorRuntime.push_back( file );
+                else
+                    std::format_to( std::back_inserter( missing ), "{}{}", missing.empty() ? "" : ", ",
+                                    file.filename().string() );
+            }
+            if ( !missing.empty() )
+                return { false,
+                         std::format( "The DLSS runtime ({} {}) is not fetched: {} missing from {}. Run "
+                                      "`python scripts/Windows/FetchVendorBinaries.py` (Setup.bat runs it)",
+                                      manifest.GetValue().Name, manifest.GetValue().Version, missing,
+                                      streamlineDir.string() ),
                          "" };
         }
 

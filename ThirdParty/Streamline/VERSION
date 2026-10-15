@@ -1,4 +1,0 @@
-NVIDIA Streamline SDK v2.14.1
-https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.1/streamline-sdk-v2.14.1.zip
-sha256 92c4d954631a1710da86ca3fa8d5034f2b9503838c95fc4ae977ae149319781b
-Vendored subset: include/, license.txt, bin/x64/{sl.interposer,sl.common,sl.dlss,nvngx_dlss}.dll, bin/x64/nvngx_dlss.license.txt

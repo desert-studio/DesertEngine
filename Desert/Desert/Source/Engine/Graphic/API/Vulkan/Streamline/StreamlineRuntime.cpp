@@ -313,7 +313,11 @@ namespace Desert::Graphic::Streamline
         const std::filesystem::path interposer = directory / kInterposer;
         if ( !std::filesystem::exists( interposer ) )
         {
-            Refuse( std::format( "{} is not next to the executable", interposer.string() ) );
+            // The binaries are downloaded, not committed (ThirdParty/Streamline/manifest.json): a build made before
+            // the fetch, or a package from a machine without it, lands here and says how to fix it.
+            Refuse( std::format( "{} is not next to the executable (not fetched? run `python "
+                                 "scripts/Windows/FetchVendorBinaries.py`, then rebuild)",
+                                 interposer.string() ) );
             return {};
         }
         // Streamline's integration rule: never load an interposer whose NVIDIA signature does not verify (a
