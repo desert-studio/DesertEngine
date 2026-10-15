@@ -189,9 +189,17 @@ namespace Desert::Graphic
         if ( scene.Captures.empty() && census != m_SurfaceCacheLoggedCensus )
         {
             m_SurfaceCacheLoggedCensus = census;
-            LOG_INFO( "[SurfaceCache] settled: {} instance(s), {} card(s), {} resident, {} captured, {} page(s)",
+            LOG_INFO( "[SurfaceCache] settled: {} instance(s), {} card(s), {} resident, {} captured, {} at high "
+                      "resolution, {} page(s)",
                       scene.MeshCards.size(), scene.Cards.size(), scene.ResidentCards, scene.CapturedCards,
-                      scene.Pages.size() );
+                      scene.HighResCards, scene.Pages.size() );
+            if ( scene.MissingMinimumCards != 0 )
+            {
+                LOG_WARN(
+                     "[SurfaceCache] the atlas cannot hold the smallest resolution of {} of {} card(s): raise "
+                     "GlobalIllumination.SurfaceCacheAtlasSize of this quality; their hits are lit in place",
+                     scene.MissingMinimumCards, scene.Cards.size() );
+            }
         }
 
         SurfaceCacheFrameRecord record;

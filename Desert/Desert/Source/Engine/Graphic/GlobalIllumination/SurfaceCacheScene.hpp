@@ -22,8 +22,11 @@
 // instance it has not seen is ADDED (its cards enter the scene), one it no longer gets is REMOVED (its pages
 // return to the allocator), one whose world changed MOVES (its cards follow; the captured texels stay valid,
 // they are card space - only a change of the card's world SIZE asks for a new resolution). Then every card gets
-// the resolution its distance asks for; the atlas is spent nearest first, and a card that does not fit takes
-// pages from the farthest cards holding them (UE: the surface cache is a budget, its farthest cards pay).
+// the resolution its distance asks for. Every card holds a LOW mip of the smallest card side, always (UE: the
+// locked low-resolution allocation of each card, LumenSurfaceCacheSampling.ush MIN_CARD_RESOLUTION), so a ray hit
+// always finds a surface, coarse or not; the atlas left over is spent on HIGH mips nearest first, and a card that
+// does not fit takes the pages of the farthest high mips (UE: the high-resolution pages are the budget, the
+// farthest pay). A low mip outranks every high mip: it evicts high mips, never another low mip.
 // Finally the cards still to be captured are chosen, nearest first, and packed into the frame's capture atlas
 // (UE LumenSceneCardCapture: a capture atlas of the frame's captures, copied into the surface cache).
 namespace Desert::Graphic::SurfaceCache
@@ -126,6 +129,10 @@ namespace Desert::Graphic::SurfaceCache
         uint64_t Frame         = 0;
         uint32_t ResidentCards = 0;
         uint32_t CapturedCards = 0;
+        uint32_t HighResCards  = 0; // cards showing their high mip
+        // Cards the atlas could not give even their low mip (every high mip already evicted): the quality's
+        // GlobalIllumination.SurfaceCacheAtlasSize is too small for the scene; their hits are lit in place.
+        uint32_t MissingMinimumCards = 0;
     };
 
     class SurfaceCacheScene
@@ -156,23 +163,38 @@ namespace Desert::Graphic::SurfaceCache
         }
 
     private:
+        // One resolution of a card: its pages in the atlas and whether they hold a capture.
+        struct CardMip
+        {
+            uint32_t               ResX = 0, ResY = 0; // allocated resolution; 0 = not resident
+            uint32_t               PagesX = 0, PagesY = 0;
+            std::vector<AtlasRect> Pages; // PagesX * PagesY, row-major
+            bool                   Captured = false;
+            uint64_t CaptureFrame           = 0; // the frame whose graph captures it, until that graph executes
+        };
+        enum class ShownMip : uint8_t
+        {
+            None,
+            Low,
+            High
+        };
         struct Card
         {
             Assets::CardBuildData Build;
             // World frame of the card (rotation rows X, Y, Z; Z = the direction the card faces), its world centre
             // and half size along those axes.
-            glm::mat3              Axes{ 1.0f };
-            glm::vec3              Center{ 0.0f };
-            glm::vec3              Extent{ 0.0f };
-            uint32_t               ResX = 0, ResY = 0; // allocated resolution; 0 = not resident
-            uint32_t               PagesX = 0, PagesY = 0;
-            std::vector<AtlasRect> Pages; // PagesX * PagesY, row-major
-            bool                   Captured = false;
-            uint64_t CaptureFrame           = 0;    // the frame whose graph captures it, until that graph executes
-            bool     Ready                  = true; // the owning instance's CaptureReady this frame
-            float    Distance               = 0.0f;
+            glm::mat3 Axes{ 1.0f };
+            glm::vec3 Center{ 0.0f };
+            glm::vec3 Extent{ 0.0f };
+            // The guaranteed minimum (the smallest card side on both sides) and the distance-driven resolution
+            // above it. The GPU record shows the high mip once it holds a capture, the low mip otherwise.
+            CardMip  Low;
+            CardMip  High;
+            ShownMip Shown    = ShownMip::None; // the mip the last frame's record showed lit
+            bool     Ready    = true;           // the owning instance's CaptureReady this frame
+            float    Distance = 0.0f;
             uint32_t WantX = 0, WantY = 0;
-            // The resolution asked at the last allocation: a card the full atlas placed smaller than it asked
+            // The high resolution asked at the last allocation: a card the full atlas placed smaller than it asked
             // keeps its pages until it asks for more than that, instead of being freed and recaptured every frame.
             uint32_t AskedX = 0, AskedY = 0;
         };
@@ -189,8 +211,9 @@ namespace Desert::Graphic::SurfaceCache
         };
 
         void                   PlaceCards( Instance& instance ) const;
+        void                   FreeMip( CardMip& mip );
         void                   FreeCard( Card& card );
-        [[nodiscard]] bool     AllocateCard( Card& card, uint32_t resX, uint32_t resY );
+        [[nodiscard]] bool     AllocateMip( CardMip& mip, uint32_t resX, uint32_t resY );
         [[nodiscard]] uint32_t WantedLongSide( const Card& card ) const;
         [[nodiscard]] uint32_t AllocateRow();
         void                   FreeRow( uint32_t row );

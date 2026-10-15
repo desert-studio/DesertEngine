@@ -16,6 +16,8 @@ namespace Desert::Graphic::SurfaceCache
         // UE GetCardMaxResolution clamps the viewer distance to a metre: a card the camera stands inside is not
         // asked for infinite texels.
         constexpr float kMinViewerDistance = 100.0f; // cm
+        // "No card": an eviction for a low mip, which outranks every high mip whatever its distance.
+        constexpr uint32_t kNoCard = std::numeric_limits<uint32_t>::max();
 
         [[nodiscard]] uint32_t Pow2Ceil( const uint32_t value )
         {
@@ -157,10 +159,9 @@ namespace Desert::Graphic::SurfaceCache
         for ( auto& [key, instance] : m_Instances )
             for ( Card& card : instance.Cards )
             {
-                card.Pages.clear();
-                card.ResX = card.ResY = card.PagesX = card.PagesY = 0;
-                card.Captured                                     = false;
-                card.CaptureFrame                                 = 0;
+                card.Low   = {};
+                card.High  = {};
+                card.Shown = ShownMip::None;
             }
     }
 
@@ -176,17 +177,21 @@ namespace Desert::Graphic::SurfaceCache
         }
     }
 
-    void SurfaceCacheScene::FreeCard( Card& card )
+    void SurfaceCacheScene::FreeMip( CardMip& mip )
     {
-        for ( const AtlasRect& page : card.Pages )
+        for ( const AtlasRect& page : mip.Pages )
             m_Allocator.Free( page );
-        card.Pages.clear();
-        card.ResX = card.ResY = card.PagesX = card.PagesY = 0;
-        card.Captured                                     = false;
-        card.CaptureFrame                                 = 0;
+        mip = {};
     }
 
-    bool SurfaceCacheScene::AllocateCard( Card& card, const uint32_t resX, const uint32_t resY )
+    void SurfaceCacheScene::FreeCard( Card& card )
+    {
+        FreeMip( card.Low );
+        FreeMip( card.High );
+        card.Shown = ShownMip::None;
+    }
+
+    bool SurfaceCacheScene::AllocateMip( CardMip& mip, const uint32_t resX, const uint32_t resY )
     {
         const auto [pagesX, sizeX] = PageLayout( resX );
         const auto [pagesY, sizeY] = PageLayout( resY );
@@ -203,13 +208,13 @@ namespace Desert::Graphic::SurfaceCache
             }
             pages.push_back( *rect );
         }
-        card.Pages        = std::move( pages );
-        card.ResX         = resX;
-        card.ResY         = resY;
-        card.PagesX       = pagesX;
-        card.PagesY       = pagesY;
-        card.Captured     = false;
-        card.CaptureFrame = 0;
+        mip.Pages        = std::move( pages );
+        mip.ResX         = resX;
+        mip.ResY         = resY;
+        mip.PagesX       = pagesX;
+        mip.PagesY       = pagesY;
+        mip.Captured     = false;
+        mip.CaptureFrame = 0;
         return true;
     }
 
@@ -271,10 +276,11 @@ namespace Desert::Graphic::SurfaceCache
                 // Another surface: the texels hold the old material; the pages stay, the cards are recaptured.
                 it->second.SurfaceKey = in.SurfaceKey;
                 for ( Card& card : it->second.Cards )
-                {
-                    card.Captured     = false;
-                    card.CaptureFrame = 0;
-                }
+                    for ( CardMip* mip : { &card.Low, &card.High } )
+                    {
+                        mip->Captured     = false;
+                        mip->CaptureFrame = 0;
+                    }
             }
             for ( Card& card : it->second.Cards )
                 card.Ready = in.CaptureReady;
@@ -322,58 +328,115 @@ namespace Desert::Graphic::SurfaceCache
         std::stable_sort( cards.begin(), cards.end(),
                           []( const Card* a, const Card* b ) { return a->Distance < b->Distance; } );
 
-        // ALLOCATION, nearest first. A resident card is reallocated when it wants more texels than it last asked
-        // for (a card the full atlas placed smaller keeps what it got until then - reallocating it every frame
-        // recaptured it every frame and the cache never settled), or a quarter of what it holds on both sides
-        // (hysteresis: a camera wobbling at a level boundary does not recapture).
-        // A full atlas makes room for a nearer card by evicting a whole PHYSICAL PAGE whose every occupant is
-        // farther than it (the page of the farthest such nearest occupant), and only when such a page exists.
-        // Evicting farther cards one by one freed bin elements that never added up to a page the nearer card
-        // could use: it failed anyway, the evicted cards took their slots back later in the same frame, and
-        // each of them was recaptured - every frame, for ever (Bistro: 256 captures a frame at frame 600).
+        // ALLOCATION. The high mips' pages are tracked by physical page (page -> indices of the sorted cards whose
+        // high mip lies on it): a page is freed for a card by evicting every high mip on it. Low mips sit in bins
+        // of the smallest card side, which a high mip never asks for (it is larger on one side at least), so a
+        // page holding low mips never has a high occupant and is never evicted.
         const uint32_t                     pagesPerSide = AtlasPagesPerSide( m_Budget.AtlasSize );
         std::vector<std::vector<uint32_t>> occupants( static_cast<std::size_t>( pagesPerSide ) * pagesPerSide );
         const auto                         pageOf = [pagesPerSide]( const AtlasRect& rect )
         { return rect.Y / kPhysicalPageSize * pagesPerSide + rect.X / kPhysicalPageSize; };
         const auto occupy = [&]( const uint32_t index )
         {
-            for ( const AtlasRect& rect : cards[index]->Pages )
+            for ( const AtlasRect& rect : cards[index]->High.Pages )
                 occupants[pageOf( rect )].push_back( index );
         };
-        const auto evict = [&]( const uint32_t index )
+        const auto evictHigh = [&]( const uint32_t index )
         {
-            for ( const AtlasRect& rect : cards[index]->Pages )
+            for ( const AtlasRect& rect : cards[index]->High.Pages )
                 std::erase( occupants[pageOf( rect )], index );
-            FreeCard( *cards[index] );
+            FreeMip( cards[index]->High );
+        };
+        // The page whose nearest high occupant is the farthest, if that occupant is farther than @p nearerThan.
+        const auto farthestPage = [&]( const uint32_t nearerThan )
+        {
+            std::size_t victimPage = occupants.size();
+            uint32_t    victimNear = nearerThan;
+            for ( std::size_t page = 0; page < occupants.size(); ++page )
+            {
+                if ( occupants[page].empty() )
+                    continue;
+                const uint32_t nearest = *std::min_element( occupants[page].begin(), occupants[page].end() );
+                if ( victimNear == kNoCard || nearest > victimNear )
+                {
+                    victimNear = nearest;
+                    victimPage = page;
+                }
+            }
+            return victimPage;
+        };
+        const auto evictPage = [&]( const std::size_t page )
+        {
+            const std::vector<uint32_t> victims = occupants[page];
+            for ( const uint32_t victim : victims )
+                evictHigh( victim );
         };
         for ( uint32_t i = 0; i < cards.size(); ++i )
             occupy( i );
+
+        // LOW MIPS, nearest first: every card holds the smallest card side, always. One that does not fit takes
+        // the page of the farthest high mips, whatever their distance; with no high mip left the atlas is too
+        // small for the scene's minimum (SceneFrame::MissingMinimumCards).
+        for ( uint32_t i = 0; i < cards.size(); ++i )
+        {
+            CardMip& low = cards[i]->Low;
+            if ( low.ResX == minRes && low.ResY == minRes )
+                continue;
+            FreeMip( low );
+            for ( ;; )
+            {
+                if ( AllocateMip( low, minRes, minRes ) )
+                    break;
+                const std::size_t page = farthestPage( kNoCard );
+                if ( page == occupants.size() )
+                {
+                    ++frame.MissingMinimumCards;
+                    break;
+                }
+                evictPage( page );
+            }
+        }
+
+        // HIGH MIPS, nearest first, for the cards asking more than the minimum. A resident high mip is
+        // reallocated when it wants more texels than it last asked for (a card the full atlas placed smaller keeps
+        // what it got until then - reallocating it every frame recaptured it every frame and the cache never
+        // settled), or a quarter of what it holds on both sides (hysteresis: a camera wobbling at a level boundary
+        // does not recapture). A full atlas makes room by evicting a whole PHYSICAL PAGE whose every high occupant
+        // is farther than the card (the page of the farthest such nearest occupant), and only when one exists:
+        // evicting farther cards one by one freed bin elements that never added up to a page the card could use.
+        // A high mip that does not fit at any resolution above the minimum is not placed; the card shows its low.
         // Once no page is wholly farther than a card, none is for any farther card either.
         bool evictable = true;
         for ( uint32_t i = 0; i < cards.size(); ++i )
         {
             Card&      card     = *cards[i];
-            const bool resident = card.ResX != 0;
-            if ( resident && card.WantX <= std::max( card.ResX, card.AskedX ) &&
-                 card.WantY <= std::max( card.ResY, card.AskedY ) &&
-                 !( card.WantX * 4u <= card.ResX && card.WantY * 4u <= card.ResY ) )
+            CardMip&   high     = card.High;
+            const bool wanted   = card.WantX > minRes || card.WantY > minRes;
+            const bool resident = high.ResX != 0;
+            if ( !wanted )
+            {
+                if ( resident )
+                    evictHigh( i );
                 continue;
-            evict( i );
+            }
+            if ( resident && card.WantX <= std::max( high.ResX, card.AskedX ) &&
+                 card.WantY <= std::max( high.ResY, card.AskedY ) &&
+                 !( card.WantX * 4u <= high.ResX && card.WantY * 4u <= high.ResY ) )
+                continue;
+            evictHigh( i );
             card.AskedX = card.WantX;
             card.AskedY = card.WantY;
             for ( ;; )
             {
                 uint32_t resX = card.WantX, resY = card.WantY;
                 bool     placed = false;
-                for ( ;; )
+                while ( resX > minRes || resY > minRes )
                 {
-                    if ( AllocateCard( card, resX, resY ) )
+                    if ( AllocateMip( high, resX, resY ) )
                     {
                         placed = true;
                         break;
                     }
-                    if ( resX <= minRes && resY <= minRes )
-                        break;
                     resX = std::max( minRes, resX / 2u );
                     resY = std::max( minRes, resY / 2u );
                 }
@@ -382,28 +445,13 @@ namespace Desert::Graphic::SurfaceCache
                     occupy( i );
                     break;
                 }
-                // The page whose nearest occupant is the farthest, if that occupant is farther than this card.
-                std::size_t victimPage = occupants.size();
-                uint32_t    victimNear = i;
-                for ( std::size_t page = 0; evictable && page < occupants.size(); ++page )
-                {
-                    if ( occupants[page].empty() )
-                        continue;
-                    const uint32_t nearest = *std::min_element( occupants[page].begin(), occupants[page].end() );
-                    if ( nearest > victimNear )
-                    {
-                        victimNear = nearest;
-                        victimPage = page;
-                    }
-                }
-                if ( victimPage == occupants.size() )
+                const std::size_t page = evictable ? farthestPage( i ) : occupants.size();
+                if ( page == occupants.size() )
                 {
                     evictable = false;
                     break;
                 }
-                const std::vector<uint32_t> victims = occupants[victimPage];
-                for ( const uint32_t victim : victims )
-                    evict( victim );
+                evictPage( page );
             }
         }
 
@@ -420,50 +468,63 @@ namespace Desert::Graphic::SurfaceCache
 
             for ( auto& [key, instance] : m_Instances )
                 for ( Card& card : instance.Cards )
-                {
-                    if ( card.CaptureFrame == 0 )
-                        continue;
-                    if ( std::find( executed.begin(), executed.end(), card.CaptureFrame ) != executed.end() )
+                    for ( CardMip* mip : { &card.Low, &card.High } )
                     {
-                        card.Captured     = true;
-                        card.CaptureFrame = 0;
+                        if ( mip->CaptureFrame == 0 )
+                            continue;
+                        if ( std::find( executed.begin(), executed.end(), mip->CaptureFrame ) != executed.end() )
+                        {
+                            mip->Captured     = true;
+                            mip->CaptureFrame = 0;
+                        }
+                        else if ( mip->CaptureFrame + kCaptureConfirmFrames < m_Frame )
+                            mip->CaptureFrame = 0;
                     }
-                    else if ( card.CaptureFrame + kCaptureConfirmFrames < m_Frame )
-                        card.CaptureFrame = 0;
-                }
         }
 
-        // CAPTURES, nearest first, shelf-packed into the capture atlas (rows of the tallest card in them).
-        uint32_t                        shelfX = 0, shelfY = 0, shelfHeight = 0;
-        std::map<const Card*, uint32_t> captured; // card -> index in frame.Captures
-        for ( Card* card : cards )
+        // CAPTURES, shelf-packed into the capture atlas (rows of the tallest mip in them): every low mip first,
+        // nearest first - the guaranteed surface before any sharper one - then the high mips, nearest first. A
+        // low mip is captured even under a captured high one: it is what the card shows once the high is evicted.
+        uint32_t                           shelfX = 0, shelfY = 0, shelfHeight = 0;
+        std::map<const CardMip*, uint32_t> captured; // mip -> index in frame.Captures
+        const auto                         capture = [&]( const Card& card, CardMip& mip )
         {
-            if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
-                break;
-            if ( card->ResX == 0 || card->Captured || card->CaptureFrame != 0 || !card->Ready )
-                continue;
-            if ( shelfX + card->ResX > m_CaptureAtlasSize )
+            if ( mip.ResX == 0 || mip.Captured || mip.CaptureFrame != 0 || !card.Ready )
+                return;
+            if ( shelfX + mip.ResX > m_CaptureAtlasSize )
             {
                 shelfX = 0;
                 shelfY += shelfHeight;
                 shelfHeight = 0;
             }
-            if ( shelfY + card->ResY > m_CaptureAtlasSize )
-                continue; // the next frame's atlas
-            CardCapture capture;
-            capture.CaptureRect = { shelfX, shelfY, card->ResX, card->ResY };
-            shelfX += card->ResX;
-            shelfHeight = std::max( shelfHeight, card->ResY );
+            if ( shelfY + mip.ResY > m_CaptureAtlasSize )
+                return; // the next frame's atlas
+            CardCapture entry;
+            entry.CaptureRect = { shelfX, shelfY, mip.ResX, mip.ResY };
+            shelfX += mip.ResX;
+            shelfHeight = std::max( shelfHeight, mip.ResY );
             // The card camera: on the card plane (the face the card direction points out of), looking back
             // into the box, X right and Y up, the box's depth its depth range.
-            const glm::vec3 y = card->Axes[1], z = card->Axes[2];
-            capture.Eye        = card->Center + z * card->Extent.z;
-            capture.View       = glm::lookAt( capture.Eye, capture.Eye - z, y );
-            capture.Projection = Core::MakeOrthographic( -card->Extent.x, card->Extent.x, -card->Extent.y,
-                                                         card->Extent.y, 0.0f, 2.0f * card->Extent.z );
-            captured.emplace( card, static_cast<uint32_t>( frame.Captures.size() ) );
-            frame.Captures.push_back( capture );
-            card->CaptureFrame = m_Frame;
+            const glm::vec3 y = card.Axes[1], z = card.Axes[2];
+            entry.Eye        = card.Center + z * card.Extent.z;
+            entry.View       = glm::lookAt( entry.Eye, entry.Eye - z, y );
+            entry.Projection = Core::MakeOrthographic( -card.Extent.x, card.Extent.x, -card.Extent.y,
+                                                       card.Extent.y, 0.0f, 2.0f * card.Extent.z );
+            captured.emplace( &mip, static_cast<uint32_t>( frame.Captures.size() ) );
+            frame.Captures.push_back( entry );
+            mip.CaptureFrame = m_Frame;
+        };
+        for ( Card* card : cards )
+        {
+            if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
+                break;
+            capture( *card, card->Low );
+        }
+        for ( Card* card : cards )
+        {
+            if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
+                break;
+            capture( *card, card->High );
         }
 
         // THE GPU RECORDS (compact, this frame's order) and the page copies of this frame's captures.
@@ -498,63 +559,87 @@ namespace Desert::Graphic::SurfaceCache
                 CardPayload    payload;
                 for ( int r = 0; r < 3; ++r )
                     payload.WorldToLocal[r] = glm::vec4( card.Axes[r], card.Center[r] );
-                const bool resident = card.ResX != 0;
-                payload.LocalExtent = glm::vec4( card.Extent, resident ? 2.0f * card.Extent.x / card.ResX : 0.0f );
-                payload.Pages       = glm::uvec4( card.PagesX | ( card.PagesY << 16u ),
+                // A mip is shown (and lit) once captured, or while this frame's graph captures it: the same graph
+                // copies the capture into the atlas before any reader, and a dropped graph drops its readers with
+                // it. The record shows the high mip when it can, the low mip otherwise (UE: an unmapped
+                // high-resolution page falls back to the locked low-resolution one).
+                const auto shows = [this]( const CardMip& mip )
+                { return mip.ResX != 0 && ( mip.Captured || mip.CaptureFrame == m_Frame ); };
+                ShownMip shownMip = ShownMip::None;
+                if ( shows( card.High ) )
+                    shownMip = ShownMip::High;
+                else if ( card.Low.ResX != 0 )
+                    shownMip = ShownMip::Low;
+                else if ( card.High.ResX != 0 )
+                    shownMip = ShownMip::High;
+                const CardMip& mip       = shownMip == ShownMip::High ? card.High : card.Low;
+                const bool     resident  = shownMip != ShownMip::None;
+                const bool     visible   = resident && shows( mip );
+                const bool     capturing = resident && mip.CaptureFrame == m_Frame;
+                // A mip shown lit for the first time without a capture this frame (the high one evicted, the low
+                // one back on show) has lit layers its last lighting left, or a stranger's: lit like a capture.
+                const bool relight  = visible && ( capturing || card.Shown != shownMip );
+                card.Shown          = visible ? shownMip : ShownMip::None;
+                payload.LocalExtent = glm::vec4( card.Extent, resident ? 2.0f * card.Extent.x / mip.ResX : 0.0f );
+                payload.Pages       = glm::uvec4( mip.PagesX | ( mip.PagesY << 16u ),
                                                   static_cast<uint32_t>( frame.Pages.size() ), 0u, 0u );
-                // Shown (and lit) once captured, or while this frame's graph captures it: the same graph copies
-                // the capture into the atlas before any reader, and a dropped graph drops its readers with it.
-                const bool capturing = card.CaptureFrame == m_Frame;
-                const bool visible   = resident && ( card.Captured || capturing );
                 payload.Info =
-                     glm::uvec4( ( resident ? Log2( card.ResX ) | ( Log2( card.ResY ) << 8u ) : 0u ) |
+                     glm::uvec4( ( resident ? Log2( mip.ResX ) | ( Log2( mip.ResY ) << 8u ) : 0u ) |
                                       ( direction << 16u ) | ( 0xFu << 20u ) | ( visible ? 1u << 24u : 0u ),
                                  meshIndex, 0u, 0u );
                 frame.Cards.push_back( payload );
                 frame.ResidentCards += resident ? 1u : 0u;
                 frame.CapturedCards += visible ? 1u : 0u;
+                frame.HighResCards += visible && shownMip == ShownMip::High ? 1u : 0u;
 
-                const auto capture = captured.find( &card );
-                for ( uint32_t py = 0; py < card.PagesY; ++py )
-                    for ( uint32_t px = 0; px < card.PagesX; ++px )
+                for ( uint32_t py = 0; py < mip.PagesY; ++py )
+                    for ( uint32_t px = 0; px < mip.PagesX; ++px )
                     {
-                        const AtlasRect& rect = card.Pages[py * card.PagesX + px];
+                        const AtlasRect& rect = mip.Pages[py * mip.PagesX + px];
                         const glm::uvec2 offset( px * kVirtualPageSize, py * kVirtualPageSize );
                         CardPagePayload  page;
-                        // z = 1: captured this frame (its lit layers hold a stranger's texels until relit).
-                        page.Card       = glm::uvec4( cardIndex, 1u, capture != captured.end() ? 1u : 0u, 0u );
-                        page.CardUVRect = glm::vec4( static_cast<float>( offset.x ) / card.ResX,
-                                                     static_cast<float>( offset.y ) / card.ResY,
-                                                     static_cast<float>( rect.Width ) / card.ResX,
-                                                     static_cast<float>( rect.Height ) / card.ResY );
+                        // z = 1: captured or first shown this frame (its lit layers hold stale or a stranger's
+                        // texels until relit).
+                        page.Card       = glm::uvec4( cardIndex, 1u, relight ? 1u : 0u, 0u );
+                        page.CardUVRect = glm::vec4( static_cast<float>( offset.x ) / mip.ResX,
+                                                     static_cast<float>( offset.y ) / mip.ResY,
+                                                     static_cast<float>( rect.Width ) / mip.ResX,
+                                                     static_cast<float>( rect.Height ) / mip.ResY );
                         page.PhysicalAtlasUVRect =
                              glm::vec4( rect.X / atlas, rect.Y / atlas, rect.Width / atlas, rect.Height / atlas );
                         page.TexelScale =
-                             glm::vec4( 1.0f / card.ResX, 1.0f / card.ResY, 1.0f / atlas, 1.0f / atlas );
+                             glm::vec4( 1.0f / mip.ResX, 1.0f / mip.ResY, 1.0f / atlas, 1.0f / atlas );
                         // DIRECT LIGHTING BUDGET (UE r.LumenScene.DirectLighting.UpdateFactor): a page captured
-                        // this frame is lit in it; every other visible page in one frame of
+                        // or first shown this frame is lit in it; every other visible page in one frame of
                         // DirectLightingUpdateFactor, chosen by its PHYSICAL page (stable while allocated;
                         // sub-allocated cards of one page relight together).
                         const uint32_t physicalPage =
                              rect.X / kPhysicalPageSize +
                              rect.Y / kPhysicalPageSize * AtlasPagesPerSide( m_Budget.AtlasSize );
-                        if ( visible &&
-                             ( capturing || physicalPage % lightingFactor == m_Frame % lightingFactor ) )
+                        if ( visible && ( relight || physicalPage % lightingFactor == m_Frame % lightingFactor ) )
                             frame.LightingPages.push_back( static_cast<uint32_t>( frame.Pages.size() ) );
                         frame.Pages.push_back( page );
-                        if ( capture != captured.end() )
+                    }
+                // The page copies of every mip captured this frame, shown or not.
+                for ( const CardMip* source : { &card.Low, &card.High } )
+                {
+                    const auto entry = captured.find( source );
+                    if ( entry == captured.end() )
+                        continue;
+                    CardCapture& captureEntry = frame.Captures[entry->second];
+                    captureEntry.Source       = instance.Source;
+                    captureEntry.World        = instance.World;
+                    for ( uint32_t py = 0; py < source->PagesY; ++py )
+                        for ( uint32_t px = 0; px < source->PagesX; ++px )
                         {
-                            const AtlasRect& source = frame.Captures[capture->second].CaptureRect;
+                            const AtlasRect& rect = source->Pages[py * source->PagesX + px];
+                            const glm::uvec2 offset( px * kVirtualPageSize, py * kVirtualPageSize );
                             frame.Copies.push_back(
-                                 { glm::uvec4( source.X, source.Y, card.ResX, card.ResY ),
+                                 { glm::uvec4( captureEntry.CaptureRect.X, captureEntry.CaptureRect.Y,
+                                               source->ResX, source->ResY ),
                                    glm::uvec4( rect.X, rect.Y, rect.Width | ( rect.Height << 16u ),
                                                offset.x | ( offset.y << 16u ) ) } );
                         }
-                    }
-                if ( capture != captured.end() )
-                {
-                    frame.Captures[capture->second].Source = instance.Source;
-                    frame.Captures[capture->second].World  = instance.World;
                 }
             }
             frame.MeshCards.push_back( mesh );
