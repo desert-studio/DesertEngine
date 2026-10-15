@@ -106,6 +106,11 @@ namespace Desert::Graphic
         glm::vec3 BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     BoundingBoxLineWidth = 1.5f;
 
+        // The surface-cache card placement (UE r.Lumen.Visualize.CardPlacement): every drawn static mesh's cards
+        // as wireframe boxes coloured by the direction they face - the check that cards cover the walls and the
+        // kerbs. Drawn by MeshRenderer's debug line pass, like the AABBs (MeshRenderer::SetCardPlacementView).
+        bool ShowCardPlacement = false;
+
         // View modes. These are alternatives to "Lit" rather than overlays, and the editor's View Mode
         // dropdown is what keeps them mutually exclusive; the renderer simply honours whatever it is given.
         //

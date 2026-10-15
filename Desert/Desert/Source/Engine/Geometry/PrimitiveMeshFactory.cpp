@@ -1,5 +1,6 @@
 #include "PrimitiveMeshFactory.hpp"
 
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -53,12 +54,22 @@ namespace Desert::Geometry
         }
         auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>();
         mesh.SetDistanceField( slot );
+        // The surface-cache cards too, built in the same job from the same triangles (no asset, no DDC key).
+        auto cards = std::make_shared<Assets::MeshCardsSlot>();
+        mesh.SetCards( cards );
         Assets::EnqueueMeshDistanceField(
              std::move( slot ), std::format( "primitive '{}'", PrimitiveTypeName( type ) ),
-             [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() )](
-                  bool& built ) -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
+             [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards,
+              type]( bool& built ) -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
              {
-                 built      = true;
+                 built = true;
+                 if ( auto cardBuild = Assets::BuildMeshCards( *in, Assets::MeshCardsBuildSettings{} );
+                      cardBuild.IsSuccess() )
+                     cards->Publish(
+                          std::make_shared<const Assets::MeshCardsBuildData>( cardBuild.ExtractValue() ) );
+                 else
+                     LOG_ERROR( "[PrimitiveMeshFactory] '{}' has no surface-cache cards: {}",
+                                PrimitiveTypeName( type ), cardBuild.GetError() );
                  auto field = Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{} );
                  if ( !field.IsSuccess() )
                      return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(

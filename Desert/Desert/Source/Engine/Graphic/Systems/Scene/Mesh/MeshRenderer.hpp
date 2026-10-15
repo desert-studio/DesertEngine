@@ -646,6 +646,15 @@ namespace Desert::Graphic::System
             m_BoundingBoxLineWidth = bbLineWidth;
 #endif
         }
+        // The surface-cache card placement overlay (UE r.Lumen.Visualize.CardPlacement): every drawn static mesh's
+        // cards (Assets::MeshCardsBuildData) as wireframe boxes, coloured by the direction each faces. Drawn by
+        // the same debug line pipeline as the AABBs; accepted and dropped in a player's build.
+        void SetCardPlacementView( [[maybe_unused]] bool showCards )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            m_ShowCardPlacement = showCards;
+#endif
+        }
 
     private:
         bool SetupGeometryPass();
@@ -926,6 +935,7 @@ namespace Desert::Graphic::System
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     m_BoundingBoxLineWidth = 1.5f;
+        bool      m_ShowCardPlacement    = false; // card wireframes, same pipeline (SetCardPlacementView)
 
         // Debug line renderer (AABB wireframes): Lines-topology pipeline + storage-buffer line verts.
         std::shared_ptr<GraphicsPipeline>  m_DebugLinePipeline;

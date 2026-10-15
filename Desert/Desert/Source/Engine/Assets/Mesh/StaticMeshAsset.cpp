@@ -2,6 +2,7 @@
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -137,6 +138,7 @@ namespace Desert::Assets
         // The distance field is keyed on this render data; ResolveDependencies derives it once the materials load.
         m_RenderDataKey = raw.GetValue().Key;
         m_DistanceField.reset();
+        m_Cards.reset();
         m_DependenciesResolved = false;
 
         m_IsReadyForUse = true;
@@ -154,6 +156,7 @@ namespace Desert::Assets
         // noticed.
         m_MaterialAssetHandles.clear();
         m_DistanceField.reset();
+        m_Cards.reset();
         m_MaterialGuids.clear();
         m_MaterialGuids.shrink_to_fit();
         m_DependenciesResolved = false;
@@ -175,6 +178,7 @@ namespace Desert::Assets
     void StaticMeshAsset::ResolveDependencies( AssetManager& manager )
     {
         m_DistanceField.reset();
+        m_Cards.reset();
         // An unread shell has no render data yet; AssetBase::EnsureLoaded runs this again after the read.
         if ( !m_IsReadyForUse )
             return;
@@ -206,6 +210,8 @@ namespace Desert::Assets
         // reload makes a new slot, so a late field lands in a slot nothing reads any more.
         auto slot       = std::make_shared<MeshDistanceFieldSlot>();
         m_DistanceField = slot;
+        auto cards      = std::make_shared<MeshCardsSlot>();
+        m_Cards         = cards;
         auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
@@ -216,8 +222,16 @@ namespace Desert::Assets
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
-              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() )]( bool& built )
+              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards]( bool& built )
              {
+                 // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
+                 // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
+                 // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.
+                 if ( auto loaded = LoadMeshCards( path, key, sided, *in ); loaded.IsSuccess() )
+                     cards->Publish( loaded.ExtractValue() );
+                 else
+                     LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards", path.string(),
+                                loaded.GetError() );
                  return LoadMeshDistanceField(
                       path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
                       { return Common::MakeSuccess( *in ); }, &built );

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <glm/glm.hpp>
@@ -37,8 +38,6 @@
 //   * Positions are plain float (centimetres, world units). UE splits each card origin into a high/low pair for
 //     Large World Coordinates (DFHackToFloat, "LUMEN_LWC_TODO"); this engine's worlds are float-positioned
 //     everywhere else, so a split here would buy no precision the rest of the frame keeps.
-//   * The lighting layers are RGBA16F: ImageFormat has no R11G11B10 yet (UE PF_FloatR11G11B10). GI-SURFACE-CACHE
-//     adds the enumerator together with its producer and halves these layers then.
 namespace Desert::Graphic::SurfaceCache
 {
     // ---- Page geometry (LumenSurfaceCacheSampling.ush:80-86, Lumen::PhysicalPageSize et al.) ------------------
@@ -54,22 +53,13 @@ namespace Desert::Graphic::SurfaceCache
     static_assert( ( 1u << kMinResLevel ) == kMinCardResolution );
     static_assert( ( 1u << kSubAllocationResLevel ) == kPhysicalPageSize );
 
-    // The six directions a card faces, Lumen's AxisAlignedDirectionIndex order: axis = index / 2, sign = index % 2
-    // (0 = towards negative). A ray of direction d may be lit by the cards whose direction faces -d.
-    enum class CardDirection : uint32_t
-    {
-        NegativeX = 0,
-        PositiveX,
-        NegativeY,
-        PositiveY,
-        NegativeZ,
-        PositiveZ,
-        Count
-    };
-    inline constexpr uint32_t kCardDirections = static_cast<uint32_t>( CardDirection::Count );
-
-    // Cards of one mesh. A direction's coverage is a 32-bit mask over the mesh's cards (see the header note).
-    inline constexpr uint32_t kMaxCardsPerMesh = 32;
+    // The card directions, the per-mesh card limit and the built cards are the mesh asset's derived data
+    // (Assets/MeshCardRepresentation.hpp, the card build): one home, named here for the GPU side.
+    using Assets::CardBuildData;
+    using Assets::CardDirection;
+    using Assets::kCardDirections;
+    using Assets::kMaxCardsPerMesh;
+    using Assets::MeshCardsBuildData;
 
     // ---- The atlases (LumenSurfaceCacheSampling.ush:8-16; FLumenSceneData atlases) ----------------------------
     // Captured layers are written by the card capture (a raster of the mesh from the card's direction); lit layers
@@ -92,36 +82,15 @@ namespace Desert::Graphic::SurfaceCache
     inline constexpr std::size_t kLayerCount = static_cast<std::size_t>( Layer::Count );
 
     inline constexpr std::array<Core::Formats::ImageFormat, kLayerCount> kLayerFormats{
-         Core::Formats::ImageFormat::R16_UNORM, // Depth           (UE PF_G16)
-         Core::Formats::ImageFormat::RGBA8F,    // Albedo          (UE PF_R8G8B8A8, BC7 when compressed)
-         Core::Formats::ImageFormat::R8_UNORM,  // Opacity         (UE PF_G8)
-         Core::Formats::ImageFormat::RG8_UNORM, // Normal          (UE PF_R8G8)
-         Core::Formats::ImageFormat::RGBA16F,   // Emissive        (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // DirectLighting  (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // IndirectLighting (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // FinalLighting   (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::R8_UNORM,  // RadiosityFramesAccumulated (UE PF_G8)
-    };
-
-    // ---- What a mesh asset carries (UE FMeshCardsBuildData / FLumenCardBuildData) -----------------------------
-    // Built once per mesh with its derived data (GI-SURFACE-CACHE), mesh space, centimetres.
-    struct CardBuildData
-    {
-        glm::vec3     Center{ 0.0f }; // OBB centre
-        glm::vec3     Extent{ 0.0f }; // OBB half size along the mesh axes; the card faces Direction
-        CardDirection Direction = CardDirection::NegativeX;
-
-        bool operator==( const CardBuildData& ) const = default;
-    };
-
-    struct MeshCardsBuildData
-    {
-        glm::vec3                  BoundsMin{ 0.0f };
-        glm::vec3                  BoundsMax{ 0.0f };
-        std::vector<CardBuildData> Cards;                  // at most kMaxCardsPerMesh
-        bool                       MostlyTwoSided = false; // foliage: lit from both sides (UE bMostlyTwoSided)
-
-        bool operator==( const MeshCardsBuildData& ) const = default;
+         Core::Formats::ImageFormat::R16_UNORM,  // Depth           (UE PF_G16)
+         Core::Formats::ImageFormat::RGBA8F,     // Albedo          (UE PF_R8G8B8A8, BC7 when compressed)
+         Core::Formats::ImageFormat::R8_UNORM,   // Opacity         (UE PF_G8)
+         Core::Formats::ImageFormat::RG8_UNORM,  // Normal          (UE PF_R8G8)
+         Core::Formats::ImageFormat::R11G11B10F, // Emissive        (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // DirectLighting  (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // IndirectLighting (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // FinalLighting   (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R8_UNORM,   // RadiosityFramesAccumulated (UE PF_G8)
     };
 
     // ---- The GPU records (std430; must match Common/SurfaceCache.glslh) --------------------------------------

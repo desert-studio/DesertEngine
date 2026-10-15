@@ -1316,6 +1316,7 @@ namespace Desert::Editor
                 viewChanged |= ImGui::SliderFloat( "BB Width", &view.BoundingBoxLineWidth, 1.0f, 10.0f, "%.1f" );
                 ImGui::EndDisabled();
                 viewChanged |= ImGui::Checkbox( "Colliders", &view.ShowColliders );
+                viewChanged |= ImGui::Checkbox( "Card Placement", &view.ShowCardPlacement );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
                 viewChanged |= ImGui::Checkbox( "Disable Pass Culling", &view.DisablePassCulling );
                 if ( ImGui::IsItemHovered() )

@@ -137,6 +137,15 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // The surface-cache card placement under a name: the frame that shows cards covering walls and kerbs has
+        // to be taken over the channel.
+        commands.push_back( { "View", "Toggle card placement", []
+                              {
+                                  auto& view             = EditorPreferences::Get().DebugView;
+                                  view.ShowCardPlacement = !view.ShowCardPlacement;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
         // The Global Distance Field view under a name, for the same reason: a frame of the field the GPU holds is
         // its only check that the geometry is recognisable, and that frame has to be taken over the channel.
         commands.push_back( { "View", "View mode: Global Distance Field", []
