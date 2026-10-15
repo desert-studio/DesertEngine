@@ -881,8 +881,7 @@ namespace Desert::Graphic
         m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetThreshold( post.BloomThreshold );
-        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetExposure( viewExposure );
+        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )->SetExposure( viewExposure );
         UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] )
              ->SetExposure( viewExposure );
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
