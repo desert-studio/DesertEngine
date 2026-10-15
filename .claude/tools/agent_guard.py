@@ -407,6 +407,11 @@ def self_check():
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
 MAX_WORKING_AGENTS = 7  # owner 2026-10-12: limit raised 5 -> 7
+# Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
+# itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
+# below MIN_FREE_DISK_GB whatever the count.
+NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 19 )
+MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
 
@@ -452,8 +457,13 @@ def main():
     # last 6 h with no later done/wip for that id — so a launch not logged there escapes this check: log every launch.
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
             ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+        import shutil
+        free_gb = shutil.disk_usage( os.path.expanduser( "~" ) ).free / 1024 ** 3
+        if free_gb < MIN_FREE_DISK_GB:
+            deny(f"[agent_guard] Тимлид: на диске {free_gb:.1f} ГБ свободно (< {MIN_FREE_DISK_GB}) — новое дерево со сборкой "
+                 f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
         running = lead_running_agents()
-        if len(running) >= MAX_WORKING_AGENTS:
+        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
             deny(f"[agent_guard] Тимлид: лимит владельца 09-30 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
                  f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
