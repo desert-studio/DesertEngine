@@ -116,7 +116,8 @@ namespace Desert::Graphic::API::Vulkan
         heap.MemoryType = info.memoryType;
         // Graph execution runs outside every attribution scope, and the heap serves every view's graph: the
         // device owns it.
-        heap.Ledger = ResourceOwnership::Take( ResourceKind::TransientHeap, static_cast<std::size_t>( info.size ) );
+        heap.Ledger =
+             ResourceOwnership::Take( ResourceKind::TransientHeap, static_cast<std::size_t>( info.size ) );
         heap.Ledger.Claim( ResourceOwner::Device );
         out = std::move( heap );
         return BOOLSUCCESS;

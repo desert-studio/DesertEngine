@@ -50,7 +50,8 @@ namespace Desert::Graphic
     {
         std::vector<Engine::ViewBudget::HeldView> held   = SceneRenderer::LiveHoldings();
         std::vector<Engine::ViewBudget::HeldView> scenes = SceneRenderer::SceneHoldings();
-        held.insert( held.end(), std::make_move_iterator( scenes.begin() ), std::make_move_iterator( scenes.end() ) );
+        held.insert( held.end(), std::make_move_iterator( scenes.begin() ),
+                     std::make_move_iterator( scenes.end() ) );
         return held;
     }
 

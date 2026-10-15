@@ -34,7 +34,7 @@ namespace Desert::Graphic::Render2D
     Render2D::~Render2D() = default;
 
     Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target,
-                                          const ResourceOwnerInstance        view )
+                                          const ResourceOwnerInstance         view )
     {
         // The two buffers and the 1x1 white texture below belong to the UI backend and to no asset, and to the
         // view this UI is drawn for — one scope rather than claims. See Engine/Graphic/ResourceLedger.hpp.

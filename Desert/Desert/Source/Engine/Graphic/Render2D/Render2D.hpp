@@ -258,7 +258,7 @@ namespace Desert::Graphic::Render2D
         uint32_t                          m_VertexCapacity = 0;
         uint32_t                          m_IndexCapacity  = 0;
         // The view this UI is drawn for (Init); every row this renderer opens carries it.
-        ResourceOwnerInstance             m_LedgerView;
+        ResourceOwnerInstance m_LedgerView;
 
         std::shared_ptr<Texture2D> m_WhiteTexture;
         Image2D*                   m_WhiteImage = nullptr;

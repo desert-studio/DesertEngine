@@ -354,17 +354,19 @@ namespace Desert::Graphic::API::Vulkan
             return Graphic::ResourceKind::Image2D;
         }
 
-        // THE LEASE (VulkanRdgPool::AcquireTexture / AcquireBuffer). The pool keeps one reference to each resource;
-        // a hand-out is a pointer that shares ownership with a Lease holding a second one. While any copy of the
-        // hand-out lives the pool sees use_count() == 2 and does not hand the resource out again (unchanged rule);
-        // the last copy dropped destroys the Lease, which returns the ledger row to the device — the pool holds
-        // the memory from then on, whoever extracted it. The extractor never has to say it let go.
+        // THE LEASE (VulkanRdgPool::AcquireTexture / AcquireBuffer). The pool keeps one reference to each
+        // resource; a hand-out is a pointer that shares ownership with a Lease holding a second one. While any
+        // copy of the hand-out lives the pool sees use_count() == 2 and does not hand the resource out again
+        // (unchanged rule); the last copy dropped destroys the Lease, which returns the ledger row to the device —
+        // the pool holds the memory from then on, whoever extracted it. The extractor never has to say it let go.
         template <class T>
         std::shared_ptr<T> LeaseTo( const std::shared_ptr<T>& resource, const ResourceAttribution& holder )
         {
             struct Lease
             {
-                explicit Lease( std::shared_ptr<T> leased ) : Resource( std::move( leased ) ) {}
+                explicit Lease( std::shared_ptr<T> leased ) : Resource( std::move( leased ) )
+                {
+                }
                 Lease( const Lease& )            = delete;
                 Lease& operator=( const Lease& ) = delete;
                 Lease( Lease&& )                 = delete;
@@ -583,8 +585,8 @@ namespace Desert::Graphic::API::Vulkan
         }
         buffer->m_Mapped = host ? allocated.pMappedData : nullptr;
         // A dedicated allocation is a ledger row of its own, as VulkanRdgTexture::Create's.
-        buffer->m_Ledger =
-             ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer, static_cast<std::size_t>( allocated.size ) );
+        buffer->m_Ledger = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
+                                                    static_cast<std::size_t>( allocated.size ) );
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
@@ -1220,7 +1222,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !view.Extracted )
                     return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
                                                        graph.Name, view.Name );
-                auto acquired = m_Pool.AcquireTexture( *view.Texture, view.AccessMask, view.Name, view.ExtractOwner );
+                auto acquired =
+                     m_Pool.AcquireTexture( *view.Texture, view.AccessMask, view.Name, view.ExtractOwner );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
                 m_Textures[view.Resource] = acquired.GetValue();
@@ -1241,7 +1244,8 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !view.Extracted )
                     return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
                                                        graph.Name, view.Name );
-                auto acquired = m_Pool.AcquireBuffer( *view.Buffer, view.AccessMask, view.Name, view.ExtractOwner );
+                auto acquired =
+                     m_Pool.AcquireBuffer( *view.Buffer, view.AccessMask, view.Name, view.ExtractOwner );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
                 m_Buffers[view.Resource] = acquired.GetValue();

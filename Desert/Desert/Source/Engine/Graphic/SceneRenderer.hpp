@@ -162,8 +162,8 @@ namespace Desert::Graphic
         // @p accountUnder: None (every real view) mints this view's own ledger instance. A view that renders FOR
         // its scene's state rather than for a viewer — a reflection capture's face view — passes the scene's
         // instance: its rows are then the scene's ("scene #N", RT-LEDGER-4 lead decision), it is no budget entry
-        // of its own (LiveHoldings skips it, HeldBytes is 0) and its close checks nothing (the scene's rows are not
-        // its to account for).
+        // of its own (LiveHoldings skips it, HeldBytes is 0) and its close checks nothing (the scene's rows are
+        // not its to account for).
         SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile,
                        ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
         // Unregisters the view; its per-view copies defer their GPU release (ViewResources).

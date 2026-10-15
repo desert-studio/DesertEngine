@@ -507,7 +507,7 @@ namespace Desert::Graphic
         /// The census body; the caller holds the lock. @p perInstance (may be null) receives one entry per
         /// live non-None instance, in instance order, from the SAME pass as the census.
         static ResourceCensus TakeLocked( std::vector<ResourceInstanceCensus>* perInstance );
-        static std::size_t ReadBytes( uint64_t row );
+        static std::size_t    ReadBytes( uint64_t row );
     };
 
     // A NAMED detail namespace and INLINE functions, not an anonymous namespace. An anonymous namespace
@@ -814,7 +814,8 @@ namespace Desert::Graphic
             std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
             (void)TakeLocked( &instances );
         }
-        std::erase_if( instances, [kind]( const ResourceInstanceCensus& item ) { return item.Instance.Kind != kind; } );
+        std::erase_if( instances,
+                       [kind]( const ResourceInstanceCensus& item ) { return item.Instance.Kind != kind; } );
         std::sort( instances.begin(), instances.end(),
                    []( const ResourceInstanceCensus& a, const ResourceInstanceCensus& b )
                    { return a.Instance.Id < b.Instance.Id; } );

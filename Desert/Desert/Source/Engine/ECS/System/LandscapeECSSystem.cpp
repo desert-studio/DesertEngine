@@ -244,10 +244,10 @@ namespace Desert::ECS
             const bool              heightsDirty      = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
             const auto              heightmap         = RefreshLandscapeTileImage(
                  gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
-                 [&] { return HeightmapTexels( heights, neighbours ); }, [&]( std::vector<unsigned char> texels )
-                 {
+                 [&] { return HeightmapTexels( heights, neighbours ); },
+                 [&]( std::vector<unsigned char> texels ) {
                      return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
-                                             m_SceneLedger );
+                                                                  m_SceneLedger );
                  } );
             if ( !heightmap.IsSuccess() )
             {
@@ -340,14 +340,13 @@ namespace Desert::ECS
         }
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
         const Graphic::Image2D* previousWeightmap = gpu.Weightmap.get();
-        const auto weightmap = RefreshLandscapeTileImage(
+        const auto              weightmap         = RefreshLandscapeTileImage(
              gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(),
              heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
              weightsDirty, [&] { return Landscape::LandscapeWeightmapAtlasTexels( heights ); },
-             [&]( std::vector<unsigned char> texels )
-             {
+             [&]( std::vector<unsigned char> texels ) {
                  return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
-                                         m_SceneLedger );
+                                                              m_SceneLedger );
              } );
         if ( weightmap.IsSuccess() )
         {

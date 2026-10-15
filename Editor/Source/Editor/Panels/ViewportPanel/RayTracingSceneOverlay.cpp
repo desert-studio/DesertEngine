@@ -25,7 +25,7 @@ namespace Desert::Editor
 
     void DrawRayTracingSceneOverlay( const Graphic::RayTracing::RayTracingSceneStats& stats,
                                      const Graphic::ViewLedgerMemory& memory, const ImVec2& /*viewportMin*/,
-                                     const ImVec2& viewportMax )
+                                     const ImVec2&                    viewportMax )
     {
         if ( !stats.Built )
             return;
@@ -68,15 +68,14 @@ namespace Desert::Editor
         rows.push_back( std::format( "  Scratch: TLAS {}, dynamic BLAS {}",
                                      FormatMiB( locale, stats.TlasScratchBytes ),
                                      FormatMiB( locale, stats.DynamicScratchBytes ) ) );
-        // The budget entries, from the ledger rows (the view's own; the scene's shared, counted once for the scene).
-        rows.push_back( std::format( "  Budget, {}: {} in {} rows",
-                                     Graphic::ResourceOwnerInstanceName( memory.View.Instance ),
-                                     FormatMiB( locale, memory.View.Bytes ),
-                                     Localization::FormatInteger( locale, memory.View.Live ) ) );
-        rows.push_back( std::format( "  Budget, {} (shared): {} in {} rows",
-                                     Graphic::ResourceOwnerInstanceName( memory.Scene.Instance ),
-                                     FormatMiB( locale, memory.Scene.Bytes ),
-                                     Localization::FormatInteger( locale, memory.Scene.Live ) ) );
+        // The budget entries, from the ledger rows (the view's own; the scene's shared, counted once for the
+        // scene).
+        rows.push_back( std::format(
+             "  Budget, {}: {} in {} rows", Graphic::ResourceOwnerInstanceName( memory.View.Instance ),
+             FormatMiB( locale, memory.View.Bytes ), Localization::FormatInteger( locale, memory.View.Live ) ) );
+        rows.push_back( std::format(
+             "  Budget, {} (shared): {} in {} rows", Graphic::ResourceOwnerInstanceName( memory.Scene.Instance ),
+             FormatMiB( locale, memory.Scene.Bytes ), Localization::FormatInteger( locale, memory.Scene.Live ) ) );
 
         // Bottom-right, right-aligned: the render-methods rows hold the bottom-left, the axis triad the top-right.
         constexpr float kMargin = 12.0f;

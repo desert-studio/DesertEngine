@@ -176,7 +176,9 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene ) {}
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene )
+    {
+    }
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -274,9 +276,8 @@ namespace Desert::Graphic
                 m_Faces[f]           = std::make_unique<FaceView>();
                 // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
                 // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
-                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>(
-                     ViewExtent{ faceSize, faceSize }, kReflectionCaptureViewProfile,
-                     m_Scene );
+                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
+                                                                        kReflectionCaptureViewProfile, m_Scene );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }

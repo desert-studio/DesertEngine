@@ -670,8 +670,9 @@ namespace Desert::Graphic
     {
         std::vector<Engine::ViewBudget::HeldView> held;
         for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
-            held.push_back( { std::format( "{} (shared by its views)", ResourceOwnerInstanceName( scene.Instance ) ),
-                              scene.Bytes } );
+            held.push_back(
+                 { std::format( "{} (shared by its views)", ResourceOwnerInstanceName( scene.Instance ) ),
+                   scene.Bytes } );
         return held;
     }
 
@@ -724,12 +725,12 @@ namespace Desert::Graphic
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
                                   const ResourceOwnerInstance accountUnder )
-         : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
-           m_RenderExtent( extent )
+         : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
+           m_ViewExtent( extent ), m_RenderExtent( extent )
     {
         // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
-        // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger instance:
-        // the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
+        // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger
+        // instance: the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );

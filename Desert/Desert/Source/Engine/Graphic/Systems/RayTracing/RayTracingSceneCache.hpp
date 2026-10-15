@@ -21,7 +21,9 @@ namespace Desert::Graphic::RayTracing
     {
     public:
         // @p scene is the owning Core::Scene's ledger instance (Scene::GetLedgerInstance).
-        explicit RayTracingSceneCache( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene ) {}
+        explicit RayTracingSceneCache( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene )
+        {
+        }
 
         // Every view calls this before it gathers, with the engine's absolute frame number. A new number ends the
         // previous frame: the variants and skin-cache entries no view asked for during it are released (their
@@ -72,8 +74,8 @@ namespace Desert::Graphic::RayTracing
         // THE SCENE in the resource ledger (RT-LEDGER-2): every device object this cache's members create — BLAS
         // variants, skin-cache BLASes and positions, procedural BLASes — is a row of ResourceOwner::SceneRenderer
         // AND of this instance, opened under OpenLedgerScope(). A view's own RT rows carry the view's instance
-        // instead, so the two are told apart: the scene's rows are its own budget entry (SceneRenderer::SceneHoldings),
-        // never counted in any one view's.
+        // instead, so the two are told apart: the scene's rows are its own budget entry
+        // (SceneRenderer::SceneHoldings), never counted in any one view's.
         [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const
         {
             return m_LedgerInstance;

@@ -167,7 +167,7 @@ namespace Desert::Graphic::API::Vulkan
         RDG::TextureDesc   m_Desc;
         uint32_t           m_AccessMask = 0;
         // The dedicated allocation's ledger row (Create only): the image's kind and the allocation's bytes.
-        ResourceOwnership m_Ledger;
+        ResourceOwnership                                                         m_Ledger;
         std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, VkImageView> m_Views;
     };
 
@@ -286,10 +286,10 @@ namespace Desert::Graphic::API::Vulkan
                                                                              uint32_t                   accessMask,
                                                                              std::string_view           name,
                                                                              const ResourceAttribution& holder );
-        Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> AcquireBuffer( const RDG::BufferDesc&     desc,
-                                                                           uint32_t                   accessMask,
-                                                                           std::string_view           name,
-                                                                           const ResourceAttribution& holder );
+        Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>  AcquireBuffer( const RDG::BufferDesc&     desc,
+                                                                            uint32_t                   accessMask,
+                                                                            std::string_view           name,
+                                                                            const ResourceAttribution& holder );
 
         [[nodiscard]] size_t GetTextureCount() const;
         [[nodiscard]] size_t GetBufferCount() const;

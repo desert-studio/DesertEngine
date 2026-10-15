@@ -326,7 +326,8 @@ namespace Desert::Graphic::System
         // every frame. Two views of one scene read one environment; a view bound to another scene reads that one.
         std::weak_ptr<SceneSkyEnvironment> m_SceneSky;
         // The scene this renderer last ISSUED a bake to. The bake's batch reads this renderer's LUTs and
-        // parameter buffers, so the destructor settles it (SceneSkyEnvironment::SettlePendingBake) before they die.
+        // parameter buffers, so the destructor settles it (SceneSkyEnvironment::SettlePendingBake) before they
+        // die.
         std::weak_ptr<SceneSkyEnvironment> m_BakeIssuedTo;
         // The editor's one-shot Bake request, seen by the settings path (SetProceduralSky) and handed to the
         // scene's environment by the next EnsureProceduralEnvironment.

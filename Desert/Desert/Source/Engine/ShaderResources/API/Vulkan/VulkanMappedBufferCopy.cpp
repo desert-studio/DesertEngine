@@ -52,7 +52,7 @@ namespace Desert::ShaderResources::API::Vulkan
         const Desert::Graphic::ResourceKind kind = ( usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT ) != 0
                                                         ? Desert::Graphic::ResourceKind::StorageBuffer
                                                         : Desert::Graphic::ResourceKind::UniformBuffer;
-        auto copy = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size, kind );
+        auto copy       = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size, kind );
         copy->m_Mapping = allocator->MapMemory( copy->m_Allocation );
 
         // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it would
