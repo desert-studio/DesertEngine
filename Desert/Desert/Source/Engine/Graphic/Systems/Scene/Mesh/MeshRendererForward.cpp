@@ -551,8 +551,10 @@ namespace Desert::Graphic::System
             // surface with the translucent draw state (its own row, its own material) — recording the cell would
             // fail this node and drop the frame graph.
             Core::Formats::MaterialParamRow row = EffectiveRow( mat, surfaceInst );
-            switch ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
-                                         standInState != nullptr ? standInState->Pipeline.get() : nullptr ) )
+            // The pipeline the draw RECORDS with is the one asked about (the wireframe variant in that view).
+            const GraphicsPipeline* const own = GlassPipeline( *state );
+            switch ( ChoosePipelineDraw( own, own->GetSpecification().DebugName,
+                                         standInState != nullptr ? GlassPipeline( *standInState ) : nullptr ) )
             {
                 case MaterialPipelineTracker::CellDraw::Own:
                     break;
