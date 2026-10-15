@@ -274,8 +274,8 @@ namespace Desert::Migration
 
     //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
-    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — since GI-PROBE-SW ProbeVolume 3, which
-    //       took the removed method's number, so a v53 file that states 3 needs no step of its own) and EnableSSR
+    //       method ladder of v53: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — RSM is ProbeVolume 3 on today's
+    //       ladder, which kSceneVersionGIMethodLadder re-states every number of) and EnableSSR
     //       (bool) is ReflectionsMethod (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod,
     //       ContactShadows and DistanceFieldShadows are new keys with their defaults
     //       (MigrateRenderMethodsV52ToV53). Both the record's volume and a prefab override's delta are renamed:
@@ -324,7 +324,18 @@ namespace Desert::Migration
     //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
     inline constexpr int kSceneVersionSunCalendar = 58;
 
-    static_assert( kSceneVersionSunCalendar == kSceneVersion,
+    //  64 - THE GI METHOD LADDER LOST A RUNG (GI-METHOD-RENUMBER). GI-PROBE-SW removed ReflectiveShadowMaps from
+    //       Common::Scalability::GIMethod and every method above it moved down one number: the ladder a v53..v63
+    //       file was written on is Off 0, Lightmaps 1, ScreenSpace 2, ReflectiveShadowMaps 3, ProbeVolume 4,
+    //       SoftwareTraced 5, HardwareTraced 6, PathTraced 7; today's is Off 0, Lightmaps 1, ScreenSpace 2,
+    //       ProbeVolume 3, SoftwareTraced 4, HardwareTraced 5, PathTraced 6. Every stated
+    //       PostProcessVolume.Settings.GlobalIlluminationMethod - a record's and a prefab override's delta - is
+    //       re-stated by that table; ReflectiveShadowMaps 3 becomes ProbeVolume 3 (the off-screen bounce that
+    //       replaced it), the number unchanged. A value outside the old ladder is refused, naming the entity
+    //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionGIMethodLadder = 64;
+
+    static_assert( kSceneVersionGIMethodLadder == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -635,6 +646,17 @@ namespace Desert::Migration
     // PURE.
     SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateGIMethodLadderV63ToV64 did to one file.
+    struct GIMethodLadderReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod values whose number changed
+        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
+    };
+
+    // Re-states every PostProcessVolume.Settings.GlobalIlluminationMethod by the old -> new table
+    // kSceneVersionGIMethodLadder states, in the record and in every prefab override. PURE.
+    GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -914,6 +936,9 @@ namespace Desert::Migration
         bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
         SunCalendarReport SunCalendar;
 
+        bool                 GIMethodLadderRaised = false; // below kSceneVersionGIMethodLadder
+        GIMethodLadderReport GIMethodLadder;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -928,7 +953,7 @@ namespace Desert::Migration
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised ||
-                   SunCalendarRaised;
+                   SunCalendarRaised || GIMethodLadderRaised;
         }
     };
 

@@ -1226,6 +1226,73 @@ namespace Desert::Migration
         return report;
     }
 
+    GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIMethod;
+        GIMethodLadderReport report;
+
+        // The v53..v63 ladder, by its numbers (Off 0, Lightmaps 1, ScreenSpace 2, ReflectiveShadowMaps 3,
+        // ProbeVolume 4, SoftwareTraced 5, HardwareTraced 6, PathTraced 7), as today's methods. The reflective
+        // shadow maps are ProbeVolume: the off-screen bounce that replaced them (GI-PROBE-SW).
+        constexpr std::array<GIMethod, 8> kFromOldLadder{
+             GIMethod::Off,         GIMethod::Lightmaps,      GIMethod::ScreenSpace,    GIMethod::ProbeVolume,
+             GIMethod::ProbeVolume, GIMethod::SoftwareTraced, GIMethod::HardwareTraced, GIMethod::PathTraced };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           const auto           gi       = settings.get( "GlobalIlluminationMethod" );
+                           if ( !gi.has_value() )
+                               return false;
+                           const auto old = gi.value().to_int();
+                           if ( !old.has_value() || old.value() < 0 ||
+                                old.value() >= static_cast<int>( kFromOldLadder.size() ) )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "{}: PostProcessVolume.Settings.GlobalIlluminationMethod {} is not on the "
+                                    "v63 ladder (0 Off .. 7 PathTraced)",
+                                    who, rfl::json::write( gi.value() ) ) );
+                               return false;
+                           }
+                           const int now =
+                                static_cast<int>( kFromOldLadder[static_cast<std::size_t>( old.value() )] );
+                           if ( now == old.value() )
+                               return false;
+                           DropKey( settings, "GlobalIlluminationMethod" );
+                           settings["GlobalIlluminationMethod"] = rfl::Generic( now );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Restated;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
     SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
     {
         SkySunFromLightReport report;
@@ -3799,6 +3866,18 @@ namespace Desert::Migration
             {
                 report.SunCalendarRaised = true;
                 report.SunCalendar       = MigrateSunCalendarV57ToV58( entities );
+            }
+
+            // The GI method ladder lost ReflectiveShadowMaps (GI-METHOD-RENUMBER).
+            if ( statedSceneVersion < kSceneVersionGIMethodLadder )
+            {
+                report.GIMethodLadderRaised = true;
+                report.GIMethodLadder       = MigrateGIMethodLadderV63ToV64( entities );
+                if ( !report.GIMethodLadder.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.GIMethodLadder.Refused );
+                    return;
+                }
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

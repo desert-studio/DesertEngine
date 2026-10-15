@@ -522,6 +522,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSkySunFromLight << "->v"
                 << Desert::Migration::kSceneVersionSunCalendar << " (" << report.SunCalendar.Clocks
                 << " clock(s) state the equinox calendar)";
+        if ( report.GIMethodLadderRaised && report.GIMethodLadder.Restated > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionSunCalendar << "->v"
+                << Desert::Migration::kSceneVersionGIMethodLadder << " (" << report.GIMethodLadder.Restated
+                << " GI method(s) re-stated on today's ladder)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

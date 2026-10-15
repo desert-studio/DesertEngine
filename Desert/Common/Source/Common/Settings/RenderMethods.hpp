@@ -36,7 +36,8 @@ namespace Common::Scalability
         ScreenSpace, // gather from the lit G-buffer on screen
         // The world radiance cache read per pixel, no screen probes (GI-PROBE-SW; UE Lumen's irradiance field
         // gather): the cheap traced path, every light and the sky bounced off screen too. It took the number of
-        // the reflective shadow maps it replaced (3), so a scene that stated those now states this.
+        // the reflective shadow maps it replaced (3); every method above moved down one, and scene v64
+        // (SceneMigrator, MigrateGIMethodLadderV63ToV64) re-stated the numbers older files wrote.
         ProbeVolume,
         SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
                         // GI-FINAL-GATHER)
