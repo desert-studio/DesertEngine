@@ -37,7 +37,7 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4 LightDir{ 0.0f };
             glm::vec4 LightColor{ 0.0f };
         };
-        static_assert( sizeof( DirectLightingPush ) == 96 );
+        static_assert( sizeof( DirectLightingPush ) == 32 );
 
         struct SceneViewPush
         {
