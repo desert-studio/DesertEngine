@@ -17,6 +17,13 @@ layout( location = 6 ) in vec4 a_BoneWeights;
 layout( location = 7 ) in vec4 a_Color;
 layout( location = 8 ) in vec2 a_TexCoord1;
 #endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+// Binding 2 (MeshVertexLayout.hpp kMeshPreviousPositionLocation): the position this vertex had last frame
+// before skinning - a morphed mesh's previous blend output, every other mesh's own a_Position (UE
+// FGPUSkinCache PreviousPositionBuffer). Velocity skins it with the previous palette, so morph motion and bone
+// motion both reach v_Surface.PrevClip. Light views have no velocity and do not read it.
+layout( location = 9 ) in vec3 a_PrevPosition;
+#endif
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
@@ -94,7 +101,7 @@ void main()
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
-    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * ( prevSkin * vec4( a_Position, 1.0 ) ) );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * ( prevSkin * vec4( a_PrevPosition, 1.0 ) ) );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );

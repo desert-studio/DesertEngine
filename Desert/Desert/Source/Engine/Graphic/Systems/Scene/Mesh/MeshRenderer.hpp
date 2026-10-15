@@ -1045,23 +1045,33 @@ namespace Desert::Graphic::System
 
         // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
         // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision
-        // the vertices hold (UE FMorphVertexBufferPool revision number); Pending carries the weights the next
-        // UpdateMorphTargets blends. A twin not drawn for kMorphTwinIdleFrames frames is released.
+        // the current output holds (UE FMorphVertexBufferPool revision number); Pending carries the weights the
+        // next UpdateMorphTargets blends. A twin not drawn for kMorphTwinIdleFrames frames is released.
+        //
+        // TWO OUTPUTS, PING-PONG, FOR VELOCITY (UE FGPUSkinCache Position / PreviousPosition, swapped per
+        // revision): a blend writes the output it does not draw from, so the shape the entity was drawn with last
+        // frame survives the blend and is the frame's previous positions (Mesh::SetPreviousPositionBuffer on the
+        // drawn twin). A frame that does not blend draws the current output with itself as previous - the shape
+        // did not move. The history resets (previous = current) when the twin is new, was not drawn last frame,
+        // or its current output holds no completed blend - the first frame / teleport rule of the motion rows
+        // (MotionHistory::PreviousBones).
         struct MorphTwin
         {
-            SkinnedMesh*                  Base = nullptr;
-            std::shared_ptr<SkinnedMesh>  Twin;
-            std::shared_ptr<VertexBuffer> Vertices;
-            std::shared_ptr<VertexBuffer> BaseVertices;
-            bool                          Blended  = false;
-            uint64_t                      Revision = 0;
-            bool                          Pending  = false;
-            std::vector<float>            PendingWeights;
-            uint64_t                      PendingRevision = 0;
-            uint64_t                      LastDrawn       = 0;
-            RDG::ExternalBuffer           BaseImport;
-            RDG::ExternalBuffer           DeltasImport;
-            RDG::ExternalBuffer           OutputImport;
+            SkinnedMesh*                                 Base = nullptr;
+            std::array<std::shared_ptr<SkinnedMesh>, 2>  Twins;
+            std::array<std::shared_ptr<VertexBuffer>, 2> Vertices;
+            std::shared_ptr<VertexBuffer>                BaseVertices;
+            uint32_t                                     Current = 0; // the output holding Revision's shape
+            bool                                         Blended = false;
+            uint64_t                                     Revision = 0;
+            bool                                         Pending  = false;
+            std::vector<float>                           PendingWeights;
+            uint64_t                                     PendingRevision = 0;
+            uint64_t                                     LastDrawn       = 0;
+            bool                                         DrawnLastFrame  = false; // decided by the frame's first draw
+            RDG::ExternalBuffer                          BaseImport;
+            RDG::ExternalBuffer                          DeltasImport;
+            std::array<RDG::ExternalBuffer, 2>           OutputImports;
         };
         static constexpr uint64_t               kMorphTwinIdleFrames = 8;
         std::unordered_map<uint32_t, MorphTwin> m_MorphTwins;

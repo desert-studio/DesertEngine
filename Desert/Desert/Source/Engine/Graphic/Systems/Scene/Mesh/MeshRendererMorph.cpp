@@ -16,6 +16,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <format>
@@ -63,34 +64,58 @@ namespace Desert::Graphic::System
 
         MorphTwin& twin = m_MorphTwins[data.Entity];
         // The base's vertex buffer is the twin's identity: held by the twin, it cannot be reused by another mesh.
-        if ( !twin.Twin || twin.BaseVertices != base->GetVertexBuffer() )
+        if ( !twin.Twins[0] || twin.BaseVertices != base->GetVertexBuffer() )
         {
             const auto bytes = static_cast<uint32_t>( base->GetVertexCount() * sizeof( SkinnedVertex ) );
-            std::shared_ptr<VertexBuffer> vertices = VertexBuffer::Create( bytes, BufferUsage::GpuWritten );
-            if ( const auto built = vertices->RT_Invalidate(); !built.IsSuccess() )
+            std::array<std::shared_ptr<VertexBuffer>, 2> outputs;
+            for ( std::shared_ptr<VertexBuffer>& output : outputs )
             {
-                LOG_ERROR( "[MeshRenderer] entity {}: its morphed vertices could not be allocated, it draws "
-                           "unmorphed: {}",
-                           data.Entity, built.GetError() );
-                m_MorphTwins.erase( data.Entity );
-                return base;
+                output = VertexBuffer::Create( bytes, BufferUsage::GpuWritten );
+                if ( const auto built = output->RT_Invalidate(); !built.IsSuccess() )
+                {
+                    LOG_ERROR( "[MeshRenderer] entity {}: its morphed vertices could not be allocated, it draws "
+                               "unmorphed: {}",
+                               data.Entity, built.GetError() );
+                    m_MorphTwins.erase( data.Entity );
+                    return base;
+                }
             }
             twin              = MorphTwin{};
             twin.Base         = base;
             twin.BaseVertices = base->GetVertexBuffer();
-            twin.Vertices     = vertices;
-            twin.Twin         = SkinnedMesh::MakeMorphedTwin( *base, std::move( vertices ) );
+            for ( size_t i = 0; i < outputs.size(); ++i )
+            {
+                twin.Vertices[i] = outputs[i];
+                twin.Twins[i]    = SkinnedMesh::MakeMorphedTwin( *base, std::move( outputs[i] ) );
+            }
+            // New: no frame of it was drawn before this one.
+            twin.LastDrawn = m_MorphFrame;
+        }
+        else if ( twin.LastDrawn != m_MorphFrame )
+        {
+            twin.DrawnLastFrame = twin.LastDrawn + 1 == m_MorphFrame;
+            twin.LastDrawn      = m_MorphFrame;
         }
 
-        twin.Base      = base; // this frame's draw of it: valid until the frame's passes have run
-        twin.LastDrawn = m_MorphFrame;
-        if ( !twin.Blended || twin.Revision != data.MorphRevision )
+        twin.Base = base; // this frame's draw of it: valid until the frame's passes have run
+        if ( twin.Blended && twin.Revision == data.MorphRevision )
         {
-            twin.Pending         = true;
-            twin.PendingWeights  = data.MorphWeights;
-            twin.PendingRevision = data.MorphRevision;
+            // The shape did not change since the blend: the current output is this frame's and last frame's.
+            SkinnedMesh& drawn = *twin.Twins[twin.Current];
+            drawn.SetPreviousPositionBuffer( nullptr );
+            return &drawn;
         }
-        return twin.Twin.get();
+
+        // A blend is owed: it writes the other output, and the current one - the shape drawn last frame, when
+        // it was drawn and holds a completed blend - is this frame's previous positions.
+        twin.Pending         = true;
+        twin.PendingWeights  = data.MorphWeights;
+        twin.PendingRevision = data.MorphRevision;
+        const uint32_t next  = twin.Current ^ 1u;
+        SkinnedMesh&   drawn = *twin.Twins[next];
+        drawn.SetPreviousPositionBuffer( twin.Blended && twin.DrawnLastFrame ? twin.Vertices[twin.Current]
+                                                                             : nullptr );
+        return &drawn;
     }
 
     void MeshRenderer::UpdateMorphTargets()
@@ -101,8 +126,11 @@ namespace Desert::Graphic::System
         {
             LOG_ERROR( "[MeshRenderer] a morphed skinned mesh draws unmorphed this frame: {}", why );
             for ( SkinnedMeshRenderData& draw : m_SkinnedQueue )
-                if ( draw.Mesh == twin.Twin.get() )
+                if ( draw.Mesh == twin.Twins[0].get() || draw.Mesh == twin.Twins[1].get() )
                     draw.Mesh = twin.Base;
+            // The entity draws its base this frame: neither output is the shape it was drawn with, so the next
+            // blend starts the history over.
+            twin.Blended = false;
             twin.Pending = false;
         };
 
@@ -146,7 +174,8 @@ namespace Desert::Graphic::System
                 std::vector<MorphTwin*> declared;
                 for ( MorphTwin* twin : pending )
                 {
-                    const SkinnedMesh& base = *twin->Twin;
+                    const uint32_t     next = twin->Current ^ 1u;
+                    const SkinnedMesh& base = *twin->Twins[next];
                     if ( const auto in = Renderer::ImportVertexBuffer( twin->BaseVertices, twin->BaseImport );
                          !in )
                     {
@@ -158,7 +187,8 @@ namespace Desert::Graphic::System
                         unmorph( *twin, in.GetError() );
                         continue;
                     }
-                    if ( const auto in = Renderer::ImportVertexBuffer( twin->Vertices, twin->OutputImport ); !in )
+                    if ( const auto in = Renderer::ImportVertexBuffer( twin->Vertices[next], twin->OutputImports[next] );
+                         !in )
                     {
                         unmorph( *twin, in.GetError() );
                         continue;
@@ -168,7 +198,7 @@ namespace Desert::Graphic::System
                          twin->PendingWeights, base.GetMorphTargetCount(), base.GetVertexCount() );
                     const RDG::BufferRef baseRef    = graph.RegisterExternal( twin->BaseImport, "Morph.Base" );
                     const RDG::BufferRef deltasRef  = graph.RegisterExternal( twin->DeltasImport, "Morph.Deltas" );
-                    const RDG::BufferRef outRef     = graph.RegisterExternal( twin->OutputImport, "Morph.Output" );
+                    const RDG::BufferRef outRef     = graph.RegisterExternal( twin->OutputImports[next], "Morph.Output" );
                     const RDG::BufferRef weightsRef = graph.CreateBuffer(
                          RDG::BufferDesc{ weights.size() * sizeof( uint32_t ) }, "Morph.Weights" );
                     graph.QueueBufferUpload( weightsRef, std::as_bytes( std::span( weights ) ) );
@@ -191,7 +221,8 @@ namespace Desert::Graphic::System
                          } );
                     // Handed to vertex input at the graph's end: the view graph's passes bind the twin's vertices
                     // as their vertex stream without declaring them.
-                    graph.Extract( outRef, twin->OutputImport, RDG::Access::VertexIndex );
+                    // The output drawn from as previous positions next frame is read the same undeclared way.
+                    graph.Extract( outRef, twin->OutputImports[next], RDG::Access::VertexIndex );
                     declared.push_back( twin );
                 }
 
@@ -200,15 +231,13 @@ namespace Desert::Graphic::System
                     if ( const auto executed = Renderer::ExecuteGraph( graph ); !executed )
                     {
                         for ( MorphTwin* twin : declared )
-                        {
-                            twin->Blended = false;
                             unmorph( *twin, executed.GetError() );
-                        }
                     }
                     else
                     {
                         for ( MorphTwin* twin : declared )
                         {
+                            twin->Current ^= 1u; // the output this frame draws
                             twin->Blended  = true;
                             twin->Revision = twin->PendingRevision;
                             twin->Pending  = false;

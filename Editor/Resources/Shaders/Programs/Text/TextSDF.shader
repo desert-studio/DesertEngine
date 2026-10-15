@@ -37,6 +37,13 @@ Shader "TextSDF"
 
         #include <Common/CameraUB.glslh>
 
+        // The label's world is its motion row's World, like every view-pass primitive (Mesh/Surface/
+        // Vertex_Static.glslh): the generic path pushes the submesh transform RELATIVE to the row
+        // (MeshRendererForward.cpp BuildGenericDraws), so a stage multiplying the push alone draws every label
+        // at the world origin. ZWrite Off: no depth, so no velocity and no PrevWorld here.
+        #define DESERT_OBJECT_MOTION_ROWS 1
+        #include <Common/ObjectMotion.glslh>
+
         // Transform + the material row index, in the one block both stages declare (see the header).
         // Text is the producer that needed the row most: every 3D label in a scene draws through ONE
         // shared TextSDF material, so a per-material colour block gave them all the first label's colour.
@@ -47,7 +54,8 @@ Shader "TextSDF"
         void main()
         {
             v_UV        = a_TextureCoord;
-            gl_Position = cameraUB.JitteredViewProjection * m_PushConstants.Transform * vec4( a_Position, 1.0 );
+            const mat4 world = objectMotions.Motions[m_PushConstants.PrimitiveIndex].World * m_PushConstants.Transform;
+            gl_Position      = cameraUB.JitteredViewProjection * world * vec4( a_Position, 1.0 );
         }
     }
 

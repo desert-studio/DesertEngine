@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 
 namespace Desert
 {
@@ -60,6 +61,19 @@ namespace Desert
         [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetStreamBuffer() const
         {
             return m_StreamBuffer;
+        }
+        // THE BUFFER WHOSE POSITIONS THESE VERTICES HAD LAST FRAME (binding 2, MeshVertexLayout.hpp; UE
+        // FGPUSkinCache PreviousPositionBuffer): the mesh's own vertices unless something rewrites them per frame
+        // - a morphed twin points it at its previous blend output for the frame it blended (MeshRendererMorph).
+        // Same vertex format and count as GetVertexBuffer; only the position is read from it.
+        [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetPreviousPositionBuffer() const
+        {
+            return m_PreviousPositions != nullptr ? m_PreviousPositions : m_VertexBuffer;
+        }
+        // null = the vertices did not move under the mesh since last frame (its own vertices are the previous).
+        void SetPreviousPositionBuffer( std::shared_ptr<Graphic::VertexBuffer> previous )
+        {
+            m_PreviousPositions = std::move( previous );
         }
         [[nodiscard]] const std::shared_ptr<Graphic::IndexBuffer>& GetIndexBuffer() const
         {
@@ -118,6 +132,7 @@ namespace Desert
         // Protected data accessible by derived classes
         std::shared_ptr<Graphic::VertexBuffer>  m_VertexBuffer;
         std::shared_ptr<Graphic::VertexBuffer>  m_StreamBuffer;
+        std::shared_ptr<Graphic::VertexBuffer>  m_PreviousPositions; // null = m_VertexBuffer
 
         void CreateStreamBuffer( const std::vector<MeshVertexStreams>& streams )
         {

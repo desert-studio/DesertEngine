@@ -21,7 +21,13 @@ namespace Desert::Graphic
     //               binds the shared default buffer (white, UV1 0,0 in every vertex; DefaultVertexStreamsFor)
     //               — defined format semantics, as UE's GNullColorVertexBuffer, not a fallback. No stride-0
     //               variant: portability devices refuse it (vertexAttributeAccessBeyondStride = false).
+    //   binding 2 — skinned path only: the positions the vertices had last frame, a_PrevPosition at 9
+    //               (VertexBufferLayout::WithPreviousPositions). A morphed mesh binds its previous blend
+    //               output there, every other mesh its own vertices (Mesh::GetPreviousPositionBuffer). Read
+    //               only by the view-pass cells of Vertex_Skinned.glslh for velocity; a shadow / light-view
+    //               cell does not read it and so has no binding 2.
     inline constexpr uint32_t kMeshVertexStreamFirstLocation = 7;
+    inline constexpr uint32_t kMeshPreviousPositionLocation  = 9;
 
     inline VertexBufferLayout MeshVertexLayout( const MeshVertexPath path )
     {
@@ -40,6 +46,8 @@ namespace Desert::Graphic
                                                                { ShaderDataType::Float2, "a_TextureCoord" } };
         layout.WithStreams( kMeshVertexStreamFirstLocation, { { ShaderDataType::UNorm8x4, "a_Color", true },
                                                               { ShaderDataType::Float2, "a_TexCoord1" } } );
+        if ( path == MeshVertexPath::Skinned )
+            layout.WithPreviousPositions( kMeshPreviousPositionLocation );
         return layout;
     }
 

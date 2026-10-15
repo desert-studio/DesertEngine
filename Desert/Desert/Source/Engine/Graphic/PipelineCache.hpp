@@ -465,6 +465,9 @@ namespace Desert::Graphic
                     sig ^= static_cast<uint64_t>( e.Offset );
                     sig *= 1099511628211ull;
                 }
+                // ...and so is the previous-position binding (VertexBufferLayout::WithPreviousPositions).
+                sig ^= static_cast<uint64_t>( s.Layout->GetPreviousPositionLocation().value_or( UINT32_MAX ) );
+                sig *= 1099511628211ull;
                 k.LayoutSignature = sig;
             }
             return k;

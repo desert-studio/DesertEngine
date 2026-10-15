@@ -83,6 +83,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_VertexInput.HasBinding( 1 );
         }
+        // ...and the previous-position binding (binding 2, VertexBufferLayout::WithPreviousPositions): the
+        // layout has it AND the vertex stage reads a_PrevPosition. The draw binds the mesh's
+        // GetPreviousPositionBuffer there.
+        [[nodiscard]] bool HasPreviousPositions() const
+        {
+            return m_VertexInput.HasBinding( 2 );
+        }
 
         // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's
         // compatibility key (RdgCompatibilityKey). The pipeline is built at the sample count of its target when

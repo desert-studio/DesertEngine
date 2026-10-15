@@ -8,6 +8,7 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <optional>
 #include <vector>
 
 namespace Desert::Graphic
@@ -190,6 +191,36 @@ namespace Desert::Graphic
         std::vector<VertexBufferElement> m_StreamElements;
         std::uint32_t                    m_StreamStride        = 0;
         std::uint32_t                    m_StreamFirstLocation = 0;
+
+    public:
+        // THE PREVIOUS-POSITION BINDING (UE FGPUSkinCache's PreviousPositionBuffer, read by the vertex factory
+        // for velocity): a third vertex binding (binding 2) holding a buffer of THIS layout's vertices whose
+        // first element is the position the vertex had last frame, read as one Float3 at `location`, at this
+        // layout's stride. A mesh whose vertices did not move under it binds its own vertex buffer there
+        // (Mesh::GetPreviousPositionBuffer). Only a vertex stage that reads `location` gets the binding.
+        VertexBufferLayout& WithPreviousPositions( const uint32_t location )
+        {
+            m_PreviousPositionLocation = location;
+            m_PreviousPosition.Offset  = m_Elements.empty() ? 0u : m_Elements.front().Offset;
+            return *this;
+        }
+        [[nodiscard]] bool HasPreviousPositions() const
+        {
+            return m_PreviousPositionLocation.has_value();
+        }
+        [[nodiscard]] std::optional<uint32_t> GetPreviousPositionLocation() const
+        {
+            return m_PreviousPositionLocation;
+        }
+        // Meaningful only when HasPreviousPositions(); read at GetStride().
+        [[nodiscard]] const VertexBufferElement& GetPreviousPositionElement() const
+        {
+            return m_PreviousPosition;
+        }
+
+    private:
+        std::optional<uint32_t> m_PreviousPositionLocation;
+        VertexBufferElement     m_PreviousPosition{ ShaderDataType::Float3, "a_PrevPosition" };
     };
 
     class VertexBuffer : public DynamicResources

@@ -746,6 +746,15 @@ namespace Desert::Graphic::API::Vulkan
                       ->GetVulkanBuffer();
             vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
         }
+        // Binding 2, the previous positions (MeshVertexLayout): only a pipeline whose vertex stage reads
+        // a_PrevPosition has it (a skinned view-pass cell). A mesh whose vertices did not move under it hands
+        // back its own vertex buffer.
+        if ( graphics->HasPreviousPositions() )
+        {
+            VkBuffer pbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetPreviousPositionBuffer() )->GetVulkanBuffer();
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 2, 1, &pbuffer, offsets );
+        }
         const auto& indexBuffer = mesh.GetIndexBuffer();
         if ( indexBuffer )
         {

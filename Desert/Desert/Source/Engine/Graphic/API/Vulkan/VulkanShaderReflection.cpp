@@ -529,6 +529,12 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             state.Bindings.push_back(
                  { .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
 
+        // Binding 2 (VertexBufferLayout::WithPreviousPositions) only when the stage reads the previous position.
+        if ( const auto location = layout.GetPreviousPositionLocation();
+             location.has_value() && addAttribute( layout.GetPreviousPositionElement(), *location, 2 ) )
+            state.Bindings.push_back(
+                 { .binding = 2, .stride = layout.GetStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+
         for ( const uint32_t location : consumedLocations )
         {
             if ( std::ranges::find( fed, location ) == fed.end() )
