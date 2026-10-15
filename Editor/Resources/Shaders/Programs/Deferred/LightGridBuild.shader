@@ -1,10 +1,12 @@
 // DesertAsset {"Kind":"Shader","Guid":"14b61e565a344b8e8e8edd8df0e9f7d5","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "LightGridBuild"
 {
-    // "Deferred: LightGrid" — the view's light grid (Mesh/LightGrid.glslh), UE LightGridInjection.usf: one thread per
-    // froxel tests every point and spot light's bounding sphere against the froxel's view-space box and lists the
-    // ones that touch it. Every test is conservative (the box contains every pixel the cell can hold, the sphere
-    // contains every point the light reaches), so a light left out of a cell contributes exactly zero there.
+    // THE LIGHT GRID KERNEL (Mesh/LightGrid.glslh), UE LightGridInjection.usf, for both layouts: "LightGrid" (the
+    // view's froxels) and "LightGridWorld" (the radiance cache's clipmap cells). One thread per cell boxes the cell
+    // — in view space for a froxel, in world space for a clipmap cell — and lists every point and spot light whose
+    // bounding sphere touches the box (CullLights: the same test and order for both). Every test is conservative
+    // (the box contains every point the cell can hold, the sphere every point the light reaches), so a light left
+    // out of a cell contributes exactly zero there. A layout only changes the box and where the list is stored.
 
     Compute
     {
@@ -24,7 +26,7 @@ Shader "LightGridBuild"
         {
         	SpotLight spotLights[];
         };
-        // [cell counts][cell lists] — see Mesh/LightGrid.glslh.
+        // The layout's cell buffer — see Mesh/LightGrid.glslh.
         Buffer(3) LightGridCellsUB
         {
         	uint lightGridCells[];
@@ -74,12 +76,40 @@ Shader "LightGridBuild"
         	return vec4(apex, light.range);
         }
 
-        void main()
+        // THE KERNEL: every light whose bound touches the box [lo, hi] (in the space lightGrid.view maps world to),
+        // in the one index space (points, then spots). With @p write, the first @p capacity are stored from
+        // lightGridCells[@p base] on. Returns the TRUE count.
+        uint CullLights(vec3 lo, vec3 hi, bool write, uint base, uint capacity)
         {
-        	const uvec3 cell = gl_GlobalInvocationID;
-        	if (any(greaterThanEqual(cell, lightGrid.size.xyz)))
-        		return;
+        	uint count = 0u;
+        	for (uint i = 0u; i < lightGrid.counts.x; i++)
+        	{
+        		const vec3 center = (lightGrid.view * vec4(pointLights[i].position, 1.0)).xyz;
+        		if (SphereTouchesBox(center, pointLights[i].radius, lo, hi))
+        		{
+        			if (write && count < capacity)
+        				lightGridCells[base + count] = i;
+        			count++;
+        		}
+        	}
+        	for (uint i = 0u; i < lightGrid.counts.y; i++)
+        	{
+        		const vec3 apex   = (lightGrid.view * vec4(spotLights[i].position, 1.0)).xyz;
+        		const vec3 axis   = normalize(mat3(lightGrid.view) * spotLights[i].direction);
+        		const vec4 sphere = SpotBoundingSphere(spotLights[i], apex, axis);
+        		if (SphereTouchesBox(sphere.xyz, sphere.w, lo, hi))
+        		{
+        			if (write && count < capacity)
+        				lightGridCells[base + count] = lightGrid.counts.x + i;
+        			count++;
+        		}
+        	}
+        	return count;
+        }
 
+        // FRUSTUM: the froxel's view-space box, the list at its fixed slot.
+        void BuildFroxel(uvec3 cell)
+        {
         	// The froxel's box in view space: the four rays through the tile's pixel corners, cut at the slice's
         	// two depths. Slice 0 starts at the camera and the last slice ends at far, matching LightGridSlice.
         	const float tile   = lightGrid.zParams.w;
@@ -109,34 +139,48 @@ Shader "LightGridBuild"
         	lo -= pad;
         	hi += pad;
 
-        	const uint index    = LightGridCellIndex(lightGrid, cell);
-        	const uint list     = LightGridListOffset(lightGrid, index);
-        	const uint capacity = lightGrid.size.w;
-        	uint       count    = 0u;
+        	const uint index = LightGridCellIndex(lightGrid, cell);
+        	lightGridCells[index] = CullLights(lo, hi, true, LightGridListOffset(lightGrid, index), lightGrid.size.w);
+        }
 
-        	for (uint i = 0u; i < lightGrid.counts.x; i++)
+        // WORLD: the clipmap cell's world box (cell.z runs through the clipmaps, res slices each), the list packed
+        // into the pool: count first, then take that many indices from the allocator and write them.
+        void BuildWorldCell(uvec3 cell)
+        {
+        	const uint  res     = lightGrid.size.x;
+        	const uint  clipmap = cell.z / res;
+        	const vec4  map     = lightGrid.clipmaps[clipmap];
+        	const vec3  corner  = map.xyz + vec3(uvec3(cell.xy, cell.z - clipmap * res)) * map.w;
+        	// A thousandth of a cell both ways: a point on a cell face may be looked up in either neighbour.
+        	const vec3  pad     = vec3(map.w * 1.0e-3);
+        	const vec3  lo      = corner - pad;
+        	const vec3  hi      = corner + map.w + pad;
+
+        	const uint index = LightGridCellIndex(lightGrid, cell);
+        	const uint count = CullLights(lo, hi, false, 0u, 0u);
+        	uint offset = 0u;
+        	if (count > 0u)
+        		offset = atomicAdd(lightGridCells[0], count);
+        	lightGridCells[LightGridWorldCountSlot(lightGrid, index)] = count;
+        	if (offset + count > lightGrid.size.w)
         	{
-        		const vec3 center = (lightGrid.view * vec4(pointLights[i].position, 1.0)).xyz;
-        		if (SphereTouchesBox(center, pointLights[i].radius, lo, hi))
-        		{
-        			if (count < capacity)
-        				lightGridCells[list + count] = i;
-        			count++;
-        		}
+        		lightGridCells[LightGridWorldOffsetSlot(lightGrid, index)] = LIGHT_GRID_WORLD_EVERY_LIGHT;
+        		return;
         	}
-        	for (uint i = 0u; i < lightGrid.counts.y; i++)
-        	{
-        		const vec3 apex   = (lightGrid.view * vec4(spotLights[i].position, 1.0)).xyz;
-        		const vec3 axis   = normalize(mat3(lightGrid.view) * spotLights[i].direction);
-        		const vec4 sphere = SpotBoundingSphere(spotLights[i], apex, axis);
-        		if (SphereTouchesBox(sphere.xyz, sphere.w, lo, hi))
-        		{
-        			if (count < capacity)
-        				lightGridCells[list + count] = lightGrid.counts.x + i;
-        			count++;
-        		}
-        	}
-        	lightGridCells[index] = count;
+        	lightGridCells[LightGridWorldOffsetSlot(lightGrid, index)] = offset;
+        	if (count > 0u)
+        		CullLights(lo, hi, true, LightGridWorldPoolBase(lightGrid) + offset, count);
+        }
+
+        void main()
+        {
+        	const uvec3 cell = gl_GlobalInvocationID;
+        	if (any(greaterThanEqual(cell, lightGrid.size.xyz)))
+        		return;
+        	if (lightGrid.counts.z == LIGHT_GRID_LAYOUT_WORLD)
+        		BuildWorldCell(cell);
+        	else
+        		BuildFroxel(cell);
         }
     }
 }

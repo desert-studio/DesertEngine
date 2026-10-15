@@ -793,6 +793,7 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        m_RadianceCacheInputs = RadianceCache::MakeRadianceCacheInputs( quality );
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -1174,6 +1175,8 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         AddFrameLightGrid( graph, textures, frame );
+        if ( WorldLightGridRead() )
+            AddFrameLightGridWorld( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1268,6 +1271,8 @@ namespace Desert::Graphic
                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
         AddFrameSurfaceCacheView( graph, textures, frame,
                                   postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                    frame );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS

@@ -59,6 +59,12 @@ namespace Desert::Graphic
         SurfaceCacheAtlas    = 14,
         SurfaceCacheScene    = 15,
         SurfaceCacheSceneLit = 16,
+        // The WORLD light grid (Graphic/LightGrid.hpp, LightGridLayout::WorldClipmaps): per pixel, the number of
+        // point/spot lights the radiance-cache clipmap cell around its surface lists — what a GI ray hitting that
+        // surface is lit by — heat-mapped, cell edges drawn. Deferred only; drawn by "Debug: LightGridWorld" after
+        // the temporal resolve, and the only reason the frame builds the world grid until GI-RADIANCE-CACHE reads
+        // it.
+        LightGridWorld = 17,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

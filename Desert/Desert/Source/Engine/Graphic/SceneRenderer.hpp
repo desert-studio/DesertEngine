@@ -756,6 +756,9 @@ namespace Desert::Graphic
         // into the atlas, then draws "Debug: Surface Cache Atlas" or "Debug: Lumen Scene" over @p target.
         void AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                        RDG::TextureRef target );
+        // "Debug: LightGridWorld" — the world light grid's count per surface, over the post input.
+        void AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target,
+                                         const ViewFrame& frame );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
@@ -777,6 +780,12 @@ namespace Desert::Graphic
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
         void            AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
+        // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
+        void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // Whether a node of this frame reads the world light grid. Today only the "Light Grid (World)" view mode
+        // (Deferred); GI-RADIANCE-CACHE adds its probe trace (the hit lighting of a traced GI method).
+        [[nodiscard]] bool WorldLightGridRead() const;
         void            AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
@@ -911,6 +920,9 @@ namespace Desert::Graphic
         // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
         // initialiser is the High column.
         LightGridQuality m_LightGridQuality;
+        // The world radiance cache's shape and budgets (RadianceCache::MakeRadianceCacheInputs), taken each
+        // BeginScene: the world light grid is cut by its clipmaps.
+        RadianceCache::RadianceCacheInputs m_RadianceCacheInputs;
         // The quality generation the shadow budget was last compared at (constructor, then BeginScene).
         uint64_t m_ShadowBudgetGeneration = 0;
 
