@@ -127,6 +127,16 @@ namespace Desert::Editor
         const std::optional<SourceTexture> baseColour =
              texture( fbxBaseColour ? aiTextureType_BASE_COLOR : aiTextureType_DIFFUSE );
         read.Alpha = ResolveSourceAlpha( mat, baseColour ? baseColour->File : std::filesystem::path{} );
+        // THE FORMAT-NEUTRAL STATEMENT "this material is cut out" (UE: BlendMode Masked). A template's `Requires` is
+        // all-of, so the masked template (StandardSurfaceMasked) requires this one key instead of a per-format
+        // alphaMask it could only ever name for one format. Set under exactly the conditions the format branches
+        // below carry the mask under: an FBX whose albedo alpha cuts out, a glTF MASK (or BLEND read as a mask).
+        const bool cutsOut =
+             read.Alpha.AlphaCutoff > 0.0f && baseColour &&
+             ( read.Alpha.Kind == SourceAlphaKind::Mask ||
+               ( format != "fbx" && read.Alpha.Kind == SourceAlphaKind::BlendAsMask ) );
+        if ( cutsOut )
+            entries["source.alphaMask"] = { glm::vec4( 1.0f, 0, 0, 0 ), std::nullopt, std::nullopt };
 
         if ( format == "fbx" )
         {

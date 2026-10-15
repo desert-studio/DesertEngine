@@ -8,6 +8,7 @@ Shader "StandardSurfaceMasked"
     // and the local lights' atlas. Ray tracing reads the same statement from ShaderProgramMeta::OpacityMask.
 
     Domain Surface
+    Role StandardSurfaceMasked
 
     // THE IMPORT CONTRACT (MAT1 adapters): the importer carries a source material as the source's own
     // dictionary and never names a template; this block says which source keys feed which Property here
@@ -16,7 +17,9 @@ Shader "StandardSurfaceMasked"
     // kind says which half it takes. The DSL parser refuses a row whose Property is not declared below.
     Import
     {
-        Requires "fbx.alphaMask"
+        // Taken by every source the adapter states cut out (SourceMaterialAdapter: "source.alphaMask", one key for
+        // glTF MASK and an FBX whose albedo alpha cuts out); FoliageSurface requires more and wins the two-sided ones.
+        Requires "source.alphaMask"
         "gltf.baseColorFactor"          -> AlbedoColor
         "gltf.baseColorTexture"         -> u_AlbedoTexture
         "gltf.metallicFactor"           -> MetallicFactor

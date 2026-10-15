@@ -2,6 +2,7 @@
 // Reflective Shadow Map drawn from the sun.
 #include "MeshRendererInternal.hpp"
 
+#include <algorithm>
 #include <format>
 
 namespace Desert::Graphic::System
@@ -631,31 +632,57 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            const SurfaceSlot         slot = rd.MaterialSlots != nullptr
-                                                  ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                  : SurfaceSlot{};
-            MaterialInstance*         inst = slot.Instance;
-            const DataDrivenMaterial* mat  = slot.Surface;
-            if ( !isMasked( mat ) )
+            // MASKED BY SLOT (UE: a section casts with ITS material): submesh i draws with slot i, so each submesh
+            // whose slot's material is Masked casts through that template's own ShadowDepth cell, alone; the
+            // submeshes left over cast opaque. A mesh with no masked slot keeps the batched opaque route.
+            const auto& submeshes = rd.Mesh->GetSubmeshes();
+            const std::size_t slotCount =
+                 rd.MaterialSlots != nullptr ? std::min( rd.MaterialSlots->Slots.size(), submeshes.size() ) : 0;
+            uint64_t maskedSubmeshes = 0;
+            for ( std::size_t i = 0; i < slotCount && i < 64; ++i )
+            {
+                MaterialInstance* inst = rd.MaterialSlots->Slots[i];
+                auto*             mat  = inst != nullptr
+                                              ? dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() )
+                                              : nullptr;
+                if ( !isMasked( mat ) || MeshCellPath( mat->GetShaderName() ) != MeshVertexPath::Static )
+                {
+                    continue;
+                }
+                maskedSubmeshes |= 1ull << i;
+                auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
+                if ( caster == nullptr )
+                {
+                    continue; // refused by name, once: the submesh casts nothing rather than a solid card
+                }
+                auto&            set = maskedSetFor( caster );
+                MaskedCasterDraw draw;
+                draw.Set               = &set;
+                draw.Path              = MeshVertexPath::Static;
+                draw.Mesh              = rd.Mesh;
+                draw.Transform         = rd.Transform;
+                draw.Instance          = inst;
+                draw.Row               = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+                draw.LodLevel          = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+                draw.HiddenSubmeshMask = ~( 1ull << i );
+                m_ScratchMaskedDraws.push_back( draw );
+            }
+            if ( maskedSubmeshes == 0 )
             {
                 bucketFor( rd.Mesh ).push_back( &rd );
                 continue;
             }
-            auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
-            if ( caster == nullptr )
+            const uint64_t allSubmeshes =
+                 submeshes.size() >= 64 ? ~0ull : ( ( 1ull << submeshes.size() ) - 1ull );
+            if ( ( allSubmeshes & ~maskedSubmeshes ) != 0 )
             {
-                continue; // refused by name, once
+                list.Add( { .Pipeline          = m_ShadowPipeline.get(),
+                            .Mesh              = rd.Mesh,
+                            .Transform         = rd.Transform,
+                            .Material          = casterExecutor,
+                            .HiddenSubmeshMask = maskedSubmeshes,
+                            .LodLevel          = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias ) } );
             }
-            auto&            set = maskedSetFor( caster );
-            MaskedCasterDraw draw;
-            draw.Set       = &set;
-            draw.Path      = MeshVertexPath::Static;
-            draw.Mesh      = rd.Mesh;
-            draw.Transform = rd.Transform;
-            draw.Instance  = inst;
-            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
-            draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
-            m_ScratchMaskedDraws.push_back( draw );
         }
 
         // Pack all instanced-batch transforms contiguously; each batch reads its slice via
@@ -953,6 +980,7 @@ namespace Desert::Graphic::System
                         .Material      = material->GetMaterialExecutor(),
                         .InstanceCount = instanced ? draw.Count : 1,
                         .FirstInstance = instanced ? draw.First : 0,
+                        .HiddenSubmeshMask = draw.HiddenSubmeshMask,
                         .LodLevel      = draw.LodLevel,
                         .BindState     = [material, draw]
                         {

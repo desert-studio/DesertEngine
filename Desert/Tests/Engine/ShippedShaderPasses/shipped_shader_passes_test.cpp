@@ -374,6 +374,8 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
          // template whose cells replaced the five forward/G-buffer programs.
          "StandardSurface.shader",
+         // MAT-MASKED: the standard surface cut out (BlendMode Masked), StandardSurface's row plus the clip value.
+         "StandardSurfaceMasked.shader",
          "StaticMeshGlass.shader",
          "Terrain.shader",
          // LS-5: the terrain's deferred twin carries Terrain.shader's Properties block — the same row, written
