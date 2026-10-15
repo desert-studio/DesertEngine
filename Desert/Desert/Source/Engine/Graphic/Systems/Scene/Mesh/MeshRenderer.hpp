@@ -1144,8 +1144,6 @@ namespace Desert::Graphic::System
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
             uint32_t          LodLevel  = 0;
-            // The submeshes this draw leaves out: a masked caster draws only the submeshes whose SLOT is Masked.
-            uint64_t          HiddenSubmeshMask = 0;
             InstanceWindPush  Wind;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;

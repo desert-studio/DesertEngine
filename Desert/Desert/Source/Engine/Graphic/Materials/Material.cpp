@@ -217,6 +217,12 @@ namespace Desert::Graphic
 
     void Material::ApplyInstanceOverrides( const MaterialInstance* instance )
     {
+        // No instance means the material drawn with its own values (Bind's parameter is a pointer for exactly
+        // that case): there is nothing to lay on top, and the defaults were already uploaded by Bind.
+        if ( instance == nullptr )
+        {
+            return;
+        }
         const auto& props = instance->GetPropertySet();
         for ( const auto& [name, prop] : props.GetProperties() )
         {
