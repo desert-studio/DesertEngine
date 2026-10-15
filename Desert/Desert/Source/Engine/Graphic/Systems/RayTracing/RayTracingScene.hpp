@@ -68,7 +68,7 @@ namespace Desert::Graphic::RayTracing
     enum class RayTracingSkip : uint8_t
     {
         NoGeometry = 0,  // no resident BLAS for the mesh
-        Skinned,         // a deformed mesh with no dynamic BLAS built this frame (SelectDynamicGeometry)
+        Skinned,         // a deformed mesh whose skin-cache entry was refused this frame (logged, RayTracingSkinCache)
         HiddenSubmeshes, // a static mesh's one shared BLAS holds every submesh; an instance cannot hide part of it
         RowOutOfRange,   // the GPU-scene row does not fit the 24-bit custom index
         Count

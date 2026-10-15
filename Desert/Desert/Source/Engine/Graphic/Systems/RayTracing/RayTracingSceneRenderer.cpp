@@ -19,9 +19,8 @@ namespace Desert::Graphic::RayTracing
         if ( !required )
             return BOOLSUCCESS;
 
-        // Static and skinned queues. A skinned primitive needs a per-frame BLAS from skinned positions and is
-        // counted as Skinned by BuildRayTracingInstances; a generic (procedural) mesh has no BLAS builder yet and
-        // is not a candidate (REMAINDER: generic + instanced meshes).
+        // Static and skinned queues. A skinned primitive traces its per-frame BLAS, which the skin cache skins and
+        // builds below; a generic (procedural) mesh has no BLAS builder yet and is not a candidate (RT-SCENE-2).
         m_Primitives.clear();
         for ( const System::MeshRenderer::StaticMeshRenderData& data : meshes.GetStaticQueue() )
         {
@@ -40,12 +39,18 @@ namespace Desert::Graphic::RayTracing
             primitive.Skinned              = true;
             primitive.DeformedMesh         = data.Mesh;
         }
+        m_DynamicBlas.clear();
+        const auto firstSkinned = static_cast<uint32_t>( meshes.GetStaticQueue().size() );
+        if ( const Common::BoolResultStr skinned =
+                  m_SkinCache.AddPasses( graph, meshes, m_Primitives, firstSkinned, m_DynamicBlas );
+             !skinned )
+            return skinned;
         m_Instances = BuildRayTracingInstances( m_Primitives );
 
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
-             AddRayTracingScenePass( graph, required, m_Instances, *m_Target );
+             AddRayTracingScenePass( graph, required, m_Instances, *m_Target, m_DynamicBlas );
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();

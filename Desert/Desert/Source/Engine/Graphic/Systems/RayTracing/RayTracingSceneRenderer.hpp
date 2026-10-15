@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -104,10 +105,11 @@ namespace Desert::Graphic::RayTracing
 
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
     // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
-    // no TLAS, and a reader must not be declared).
+    // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
+    // (RayTracingScene.DynamicGeometry); the TLAS build reads them, which orders it after their builds.
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
-                            RayTracingSceneTarget& target )
+                            RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {} )
     {
         RayTracingSceneFrame frame;
         if ( !required )
@@ -133,6 +135,8 @@ namespace Desert::Graphic::RayTracing
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( instances, RDG::Access::AccelStructBuildInput );
+                 for ( const RDG::BufferRef blas : blasInputs )
+                     pass.Read( blas, RDG::Access::AccelStructBuildInput );
                  pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
                  pass.Write( tlas, RDG::Access::AccelStructBuildWrite );
              },
@@ -177,6 +181,8 @@ namespace Desert::Graphic::RayTracing
 
     private:
         std::unique_ptr<RayTracingSceneTarget> m_Target;
+        RayTracingSkinCache                    m_SkinCache;  // skinned primitives' per-frame BLASes
+        std::vector<RDG::BufferRef>            m_DynamicBlas; // CPU scratch: this frame's built BLASes
         std::vector<RayTracingPrimitive>       m_Primitives; // CPU scratch, capacity kept
         RayTracingInstanceList                 m_Instances;
         RayTracingSceneFrame                   m_Frame;
