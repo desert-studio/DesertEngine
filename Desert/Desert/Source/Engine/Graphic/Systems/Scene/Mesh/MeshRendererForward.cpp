@@ -6,6 +6,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <format>
 #include <iterator>
@@ -46,7 +47,7 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    void MeshRenderer::BuildGenericDraws( MeshDrawList& list )
+    void MeshRenderer::BuildGenericDraws( MeshDrawList& list, const GenericSlice slice )
     {
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( m_TargetFramebuffer.expired() || camera == nullptr )
@@ -113,7 +114,8 @@ namespace Desert::Graphic::System
                     shaderName = material->GetShaderName();
             }
 
-            auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
+            auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+            auto        shader  = shaders->GetByName( shaderName );
             // A shader whose first compile failed is still registered under its name, so GetByName hands
             // it back like any other. Skip its draws silently: the compilation error was already logged
             // once, with the file and line, and repeating it every frame for every mesh would bury it.
@@ -181,6 +183,91 @@ namespace Desert::Graphic::System
                 continue;
             }
 
+            // -- The slice: which draws this list takes, through which program of their template ----------
+            //
+            // A Shader Override naming a SURFACE template (it registers cells) is a surface material: on the deferred
+            // path it is drawn in the G-buffer through its (Static x GBuffer) cell and shaded by the composite, as
+            // the lit queue is - never forward, so it needs no depth-normal program and is never shaded twice. Every
+            // other draw is a template without a Surface block: its opaque ones put depth + normal into the G-buffer
+            // first (the parser refuses an opaque one with no DepthNormal pass), then shade forward over the
+            // composite at CloserOrEqual against that depth.
+            const auto isRegistered = [shaders]( std::string_view name )
+            { return shaders->GetByName( std::string( name ) ) != nullptr; };
+            const bool surfaceOverride =
+                 g.SlotMaterial == nullptr &&
+                 TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered ).has_value();
+            const auto& state  = shader->GetProgramMeta().State;
+            const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+
+            std::string         programName = shaderName;
+            Core::ShaderVariant permutation;
+            MeshPass            cellPass = MeshPass::Forward;
+            switch ( slice )
+            {
+                case GenericSlice::Forward:
+                    break;
+                case GenericSlice::DeferredSurfaceGBuffer:
+                    if ( !surfaceOverride )
+                        continue;
+                    programName =
+                         *TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered );
+                    cellPass = MeshPass::GBuffer;
+                    break;
+                case GenericSlice::DeferredDepthNormal:
+                {
+                    if ( surfaceOverride || !opaque )
+                        continue;
+                    auto depthNormal =
+                         TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::DepthNormal, isRegistered );
+                    if ( !depthNormal )
+                    {
+                        // The parser refuses an opaque mesh-path program without the pass, so this is a program
+                        // whose pass failed to compile: named once; the draw is absent from the G-buffer depth
+                        // and normal the screen passes read.
+                        static std::unordered_set<std::string> s_MissingDepthNormal;
+                        if ( s_MissingDepthNormal.insert( shaderName ).second )
+                            LOG_ERROR( "[MeshRenderer] opaque material shader '{}' has no registered '{}/{}' "
+                                       "program; its meshes are missing from the G-buffer depth and normal the "
+                                       "deferred screen passes (ray-traced sun shadow, SSAO, SSR) read.",
+                                       shaderName, shaderName, Core::Preprocess::kGenericDepthNormalPass );
+                        continue;
+                    }
+                    programName = std::move( *depthNormal );
+                    cellPass    = MeshPass::DepthNormal;
+                    break;
+                }
+                case GenericSlice::DeferredForward:
+                    if ( surfaceOverride )
+                        continue;
+                    break;
+                case GenericSlice::DeferredForwardRayTracedSun:
+                    if ( surfaceOverride )
+                        continue;
+                    permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
+                    break;
+            }
+            const bool ownProgram = programName != shaderName || !permutation.IsDefault();
+            if ( ownProgram )
+            {
+                shader = permutation.IsDefault() ? shaders->GetByName( programName )
+                                                 : shaders->AcquireVariant( programName, permutation );
+                if ( !shader || !shader->IsCompiled() )
+                    continue; // ShaderService named the program and its compile error once
+            }
+            // The pipeline tracker's and the shared material's name of this program: the permutation is part of it.
+            std::string programKey = programName;
+            for ( const auto& define : permutation.Defines )
+                std::format_to( std::back_inserter( programKey ), "|{}", define );
+
+            if ( material != nullptr && ownProgram )
+            {
+                // A slot material is a `.demat`: its sibling in this program comes from the service, built from
+                // the same asset (same row, same textures), descriptor sets from THIS program's reflection.
+                material = Runtime::ResourceRegistry::GetMaterialService()->GetVariant(
+                     material, MeshVertexPath::Static, cellPass, permutation );
+                if ( material == nullptr )
+                    continue; // the service named the material and the program it refused
+            }
             if ( material == nullptr )
             {
                 // ONE MATERIAL PER (SHADER x TEXTURE SET), not per shader. The parameters of the draws
@@ -189,54 +276,79 @@ namespace Desert::Graphic::System
                 // different textures still cannot share one. Keying them apart is what stops the row fix
                 // from leaving half the defect standing: two labels in one font share a material and
                 // batch; two labels in different fonts get one material each and both are right.
-                auto& shared = m_GenericMaterials[shaderName + GenericTextureKey( g )];
+                auto& shared = m_GenericMaterials[programKey + GenericTextureKey( g )];
                 if ( !shared )
-                    shared = std::make_unique<DataDrivenMaterial>( shaderName );
+                    shared = std::make_unique<DataDrivenMaterial>( shader );
                 material = shared.get();
             }
 
-            // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
-            // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
-            // this set is only about the log line.
-            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
-            spec.DebugName                     = std::format( kGenericMeshNameFormat, shader->GetName() );
-            const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
-            if ( built )
+            GraphicsPipeline* pipeline = nullptr;
+            bool              standIn  = false;
+            if ( slice == GenericSlice::DeferredSurfaceGBuffer )
             {
-                TrackMaterialPipeline( shaderName, *built.GetValue() );
-            }
-            else
-            {
-                m_MaterialPipelines.OnFailed( shaderName );
-                static std::unordered_set<std::string> s_RefusedPipelines;
-                if ( s_RefusedPipelines.insert( shaderName ).second )
-                    LOG_ERROR( "[MeshRenderer] material '{}' has no pipeline, its meshes draw the default "
-                               "surface: {}",
-                               shaderName, built.GetError() );
-            }
-
-            // UE's default material while a PSO compiles (AL1-12): never a stall, never a silent gap. The
-            // stand-in's own pipeline is an engine one the reveal waited for, so it is Ready by the first
-            // shown frame; before that nothing is shown, which is the only case this draw is dropped.
-            std::shared_ptr<GraphicsPipeline> pipeline;
-            const auto                        choice = m_MaterialPipelines.Choose( shaderName );
-            if ( choice.UseOwnPipeline )
-            {
-                pipeline = built.GetValue();
-            }
-            else
-            {
-                if ( choice.Announce )
-                    LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
-                              "ready (pipeline {})",
-                              shaderName,
-                              MaterialPipelineStateName( *m_MaterialPipelines.StateOf( shaderName ) ) );
-                pipeline = DefaultSurfacePipeline();
-                if ( !pipeline || pipeline->GetReadiness() != PipelineReadiness::Ready )
+                // The lit queue's G-buffer pass state with this template's cell: the pipeline a `.demat` of the
+                // template draws with there. Null is logged once per key by CellPipeline.
+                pipeline = CellPipeline( m_StaticGBufferPipeline.get(), *material );
+                if ( pipeline == nullptr )
                     continue;
-                material = m_DefaultSurfaceMaterial.get();
             }
-            const bool standIn = !choice.UseOwnPipeline;
+            else
+            {
+                GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
+                spec.DebugName                     = std::format( kGenericMeshNameFormat, programKey );
+                if ( slice == GenericSlice::DeferredDepthNormal )
+                {
+                    // Into the G-buffer: its target layout; the program writes depth and the normal slot only.
+                    spec.TargetLayout   = GBufferLayout();
+                    spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+                }
+                else if ( slice != GenericSlice::Forward && opaque )
+                {
+                    // The prepass wrote this very fragment's depth: Closer would reject it.
+                    spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+                }
+                const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+                if ( built )
+                {
+                    TrackMaterialPipeline( programKey, *built.GetValue() );
+                }
+                else
+                {
+                    m_MaterialPipelines.OnFailed( programKey );
+                    static std::unordered_set<std::string> s_RefusedPipelines;
+                    if ( s_RefusedPipelines.insert( programKey ).second )
+                        LOG_ERROR( "[MeshRenderer] material '{}' has no pipeline, its meshes draw the default "
+                                   "surface: {}",
+                                   programKey, built.GetError() );
+                }
+
+                // UE's default material while a PSO compiles (AL1-12): never a stall, never a silent gap. The
+                // stand-in's own pipeline is an engine one the reveal waited for, so it is Ready by the first
+                // shown frame; before that nothing is shown, which is the only case this draw is dropped. The
+                // depth-normal prepass has no stand-in (the default surface is a scene-colour program): until
+                // its pipeline is Ready the draw is shaded forward but absent from the G-buffer depth.
+                const auto choice = m_MaterialPipelines.Choose( programKey );
+                if ( choice.UseOwnPipeline )
+                {
+                    pipeline = built.GetValue().get();
+                }
+                else
+                {
+                    if ( slice == GenericSlice::DeferredDepthNormal )
+                        continue;
+                    if ( choice.Announce )
+                        LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
+                                  "ready (pipeline {})",
+                                  programKey,
+                                  MaterialPipelineStateName( *m_MaterialPipelines.StateOf( programKey ) ) );
+                    const auto standInPipeline = DefaultSurfacePipeline();
+                    if ( !standInPipeline || standInPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        continue;
+                    pipeline = standInPipeline.get();
+                    material = m_DefaultSurfaceMaterial.get();
+                    standIn  = true;
+                }
+            }
 
             // ── This draw's ROW ─────────────────────────────────────────────────────────────────────
             //
@@ -270,14 +382,17 @@ namespace Desert::Graphic::System
                     // type
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                    if ( img != nullptr && !material->SetTexture( name, img ) )
+                    // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
+                    if ( img != nullptr && !material->SetTexture( name, img ) &&
+                         slice != GenericSlice::DeferredDepthNormal )
                         LogRefusedTextureOverride( shaderName, name );
                 }
 
                 // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
                 // SDF atlas takes this path.
                 if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() &&
-                     !material->SetTexture( g.DirectTextureSampler, g.DirectTexture ) )
+                     !material->SetTexture( g.DirectTextureSampler, g.DirectTexture ) &&
+                     slice != GenericSlice::DeferredDepthNormal )
                     LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
             }
 
@@ -347,7 +462,7 @@ namespace Desert::Graphic::System
         for ( const auto& d : draws )
         {
             const auto& g = *d.Data;
-            list.Add( { .Pipeline = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() ),
+            list.Add( { .Pipeline = CullPermutation( d.Pipeline, d.Material->IsTwoSided() ),
                         .Mesh     = g.Mesh,
                         // View pass: World / PrevWorld from the motion row; the push is the submesh transform
                         // relative to it (identity, RenderMesh multiplies the submesh's in).
@@ -487,8 +602,10 @@ namespace Desert::Graphic::System
             PrecacheRequestedMaterials();
             return;
         }
-        // The graph opens the render pass (LOAD, over the deferred lighting composite).
-        BuildGenericDraws( m_GenericDraws );
+        // The graph opens the render pass (LOAD, over the deferred lighting composite). While the sun is ray
+        // traced the view carries its screen mask, and the programs read it in place of the cascades.
+        BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
+                                                                        : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );
     }
 

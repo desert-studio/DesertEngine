@@ -363,6 +363,24 @@ namespace Desert::Graphic
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
+    void SceneRenderer::AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
+                                                    System::MeshRenderer* meshRenderer )
+    {
+        // The generic queue's opaque draws are shaded forward over the composite, but the screen passes that run
+        // before it (the ray-traced sun trace above all, which reads G-buffer depth + normal) must see them: their
+        // depth and normal go into the G-buffer here, UE's depth prepass for what the base pass does not draw.
+        // LOAD on the static/terrain G-buffer; each program writes only the normal slot (reflection masks the
+        // others), and AddFrameDepthResolve then copies this depth to the scene target.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: Forward Depth/Normal" );
+        if ( !targets || meshRenderer == nullptr )
+            return;
+        AddRaster(
+             graph, "Deferred: Forward Depth/Normal", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderForwardDepthNormalManual( context ); },
+             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareForwardDepthNormalDraws( pass ); } );
+    }
+
     void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,
                                      System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
     {

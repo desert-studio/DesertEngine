@@ -453,6 +453,12 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
+        // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
+        // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
+        // that are shaded forward over the composite. The exec records that list.
+        void                                DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
@@ -761,8 +767,27 @@ namespace Desert::Graphic::System
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // Which part of the generic queue a list takes, and through which program of each draw's template.
+        enum class GenericSlice : uint8_t
+        {
+            // The forward render path: every draw, its own program, in MeshGeometryPass.
+            Forward,
+            // Deferred, "Deferred: GBuffer": the Shader Override draws naming a SURFACE template (it has cells)
+            // through its (Static x GBuffer) cell — a surface material, shaded by the composite like the lit
+            // queue, never forward.
+            DeferredSurfaceGBuffer,
+            // Deferred, "Deferred: Forward Depth/Normal": the other draws whose program is opaque, through their
+            // template's (Static x DepthNormal) program.
+            DeferredDepthNormal,
+            // Deferred, "Deferred: Generic": the other draws, their own program over the composite; an opaque one
+            // at CloserOrEqual against its own prepassed depth.
+            DeferredForward,
+            // DeferredForward while the sun is ray traced: each program's DESERT_SUN_SHADOW_RAY_QUERY permutation,
+            // which reads the view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades.
+            DeferredForwardRayTracedSun,
+        };
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list, GenericSlice slice );
         // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
         // its cache and its MOVABLE ones over the copied cache, every frame.
         enum class ShadowCasterLayer : uint8_t
@@ -791,6 +816,7 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
+        MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
@@ -1221,7 +1247,7 @@ namespace Desert::Graphic::System
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
-            std::shared_ptr<GraphicsPipeline> Pipeline;
+            GraphicsPipeline*                 Pipeline = nullptr; // held by the pipeline cache / m_CellPipelines
             uint32_t                          Row = 0;
         };
         // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.

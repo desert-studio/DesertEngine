@@ -1240,6 +1240,7 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );

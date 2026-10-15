@@ -21,12 +21,31 @@ namespace Desert::Graphic::System
         BuildStaticDraws( m_GBufferDraws );
         BuildSkinnedDraws( m_GBufferDraws );
         m_DeferredGeometry = false;
+        // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
+        BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
         m_GBufferDraws.Declare( pass, std::nullopt );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGBufferManual( const RDG::PassContext& context ) const
     {
         return m_GBufferDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass )
+    {
+        m_DepthNormalDraws.Clear();
+        const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
+        if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
+            return;
+        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
+        // sample no scene/view input: the camera and the material row are the material's own blocks.
+        BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
+        m_DepthNormalDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderForwardDepthNormalManual( const RDG::PassContext& context ) const
+    {
+        return m_DepthNormalDraws.Record( context );
     }
 
     bool MeshRenderer::SetupGBufferPass()

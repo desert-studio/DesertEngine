@@ -746,6 +746,9 @@ namespace Desert::Graphic
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
+        // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
+        void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
+                                         System::MeshRenderer* meshRenderer );
         void AddFrameRSM( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                           const glm::vec3& sunDir );
         // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where a
