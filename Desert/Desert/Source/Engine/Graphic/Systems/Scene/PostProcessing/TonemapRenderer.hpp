@@ -111,6 +111,16 @@ namespace Desert::Graphic::System
             m_AutoExposureEnabled = enabled;
             m_ExposureKey         = key;
         }
+        [[nodiscard]] bool IsAutoExposureEnabled() const
+        {
+            return m_AutoExposureEnabled;
+        }
+        // The numerator of the composite's exposure (SceneComposite.shader): the key over the adapted luminance
+        // with auto exposure, the manual exposure (over 1) without. The temporal resolve weights with the same.
+        [[nodiscard]] float GetExposureScale() const
+        {
+            return m_AutoExposureEnabled ? m_ExposureKey : m_Exposure;
+        }
 
         // The sun light's radial streaks (LightShaftRenderer) and their strength — the intensity is
         // Bloom Scale x the sun's screen-edge fade, computed by SceneRenderer from the SAME params that

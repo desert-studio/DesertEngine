@@ -1,6 +1,7 @@
 #include "RenderMethodsOverlay.hpp"
 
 #include <Engine/Graphic/RenderMethods.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <array>
 #include <string>
@@ -8,12 +9,16 @@
 
 namespace Desert::Editor
 {
-    void DrawRenderMethodsOverlay( const Graphic::RenderMethods& methods, const ImVec2& viewportMin,
+    void DrawRenderMethodsOverlay( const Graphic::RenderMethods&      methods,
+                                   const Graphic::TemporalViewStatus& temporal, const ImVec2& viewportMin,
                                    const ImVec2& viewportMax )
     {
-        const std::vector<std::string> rows    = Graphic::FormatRenderMethods( methods );
-        const std::array<bool, 3>      lowered = { methods.GlobalIllumination.Lowered(), methods.Reflections.Lowered(),
-                                                   methods.Shadows.Lowered() };
+        std::vector<std::string> rows = Graphic::FormatRenderMethods( methods );
+        rows.push_back( Graphic::FormatTemporalViewStatus( temporal ) );
+        const std::array<bool, 4> lowered = { methods.GlobalIllumination.Lowered(), methods.Reflections.Lowered(),
+                                              methods.Shadows.Lowered(),
+                                              temporal.Method != Graphic::TemporalMethod::None &&
+                                                   temporal.HistoryReset != Graphic::HistoryResetReason::None };
 
         constexpr float kMargin = 12.0f;
         const float     lineH   = ImGui::GetTextLineHeight();

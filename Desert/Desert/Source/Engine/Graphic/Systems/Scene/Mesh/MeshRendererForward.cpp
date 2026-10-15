@@ -759,6 +759,7 @@ namespace Desert::Graphic::System
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
+            set.PrevTransforms.clear();
             set.Materials.clear();
             set.Draws.clear();
             return set;
@@ -991,7 +992,12 @@ namespace Desert::Graphic::System
                         const auto firstInstance = static_cast<uint32_t>( groupSet->Transforms.size() );
                         for ( std::size_t i = 0; i < batchable.size(); ++i )
                             if ( levels[i] == level )
+                            {
                                 groupSet->Transforms.push_back( batchable[i].Obj->Transform );
+                                // A batched static moves like any other: its motion row (BuildObjectMotions)
+                                // holds the world the view drew it with last frame.
+                                groupSet->PrevTransforms.push_back( PreviousWorldOf( *batchable[i].Obj ) );
+                            }
 
                         const uint32_t count =
                              static_cast<uint32_t>( groupSet->Transforms.size() ) - firstInstance;
@@ -1000,6 +1006,7 @@ namespace Desert::Graphic::System
                             // A level with a single member is cheaper as a per-object draw, and that is
                             // the same threshold the batch itself is chosen by.
                             groupSet->Transforms.resize( firstInstance );
+                            groupSet->PrevTransforms.resize( firstInstance );
                             for ( std::size_t i = 0; i < batchable.size(); ++i )
                                 if ( levels[i] == level )
                                     singles.push_back( batchable[i] );
@@ -1229,11 +1236,13 @@ namespace Desert::Graphic::System
                 // The LOD question is per instance for the same reason the visibility question is: the
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
-                auto& visible = m_ScratchIsmVisible;
+                auto& visible = m_ScratchIsmVisibleIndices;
                 auto& levels  = m_ScratchLodLevels;
                 const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
-                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind, mainView,
-                                     mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                CollectIsmInstanceIndices( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
+                                           mainView, mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                // Last frame's snapshot (BuildObjectMotions), the same count by MotionHistory::PreviousInstances.
+                const std::vector<glm::mat4>& previous = ism.PrevTransforms ? *ism.PrevTransforms : *ism.Transforms;
                 m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
@@ -1256,7 +1265,10 @@ namespace Desert::Graphic::System
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
-                            ismSet->Transforms.push_back( visible[i] );
+                        {
+                            ismSet->Transforms.push_back( ( *ism.Transforms )[visible[i]] );
+                            ismSet->PrevTransforms.push_back( previous[visible[i]] );
+                        }
                     d.InstanceCount = static_cast<uint32_t>( ismSet->Transforms.size() ) - d.FirstInstance;
                     ismSet->Draws.push_back( d );
                 }
@@ -1285,9 +1297,18 @@ namespace Desert::Graphic::System
                 // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
                 // only ever written here, once, and the draws that read them are recorded immediately
                 // after, before any other set touches its own.
+                // A view pass reads a pair per instance, this frame's world and the previous one
+                // (Mesh/Surface/Vertex_Instanced.glslh kInstanceTransformStride).
+                auto& pairs = m_ScratchInstancePairs;
+                pairs.clear();
+                pairs.reserve( set.Transforms.size() * 2 );
+                for ( std::size_t i = 0; i < set.Transforms.size(); ++i )
+                {
+                    pairs.push_back( set.Transforms[i] );
+                    pairs.push_back( set.PrevTransforms[i] );
+                }
                 if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
-                    sb->SetRawData( set.Transforms.data(),
-                                    static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                    sb->SetRawData( pairs.data(), static_cast<uint32_t>( pairs.size() * sizeof( glm::mat4 ) ) );
                 if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "Materials" ) )
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );

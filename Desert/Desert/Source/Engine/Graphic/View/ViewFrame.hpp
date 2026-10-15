@@ -8,6 +8,8 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 // TAA1 — THE PER-FRAME VIEW (UE: FViewInfo built from FSceneViewState). What every pass of one view reads for one
 // frame: matrices, their previous-frame copies, the sub-pixel jitter and the two extents of the resolution split.
@@ -209,6 +211,34 @@ namespace Desert::Graphic
             return HistoryReset == HistoryResetReason::None;
         }
     };
+
+    // ---- What the viewport overlay says about the temporal resolve ----------------------------------------
+    //
+    // The temporal facts of one view's LAST frame, copied out of its ViewFrame (which lives only while the frame
+    // records): the method and quality, the split, where the jitter is in its sequence, and whether the history
+    // was read or reset (and why). The viewport draws it beside the render methods (FormatTemporalViewStatus).
+    struct TemporalViewStatus
+    {
+        TemporalMethod     Method  = TemporalMethod::None;
+        TemporalAAQuality  Quality = TemporalAAQuality::Medium;
+        ResolutionSplit    Split;
+        uint32_t           JitterIndex          = 0;
+        uint32_t           JitterSequenceLength = 0;
+        glm::vec2          JitterPixels{ 0.0f };
+        HistoryResetReason HistoryReset = HistoryResetReason::FirstFrame;
+
+        bool operator==( const TemporalViewStatus& ) const = default;
+    };
+
+    // PURE.
+    [[nodiscard]] TemporalViewStatus MakeTemporalViewStatus( const ViewFrame& frame );
+
+    // PURE. One overlay row, e.g. "AA: TAAU High 67% 1286x723 -> 1920x1080, jitter 3/8 (+0.21, -0.13) px,
+    // history read" or "..., history reset: camera cut"; "AA: no temporal method" without one.
+    [[nodiscard]] std::string FormatTemporalViewStatus( const TemporalViewStatus& status );
+
+    // PURE. The reason's name as the overlay prints it ("camera cut", "resize", ...); "none" for None.
+    [[nodiscard]] std::string_view HistoryResetReasonName( HistoryResetReason reason );
 
     // PURE. The frame of a camera that is NOT a SceneViewState view — a shadow cascade's light camera, an editor
     // preview drawing one overlay with no temporal history: no jitter (the jittered matrices are the unjittered

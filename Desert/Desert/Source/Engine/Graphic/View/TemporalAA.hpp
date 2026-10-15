@@ -70,17 +70,21 @@ namespace Desert::Graphic
         glm::vec2 OutputSize;          // pixels
         glm::vec2 JitterUv;            // this frame's jitter in uv: JitterNdc * (0.5, -0.5)
         float     HistoryValid = 0.0f; // 1 when the history holds this view's previous frame
-        float     Pad          = 0.0f;
+        // The numerator of the exposure the composite applies (TemporalUpscalerInputs::ExposureScale): the shader
+        // weights samples with ExposureScale / u_Exposure, the composite's own `exposure`.
+        float ExposureScale = 1.0f;
     };
     static_assert( offsetof( TemporalAAParams, PrevViewProjection ) == 64 );
     static_assert( offsetof( TemporalAAParams, RenderSize ) == 128 );
     static_assert( offsetof( TemporalAAParams, OutputSize ) == 136 );
     static_assert( offsetof( TemporalAAParams, JitterUv ) == 144 );
     static_assert( offsetof( TemporalAAParams, HistoryValid ) == 152 );
+    static_assert( offsetof( TemporalAAParams, ExposureScale ) == 156 );
     static_assert( sizeof( TemporalAAParams ) == 160 );
 
     // The parameters of this frame's resolve (pure; the suite pins the values the shader relies on).
-    [[nodiscard]] TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output );
+    [[nodiscard]] TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output,
+                                                         float exposureScale );
 
     // The binding layout of TemporalAA.shader as the graph sees it — the C++ mirror of the shader's declarations.
     // The ShaderCacheKey suite pins it against the compiled shader's reflection (MakeShaderBindingLayout), and the

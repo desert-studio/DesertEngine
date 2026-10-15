@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <string_view>
 
 namespace Desert::Graphic
@@ -241,5 +242,64 @@ namespace Desert::Graphic
         f.PrevTimeSeconds = timeSeconds;
         f.HistoryReset    = HistoryResetReason::FirstFrame;
         return f;
+    }
+
+    TemporalViewStatus MakeTemporalViewStatus( const ViewFrame& frame )
+    {
+        return TemporalViewStatus{ .Method               = frame.Method,
+                                   .Quality              = frame.Quality,
+                                   .Split                = frame.Split,
+                                   .JitterIndex          = frame.JitterIndex,
+                                   .JitterSequenceLength = frame.JitterSequenceLength,
+                                   .JitterPixels         = frame.JitterPixels,
+                                   .HistoryReset         = frame.HistoryReset };
+    }
+
+    std::string_view HistoryResetReasonName( const HistoryResetReason reason )
+    {
+        switch ( reason )
+        {
+            case HistoryResetReason::None:
+                return "none";
+            case HistoryResetReason::FirstFrame:
+                return "first frame";
+            case HistoryResetReason::CameraCut:
+                return "camera cut";
+            case HistoryResetReason::Resize:
+                return "resize";
+            case HistoryResetReason::TemporalMethodChange:
+                return "method change";
+            case HistoryResetReason::PassFault:
+                return "pass fault";
+        }
+        return "unknown";
+    }
+
+    std::string FormatTemporalViewStatus( const TemporalViewStatus& status )
+    {
+        if ( status.Method == TemporalMethod::None )
+            return "AA: no temporal method";
+        const std::string_view method = status.Method == TemporalMethod::TAAU ? "TAAU" : "TAA";
+        std::string_view       quality;
+        switch ( status.Quality )
+        {
+            case TemporalAAQuality::Low:
+                quality = "Low";
+                break;
+            case TemporalAAQuality::Medium:
+                quality = "Medium";
+                break;
+            case TemporalAAQuality::High:
+                quality = "High";
+                break;
+        }
+        const std::string history = status.HistoryReset == HistoryResetReason::None
+                                         ? std::string( "history read" )
+                                         : std::format( "history reset: {}",
+                                                        HistoryResetReasonName( status.HistoryReset ) );
+        return std::format( "AA: {} {} {}% {}x{} -> {}x{}, jitter {}/{} ({:+.2f}, {:+.2f}) px, {}", method, quality,
+                            status.Split.RenderScalePercent, status.Split.Render.Width, status.Split.Render.Height,
+                            status.Split.Output.Width, status.Split.Output.Height, status.JitterIndex + 1,
+                            status.JitterSequenceLength, status.JitterPixels.x, status.JitterPixels.y, history );
     }
 } // namespace Desert::Graphic

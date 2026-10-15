@@ -21,10 +21,19 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #endif
 #include <Common/ObjectMotion.glslh>
 
+// A VIEW pass's buffer holds two matrices per instance, this frame's and the previous frame's world
+// (MeshRenderer InstancedBatchSet::PrevTransforms, interleaved at upload): an auto-batched static carries its object's
+// motion row PrevWorld, an ISM instance the transform the view drew it with last frame (MotionHistory::
+// PreviousInstances; UE: the per-instance previous transforms). A light view has no previous frame: one per instance.
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#ifdef DESERT_SURFACE_VIEW_PASS
+const int kInstanceTransformStride = 2;
+#else
+const int kInstanceTransformStride = 1;
+#endif
 
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
@@ -35,7 +44,7 @@ DESERT_SURFACE_VARYINGS( out )
 
 void main()
 {
-    const mat4 model = transforms[gl_InstanceIndex];
+    const mat4 model = transforms[gl_InstanceIndex * kInstanceTransformStride];
     const vec3 worldPosition =
          InstancedWorldPosition( model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -51,11 +60,11 @@ void main()
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous
-    // world is its world; only the wind moves it, evaluated again at the view's previous time (WindB.z,
-    // Graphic::InstanceWindPush). No motion row is read.
-    const vec3 prevWorldPosition = InstancedWorldPosition(
-         model, a_Position, m_PushConstants.WindA, vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    // The instance's previous world (the second matrix of its pair), bent by the wind at the view's previous time
+    // (WindB.z, Graphic::InstanceWindPush): both the placement's motion and the sway's.
+    const mat4 prevModel         = transforms[gl_InstanceIndex * kInstanceTransformStride + 1];
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, m_PushConstants.WindA,
+                                                           vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )

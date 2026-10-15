@@ -294,15 +294,16 @@ TEST( TemporalUpscaler, ParamsCarryTheUnjitteredMatricesAndTheResetFlag )
     view.PrevViewProjection       = glm::mat4( 3.0f );
     view.JitterNdc                = glm::vec2( 0.2f, 0.4f );
     view.HistoryReset             = HistoryResetReason::None;
-    const TemporalAAParams params = MakeTemporalAAParams( view, Extent3D{ 64, 32, 1 } );
+    const TemporalAAParams params = MakeTemporalAAParams( view, Extent3D{ 64, 32, 1 }, 0.22f );
     EXPECT_EQ( params.InvViewProjection, view.InvViewProjection );
     EXPECT_EQ( params.PrevViewProjection, view.PrevViewProjection );
     EXPECT_EQ( params.RenderSize, glm::vec2( 32.0f, 16.0f ) );
     EXPECT_EQ( params.OutputSize, glm::vec2( 64.0f, 32.0f ) );
     EXPECT_EQ( params.JitterUv, glm::vec2( 0.1f, -0.2f ) );
     EXPECT_EQ( params.HistoryValid, 1.0f );
+    EXPECT_EQ( params.ExposureScale, 0.22f );
     view.HistoryReset = HistoryResetReason::FirstFrame;
-    EXPECT_EQ( MakeTemporalAAParams( view, Extent3D{ 64, 32, 1 } ).HistoryValid, 0.0f );
+    EXPECT_EQ( MakeTemporalAAParams( view, Extent3D{ 64, 32, 1 }, 1.0f ).HistoryValid, 0.0f );
 }
 
 // SCAL-SPATIAL1: which frames sharpen and upscale spatially. Mutation: SharpenRuns ignoring the percent, or

@@ -292,7 +292,7 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
-        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+        void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
                                   const InstanceCullDistance& cullDistance, const InstanceWind& wind );
@@ -434,6 +434,12 @@ namespace Desert::Graphic
         // EndFrame commits inside that window). Outside it — before the first frame, after a refused frame,
         // between frames, from another view — it is nullptr, never the last frame's view: a writer that gets
         // nullptr has no view to draw for and writes nothing.
+        // The temporal resolve of this view's last begun frame (method, split, jitter, history), for the viewport
+        // overlay; copied when the frame begins, so it outlives the frame.
+        [[nodiscard]] const TemporalViewStatus& GetTemporalViewStatus() const
+        {
+            return m_TemporalViewStatus;
+        }
         [[nodiscard]] const ViewFrame* GetViewFrame() const
         {
             return m_CurrentViewFrame;
@@ -574,6 +580,8 @@ namespace Desert::Graphic
         // GetViewFrame's answer: the ViewFrame OnUpdate's BeginFrame returned, set and cleared by OnUpdate's
         // CurrentViewFrameScope so no exit path leaves it pointing at a finished frame.
         const ViewFrame* m_CurrentViewFrame = nullptr;
+        // MakeTemporalViewStatus of the last begun frame (GetTemporalViewStatus).
+        TemporalViewStatus m_TemporalViewStatus;
         // Set by ResetTemporalHistory (the one cut entry point: ShotDirector, headless capture); consumed by the
         // next BeginFrame that succeeds as ViewInputs::CameraCut.
         bool m_CameraCutPending = false;

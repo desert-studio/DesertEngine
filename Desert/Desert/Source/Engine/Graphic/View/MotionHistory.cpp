@@ -29,18 +29,32 @@ namespace Desert::Graphic
         return recorded;
     }
 
+    MotionHistory::InstanceSnapshot MotionHistory::PreviousInstances( const MotionKey         key,
+                                                                      const InstanceSnapshot& current )
+    {
+        const InstanceSnapshot& recorded = m_CurInstances.try_emplace( key, current ).first->second;
+        const auto              previous = m_PrevInstances.find( key );
+        if ( previous != m_PrevInstances.end() && previous->second && recorded &&
+             previous->second->size() == recorded->size() )
+            return previous->second;
+        return recorded;
+    }
+
     void MotionHistory::EndFrame()
     {
         m_PrevTransforms = std::move( m_CurTransforms );
         m_CurTransforms.clear();
         m_PrevBones = std::move( m_CurBones );
         m_CurBones.clear();
+        m_PrevInstances = std::move( m_CurInstances );
+        m_CurInstances.clear();
     }
 
     void MotionHistory::DiscardCurrent()
     {
         m_CurTransforms.clear();
         m_CurBones.clear();
+        m_CurInstances.clear();
     }
 
     void MotionHistory::Clear()
@@ -49,6 +63,8 @@ namespace Desert::Graphic
         m_CurTransforms.clear();
         m_PrevBones.clear();
         m_CurBones.clear();
+        m_PrevInstances.clear();
+        m_CurInstances.clear();
     }
 
     std::size_t MotionHistory::TrackedTransforms() const

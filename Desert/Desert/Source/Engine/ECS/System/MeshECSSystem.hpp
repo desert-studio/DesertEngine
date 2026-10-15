@@ -432,7 +432,7 @@ namespace Desert::ECS
                                                                    m_WindSeconds );
                              }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
+                              static_cast<uint32_t>( entity ), targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
                               ism.CastContactShadow,
                               Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );

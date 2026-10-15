@@ -45,7 +45,7 @@ Shader "TemporalAA"
         Uniform(0) sampler2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
         Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
         Uniform(2) sampler2D u_Velocity;   // NDC current - previous, RenderExtent
-        Uniform(3) sampler2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
+        Uniform(3) sampler2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure), White when it is off
         Uniform(4) sampler2D u_History;    // previous resolve, this pass's extent
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_Output;
@@ -59,7 +59,7 @@ Shader "TemporalAA"
             vec2  u_OutputSize;
             vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
             float u_HistoryValid;
-            float u_Pad;
+            float u_ExposureScale;      // the composite exposure's numerator (key, or the manual exposure)
         };
         Uniform(8) sampler2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
 
@@ -245,8 +245,9 @@ Shader "TemporalAA"
             const float historyFlag = 0.0;
         #endif
 
+            // The composite's exposure (SceneComposite): key / adapted luminance, or the manual exposure over White.
             const float adaptedLum = texelFetch(u_Exposure, ivec2(0), 0).r;
-            const float exposure   = 1.0 / max(adaptedLum, 1e-4);
+            const float exposure   = u_ExposureScale / max(adaptedLum, 1e-4);
 
             // 3. The filtered current frame and the neighbourhood statistics of K's 3x3. The filter scale (UE
             // InvFilterScaleFactor, TemporalAA.usf :2203-2220): 1, 0 without history (as wide as the kernel goes),

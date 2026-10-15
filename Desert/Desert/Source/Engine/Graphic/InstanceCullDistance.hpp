@@ -93,12 +93,12 @@ namespace Desert::Graphic
      * its own that the fade could be measured from without leaving shadows of absent trees — and stretched by
      * that view's lens (DrawDistanceScale).
      */
-    inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
-                                     const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
-                                     const InstanceCullDistance& cull, const InstanceWind& wind,
-                                     const Geometry::LODView& cullView, const Geometry::LODView& lodView,
-                                     std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
-                                     std::vector<uint32_t>& levels )
+    inline void CollectIsmInstanceIndices( const std::vector<glm::mat4>& transforms,
+                                           const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
+                                           const InstanceCullDistance& cull, const InstanceWind& wind,
+                                           const Geometry::LODView& cullView, const Geometry::LODView& lodView,
+                                           std::span<const float> lodScreenSizes, std::vector<uint32_t>& visible,
+                                           std::vector<uint32_t>& levels )
     {
         visible.clear();
         levels.clear();
@@ -116,9 +116,27 @@ namespace Desert::Graphic
                  !frustum.Intersects(
                       WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind ) ) )
                 continue;
-            visible.push_back( instanceTransform );
+            visible.push_back( static_cast<uint32_t>( i ) );
             levels.push_back(
                  Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, lodScreenSizes, -1, 0 ) );
         }
+    }
+
+    // The same selection as the kept transforms themselves, for a pass that needs no per-instance identity (a
+    // shadow cascade). The view pass takes the indices: an instance's previous transform is found by its index.
+    inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
+                                     const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
+                                     const InstanceCullDistance& cull, const InstanceWind& wind,
+                                     const Geometry::LODView& cullView, const Geometry::LODView& lodView,
+                                     std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
+                                     std::vector<uint32_t>& levels )
+    {
+        thread_local std::vector<uint32_t> indices;
+        CollectIsmInstanceIndices( transforms, localBounds, frustum, cull, wind, cullView, lodView, lodScreenSizes,
+                                   indices, levels );
+        visible.clear();
+        visible.reserve( indices.size() );
+        for ( const uint32_t index : indices )
+            visible.push_back( transforms[index] );
     }
 } // namespace Desert::Graphic

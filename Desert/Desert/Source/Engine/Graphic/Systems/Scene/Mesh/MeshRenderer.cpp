@@ -493,6 +493,10 @@ namespace Desert::Graphic::System
             data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
+        // An ISM has no motion row (its instances are world-space and drawn from their own buffer): the view's
+        // history keeps each ISM's snapshot, and the view pass pairs every instance with last frame's entry.
+        for ( auto& data : m_InstancedQueue )
+            data.PrevTransforms = motion.PreviousInstances( MotionKey{ data.Entity, 0 }, data.Transforms );
         const auto& rows     = built.Rows;
         const auto& palettes = built.Palettes;
 

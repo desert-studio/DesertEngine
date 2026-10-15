@@ -1087,6 +1087,7 @@ namespace Desert::Graphic
         };
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
+        m_TemporalViewStatus = MakeTemporalViewStatus( frame );
 
         // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
         // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
@@ -1708,7 +1709,7 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1722,7 +1723,8 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh              = mesh,
+             ->SubmitInstancedMesh( { .Entity            = entity,
+                                      .Mesh              = mesh,
                                       .Material          = material,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
@@ -1865,14 +1867,19 @@ namespace Desert::Graphic
         // and the SSAA downsample have no history.
         const std::vector<HistoryRefs> histories =
              temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
+        // The resolve weights with the composite's exposure (TemporalUpscalerInputs::Exposure): the adapted
+        // luminance only while auto exposure drives the composite, else unit luminance under the manual exposure.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        const bool  adapted = tonemap != nullptr && tonemap->IsAutoExposureEnabled() && exposure.IsValid();
         const TemporalUpscalerInputs inputs{
              .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
              .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
              .Velocity   = textures.Transients.Velocity,
-             .ResponsiveAA = textures.Transients.ResponsiveAA,
-             // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
-             .Exposure = exposure.IsValid() ? exposure : textures.System.White,
-             .History  = histories };
+             .ResponsiveAA  = textures.Transients.ResponsiveAA,
+             .Exposure      = adapted ? exposure : textures.System.White,
+             .ExposureScale = tonemap != nullptr ? tonemap->GetExposureScale() : 1.0f,
+             .History       = histories };
         RDG::TextureRef resolvedColor;
         if ( spatial )
         {

@@ -2030,7 +2030,7 @@ namespace Desert::Editor
         // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
         if ( !m_Modes.UI2D && m_Scene )
             if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
-                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(), renderer->GetTemporalViewStatus(),
                                           ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
                                           ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
                                                   m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );

@@ -44,9 +44,14 @@ namespace Desert::Graphic
         // How much of each pixel responsive translucency covers (ViewTargetFormats::kResponsiveAA, RenderExtent):
         // the current frame's weight rises to UE's 1/4 by it.
         RDG::TextureRef ResponsiveAA;
-        // Last frame's exposure (AutoExposure's 1x1 output, read in the shader): the resolve weights samples in a
-        // tonemapped space (UE: HdrWeight), and the exposure must be the one the history was resolved under.
-        RDG::TextureRef Exposure; // AutoExposureRenderer previous adapted luminance, 1x1 (AutoExposure.Previous)
+        // The resolve weights samples in a tonemapped space (UE: HdrWeight) with the SAME exposure the composite
+        // applies, ExposureScale / Exposure.r (SceneComposite: key / adaptedLum, or the manual Exposure / 1).
+        // The scene colour and the history are absolute linear radiance, not pre-exposed (UE stores both
+        // pre-exposed and rescales the history by PrevPreExposure / PreExposure); here an exposure change moves
+        // only the weights, and the history needs no rescale.
+        RDG::TextureRef Exposure; // auto exposure on: last frame's adapted luminance, 1x1 (AutoExposure.Previous);
+                                  // off: System.White (1)
+        float ExposureScale = 1.0f; // auto exposure on: the key; off: the manual exposure
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
     };
 

@@ -57,7 +57,7 @@ namespace Desert::Graphic
         return layout;
     }
 
-    TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output )
+    TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output, const float exposureScale )
     {
         TemporalAAParams params;
         params.InvViewProjection  = frame.InvViewProjection;
@@ -66,7 +66,8 @@ namespace Desert::Graphic
                                                static_cast<float>( frame.Split.Render.Height ) );
         params.OutputSize   = glm::vec2( static_cast<float>( output.Width ), static_cast<float>( output.Height ) );
         params.JitterUv     = frame.JitterNdc * glm::vec2( 0.5f, -0.5f ); // Velocity.hpp: uv = ndc * (0.5, -0.5)
-        params.HistoryValid = frame.HistoryValid() ? 1.0f : 0.0f;
+        params.HistoryValid  = frame.HistoryValid() ? 1.0f : 0.0f;
+        params.ExposureScale = exposureScale;
         return params;
     }
 
@@ -143,7 +144,7 @@ namespace Desert::Graphic
         outputDesc.Format            = kHistoryFormat;
         const RDG::TextureRef output = graph.CreateTexture( outputDesc, kOutputName );
 
-        const TemporalAAParams params = MakeTemporalAAParams( frame, extent );
+        const TemporalAAParams params = MakeTemporalAAParams( frame, extent, inputs.ExposureScale );
         const RDG::BufferRef   buffer =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( TemporalAAParams ) }, kParamsName );
         graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &params, 1 ) ) );

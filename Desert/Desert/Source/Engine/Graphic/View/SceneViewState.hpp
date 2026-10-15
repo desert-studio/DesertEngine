@@ -143,6 +143,13 @@ namespace Desert::Graphic
         [[nodiscard]] std::span<const glm::mat4> PreviousBones( MotionKey                  key,
                                                                 std::span<const glm::mat4> current );
 
+        // The same for an instanced primitive's per-instance world transforms (an ISM's snapshot, UE: the
+        // per-instance previous transforms): the snapshot the view drew @p key with last frame, or @p current when
+        // it was not drawn then or its instance count changed (instance i would name another placement). Shared
+        // snapshots, so an unchanged ISM costs a pointer per frame.
+        using InstanceSnapshot = std::shared_ptr<const std::vector<glm::mat4>>;
+        [[nodiscard]] InstanceSnapshot PreviousInstances( MotionKey key, const InstanceSnapshot& current );
+
         // This frame's records become "previous"; a key not recorded this frame is dropped (an object that was not
         // drawn must not reappear later with a stale transform: it reappears with no object motion).
         void EndFrame();
@@ -161,6 +168,8 @@ namespace Desert::Graphic
         std::unordered_map<MotionKey, glm::mat4, MotionKeyHash>              m_CurTransforms;
         std::unordered_map<MotionKey, std::vector<glm::mat4>, MotionKeyHash> m_PrevBones;
         std::unordered_map<MotionKey, std::vector<glm::mat4>, MotionKeyHash> m_CurBones;
+        std::unordered_map<MotionKey, InstanceSnapshot, MotionKeyHash>       m_PrevInstances;
+        std::unordered_map<MotionKey, InstanceSnapshot, MotionKeyHash>       m_CurInstances;
     };
 
     // What every geometry pass reads per draw instead of today's single `mat4 Transform` push constant: two mat4

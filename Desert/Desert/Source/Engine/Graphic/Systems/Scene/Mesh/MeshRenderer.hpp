@@ -222,9 +222,14 @@ namespace Desert::Graphic::System
         {
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
+            // The owning entity (entt id incl. version): the ISM's key in the view's MotionHistory.
+            uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh = nullptr;
             MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
+            // The snapshot this view drew last frame, same count as Transforms (MotionHistory::PreviousInstances,
+            // written by BuildObjectMotions): instance i's previous world, the second matrix of its view-pass pair.
+            std::shared_ptr<const std::vector<glm::mat4>> PrevTransforms;
             bool                                          CastShadows = true;
             bool                                          CastContactShadow = true; // UE bCastContactShadow
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
@@ -306,6 +311,13 @@ namespace Desert::Graphic::System
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
         [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+        // The world the view drew @p obj with last frame: its motion row's PrevWorld (BuildObjectMotions numbered
+        // the row this frame). An instanced batch of statics pairs every instance with it.
+        [[nodiscard]] glm::mat4 PreviousWorldOf( const StaticMeshRenderData& obj ) const
+        {
+            const auto& rows = m_ScratchMotionRows.Rows;
+            return obj.MotionRow < rows.size() ? rows[obj.MotionRow].PrevWorld : obj.Transform;
+        }
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -1162,6 +1174,10 @@ namespace Desert::Graphic::System
             Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
+            // Per instance, parallel to Transforms: the world the view drew it with last frame (an auto-batched
+            // static's motion row PrevWorld, an ISM instance's PrevTransforms entry). Uploaded interleaved with
+            // Transforms (Mesh/Surface/Vertex_Instanced.glslh: a view pass reads a pair per instance).
+            std::vector<glm::mat4>      PrevTransforms;
             std::vector<glm::vec4>       Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
@@ -1202,6 +1218,8 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
+        std::vector<uint32_t>                    m_ScratchIsmVisibleIndices; // the view pass: indices into Transforms
+        std::vector<glm::mat4>                   m_ScratchInstancePairs;     // a view set's interleaved upload
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
