@@ -27,6 +27,10 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #ifdef DESERT_SURFACE_VIEW_PASS
 #define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
 #define DESERT_OBJECT_BONES 1       // ...and both of its palettes from the view's ObjectBones
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+// A light view with varyings (masked caster) reads its primitive's row too, for the skin-cache fields only: the
+// row is their one source, and MaterialTransport's block has no room for them (120 of the guaranteed 128 bytes).
+#define DESERT_OBJECT_MOTION_ROWS 1
 #endif
 #include <Common/ObjectMotion.glslh>
 #include <Common/SkinCacheStreams.glslh>
@@ -115,17 +119,30 @@ void main()
     vec3 skinnedTangent;
     vec3 skinnedBitangent;
 #endif
-#ifndef DESERT_SURFACE_HAS_VARYINGS
-    // Only the depth cell's own block carries the streams; a light view with varyings (masked caster, RSM) uses
-    // MaterialTransport's block and still skins from its palette.
-    if ( m_PushConstants.SkinCacheVertexCount != 0u )
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    // The masked caster names its row through PrimitiveIndex (MeshRendererShadow.cpp, MaskedCasterDraw).
+    const GpuObjectMotion casterRow    = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
+    const uint            cacheCount   = casterRow.SkinCacheVertexCount;
+    const uint            cacheAddrLo  = casterRow.SkinCacheAddressLo;
+    const uint            cacheAddrHi  = casterRow.SkinCacheAddressHi;
+#else
+    // The depth cell's own block carries them (MaterialShadowSkinned::SetSkinCache, from the row).
+    const uint cacheCount  = m_PushConstants.SkinCacheVertexCount;
+    const uint cacheAddrLo = m_PushConstants.SkinCacheAddressLo;
+    const uint cacheAddrHi = m_PushConstants.SkinCacheAddressHi;
+#endif
+    if ( cacheCount != 0u )
     {
-        posed = DesertSkinCachePosition(
-             DesertSkinCacheStreams( m_PushConstants.SkinCacheAddressLo, m_PushConstants.SkinCacheAddressHi ),
-             uint( gl_VertexIndex ) );
+        const SkinCacheStreams streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
+        const uint             vertex  = uint( gl_VertexIndex );
+        posed                          = DesertSkinCachePosition( streams, vertex );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+        skinnedNormal    = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
+        skinnedTangent   = DesertSkinCacheFrame( streams, cacheCount, vertex, 1u );
+        skinnedBitangent = DesertSkinCacheFrame( streams, cacheCount, vertex, 2u );
+#endif
     }
     else
-#endif
     {
         const int  b    = int( m_PushConstants.BoneOffset );
         const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +

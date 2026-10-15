@@ -313,8 +313,10 @@ namespace Desert::Graphic::System
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
         // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex stage)
-        // writes each skinned row's cached-streams address before the upload (RayTracingSkinCache::PrepareRows), for
-        // the absolute frame @p frame.
+        // writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after the
+        // ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the absolute
+        // frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view graph).
+        // A skin step that fails is logged and its rows lose the address; the view still draws.
         [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                   motion,
                                                                 RayTracing::RayTracingSkinCache* skinCache = nullptr,
                                                                 uint64_t                         frame     = 0 );
@@ -329,11 +331,15 @@ namespace Desert::Graphic::System
             return m_SkinCacheEnabled;
         }
         // This view's graph refs of the skin-cache streams its skinned rows address (RayTracingSkinCache::
-        // AddSkinPasses fills them, SceneRenderer clears them per frame): DeclareSkinnedDraws reads them.
+        // DeclareReads fills them, SceneRenderer clears them per frame): every pass that draws skinned primitives
+        // declares them StorageRead (DeclareSkinnedDraws, the cascade and local shadow passes, the silhouette).
         [[nodiscard]] std::vector<RDG::BufferRef>& SkinCacheReads()
         {
             return m_SkinCacheReads;
         }
+        // The morph twin's output external of @p entity when @p mesh is its blended twin (the external
+        // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through it.
+        [[nodiscard]] RDG::ExternalBuffer* FindMorphOutput( uint32_t entity, const SkinnedMesh* mesh );
         // This view's ObjectBones as the skin pass's graph external.
         [[nodiscard]] RDG::ExternalBuffer& SkinCacheBonesImport()
         {
@@ -1218,6 +1224,9 @@ namespace Desert::Graphic::System
             uint32_t          Row       = 0;
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
+            // Skinned path: the primitive's row in the view's ObjectMotions (PrimitiveIndex), whose skin-cache
+            // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
+            uint32_t          MotionRow = 0;
             uint32_t          LodLevel  = 0;
             InstanceWindPush  Wind;
         };

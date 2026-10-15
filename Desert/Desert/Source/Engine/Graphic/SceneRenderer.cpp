@@ -1156,8 +1156,9 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
-            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, the first view
-            // of the frame skins each skinned primitive once, the raster and the TLAS read the result.
+            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, each skinned
+            // primitive is skinned once per frame by the skin step of the first view that queues it, the raster and
+            // the TLAS of every view read the result.
             const uint64_t                   frameNumber = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
             RayTracing::RayTracingSkinCache* skinCache   = nullptr;
             if ( m_FrameRayTracingCache != nullptr )
@@ -1174,14 +1175,11 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
+            // The skin step already ran in BuildObjectMotions (its own graph, submitted before this view graph):
+            // this graph only reads the streams, barriered by their carried state.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
-                if ( const Common::BoolResultStr skinned = skinCache->AddSkinPasses(
-                          graph, *meshes, meshes->SkinCacheBonesImport(), frameNumber, meshes->SkinCacheReads() );
-                     !skinned )
-                    LOG_ERROR( "[SceneRenderer] {}: the skin cache's passes could not be declared; its skinned "
-                               "primitives read stale streams this frame: {}",
-                               m_ViewResources.GetName(), skinned.GetError() );
+                skinCache->DeclareReads( graph, *meshes, frameNumber, meshes->SkinCacheReads() );
         }
 
         const auto sceneColor = [this, &textures]()

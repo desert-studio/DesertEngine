@@ -383,6 +383,10 @@ namespace Desert::Graphic::System
                 m_LocalDraws[slot].Clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
+                // The skin cache's streams its skinned casters fetch (BuildShadowCascadeDraws pushes each draw's
+                // address, the masked ones read it from their row); written by the scene's skin step.
+                for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                    declared.Read( streams, RDG::Access::StorageRead );
             };
             passes.push_back( std::move( pass ) );
         }

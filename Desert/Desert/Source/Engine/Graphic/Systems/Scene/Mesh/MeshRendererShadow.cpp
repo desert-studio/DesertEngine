@@ -2,6 +2,8 @@
 // Reflective Shadow Map drawn from the sun.
 #include "MeshRendererInternal.hpp"
 
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
 #include <format>
 
 namespace Desert::Graphic::System
@@ -869,6 +871,7 @@ namespace Desert::Graphic::System
                     draw.Instance  = sd.Instance;
                     draw.Row       = AppendRow( set.Rows, EffectiveRow( sd.Material, sd.Instance ) );
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
+                    draw.MotionRow = sd.MotionRow;
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );
                     continue;
@@ -939,7 +942,15 @@ namespace Desert::Graphic::System
                 continue;
             }
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
-            const auto        path = MeshCellPath( set.Caster->GetShaderName() );
+            const auto path = MeshCellPath( set.Caster->GetShaderName() );
+            // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
+            if ( path == MeshVertexPath::Skinned )
+            {
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+                const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
+                DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
+                rows->SetBuffer( m_ObjectMotions );
+            }
             const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
             if ( own.empty() )
             {
@@ -973,6 +984,7 @@ namespace Desert::Graphic::System
                             if ( draw.Path == MeshVertexPath::Skinned )
                             {
                                 material->SetSkinnedBoneOffset( draw.First );
+                                material->SetPrimitiveIndex( draw.MotionRow );
                             }
                             material->Bind( draw.Instance );
                         } } );

@@ -15,6 +15,7 @@
 #include <array>
 #include <format>
 #include <string>
+#include <unordered_map>
 
 namespace Desert::Graphic::RayTracing
 {
@@ -185,22 +186,23 @@ namespace Desert::Graphic::RayTracing
         }
     }
 
-    Common::BoolResultStr RayTracingSkinCache::AddSkinPasses( RDG::Builder&               graph,
-                                                              const System::MeshRenderer& meshes,
-                                                              RDG::ExternalBuffer& viewBones, const uint64_t frame,
-                                                              std::vector<RDG::BufferRef>& rasterReads )
+    Common::BoolResultStr RayTracingSkinCache::SkinFrame( System::MeshRenderer&            meshes,
+                                                          const std::span<GpuObjectMotion> rows,
+                                                          RDG::ExternalBuffer& viewBones, const uint64_t frame )
     {
-        ++m_GraphSerial;
-        m_DeclaringGraph                                                           = &graph;
         const std::span<const System::MeshRenderer::SkinnedMeshRenderData> records = meshes.GetSkinnedQueue();
         if ( !m_Enabled || !m_Pipeline || records.empty() )
             return BOOLSUCCESS;
 
-        const std::span<const GpuObjectMotion> rows     = meshes.GetObjectMotionRows().Rows;
         const std::shared_ptr<ComputePipeline> pipeline = m_Pipeline;
         const auto&                            layout   = m_Layout.Get( pipeline->GetSpecification().Shader );
         const RDG::OtherRouteFill              fill     = Renderer::GetPipelineRouteFill( *pipeline );
+        RDG::Builder                           graph( "SkinCache" );
         std::optional<RDG::BufferRef>          bones;
+        // A vertex external is registered once per graph: two records of one entity may share a morph twin.
+        std::unordered_map<RDG::ExternalBuffer*, RDG::BufferRef> vertexRefs;
+        std::vector<Entry*>                                      skinned;
+        std::vector<std::size_t>                                 skinnedRecords;
 
         KeyRecords( meshes );
         for ( std::size_t i = 0; i < records.size(); ++i )
@@ -212,8 +214,6 @@ namespace Desert::Graphic::RayTracing
             Entry& entry = found->second;
             if ( entry.LastFrame != frame || !entry.StreamsReady || record.MotionRow >= rows.size() )
                 continue;
-            const RDG::BufferRef streams = StreamsIn( graph, entry );
-            rasterReads.push_back( streams );
             if ( entry.HasSkinned && entry.SkinnedFrame == frame )
                 continue; // an earlier view of this frame skinned it: one skinning per frame
 
@@ -226,6 +226,14 @@ namespace Desert::Graphic::RayTracing
                 bones = graph.RegisterExternal( viewBones, "SkinCache.Bones" );
             }
 
+            // A morphed record reads the twin's output through the external the morph graph wrote it through
+            // (MeshRenderer::UpdateMorphTargets): one resource, so its carried VertexIndex state barriers this read.
+            RDG::ExternalBuffer* const morphed = meshes.FindMorphOutput( record.Entity, record.Mesh );
+            RDG::ExternalBuffer* const source  = morphed != nullptr ? morphed : &entry.VerticesImport;
+            auto [vertexRef, fresh]            = vertexRefs.try_emplace( source );
+            if ( fresh )
+                vertexRef->second = graph.RegisterExternal( *source, "SkinCache.Vertices" );
+
             // The shader's SkinCacheDispatch: x = vertex count, y = the first bone of this frame's palette, z = 1
             // when the streams' current positions are last frame's pose (rotate them into the previous positions).
             const bool                    history     = entry.HasSkinned && entry.SkinnedFrame + 1u == frame;
@@ -235,7 +243,8 @@ namespace Desert::Graphic::RayTracing
             const RDG::BufferRef          dispatchRef =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( dispatch ) }, "SkinCache.Dispatch" );
             graph.QueueBufferUpload( dispatchRef, std::as_bytes( std::span( dispatch ) ) );
-            const RDG::BufferRef vertices = graph.RegisterExternal( entry.VerticesImport, "SkinCache.Vertices" );
+            const RDG::BufferRef streams  = graph.RegisterExternal( entry.Streams->GetBuffer(), "SkinCache.Streams" );
+            const RDG::BufferRef vertices = vertexRef->second;
             const RDG::BufferRef bonesRef = *bones;
             const uint32_t       groups   = ( vertexCount + kSkinCacheGroupSize - 1u ) / kSkinCacheGroupSize;
             graph.AddPass(
@@ -253,10 +262,62 @@ namespace Desert::Graphic::RayTracing
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1, 1 );
                  } );
-            entry.SkinnedFrame = frame;
-            entry.HasSkinned   = true;
+            skinned.push_back( &entry );
+            skinnedRecords.push_back( i );
+        }
+        if ( skinned.empty() )
+            return BOOLSUCCESS;
+
+        if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
+        {
+            // Nothing of this graph reached the GPU: the streams hold no pose of this frame, so their rows lose the
+            // address (the raster skins those draws in the vertex stage) and the entries are not marked skinned.
+            for ( Entry* entry : skinned )
+            {
+                entry->StreamsReady = false;
+                entry->HasSkinned   = false;
+            }
+            for ( const std::size_t i : skinnedRecords )
+            {
+                GpuObjectMotion& row     = rows[records[i].MotionRow];
+                row.SkinCacheAddressLo   = 0;
+                row.SkinCacheAddressHi   = 0;
+                row.SkinCacheVertexCount = 0;
+            }
+            return Common::MakeError( std::format( "{}: the skin graph of {} primitive(s) did not execute; they "
+                                                   "skin in the vertex stage this frame: {}",
+                                                   kSkinCachePassName, skinned.size(), executed.GetError() ) );
+        }
+        for ( Entry* entry : skinned )
+        {
+            entry->SkinnedFrame = frame;
+            entry->HasSkinned   = true;
         }
         return BOOLSUCCESS;
+    }
+
+    void RayTracingSkinCache::DeclareReads( RDG::Builder& graph, const System::MeshRenderer& meshes,
+                                            const uint64_t frame, std::vector<RDG::BufferRef>& rasterReads )
+    {
+        ++m_GraphSerial;
+        m_DeclaringGraph                                                           = &graph;
+        const std::span<const System::MeshRenderer::SkinnedMeshRenderData> records = meshes.GetSkinnedQueue();
+        if ( !m_Enabled || !m_Pipeline || records.empty() )
+            return;
+
+        KeyRecords( meshes );
+        for ( std::size_t i = 0; i < records.size(); ++i )
+        {
+            const auto found = m_Entries.find( m_RecordKeys[i] );
+            if ( found == m_Entries.end() )
+                continue;
+            Entry& entry = found->second;
+            // Only what a skin graph of this frame wrote: an entry whose graph failed lost its rows' address.
+            if ( entry.LastFrame != frame || !entry.StreamsReady || !entry.HasSkinned ||
+                 entry.SkinnedFrame != frame )
+                continue;
+            rasterReads.push_back( StreamsIn( graph, entry ) );
+        }
     }
 
     Common::BoolResultStr RayTracingSkinCache::AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
@@ -279,7 +340,7 @@ namespace Desert::Graphic::RayTracing
             return BOOLSUCCESS;
         }
         if ( m_DeclaringGraph != &graph )
-            return Common::MakeError( std::format( "{}: AddSkinPasses was not declared into this graph before the "
+            return Common::MakeError( std::format( "{}: DeclareReads did not register into this graph before the "
                                                    "ray-tracing scene - the BLAS would "
                                                    "read positions no pass of this graph skinned",
                                                    kDynamicGeometryPassName ) );

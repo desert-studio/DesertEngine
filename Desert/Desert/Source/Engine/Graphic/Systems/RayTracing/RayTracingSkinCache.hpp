@@ -134,16 +134,28 @@ namespace Desert::Graphic::RayTracing
         void PrepareRows( const System::MeshRenderer& meshes,
                           std::span<GpuObjectMotion> rows, uint64_t frame );
 
-        // RASTER, step 2 (SceneRenderer, after BuildObjectMotions, before any pass that draws a skinned primitive
-        // or traces rays): declares one "SkinCache: Skin" dispatch per entry not yet skinned in @p frame (from
-        // this view's ObjectBones, imported through @p viewBones) and registers every addressed entry's streams in
-        // @p graph. Their refs land in @p rasterReads: each pass that draws skinned primitives through a view-pass
-        // cell declares them StorageRead (MeshRenderer::DeclareSkinnedDraws).
-        [[nodiscard]] Common::BoolResultStr AddSkinPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
-                                                           RDG::ExternalBuffer& viewBones, uint64_t frame,
-                                                           std::vector<RDG::BufferRef>& rasterReads );
+        // RASTER, step 2 (MeshRenderer::BuildObjectMotions, after the view's ObjectBones are uploaded and before
+        // its rows are): the scene's skin step (UE FGPUSkinCache::DispatchUpdateSkinning, which runs once per
+        // FScene before any view renders). Builds its OWN graph declaring one "SkinCache: Skin" dispatch per entry
+        // PrepareRows addressed and no graph of @p frame has skinned yet (this view's ObjectBones imported through
+        // @p viewBones, a morphed record's vertices through the morph twin's own external), and executes it at
+        // once - so every view graph, built and submitted after, only reads the streams, and the streams'
+        // carried state gives each reader its StorageWrite->StorageRead barrier whatever the views' order. A later
+        // view whose primitives an earlier view did not queue runs a graph for just those: still one skinning per
+        // primitive per frame. A graph that fails to execute clears the addresses of the rows it was to fill
+        // (those draws skin in the vertex stage this frame), logged.
+        [[nodiscard]] Common::BoolResultStr SkinFrame( System::MeshRenderer&      meshes,
+                                                       std::span<GpuObjectMotion> rows,
+                                                       RDG::ExternalBuffer& viewBones, uint64_t frame );
 
-        // RAY TRACING (RayTracingSceneRenderer, after AddSkinPasses of the same graph): for every primitive
+        // RASTER, step 3 (SceneRenderer, after BuildObjectMotions, before any pass that draws a skinned primitive
+        // or traces rays): registers the streams of every entry SkinFrame skinned in @p frame in the view graph
+        // @p graph; their refs land in @p rasterReads, and each pass that draws skinned primitives through a
+        // view-pass cell declares them StorageRead (MeshRenderer::DeclareSkinnedDraws). Declares no pass.
+        void DeclareReads( RDG::Builder& graph, const System::MeshRenderer& meshes, uint64_t frame,
+                           std::vector<RDG::BufferRef>& rasterReads );
+
+        // RAY TRACING (RayTracingSceneRenderer, after DeclareReads of the same graph): for every primitive
         // SelectDynamicGeometry picks, prepares its entry's BLAS and declares ONE
         // "RayTracingScene.DynamicGeometry" pass building / refitting every BLAS not yet built in @p frame from
         // the entry's cached positions, and points the primitive's Geometry at it. @p primitives[firstSkinned + i]
@@ -175,7 +187,7 @@ namespace Desert::Graphic::RayTracing
             const SkinnedMesh*                         Mesh = nullptr; // the mesh the streams were prepared for
             RDG::ExternalBuffer VerticesImport;        // the mesh's vertex buffer as a graph external
             uint64_t            LastFrame     = 0;     // last frame a view asked for it
-            uint64_t            SkinnedFrame  = 0;     // last frame its skin pass was declared
+            uint64_t            SkinnedFrame  = 0;     // last frame a skin graph that skinned it executed
             uint64_t            BuiltFrame    = 0;     // last frame its BLAS build was declared
             bool                StreamsReady  = false; // prepared in LastFrame: rows carry its address
             bool                HasSkinned    = false; // SkinnedFrame is meaningful
@@ -200,7 +212,7 @@ namespace Desert::Graphic::RayTracing
         std::unordered_map<uint32_t, uint32_t> m_RecordsPerEntity; // CPU scratch: skinned records seen per entity
         std::shared_ptr<ComputePipeline>       m_Pipeline;
         ShaderBindingLayoutCache               m_Layout;
-        // The graph AddSkinPasses declared into last, and its serial: AddPasses must run on that same graph.
+        // The graph DeclareReads registered into last, and its serial: AddPasses must run on that same graph.
         const RDG::Builder* m_DeclaringGraph = nullptr;
         uint64_t            m_GraphSerial    = 0;
         bool                                   m_Enabled               = true;
