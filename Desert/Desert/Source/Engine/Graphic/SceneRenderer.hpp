@@ -589,6 +589,17 @@ namespace Desert::Graphic
             GlobalIllumination::SurfaceCacheFrame            Hits;
         };
         std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
+        // The traced GI's records of this frame that the traced reflections read too: the GI frame record and the
+        // radiance cache's read (AddFrameTracedGI, when the GI traces) and the view-culled mesh SDFs
+        // (AddFrameMeshSDFReads, made once by whichever reader comes first). Reset by AddFrameTracedGI every
+        // frame.
+        struct TracedFrameShared
+        {
+            RDG::BufferRef                                                  GIFrame;
+            std::optional<GlobalIllumination::RadianceCacheFrame>           RadianceCache;
+            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
+        };
+        TracedFrameShared m_TracedFrameShared;
         // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
         // probes), made on first use.
         std::unique_ptr<GlobalIllumination::IrradianceFieldGather> m_IrradianceFieldGather;
@@ -821,9 +832,26 @@ namespace Desert::Graphic
         // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
         // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;
-        // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache), or
-        // one of its view modes is on. Deferred only.
+        // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache),
+        // the traced reflections read it (ReflectionsTraced), or one of its view modes is on. Deferred only.
         [[nodiscard]] bool SurfaceCacheRuns() const;
+        // Whether this frame's reflections are ReflectionMethod::SoftwareTraced: SSR's pass in its traced
+        // permutation, over the tracer of SurfaceCacheTracer() (the GI's when it traces, otherwise the software
+        // walk), the surface cache, the global distance field and the world light grid. Deferred only.
+        [[nodiscard]] bool ReflectionsTraced() const;
+        // This frame's GI record (GlobalIllumination::GIFramePayload, "GIFrameUB") for a G-buffer of @p extent.
+        [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
+                                                       const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                       glm::uvec2 extent ) const;
+        // The mesh SDF near field's reads of this frame (UE LumenMeshSDFCulling over the view, the screen probes'
+        // distances), made by the first reader and kept in m_TracedFrameShared for the next.
+        [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
+        AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
+        // (logged): a read is missing and the frame reflects the screen alone.
+        [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
+        MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+                                   const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The tracer of the surface cache's shadow rays: the GI pipeline's when it traces, otherwise the software
         // walk.
         [[nodiscard]] GlobalIllumination::Pipeline SurfaceCacheTracer() const;

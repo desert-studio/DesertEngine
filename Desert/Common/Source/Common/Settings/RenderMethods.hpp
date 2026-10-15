@@ -51,7 +51,9 @@ namespace Common::Scalability
                         // reflection environment with r.SSR off)
         ScreenSpace,    // screen-space trace composed over the captures; a miss shows the captures, then the sky
                         // (UE r.ReflectionMethod 2: SSR, then the reflection environment)
-        SoftwareTraced, // global SDF + radiance cache (GI/REFL-SW)                       — not implemented
+        SoftwareTraced, // the screen trace continued through the GI's tracer - mesh SDFs, then the global SDF -,
+                        // a hit lit from the surface cache, a miss answered by the captures, then the sky; past
+                        // UE's MaxRoughnessToTrace the screen alone (REFL-SW; UE Lumen reflections)
         HardwareTraced, // screen ray continued into the TLAS (RT-REFL); RT device        — not implemented
         PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
     };
@@ -84,7 +86,7 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
         return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
-               method == ReflectionMethod::ScreenSpace;
+               method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {

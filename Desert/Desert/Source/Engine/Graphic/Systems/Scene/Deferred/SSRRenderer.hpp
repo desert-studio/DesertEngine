@@ -11,12 +11,16 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
 
 #include <array>
 #include <cstddef>
+#include <format>
 #include <optional>
 #include <span>
 
@@ -41,6 +45,13 @@ namespace Desert::Graphic::System
     //     accumulation through the reflected point with variance rejection, and the history convolution. The
     //     tile mask lets the reconstruction skip the tiles that reflect nothing.
     // Runs in the manual chain after the G-buffer and the HZB, BEFORE the deferred lighting.
+    //
+    // ONE PASS, TWO METHODS. ReflectionMethod::ScreenSpace runs the program's default compile (the screen alone);
+    // ReflectionMethod::SoftwareTraced the permutation DESERT_REFLECTIONS_TRACED under the GI tracer's defines
+    // (GlobalIllumination::TracerVariant): the rays the screen does not answer go on through the mesh SDFs and the
+    // global field, a hit lit from the surface cache (UE Lumen's reflections, SSR.shader's header). The tracer,
+    // the cards and the mesh SDFs are the GI's own frame records (TracedReads) - there is no second tracer - and
+    // the denoiser is the same, so the two methods differ only in which rays come back answered.
     class SSRRenderer final : public RenderSystem
     {
     public:
@@ -59,6 +70,56 @@ namespace Desert::Graphic::System
             m_TracePipeline = tracePipeline.GetValue();
 
             return m_Denoiser.Initialize();
+        }
+
+        // What the traced permutation reads beside the screen's inputs (SSR.shader, bindings 10..41), all of this
+        // frame's graph: GIHitRadiance's inputs (the GI frame record, the lights and the world light grid, the
+        // radiance cache's read - a neutral one covering nothing when the GI does not run it -, the sky's cube,
+        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame), the surface cache's
+        // hits and, for the software tracer, the mesh SDF near field with its distances (UE
+        // r.Lumen.TraceMeshSDFs.TraceDistance, CardTraceEndDistanceFromCamera - the screen probes' own).
+        struct TracedReads
+        {
+            GlobalIllumination::TracerFrame                                 Tracer;
+            GlobalIllumination::SurfaceCacheFrame                           SurfaceCache;
+            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
+            GlobalIllumination::RadianceCacheFrame                          RadianceCache;
+            RDG::BufferRef                                                  GIFrame;
+            RDG::BufferRef                                                  PointLights;
+            RDG::BufferRef                                                  SpotLights;
+            RDG::BufferRef                                                  WorldGridParams;
+            RDG::BufferRef                                                  WorldGridCells;
+            RDG::TextureRef                                                 EnvSpecular;
+            RDG::TextureRef                                                 GBufferA;
+            RDG::TextureRef                                                 GBufferEmissive;
+            float                                                           MeshSDFTraceDistance         = 0.0f;
+            float                                                           MeshSDFEndDistanceFromCamera = 0.0f;
+        };
+
+        // GRAPH BUILD, before DeclareTraceBindings of a traced frame: the traced permutation for @p pipeline's
+        // tracer, compiled on first use and again when the tracer changes. An error: the program did not compile.
+        [[nodiscard]] Common::BoolResultStr EnsureTracedProgram( const GlobalIllumination::Pipeline& pipeline )
+        {
+            if ( m_TracedPipeline && pipeline == m_TracedFor )
+                return BOOLSUCCESS;
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
+            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
+            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
+            if ( !shader )
+                return Common::MakeFormattedError<bool>(
+                     "SSR: the traced reflections' program ({}, {}) did not compile",
+                     GlobalIllumination::TracerDefine( pipeline.Tracer ),
+                     GlobalIllumination::HitLightingDefine( pipeline.Hits ) );
+            const auto compute = ComputePipeline::Create(
+                 { .Shader = shader,
+                   .DebugName =
+                        std::format( "SSRTrace ({})", GlobalIllumination::TracerDefine( pipeline.Tracer ) ) } );
+            if ( !compute )
+                return Common::MakeError( compute.GetError() );
+            m_TracedShader   = std::move( shader );
+            m_TracedPipeline = compute.GetValue();
+            m_TracedFor      = pipeline;
+            return BOOLSUCCESS;
         }
 
         // The denoiser's history is a reprojection of the previous frame, and the previous frame is now a
@@ -152,15 +213,20 @@ namespace Desert::Graphic::System
         // them with (the images' own: linear, REPEAT; the deferred composite reads the same G-buffer with it), @p
         // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
+        // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
                                    RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
-                                   RDG::TextureRef sceneHistory, RDG::TextureRef hzb,
-                                   RDG::BufferRef uniforms ) const
+                                   RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
+                                   const TracedReads* traced = nullptr ) const
         {
-            if ( !m_TracePipeline )
+            const bool tracedProgram = traced != nullptr && m_TracedPipeline;
+            if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram ) )
                 return;
-            pass.Bindings( m_TraceLayout.Get( m_TraceShader ), Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+            const std::shared_ptr<Shader>& shader   = tracedProgram ? m_TracedShader : m_TraceShader;
+            ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
+            ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
+            auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
+            block.Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                  .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                            RDG::SamplerDesc::PointClamp() )
@@ -175,6 +241,8 @@ namespace Desert::Graphic::System
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
                  .Uniform( "SSRTraceUB", uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+            if ( tracedProgram )
+                DeclareTracedReads( block, *traced );
         }
 
         // EXEC of the same node: the block DeclareTraceBindings declared + this frame's push constants.
@@ -190,6 +258,10 @@ namespace Desert::Graphic::System
             float MaxDistance  = 0.0f;
             float Intensity    = 1.0f;
             float Thickness    = 0.0f;
+            // SoftwareTraced: the traced permutation (EnsureTracedProgram), with the near field's distances (cm).
+            bool  Traced                       = false;
+            float MeshSDFTraceDistance         = 0.0f;
+            float MeshSDFEndDistanceFromCamera = 0.0f;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -203,11 +275,15 @@ namespace Desert::Graphic::System
                  glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                  glm::vec4( static_cast<float>( settings.RaysPerPixel ), static_cast<float>( settings.Iterations ),
                             settings.Intensity, settings.Thickness ),
-                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ) };
+                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
+                            settings.MeshSDFTraceDistance, settings.MeshSDFEndDistanceFromCamera ) };
+            ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
+            if ( pipeline == nullptr )
+                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_TracePipeline, TileGrid( Width() ),
+            return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
         }
 
@@ -227,6 +303,43 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
+        // declare.
+        static void DeclareTracedReads( RDG::BindingBlockBuilder& block, const TracedReads& traced )
+        {
+            constexpr RDG::Access kR  = RDG::Access::StorageRead;
+            constexpr RDG::Access kS  = RDG::Access::SampledCompute;
+            const auto            all = RDG::SubresourceRange::All();
+            block.Storage( "GIFrameUB", traced.GIFrame, kR )
+                 .Storage( "PointLightsUB", traced.PointLights, kR )
+                 .Storage( "SpotLightsUB", traced.SpotLights, kR )
+                 .Storage( "LightGridParamsUB", traced.WorldGridParams, kR )
+                 .Storage( "LightGridWorldCellsUB", traced.WorldGridCells, kR )
+                 .Storage( "RadianceCacheParamsUB", traced.RadianceCache.Params, kR )
+                 .Storage( "RadianceCacheIndirectionUB", traced.RadianceCache.Indirection, kR )
+                 .Storage( "RadianceCacheProbesUB", traced.RadianceCache.Probes, kR )
+                 .Sampled( "u_RadianceCacheIrradiance", traced.RadianceCache.Irradiance, kS, all,
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_RadianceCacheDepth", traced.RadianceCache.Depth, kS, all,
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_EnvSpecularTex", traced.EnvSpecular, kS, all, RDG::SamplerDesc::LinearClamp() )
+                 .Sampled( "u_GBufferA", traced.GBufferA, kS, all, RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_GBufferEmissive", traced.GBufferEmissive, kS, all, RDG::SamplerDesc::PointClamp() );
+            GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
+            if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
+                GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );
+            if ( traced.MeshSDFs )
+            {
+                const DistanceField::GlobalDistanceField::MeshSDFScene& mesh = *traced.MeshSDFs;
+                block.Sampled( "u_DFBrickAtlas", mesh.BrickAtlas, kS, all, RDG::SamplerDesc::LinearRepeat() )
+                     .Storage( "DFAssetData", mesh.AssetData, kR )
+                     .Storage( "DFIndirection", mesh.Indirection, kR )
+                     .Storage( "DFObjects", mesh.Objects, kR )
+                     .Storage( "GIMeshSDFObjectRowsUB", mesh.ObjectRows, kR )
+                     .Storage( "GIMeshSDFCulledUB", mesh.Culled, kR );
+            }
+        }
+
         // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSR.shader stretches the
         // tiles over the target, so every pixel belongs to exactly one tile.
         static constexpr uint32_t kTileSize = 8;
@@ -252,6 +365,11 @@ namespace Desert::Graphic::System
         // The trace's block layout, derived from the shader's reflection once per compile (not per frame).
         mutable ShaderBindingLayoutCache      m_TraceLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
+        // The traced permutation (EnsureTracedProgram) and the tracer it was compiled for.
+        std::shared_ptr<Shader>               m_TracedShader;
+        mutable ShaderBindingLayoutCache      m_TracedLayout;
+        std::shared_ptr<ComputePipeline>      m_TracedPipeline;
+        GlobalIllumination::Pipeline          m_TracedFor{};
         ScreenSpaceDenoiser                   m_Denoiser{ DenoiserSignal::Reflections };
 
         uint32_t m_FrameIndex = 0;

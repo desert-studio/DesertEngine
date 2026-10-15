@@ -1231,11 +1231,14 @@ namespace Desert::Graphic
             // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history, which
             // this frame's scene copy below refills.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            System::SSRRenderer* const ssr =
-                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
+            // ScreenSpace and SoftwareTraced run the same pass (the latter its traced permutation, AddFrameSSR).
+            const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
+            System::SSRRenderer* const                  ssr =
+                 ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
+                   reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ) &&
                            EnsureSSRResources()
-                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
-                      : nullptr;
+                                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                                       : nullptr;
             const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
             const FrameScreenTrace screenTrace =
                  ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )

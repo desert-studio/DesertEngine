@@ -279,19 +279,19 @@
                 "Reflections.MaxSteps": 48,
                 "Reflections.CaptureSize": 128,
                 "Reflections.RaysPerPixel": 2,
-                "Reflections.Method": "ScreenSpace"
+                "Reflections.Method": "SoftwareTraced"
             },
             "Epic": {
                 "Reflections.MaxSteps": 64,
                 "Reflections.CaptureSize": 128,
                 "Reflections.RaysPerPixel": 4,
-                "Reflections.Method": "ScreenSpace"
+                "Reflections.Method": "SoftwareTraced"
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 96,
                 "Reflections.CaptureSize": 256,
                 "Reflections.RaysPerPixel": 8,
-                "Reflections.Method": "ScreenSpace"
+                "Reflections.Method": "SoftwareTraced"
             }
         },
         "PostProcess": {

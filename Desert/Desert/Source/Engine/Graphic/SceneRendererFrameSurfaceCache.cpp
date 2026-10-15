@@ -21,7 +21,7 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        if ( m_GIPipeline.SurfaceCache )
+        if ( m_GIPipeline.SurfaceCache || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
