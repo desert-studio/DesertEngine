@@ -15,18 +15,6 @@
     "Duration": 2.0,
     "Loop": true,
     "Seed": 1234,
-    "Bounds": {
-        "Min": [
-            -50.0,
-            0.0,
-            -50.0
-        ],
-        "Max": [
-            50.0,
-            300.0,
-            50.0
-        ]
-    },
     "UserParams": [],
     "LocalModules": [],
     "Emitters": [
@@ -35,6 +23,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 512,
+            "Bounds": {
+                "Min": [
+                    -50.0,
+                    0.0,
+                    -50.0
+                ],
+                "Max": [
+                    50.0,
+                    300.0,
+                    50.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 2.0,
@@ -516,6 +516,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 256,
+            "Bounds": {
+                "Min": [
+                    -50.0,
+                    0.0,
+                    -50.0
+                ],
+                "Max": [
+                    50.0,
+                    300.0,
+                    50.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 2.0,

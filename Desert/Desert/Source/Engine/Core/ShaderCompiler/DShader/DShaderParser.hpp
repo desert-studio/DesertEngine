@@ -83,11 +83,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
-    // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
+    // `Usage ParticleSprites` gets one more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
     // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into
-    // SurfaceInput.Particle) and the sprite pass header (depth-tested, unlit, Depth Fade over the scene depth). No
-    // other pass: a sprite is drawn by the particle pass alone. Both stages of the cell get
-    // kSurfaceParticleSpriteDefine.
+    // SurfaceInput.Particle) and, for a translucent template, the sprite pass header (depth-tested, unlit, Depth Fade
+    // over the scene depth); an opaque / masked template's sprite cells are the lit ones (kSurfaceParticleOpaquePasses).
+    // Both stages of the cell get kSurfaceParticleSpriteDefine.
     inline constexpr std::string_view kSurfaceParticleSpritePath        = "ParticleSprite";
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
@@ -96,7 +96,8 @@ namespace Desert::Core::Preprocess
     // declared `Usage <Usage>` adds ONE cell `<Path>.Forward` after the mesh cells, in this table's order, built from
     // the path's vertex header and the one particle pass header (kSurfaceParticleSpritePassInclude). Every particle
     // cell gets kSurfaceParticleDefine in both stages (the particle half of SurfaceInput; the Forward cell's Depth Fade
-    // reads the scene depth, SurfaceTypes.glslh). An opaque mesh usage adds kSurfaceParticleMeshOpaquePasses.
+    // reads the scene depth, SurfaceTypes.glslh). An opaque / masked template adds kSurfaceParticleOpaquePasses to
+    // every usage it declares.
     struct SurfaceParticleUsage
     {
         std::string_view Usage;
@@ -108,15 +109,16 @@ namespace Desert::Core::Preprocess
          { "ParticleMeshes", kSurfaceParticleMeshPath },
          { "ParticleRibbons", "ParticleRibbon" },
     } };
-    // THE OPAQUE MESH PARTICLE (UE: an opaque or masked material on a Niagara mesh renderer is drawn by the base pass
-    // into the G-buffer - depth, velocity, lit by the deferred lighting - and by the shadow depth pass; only a
-    // translucent one is drawn by the translucency). A `Usage ParticleMeshes` template whose blend is not translucent
-    // gets, right after its ParticleMesh.Forward cell, one cell per pass here, built as the mesh cells of that pass
-    // are (the pass's own header, Mesh/Surface/Pass_<Pass>.glslh) over the ParticleMesh vertex header. Its
-    // ParticleMesh.Forward cell is then a LIT forward cell too (Pass_Forward.glslh, as Static.Forward), not the
-    // particle composite: the forward render path draws it in its base pass with depth, velocity and the scene's
-    // lights and shadows (ParticleRenderer::BasePass), never in the particle pass.
-    inline constexpr std::array<std::string_view, 2> kSurfaceParticleMeshOpaquePasses = { "GBuffer", "ShadowDepth" };
+    // THE OPAQUE PARTICLE (UE: an opaque or masked material on a Niagara sprite, mesh or ribbon renderer is drawn by
+    // the base pass into the G-buffer - depth, velocity, lit by the deferred lighting - and by the shadow depth pass;
+    // only a translucent one is drawn by the translucency). The template's blend and shading model decide, not the
+    // renderer kind: a particle usage of a template whose blend is not translucent gets, right after its
+    // <Path>.Forward cell, one cell per pass here, built as the mesh cells of that pass are (the pass's own header,
+    // Mesh/Surface/Pass_<Pass>.glslh) over the path's vertex header. Its <Path>.Forward cell is then a LIT forward
+    // cell too (Pass_Forward.glslh, as Static.Forward), not the particle composite: the forward render path draws it
+    // in its base pass with depth, velocity and the scene's lights and shadows (ParticleRenderer::BasePass), never in
+    // the particle pass.
+    inline constexpr std::array<std::string_view, 2> kSurfaceParticleOpaquePasses = { "GBuffer", "ShadowDepth" };
     // Defined in both stages of a particle cell built on the particle composite header
     // (kSurfaceParticleSpritePassInclude): the cells the particle pass draws over the scene, which alone read the
     // scene depth behind them (Depth Fade, Mesh/Surface/SurfaceTypes.glslh).

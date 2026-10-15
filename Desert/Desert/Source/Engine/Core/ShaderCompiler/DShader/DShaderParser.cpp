@@ -1429,11 +1429,11 @@ namespace Desert::Core::Preprocess
             const bool particle = std::ranges::any_of( kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u )
                                                        { return u.Path == path; } );
             const bool sprite   = path == kSurfaceParticleSpritePath;
-            // A particle cell of the particle pass has its own pass header whatever the blend: the mesh Forward /
-            // glass headers light a mesh, the particle header composites a particle. An opaque mesh particle's
-            // cells are the mesh passes' (kSurfaceParticleMeshOpaquePasses), its Forward cell the LIT forward one.
-            const bool opaqueMesh     = path == kSurfaceParticleMeshPath && !Formats::IsTranslucentBlend( blend );
-            const bool composite      = particle && pass == kSurfaceParticleSpritePass && !opaqueMesh;
+            // A translucent particle cell of the particle pass has its own pass header: the mesh Forward / glass
+            // headers light a mesh, the particle header composites a particle. An opaque / masked particle's cells,
+            // whatever its path, are the mesh passes' (kSurfaceParticleOpaquePasses), its Forward cell the LIT one.
+            const bool opaque    = particle && !Formats::IsTranslucentBlend( blend );
+            const bool composite = particle && pass == kSurfaceParticleSpritePass && !opaque;
             const std::string defines = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
@@ -2183,7 +2183,7 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
-            // The particle usages: one cell each (an opaque mesh usage also its kSurfaceParticleMeshOpaquePasses
+            // The particle usages: one cell each (an opaque / masked template also its kSurfaceParticleOpaquePasses
             // cells), after every mesh cell (the mesh cells' order is unchanged), in kSurfaceParticleUsages order.
             const bool declared[] = { result.Surface.UsedWithParticleSprites, result.Surface.UsedWithParticleMeshes,
                                       result.Surface.UsedWithParticleRibbons };
@@ -2208,8 +2208,8 @@ namespace Desert::Core::Preprocess
                     continue;
                 const std::string_view path = kSurfaceParticleUsages[u].Path;
                 addParticleCell( path, kSurfaceParticleSpritePass );
-                if ( path == kSurfaceParticleMeshPath && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
-                    for ( const std::string_view pass : kSurfaceParticleMeshOpaquePasses )
+                if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                    for ( const std::string_view pass : kSurfaceParticleOpaquePasses )
                         addParticleCell( path, pass );
             }
         }

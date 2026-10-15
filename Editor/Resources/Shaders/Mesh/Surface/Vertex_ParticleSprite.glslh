@@ -1,12 +1,19 @@
 // Surface cell vertex path: particle SPRITES (UE: the Niagara sprite vertex factory, a material's "Used with Particle
 // Sprites" usage). A cell of this path exists only in a template that declares `Usage ParticleSprites`
-// (DShaderParser kSurfaceParticleSpritePath), and only for the Forward pass: sprites are drawn by the particle pass
-// (ParticleRenderer::DrawPass) and by nothing else.
+// (DShaderParser kSurfaceParticleSpritePath): ParticleSprite.Forward - for a translucent template the particle pass's
+// composite, for an opaque or masked one the LIT forward cell the forward render path's base pass draws - and for an
+// opaque or masked template (kSurfaceParticleOpaquePasses) ParticleSprite.GBuffer (the deferred base pass and the
+// RSM) and ParticleSprite.ShadowDepth (the sun's cascades and the point / spot lights' views), as a mesh particle.
 //
 // Vertexless: six vertices per alive particle, corners from gl_VertexIndex. The draw is INDIRECT from the emitter's
 // last compact slot (VFX-07: VertexCount = 6 x alive, FirstVertex = 6 x the start of the slot's alive half), so
 // gl_VertexIndex / 6 is an entry of the alive list and every drawn particle is alive. Under a view sort the list
 // read is the view's sorted copy of the same entries — the same binding, a different buffer.
+//
+// THE FACING CAMERA is the push block's Transform: the VIEW's camera-to-world (ParticleRenderer::RecordDraw), in
+// every node. In the view's own passes it is the camera block's camera; in a light view (shadow, RSM) the camera
+// block is the light's, and the sprite still faces the view's camera, so its shadow is the silhouette on screen (UE:
+// a shadow view draws a sprite through its dependent view).
 #include <Common/CameraUB.glslh>
 #include <Common/VFXRandom.glslh>
 #include <Common/ParticleDrawLayout.glslh>
@@ -14,7 +21,7 @@
 // In the reserved particle-read range (28..33, Core::kParticleReadBindingFirst in ShaderGraphBindings.hpp), clear
 // of every pass header's and template's slots: the sprite cell reads the emitter's attribute columns (the ONE store of its particles, UE NiagaraParticleDataFloat),
 // where its stack put each drawn attribute (Common/ParticleDrawLayout.glslh, UE FNiagaraSpriteUniformParameters),
-// and the emitter's alive list - nothing else of the particle system.
+// the emitter's alive list and the row's settings - nothing else of the particle system.
 layout( std430, binding = 28 ) readonly buffer AttributeFloats
 {
     float u_DrawFloats[];
@@ -30,15 +37,32 @@ layout( std430, binding = 30 ) readonly buffer DrawLayout
     ParticleDrawLayout u_DrawLayout;
 };
 
+// The draw's renderer row settings (Common/ParticleDrawLayout.glslh ParticleRendererParams): Values.y = the seconds
+// the simulation advanced this tick, for the particle's previous position.
+layout( std430, binding = 31 ) readonly buffer RendererParams
+{
+    ParticleRendererParams u_Renderer;
+};
+
 #include <Common/ParticleDrawRead.glslh>
 
-// The ONE engine push block, as the fragment stage's material row index reads it.
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+// The ONE engine push block, as the fragment stage's material row index reads it; its Transform is the facing camera.
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
 
 // The particle half of the input, flat over the quad (one particle per six vertices).
 layout( location = 12 ) out flat vec4 v_ParticleColor;
 layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
+#else
+// An opaque ShadowDepth cell: the stages do not talk; the push block is the facing camera alone, as the mesh casters'
+// is their transform (Vertex_Static.glslh).
+layout( push_constant ) uniform constants
+{
+    mat4 Transform;
+}
+m_PushConstants;
+#endif
 
 void main()
 {
@@ -56,35 +80,49 @@ void main()
                                      vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
     const vec2 c          = corners[corner];
 
-    // Camera-facing (UE's FacingCameraPlane alignment-free sprite): the corner offset is taken along the view's
-    // right and up axes turned by the sprite's rotation, in WORLD space, so the surface function sees a world
+    // Camera-facing (UE's FacingCameraPlane alignment-free sprite): the corner offset is taken along the facing
+    // camera's right and up axes turned by the sprite's rotation, in WORLD space, so the surface function sees a world
     // position and a world normal like any mesh path. Width along the turned right axis, height along its up.
-    const vec3  viewRight = vec3( cameraUB.View[0][0], cameraUB.View[1][0], cameraUB.View[2][0] );
-    const vec3  viewUp    = vec3( cameraUB.View[0][1], cameraUB.View[1][1], cameraUB.View[2][1] );
-    const vec3  facing    = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
-    const float sinR      = sin( rotation );
-    const float cosR      = cos( rotation );
-    const vec3  right     = cosR * viewRight + sinR * viewUp;
-    const vec3  up        = cosR * viewUp - sinR * viewRight;
-    const vec3  worldPos  = position + right * ( c.x * size.x * 0.5 ) + up * ( c.y * size.y * 0.5 );
+    const mat4  facingCamera = m_PushConstants.Transform; // camera-to-world: right, up, towards the eye, eye
+    const vec3  viewRight    = normalize( facingCamera[0].xyz );
+    const vec3  viewUp       = normalize( facingCamera[1].xyz );
+    const vec3  facing       = normalize( facingCamera[2].xyz ); // towards the eye
+    const float sinR         = sin( rotation );
+    const float cosR         = cos( rotation );
+    const vec3  right        = cosR * viewRight + sinR * viewUp;
+    const vec3  up           = cosR * viewUp - sinR * viewRight;
+    const vec3  worldPos     = position + right * ( c.x * size.x * 0.5 ) + up * ( c.y * size.y * 0.5 );
 
-    v_Surface.WorldPosition  = worldPos;
-    v_Surface.Normal         = facing;
-    v_Surface.UV0            = vec2( c.x * 0.5 + 0.5, 0.5 - c.y * 0.5 );
-    v_Surface.UV1            = v_Surface.UV0;
-    v_Surface.VertexColor    = colour;
-    v_Surface.TBN            = mat3( right, -up, facing );
-    // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    v_Surface.WorldPosition = worldPos;
+    v_Surface.Normal        = facing;
+    v_Surface.UV0           = vec2( c.x * 0.5 + 0.5, 0.5 - c.y * 0.5 );
+    v_Surface.UV1           = v_Surface.UV0;
+    v_Surface.VertexColor   = colour;
+    v_Surface.TBN           = mat3( right, -up, facing );
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity): the camera's motion
+    // and the particle's. The particle stood at Position - Velocity x the seconds the simulation advanced since the
+    // previous tick, around where a Local emitter itself stood then (ParticlePreviousWorldPosition), as the mesh path.
+    const vec3 prevWorld =
+         worldPos + ( ParticlePreviousWorldPosition( n, ParticleVelocity( n ), u_Renderer.Values.y ) - position );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
-    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorld, 1.0 );
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+#endif
 
+#ifdef DESERT_SURFACE_HAS_VARYINGS
     // Relative time = age / lifetime (UE NormalizedAge); Random is drawn from the particle's pool slot and its
     // lifetime, which is itself drawn at spawn — constant over one life, different for the next particle that takes
     // the slot. No Lifetime attribute: relative time 0.
     v_ParticleColor      = colour;
     v_ParticleTimeRandom = vec2( lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0,
                                  VFXRandomFloat4( uvec4( index, floatBitsToUint( lifetime ), 0u, 0u ) ).x );
+#endif
 
-    // Scene raster before the temporal resolve: jittered like every mesh.
+    // Scene raster before the temporal resolve: jittered like every mesh (a light view's matrix has no jitter).
     gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );
 }

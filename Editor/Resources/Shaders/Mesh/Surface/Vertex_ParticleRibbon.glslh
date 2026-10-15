@@ -1,12 +1,17 @@
 // Surface cell vertex path: RIBBON particles (UE: the Niagara ribbon vertex factory, a material's "Used with Beam
 // Trails" usage). A cell of this path exists only in a template that declares `Usage ParticleRibbons`
-// (DShaderParser kSurfaceParticleUsages), only for the Forward pass: drawn by the particle pass alone.
+// (DShaderParser kSurfaceParticleUsages): ParticleRibbon.Forward - the particle pass's composite for a translucent
+// template, the LIT forward cell of the forward base pass for an opaque or masked one - and for an opaque or masked
+// template (kSurfaceParticleOpaquePasses) ParticleRibbon.GBuffer and ParticleRibbon.ShadowDepth, as a mesh particle.
 //
 // Vertexless, six vertices per alive particle like the sprite (the same indirect draw over the last compact's slot),
 // but the list read at binding 29 is the view's RIBBON ORDER (ParticleSort kind Ribbon: by RibbonID, then newest
 // first), and entry k draws the quad from particle k to particle k + 1. The quad is degenerate (all six vertices at
 // one point, no fragments) when k is the slot's last entry or k + 1 belongs to another ribbon: each ribbon is the
 // strip of its consecutive entries. U runs along the ribbon by normalised age times the row's UVTiling; V across.
+//
+// Screen facing turns the ribbon to the push block's Transform, the VIEW's camera-to-world in every node
+// (ParticleRenderer::RecordDraw): a light view draws the ribbon as the camera sees it (Vertex_ParticleSprite.glslh).
 #define PARTICLE_DRAW_INTS 1
 #include <Common/CameraUB.glslh>
 #include <Common/VFXRandom.glslh>
@@ -48,11 +53,20 @@ layout( std430, binding = 33 ) readonly buffer Counters
 };
 
 #include <Common/ParticleDrawRead.glslh>
+#ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
 
 layout( location = 12 ) out flat vec4 v_ParticleColor;
 layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
+#else
+// An opaque ShadowDepth cell: the stages do not talk; the push block is the facing camera alone.
+layout( push_constant ) uniform constants
+{
+    mat4 Transform;
+}
+m_PushConstants;
+#endif
 
 float RibbonAge( uint n )
 {
@@ -63,7 +77,8 @@ float RibbonAge( uint n )
 // The half-width offset at particle n with the ribbon running along @p tangent.
 vec3 RibbonSide( uint n, vec3 position, vec3 tangent )
 {
-    const vec3 across = u_Renderer.Mode.x == 1u ? ParticleRibbonFacing( n ) : cameraUB.CameraPos - position;
+    const vec3 across =
+         u_Renderer.Mode.x == 1u ? ParticleRibbonFacing( n ) : m_PushConstants.Transform[3].xyz - position;
     vec3       side   = cross( tangent, across );
     side              = dot( side, side ) > 1e-8 ? normalize( side ) : vec3( 0.0, 0.0, 1.0 );
     return side * ( 0.5 * ParticleRibbonWidth( n ) );
@@ -91,6 +106,7 @@ void main()
     {
         // No segment starts here: a degenerate triangle pair, culled before rasterisation.
         gl_Position             = vec4( 0.0, 0.0, 0.0, 1.0 );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
         v_Surface.WorldPosition = p0;
         v_Surface.Normal        = vec3( 0.0, 0.0, 1.0 );
         v_Surface.UV0           = vec2( 0.0 );
@@ -101,6 +117,7 @@ void main()
         v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
         v_ParticleColor         = vec4( 0.0 );
         v_ParticleTimeRandom    = vec2( 0.0 );
+#endif
         return;
     }
 
@@ -122,17 +139,30 @@ void main()
     const vec4 colour     = ParticleColor( n );
     const float age       = RibbonAge( n );
 
+#ifdef DESERT_SURFACE_HAS_VARYINGS
     v_Surface.WorldPosition = worldPos;
     v_Surface.Normal        = normal;
     v_Surface.UV0           = vec2( age * u_Renderer.Values.x, c.y * 0.5 + 0.5 );
     v_Surface.UV1           = v_Surface.UV0;
     v_Surface.VertexColor   = colour;
     v_Surface.TBN           = mat3( tangent, normalize( side ), normal );
-    v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
-    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // The corner's particle's previous position (ParticlePreviousWorldPosition, as the sprite and mesh paths): the
+    // ribbon's own motion besides the camera's, both clip positions UNJITTERED.
+    const vec3 prevWorld =
+         worldPos + ( ParticlePreviousWorldPosition( n, ParticleVelocity( n ), u_Renderer.Values.y ) - position );
+    v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorld, 1.0 );
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+#endif
 
+#ifdef DESERT_SURFACE_HAS_VARYINGS
     v_ParticleColor      = colour;
     v_ParticleTimeRandom = vec2( age, VFXRandomFloat4( uvec4( index, floatBitsToUint( ParticleLifetime( n ) ), 0u, 0u ) ).x );
+#endif
 
     gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );
 }

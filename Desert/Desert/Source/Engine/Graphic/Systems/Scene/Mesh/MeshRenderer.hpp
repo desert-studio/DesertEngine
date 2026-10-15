@@ -616,6 +616,13 @@ namespace Desert::Graphic::System
         }
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
+        // The matrix the casters of shadow view @p view (a cascade, or kMaxShadowCascades + a local slot) draw
+        // with (standard-Z, clip from world): the frustum the mesh casters are culled by, and a non-mesh caster's
+        // too.
+        [[nodiscard]] const glm::mat4& GetShadowCasterViewProj( const uint32_t view ) const
+        {
+            return m_CascadeCasterVP[view];
+        }
 
         // The target a non-mesh caster builds its pipeline against — every cascade's has the same formats.
         [[nodiscard]] const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const

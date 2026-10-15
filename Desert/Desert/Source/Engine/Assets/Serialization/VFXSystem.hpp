@@ -40,9 +40,11 @@ namespace Desert::Assets::Serialization
      *       Material); absent = the engine's default sprite template. The header's Dependencies are exactly the
      *       materials and meshes the rows name (VFXSystemDependencies). Every enabled row is its own draw; a Mesh
      *       row carries Mesh {Mesh {Guid, Path}, Facing}, a Ribbon row Ribbon {Facing, UVTiling} (UE
-     *       UNiagaraMeshRendererProperties / UNiagaraRibbonRendererProperties). A v1 file differs only by its
-     *       version (v1 refused every Mesh / Ribbon row and a second Sprite row): the repository's
-     *       files were raised in place; a v1 file is refused with its number.
+     *       UNiagaraMeshRendererProperties / UNiagaraRibbonRendererProperties). Bounds moved from the system
+     *       into every emitter (VFXEmitterData::Bounds, UE UNiagaraEmitter::FixedBounds): each emitter is culled
+     *       by its own box. v1 also refused every Mesh / Ribbon row and a second Sprite row: the repository's
+     *       files were raised in place (the system's box copied into each emitter); a v1 file is refused with
+     *       its number.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -246,12 +248,32 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };
 
+    /**
+     * @brief An emitter's FIXED bounds, centimetres, in the frame the placing entity puts the system in (UE
+     * UNiagaraEmitter::FixedBounds under ENiagaraEmitterCalculateBoundMode::Fixed).
+     *
+     * Every emitter of this engine simulates on the GPU, and nothing of a GPU emitter's particles comes back to the
+     * CPU: the box is what the renderer knows of where they are. It culls the emitter's draws against the view, the
+     * shadow views and the RSM, and decides which point / spot lights it casts into (ParticleRenderer). The placement
+     * is the entity's world position (the simulation reads no rotation or scale: ParticleSimPush::EmitterPos), so the
+     * box is drawn translated by it, whether the emitter simulates in Local or World space (UE transforms the fixed
+     * bounds by the component for both). A particle outside its box is culled with it: the box must hold them all.
+     */
+    struct VFXBounds
+    {
+        glm::vec3 Min = glm::vec3( -100.0f );
+        glm::vec3 Max = glm::vec3( 100.0f );
+
+        [[nodiscard]] bool operator==( const VFXBounds& ) const = default;
+    };
+
     struct VFXEmitterData
     {
         std::string                  Name;
         bool                         Enabled  = true;
         VFXSimulationSpace           Space    = VFXSimulationSpace::World;
         uint32_t                     Capacity = 1024; ///< the emitter's slice of the GPU pool, particles
+        VFXBounds                    Bounds;          ///< fixed, around the placement (VFXBounds)
         VFXEmitterLifecycle          Lifecycle;
         VFXEmitterStack              Stack;
         std::vector<VFXRendererData> Renderers;
@@ -277,15 +299,6 @@ namespace Desert::Assets::Serialization
         std::string Source;
 
         [[nodiscard]] bool operator==( const VFXLocalModule& ) const = default;
-    };
-
-    /// The fixed bounds of the whole system in its local space, centimetres (GPU emitters need fixed bounds).
-    struct VFXBounds
-    {
-        glm::vec3 Min = glm::vec3( -100.0f );
-        glm::vec3 Max = glm::vec3( 100.0f );
-
-        [[nodiscard]] bool operator==( const VFXBounds& ) const = default;
     };
 
     /// One row of the PROJECT's category register (`<project>/Config/VFXCategories.json`). Categories are
@@ -327,7 +340,6 @@ namespace Desert::Assets::Serialization
         float                       Duration = 1.0f; ///< seconds of one system loop, >= 0; > 0 when Loop
         bool                        Loop     = true;
         uint32_t                    Seed     = 0;
-        VFXBounds                   Bounds;
         std::vector<VFXUserParam>   UserParams;
         std::vector<VFXLocalModule> LocalModules;
         std::vector<VFXEmitterData> Emitters;

@@ -2,7 +2,7 @@
 // Particles" usage). A cell of this path exists only in a template that declares `Usage ParticleMeshes`
 // (DShaderParser kSurfaceParticleUsages): ParticleMesh.Forward - for a translucent template the particle pass's
 // composite, for an opaque or masked one the LIT forward cell the forward render path's base pass draws with depth,
-// velocity, lights and shadows - and for an opaque or masked template (kSurfaceParticleMeshOpaquePasses)
+// velocity, lights and shadows - and for an opaque or masked template (kSurfaceParticleOpaquePasses)
 // ParticleMesh.GBuffer, drawn by the deferred base pass (and the RSM) with depth and velocity, and
 // ParticleMesh.ShadowDepth, drawn into the sun's cascades and the point / spot lights' views (UE: an opaque mesh
 // particle is drawn by the base pass and the shadow depth passes, never by the translucency).

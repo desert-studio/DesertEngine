@@ -12,10 +12,6 @@
     "Duration": 1.0,
     "Loop": true,
     "Seed": 0,
-    "Bounds": {
-        "Min": [-1248.75, -1248.75, -1248.75],
-        "Max": [1248.75, 1248.75, 1248.75]
-    },
     "UserParams": [],
     "LocalModules": [],
     "Emitters": [
@@ -24,6 +20,10 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 6000,
+            "Bounds": {
+                "Min": [-1248.75, -1248.75, -1248.75],
+                "Max": [1248.75, 1248.75, 1248.75]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.0,

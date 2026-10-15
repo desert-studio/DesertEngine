@@ -4,7 +4,8 @@
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( in )
 #ifdef DESERT_SURFACE_PARTICLE
-// A masked ParticleMesh.ShadowDepth cell clips by the particle's colour / time / random as its G-buffer cell does.
+// A masked <Path>.ShadowDepth particle cell (sprite, mesh, ribbon) clips by the particle's colour / time / random
+// as its G-buffer cell does.
 layout( location = 12 ) in flat vec4 v_ParticleColor;
 layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 #endif

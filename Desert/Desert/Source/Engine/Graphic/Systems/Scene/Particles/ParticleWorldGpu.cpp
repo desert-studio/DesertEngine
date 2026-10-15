@@ -194,6 +194,7 @@ namespace Desert::Graphic::System
         const auto& emitter = system.Emitters[index];
         gpu.Capacity        = emitter.Enabled ? emitter.Capacity : 0u;
         gpu.Local           = emitter.Space == Assets::Serialization::VFXSimulationSpace::Local;
+        gpu.LocalBounds     = Common::Math::AABB{ emitter.Bounds.Min, emitter.Bounds.Max };
         if ( gpu.Capacity == 0 )
             return;
         const auto refuse = [&]( const std::string& why )
@@ -478,6 +479,8 @@ namespace Desert::Graphic::System
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
+        // The placement is the position alone (the simulation reads no rotation or scale), so the box translates.
+        fe.WorldBounds = Common::Math::AABB{ gpu.LocalBounds.Min + worldPos, gpu.LocalBounds.Max + worldPos };
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
         m_FrameEmitters.push_back( fe );

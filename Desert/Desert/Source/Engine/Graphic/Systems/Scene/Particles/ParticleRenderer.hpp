@@ -26,6 +26,7 @@
 namespace Desert::Core
 {
     class Scene;
+    class Frustum;
 }
 
 namespace Desert::Graphic::RDG
@@ -116,15 +117,17 @@ namespace Desert::Graphic::System
             m_CascadeFramebuffer = std::move( cascadeFramebuffer );
         }
 
-        // IShadowCaster: the opaque / masked mesh rows (CastsShadow), into shadow view @p cascade - a sun cascade or a
-        // point / spot light's view of the local atlas - through each row's ParticleMesh.ShadowDepth cell (one cell
-        // material per view: its camera block is the view's light).
+        // IShadowCaster: the opaque / masked rows of every kind (CastsShadow) whose emitter's bounds the view's frustum
+        // holds (MeshRenderer::GetShadowCasterViewProj, the mesh casters' cull), into shadow view @p cascade - a sun
+        // cascade or a point / spot light's view of the local atlas - through each row's <Path>.ShadowDepth cell (one
+        // cell material per view: its camera block is the view's light).
         [[nodiscard]] uint32_t              DeclareShadowCascade( RenderPassDeclaration& declared,
                                                                   uint32_t               cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
                                                                  uint32_t firstBlock, const glm::mat4& cascadeViewProj,
                                                                  const CascadeCasterBias& bias ) override;
-        // Every point / spot light in the view casts the opaque mesh rows, and they move every frame (no CPU bounds).
+        // A light casts the opaque rows of the emitters whose bounds (ParticleFrameEmitter::WorldBounds) its sphere
+        // reaches; their particles move every frame (Moving). A light no such emitter reaches is not redrawn for them.
         [[nodiscard]] LocalShadowReach LocalShadowReachOf( const glm::vec3& centre, float radius ) const override;
 
         // Drops this view's emitter instances and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is
@@ -263,6 +266,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef              CountersRef; // read by the sprite / ribbon draws as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
             bool                        Declared     = false;
+            // Its bounds are in this view's frustum (PrepareFrame): its rows are drawn by the view's own passes. The
+            // light views cull it by their own frusta (shadows, RSM) and the simulation runs either way.
+            bool                        InView       = true;
             bool                        ViewSorted   = false; // its blended draws read m_SortedRef, not AliveList
             bool                        RibbonSorted = false; // its ribbon draws read m_RibbonOrderRef
         };
@@ -292,9 +298,10 @@ namespace Desert::Graphic::System
             const ::Desert::Mesh*    StaticMesh = nullptr;
             std::vector<MeshSection> Sections;
             uint32_t                 ArgsBase = 0;
-            // Kind == Mesh with an opaque / masked material (Opaque: never a ParticlePass draw): on the deferred path
-            // its G-buffer cell (GBufferPass) and that cell's RSM state, on the forward path its lit forward cell
-            // (BasePass), on both its shadow cell shader (the shadow views), and its rows there.
+            // A row of any kind with an opaque / masked material (Opaque: never a ParticlePass draw; the template's
+            // shading model lights it as any mesh): on the deferred path its G-buffer cell (GBufferPass) and that
+            // cell's RSM state, on the forward path its lit forward cell (BasePass), on both its shadow cell shader
+            // (the shadow views), and its rows there.
             bool                  Opaque      = false;
             CellDraw*             GBufferCell = nullptr;
             CellDraw*             BaseCell    = nullptr;
@@ -304,16 +311,24 @@ namespace Desert::Graphic::System
             uint32_t              BaseRow    = 0;
             uint32_t              RSMRow     = 0;
             std::vector<uint32_t> ShadowRows; // per shadow view
-            // Kind != Sprite: the row's settings (ParticleRendererParamsGpu) at binding 14.
+            // The row's settings (ParticleRendererParamsGpu), RendererParams in every particle vertex header.
             RDG::ExternalBuffer RendererParamsImport;
             RDG::BufferRef      RendererParamsRef;
             bool                Declared = false;
         };
 
         bool CreatePipelines();
-        // Whether the row can draw this frame (its emitter declared, a cell, a resident mesh for a Mesh row): what
-        // the sorts and the mesh arguments are planned from.
+        // Whether the row can draw this frame (its emitter declared, a cell, a resident mesh for a Mesh row), in any
+        // view: what the sorts and the mesh arguments are planned from.
         bool IsDrawable( const ViewDraw& draw ) const;
+        // Whether the row's draw arguments exist this frame: a mesh row's commands (m_MeshArgsRef), a ribbon row's
+        // order (RibbonSorted); a sprite draws from its Counters slot.
+        bool HasDrawArgs( const ViewDraw& draw ) const;
+        // Whether an opaque / masked row will cast this frame, asked before the graph imports anything
+        // (LocalShadowReachOf): a shadow cell, a cell, and for a mesh row a resident mesh.
+        bool CanCast( const ViewDraw& draw ) const;
+        // Whether a light view whose casters draw with @p frustum holds the row's emitter (its WorldBounds).
+        bool InFrustum( const ViewDraw& draw, const Core::Frustum& frustum ) const;
         // Whether ParticlePass draws @p draw this frame - the one condition its Declare and its exec both walk the
         // draws by, so the exec's n-th drawn row opens the n-th declared block. A ribbon also needs its order.
         bool IsDrawn( const ViewDraw& draw ) const;
@@ -321,22 +336,30 @@ namespace Desert::Graphic::System
         bool IsDrawnOpaque( const ViewDraw& draw ) const;
         // Whether BasePass draws @p draw this frame (the forward opaque / masked mesh rows).
         bool IsDrawnBase( const ViewDraw& draw ) const;
-        // Whether the shadow views draw @p draw this frame: an opaque / masked mesh row with a shadow cell, on either
-        // render path.
+        // Whether the shadow views can draw @p draw this frame: an opaque / masked row with a shadow cell, on either
+        // render path (each view then culls it by its frustum, InFrustum).
         bool CastsShadow( const ViewDraw& draw ) const;
-        // The opaque cells of a mesh row drawing through a ParticleMesh.Forward cell whose template is opaque or
-        // masked: its template's ParticleMesh.ShadowDepth, and ParticleMesh.GBuffer on the deferred path or the lit
-        // Forward cell itself on the forward one; none for a translucent cell. An opaque template without them is
-        // said once by name and its rows are not drawn (its Forward cell is lit: the particle pass cannot draw it).
+        // The opaque cells of a row (any kind) drawing through a <Path>.Forward cell whose template is opaque or
+        // masked: its template's <Path>.ShadowDepth, and <Path>.GBuffer on the deferred path or the lit Forward cell
+        // itself on the forward one; none for a translucent cell. An opaque template without them is said once by
+        // name and its rows are not drawn (its Forward cell is lit: the particle pass cannot draw it).
         void ResolveOpaqueCells( ViewDraw& draw );
-        // The particle storage block every particle cell's vertex header reads (AttributeFloats, DrawLayout, the alive
-        // list @p list, the row's settings for a mesh / ribbon row), declared on @p declared against @p cell's layout
-        // and route fill; the caller adds what only its node binds.
+        // The particle storage block every particle cell's vertex header reads (AttributeFloats, DrawLayout, the list
+        // ListFor names, the row's settings; a ribbon's int columns and Counters), declared on @p declared against
+        // @p cell's layout and route fill, with the row's draw arguments read as IndirectArgs; the caller adds what
+        // only its node binds.
         // On a RenderPassDeclaration (a system pass) or an RDG::PassBuilder (the RSM's raster); defined and used in
         // the .cpp only.
         template <typename Declaration>
-        auto DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell,
-                               RDG::BufferRef list ) const;
+        auto DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell ) const;
+        // The particle list @p draw reads through @p cell: the view's RibbonOrder for a ribbon, the view's SortedAlive
+        // for a blended row of a sorted emitter, the alive list otherwise.
+        RDG::BufferRef ListFor( const ViewDraw& draw, const CellDraw& cell ) const;
+        // The row's draws through @p cell, bound by @p bindings, in any node: a mesh row's indexed-indirect draws, one
+        // per section; a sprite / ribbon row's six vertices per particle from its Counters slot, faced to the view's
+        // camera (pushed: the light views face them as the camera sees them, UE's dependent view).
+        Common::BoolResultStr RecordDraw( const RDG::PassBindings& bindings, const ViewDraw& draw,
+                                          const CellDraw& cell ) const;
         // A mesh row's indexed-indirect draws through @p cell, one per section, bound by @p bindings.
         Common::BoolResultStr RecordMeshDraws( const RDG::PassBindings& bindings, const ViewDraw& draw,
                                                const CellDraw& cell ) const;

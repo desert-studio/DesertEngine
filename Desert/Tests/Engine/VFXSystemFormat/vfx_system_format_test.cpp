@@ -32,13 +32,13 @@ namespace
         data.Tags     = { "campfire", "loop" };
         data.Duration = 2.0f;
         data.Seed     = 1234;
-        data.Bounds   = { glm::vec3( -50.0f, 0.0f, -50.0f ), glm::vec3( 50.0f, 300.0f, 50.0f ) };
         data.UserParams.push_back( { "Intensity", VFXValueType::Float, glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) } );
         data.LocalModules.push_back( { "flicker", "Flicker", "void Mod_Flicker( inout ParticleCtx p ) {}" } );
 
         VFXEmitterData flames;
         flames.Name      = "Flames";
         flames.Capacity  = 512;
+        flames.Bounds    = { glm::vec3( -50.0f, 0.0f, -50.0f ), glm::vec3( 50.0f, 300.0f, 50.0f ) };
         flames.Lifecycle = { 0.25f, 2.0f, VFXLoopBehavior::Multiple, 3 };
 
         VFXModuleUse   spawn{ "engine:SpawnRate", true, {} };
