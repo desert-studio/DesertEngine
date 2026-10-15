@@ -157,6 +157,9 @@ namespace Desert::Graphic
     {
         inline constexpr CompareOp Closer        = CompareOp::Greater;
         inline constexpr CompareOp CloserOrEqual = CompareOp::GreaterOrEqual;
+        // The forward base pass after the depth prepass (UE: the base pass at DepthEqual): only the fragment whose
+        // depth the prepass stored draws. The same under either depth convention.
+        inline constexpr CompareOp Same = CompareOp::Equal;
     } // namespace DepthCompare
 
     enum class CullMode

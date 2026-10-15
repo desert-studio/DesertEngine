@@ -18,11 +18,12 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward             GBuffer              Glass    Shadow depth
-             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
-             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
-             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
+             // Forward             GBuffer              Glass    Shadow depth            Depth prepass
+             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", "Static.DepthPrepass" },
+             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", "Skinned.DepthPrepass" },
+             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth",
+               "Instanced.DepthPrepass" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -132,6 +133,8 @@ namespace Desert::Graphic
                 return "Glass";
             case MeshPass::ShadowDepth:
                 return "ShadowDepth";
+            case MeshPass::DepthPrepass:
+                return "DepthPrepass";
         }
         return "?";
     }

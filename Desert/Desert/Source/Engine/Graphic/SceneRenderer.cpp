@@ -1201,11 +1201,20 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         AddFrameLightGrid( graph, textures, frame );
-        AddFrameBasePass( graph, textures );
-        AddFrameSilhouette( graph, textures );
+        // Forward: every opaque surface's depth first (UsesForwardDepthPrepass), then the base pass at EQUAL.
+        const bool prepassed = UsesForwardDepthPrepass();
+        if ( prepassed )
+            AddFrameDepthPrepass( graph, textures );
+        AddFrameBasePass( graph, textures, prepassed );
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // The custom-shader meshes have no surface cells, so no prepass cell: after the prepass they cannot draw in
+        // the read-only base pass and draw in their own node after it, writing depth - as on Deferred, outside the
+        // contact-shadow depth.
+        if ( prepassed )
+            AddFrameGeneric( graph, textures, meshRenderer );
+        AddFrameSilhouette( graph, textures );
         // Deferred SSR's trace (null / empty on Forward or with SSR off): its scene colour history is the scene
         // copy the translucency below fills.
         System::SSRRenderer* ssr = nullptr;

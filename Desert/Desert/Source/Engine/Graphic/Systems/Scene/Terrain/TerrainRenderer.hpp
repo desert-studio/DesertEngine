@@ -88,6 +88,13 @@ namespace Desert::Graphic::System
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
+        // Forward path with its depth prepass (SceneRenderer::UsesForwardDepthPrepass): the frame's terrain into
+        // "Forward: TerrainDepthPrepass" (TerrainDepthPrepass.shader: the depth and the contact-shadow word), a LOAD
+        // node after the meshes'. SETUP: one binding block per prepass material of the frame's groups (no scene/view
+        // input); the exec records through them. The base pass then draws Terrain.shader at EQUAL.
+        void                                DeclareDepthPrepassDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderDepthPrepassManual( const RDG::PassContext& context );
+
         [[nodiscard]] bool CastsShadowThisFrame() const override
         {
             return !m_Queue.empty();
@@ -123,6 +130,7 @@ namespace Desert::Graphic::System
             std::unique_ptr<DataDrivenMaterial> Forward;
             std::unique_ptr<DataDrivenMaterial> GBuffer;
             std::unique_ptr<DataDrivenMaterial> Shadow;
+            std::unique_ptr<DataDrivenMaterial> Prepass; // TerrainDepthPrepass.shader
         };
 
         // A frame's terrains sharing one texture set. Named by key, not by pointer: m_Materials owns them.
@@ -167,11 +175,16 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+        // The forward depth prepass's program, and the forward pipeline's twin the base pass draws after it
+        // (DepthCompare::Same, no depth write).
+        std::shared_ptr<GraphicsPipeline> m_PrepassPipeline;
+        std::shared_ptr<GraphicsPipeline> m_PrepassedPipeline;
         // Each program's block layout, keyed on the shader of the pipeline its draws record with (kept, not
         // re-derived per frame; a reload re-derives it).
         ShaderBindingLayoutCache m_ForwardLayout;
         ShaderBindingLayoutCache m_GBufferLayout;
         ShaderBindingLayoutCache m_ShadowLayout;
+        ShaderBindingLayoutCache m_PrepassLayout;
 
         std::unordered_map<std::string, ProgramMaterials> m_Materials;
 

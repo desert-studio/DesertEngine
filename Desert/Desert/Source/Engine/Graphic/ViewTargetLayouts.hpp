@@ -32,6 +32,14 @@ namespace Desert::Graphic
                                    1 };
     }
 
+    // The forward depth prepass (MeshPass::DepthPrepass, TerrainDepthPrepass.shader): the scene depth and ONE colour,
+    // the opaque scene's shading word carrying only the contact-shadow cast bit (Mesh/Surface/Pass_DepthPrepass.glslh),
+    // which the forward contact shadows read as the deferred composite reads the G-buffer's.
+    inline RenderTargetLayout DepthPrepassLayout()
+    {
+        return RenderTargetLayout{ { ViewTargetFormats::kGBufferShadingWord }, ViewTargetFormats::kSceneDepth, 1 };
+    }
+
     // The graph-provided colour slots: velocity after each framebuffer's own colours.
     // The scene target's responsive-AA mask after it (no G-buffer slot: only translucency writes it).
     inline constexpr uint32_t kSceneTargetVelocitySlot     = 1;

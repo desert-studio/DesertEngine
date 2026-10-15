@@ -188,6 +188,21 @@ namespace Desert::Graphic::System
         if ( !m_GBufferPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
 
+        // The forward depth prepass and the base pass after it, both required on the Forward path.
+        m_PrepassPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainDepthPrepass", "TerrainDepthPrepassPipeline",
+                                                   DepthPrepassLayout(), error );
+        if ( !m_PrepassPipeline )
+            return Common::MakeError( "TerrainRenderer: the depth prepass pipeline: " + error );
+        GraphicsPipelineSpecification prepassed = m_Pipeline->GetSpecification();
+        prepassed.DebugName                     = "TerrainPrepassedPipeline";
+        prepassed.DepthCompareOp                = DepthCompare::Same;
+        prepassed.DepthWriteEnabled             = false;
+        const auto prepassedPipeline            = m_SceneRenderer->GetPipelineCache().GetOrCreate( prepassed );
+        if ( !prepassedPipeline )
+            return Common::MakeError( "TerrainRenderer: the base pass after the depth prepass: " +
+                                      prepassedPipeline.GetError() );
+        m_PrepassedPipeline = prepassedPipeline.GetValue();
+
         // Terrain materials are created lazily, one set per texture key, in PrepareFrame — a material made
         // now would only ever serve one key.
         return BOOLSUCCESS;
@@ -284,6 +299,7 @@ namespace Desert::Graphic::System
                     materials.Forward = std::make_unique<DataDrivenMaterial>( "Terrain" );
                     materials.GBuffer = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
                     materials.Shadow  = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+                    materials.Prepass = std::make_unique<DataDrivenMaterial>( "TerrainDepthPrepass" );
                 }
                 m_FrameGroups.push_back( { it->first, {}, {} } );
 
@@ -309,11 +325,13 @@ namespace Desert::Graphic::System
                 }
                 surface->SetTexture( "u_Heightmap", t.Heightmap );
                 materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
+                materials.Prepass->SetTexture( "u_Heightmap", t.Heightmap );
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
-                    // The caster reads the visibility channel too: a hole must not cast a shadow.
+                    // The caster reads the visibility channel too: a hole must not cast a shadow. Nor hold a depth.
                     materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                    materials.Prepass->SetTexture( "u_Weightmap", t.Weights.Weightmap );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -402,7 +420,7 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
-            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get() } )
+            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get(), materials.Prepass.get() } )
             {
                 // The shadow program has no TerrainUB: its vertices are the camera's (the LOD rides in the row).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
@@ -525,7 +543,11 @@ namespace Desert::Graphic::System
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
-                                   return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
+                                   // After the forward depth prepass: EQUAL against its depth, writing none.
+                                   const GraphicsPipeline& pipeline = m_SceneRenderer->UsesForwardDepthPrepass()
+                                                                           ? *m_PrepassedPipeline
+                                                                           : *m_Pipeline;
+                                   return RecordDraws( context, 0, pipeline, &ProgramMaterials::Forward,
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
                                                        m_FrameDraws );
                                },
@@ -570,6 +592,26 @@ namespace Desert::Graphic::System
         }
         (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
                                   GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
+    }
+
+    Common::BoolResultStr TerrainRenderer::RenderDepthPrepassManual( const RDG::PassContext& context )
+    {
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || !m_SceneRenderer->UsesForwardDepthPrepass() ||
+             m_FrameDraws.empty() )
+            return BOOLSUCCESS;
+        // The forward program's own matrix: the two programs place every vertex at the same bits.
+        return RecordDraws( context, 0, *m_PrepassPipeline, &ProgramMaterials::Prepass,
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
+    }
+
+    void TerrainRenderer::DeclareDepthPrepassDraws( RDG::PassBuilder& pass )
+    {
+        // Exactly when RenderDepthPrepassManual draws. TerrainDepthPrepass.shader samples no scene/view input.
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || !m_SceneRenderer->UsesForwardDepthPrepass() ||
+             m_FrameDraws.empty() )
+            return;
+        (void)DeclareGroupBlocks( pass, m_PrepassPipeline.get(), m_PrepassLayout,
+                                  GroupExecutors( &ProgramMaterials::Prepass ), nullptr );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const

@@ -159,9 +159,12 @@ namespace Desert::Graphic
         GBuffer     = 1, // deferred albedo/normal MRT (also the Reflective Shadow Map, from the sun)
         Glass       = 2, // transparent, samples the composited scene for refraction
         ShadowDepth = 3, // depth only, into a cascade
+        // The view's depth prepass (UE FDepthPassMeshProcessor): the camera's depth and the primitive's
+        // contact-shadow cast mask, before the forward base pass tests EQUAL against that depth.
+        DepthPrepass = 4,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 4;
+    inline constexpr uint32_t kMeshPassCount = 5;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).

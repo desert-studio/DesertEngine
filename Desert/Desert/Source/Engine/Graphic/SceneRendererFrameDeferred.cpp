@@ -185,23 +185,27 @@ namespace Desert::Graphic
                                                         : nullptr;
     }
 
-    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
-            return;
+            return {};
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const uint32_t        samples    = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples <= 1 )
+            return sceneDepth;
         auto* resolve =
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( resolve == nullptr || !resolve->IsReady() )
-            return;
-        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+            return {};
+        const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
-             textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
+             graph, samples, sceneDepth, resolved,
              [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return resolve->Record( context ); } );
+        return resolved;
     }
 
     void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )
@@ -209,17 +213,23 @@ namespace Desert::Graphic
         const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
         if ( colors == nullptr )
             return;
+        AddFrameGraphColorResolvesOf( graph, *colors );
+    }
+
+    void SceneRenderer::AddFrameGraphColorResolvesOf( RDG::Builder& graph, const std::span<const GraphColor> colors )
+    {
         const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
         System::GraphColorResolveRenderer* resolve = nullptr;
         if ( found != m_RenderSystems.end() )
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             resolve = UNIQUE_GET_AS( System::GraphColorResolveRenderer, found->second );
         AddGraphColorResolves(
-             graph, *colors,
-             [resolve]( RDG::PassBuilder& pass, const GraphColor& color )
+             graph, colors,
+             [resolve, &graph]( RDG::PassBuilder& pass, const GraphColor& color )
              {
-                 if ( resolve != nullptr )
-                     resolve->DeclareBindings( pass, color.Multisample );
+                 const auto desc = graph.GetTextureDesc( color.Color );
+                 if ( resolve != nullptr && desc.IsSuccess() )
+                     resolve->DeclareBindings( pass, color.Multisample, desc.GetValue().Format );
              },
              [resolve, &graph]( const GraphColor& color )
              {

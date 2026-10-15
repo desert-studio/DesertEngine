@@ -36,6 +36,9 @@
 #ifndef TERRAIN_DEPTH_ONLY
         Out(0) vec3 v_WorldPos;
         Out(1) vec3 v_Normal;
+        // The forward depth prepass (TerrainDepthPrepass.shader) and the forward base pass (Terrain.shader)
+        // rasterise the tile through two programs, and the base pass tests EQUAL against the prepass depth.
+        invariant gl_Position;
 #else
         // The caster still needs WHERE in the tile a pixel is: a hole (the visibility layer) casts no shadow.
         Out(0) vec2 v_TileSample;

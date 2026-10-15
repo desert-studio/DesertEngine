@@ -735,15 +735,16 @@ namespace Desert::Graphic::System
         // line, in the render path most of this repository's scenes state. The G-buffer pass has its own
         // instanced cell now, so the gate asks whether THIS pass has one instead of asking which pass it
         // is.
-        auto* instancedPipeline =
-             m_DeferredGeometry ? m_InstancedGBufferPipeline.get() : m_StaticInstancedPipeline.get();
-        auto* instancedMaterial =
-             m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
-        auto* instancedInstance =
-             m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
+        auto* instancedPipeline = BuildPassPipeline( MeshVertexPath::Instanced );
+        auto* instancedMaterial = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferMaterial.get()
+                                  : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassMaterial.get()
+                                                                          : m_StaticInstancedMaterial.get();
+        auto* instancedInstance = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferInstance.get()
+                                  : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassInstance.get()
+                                                                          : m_StaticInstancedInstance.get();
         const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
                                   instancedInstance != nullptr && !WireframeView();
-        const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
+        const MeshPass instancedPass = m_BuildPass;
 
         // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
         // triple here — transforms, material rows, draws — shared by every batch in the pass, which is
@@ -836,13 +837,12 @@ namespace Desert::Graphic::System
         // stand-in group, appended last and recorded by the default surface's cell, so the stand-in's buffers
         // are filled once in the pass however many materials are waiting.
         using CellDraw                          = MaterialPipelineTracker::CellDraw;
-        GraphicsPipeline* const staticPassState = ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                       ? m_StaticGBufferPipeline.get()
-                                                       : WireframePipelineOr( m_StaticPipeline.get() );
-        // The grouping key is the slot's (Static x Forward) cell; in the G-buffer pass the draw records its twin.
+        GraphicsPipeline* const staticPassState = BuildPassPipeline( MeshVertexPath::Static );
+        // The grouping key is the slot's (Static x Forward) cell; in the G-buffer pass and the depth prepass the
+        // draw records its twin.
         StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward );
         StandInCell* const standInDraw =
-             m_DeferredGeometry ? StandIn( MeshVertexPath::Static, MeshPass::GBuffer ) : standIn;
+             m_BuildPass != MeshPass::Forward ? StandIn( MeshVertexPath::Static, m_BuildPass ) : standIn;
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr && standInDraw != nullptr ? CellPipeline( staticPassState, *standInDraw->Material )
                                                           : nullptr;
@@ -865,9 +865,9 @@ namespace Desert::Graphic::System
             };
             if ( perObject )
             {
-                DataDrivenMaterial* cell =
-                     m_DeferredGeometry ? materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer )
-                                        : mat;
+                DataDrivenMaterial* cell = m_BuildPass != MeshPass::Forward
+                                                ? materials->GetVariant( mat, MeshVertexPath::Static, m_BuildPass )
+                                                : mat;
                 if ( cell != nullptr ) // no twin: refused out loud by the group loop below
                     fold( ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline ) );
             }
@@ -1045,7 +1045,7 @@ namespace Desert::Graphic::System
             // only because StaticMeshGBuffer.shader declared — and multiplied by 1e-20 — fourteen
             // descriptors it never reads. That dummy is gone with this.
             DataDrivenMaterial* drawMat = mat;
-            if ( m_DeferredGeometry )
+            if ( m_BuildPass != MeshPass::Forward )
             {
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
                 if ( mat == standInKey )
@@ -1054,7 +1054,7 @@ namespace Desert::Graphic::System
                 }
                 else if ( materials->Owns( mat ) )
                 {
-                    drawMat = materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer );
+                    drawMat = materials->GetVariant( mat, MeshVertexPath::Static, m_BuildPass );
                 }
                 else
                 {
@@ -1077,7 +1077,8 @@ namespace Desert::Graphic::System
                         }
                     }
                     unownedServed = mat;
-                    drawMat       = m_GBufferUnownedMaterial.get();
+                    drawMat       = m_BuildPass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
+                                                                     : m_PrepassUnownedMaterial.get();
                 }
 
                 if ( drawMat == nullptr )
@@ -1085,12 +1086,12 @@ namespace Desert::Graphic::System
                     // Not a quiet skip: the objects in this group simply would not appear in a deferred
                     // scene, which reads as "my mesh is invisible" and not as "one material has no
                     // G-buffer variant". Once per material, because this runs every frame.
-                    static std::unordered_set<const DataDrivenMaterial*> s_WarnedNoGBufferVariant;
-                    if ( s_WarnedNoGBufferVariant.insert( mat ).second )
-                        LOG_ERROR( "[MeshRenderer] No (Static x GBuffer) material for a mesh material; its "
-                                   "{} object(s) are NOT drawn into the G-buffer and will be missing from "
-                                   "the deferred scene. MaterialService logged which shader refused.",
-                                   singles.size() );
+                    static std::array<std::unordered_set<const DataDrivenMaterial*>, kMeshPassCount>
+                         s_WarnedNoPassVariant;
+                    if ( s_WarnedNoPassVariant[static_cast<uint32_t>( m_BuildPass )].insert( mat ).second )
+                        LOG_ERROR( "[MeshRenderer] No (Static x {}) material for a mesh material; its {} object(s) "
+                                   "are NOT drawn in that pass. MaterialService logged which shader refused.",
+                                   MeshPassName( m_BuildPass ), singles.size() );
                     continue;
                 }
             }
@@ -1145,10 +1146,7 @@ namespace Desert::Graphic::System
                 // state, drawMat's template fixes the program: its cell's sets are the ones Bind binds. A null
                 // pipeline (the cell's program refused) is refused by the list, the pass's error - never a
                 // skipped object.
-                GraphicsPipeline* pipeline = CellPipeline( ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                                ? m_StaticGBufferPipeline.get()
-                                                                : WireframePipelineOr( m_StaticPipeline.get() ),
-                                                           *drawMat );
+                GraphicsPipeline* pipeline = CellPipeline( staticPassState, *drawMat );
                 pipeline =
                      CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
                 // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
@@ -1189,7 +1187,7 @@ namespace Desert::Graphic::System
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
                            "{}). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
-                           m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
+                           m_InstancedQueue.size(), MeshPassName( m_BuildPass ),
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
                            instancedInstance ? "ok" : "MISSING", WireframeView() ? ", wireframe view on" : "" );
             }
@@ -1345,7 +1343,9 @@ namespace Desert::Graphic::System
 
         // One pipeline on both paths: it is built against SceneTargetLayout, and the graph opens the pass with
         // each slot's load op (LOAD over the deferred composite, CLEAR on the forward path's first writer).
-        GraphicsPipeline* pipeline = m_SkinnedPipeline.get();
+        GraphicsPipeline* pipeline = BuildPassPipeline( MeshVertexPath::Skinned );
+        if ( pipeline == nullptr )
+            return; // this pass draws no skinned mesh (the G-buffer: they draw over the composite)
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -1370,12 +1370,39 @@ namespace Desert::Graphic::System
             if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
                 groupFor( data.Material ).push_back( &data );
 
+        // THE DEPTH PREPASS DRAWS THE SAME GROUPS THROUGH THEIR (Skinned x DepthPrepass) CELLS: the same `.demat`'s
+        // twin, whose sets come from the cell about to be bound. A material no `.demat` built (MeshECSSystem's
+        // default) has no twin: it draws through the default surface's cell, which is what it is.
+        StandInCell* const standIn = StandIn( MeshVertexPath::Skinned, m_BuildPass );
+        if ( m_BuildPass != MeshPass::Forward )
+        {
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            for ( auto& [mat, objects] : groups )
+            {
+                DataDrivenMaterial* const twin =
+                     materials != nullptr && materials->Owns( mat )
+                          ? materials->GetVariant( mat, MeshVertexPath::Skinned, m_BuildPass )
+                          : ( standIn != nullptr ? standIn->Material.get() : nullptr );
+                if ( twin == nullptr )
+                {
+                    static std::unordered_set<const DataDrivenMaterial*> s_WarnedNoSkinnedTwin;
+                    if ( s_WarnedNoSkinnedTwin.insert( mat ).second )
+                        LOG_ERROR( "[MeshRenderer] No (Skinned x {}) material for a skinned mesh material; its {} "
+                                   "object(s) are NOT drawn in that pass. MaterialService logged which shader "
+                                   "refused.",
+                                   MeshPassName( m_BuildPass ), objects.size() );
+                    objects.clear();
+                    continue;
+                }
+                mat = twin;
+            }
+        }
+
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the
         // driver leaves its objects to ONE stand-in group recorded by the default surface's skinned cell (its
         // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
         // recording the cell itself would fail the node and drop the frame graph.
-        using CellDraw                        = MaterialPipelineTracker::CellDraw;
-        StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, MeshPass::Forward );
+        using CellDraw = MaterialPipelineTracker::CellDraw;
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
         {
@@ -1437,6 +1464,9 @@ namespace Desert::Graphic::System
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );
                                 mat->SetMaterialIndex( i );
+                                // A skinned mesh carries no Cast Contact Shadow switch: it casts (the depth
+                                // prepass's word, Pass_DepthPrepass.glslh).
+                                mat->SetPrimitiveFlags( PrimitiveFlagsOf( true ) );
                                 mat->Bind( inst );
                             } } );
             }
@@ -1622,6 +1652,143 @@ namespace Desert::Graphic::System
         m_SkinnedPipeline = skinned.GetValue();
 
         return true;
+    }
+
+    GraphicsPipeline* MeshRenderer::BuildPassPipeline( const MeshVertexPath path ) const
+    {
+        const auto pick = [path]( const std::shared_ptr<GraphicsPipeline>& stat,
+                                  const std::shared_ptr<GraphicsPipeline>& instanced,
+                                  const std::shared_ptr<GraphicsPipeline>& skinned ) -> GraphicsPipeline*
+        {
+            switch ( path )
+            {
+                case MeshVertexPath::Static:
+                    return stat.get();
+                case MeshVertexPath::Instanced:
+                    return instanced.get();
+                case MeshVertexPath::Skinned:
+                    return skinned.get();
+                case MeshVertexPath::ParticleSprite:
+                    return nullptr;
+            }
+            return nullptr;
+        };
+        switch ( m_BuildPass )
+        {
+            case MeshPass::GBuffer:
+                return pick( m_StaticGBufferPipeline, m_InstancedGBufferPipeline, nullptr );
+            case MeshPass::DepthPrepass:
+                return pick( m_StaticPrepassPipeline, m_InstancedPrepassPipeline, m_SkinnedPrepassPipeline );
+            case MeshPass::Forward:
+                break;
+            case MeshPass::Glass:
+            case MeshPass::ShadowDepth:
+                return nullptr;
+        }
+        // The forward base pass: at EQUAL after the prepass; without it (the wireframe view) testing and writing.
+        if ( m_SceneRenderer != nullptr && m_SceneRenderer->UsesForwardDepthPrepass() )
+            return pick( m_StaticPrepassedPipeline, m_InstancedPrepassedPipeline, m_SkinnedPrepassedPipeline );
+        if ( path == MeshVertexPath::Static )
+            return WireframePipelineOr( m_StaticPipeline.get() );
+        return pick( m_StaticPipeline, m_StaticInstancedPipeline, m_SkinnedPipeline );
+    }
+
+    bool MeshRenderer::SetupDepthPrepass()
+    {
+        // (path x DepthPrepass): the default surface's prepass cell, the view's depth and the contact-shadow word.
+        // Cull and compare as the forward pipelines, so the two rasterise the same fragments.
+        const auto prepassOf = [this]( const MeshVertexPath path, const char* name ) -> std::shared_ptr<GraphicsPipeline>
+        {
+            GraphicsPipelineSpecification spec;
+            spec.DebugName      = name;
+            spec.Layout         = MeshVertexLayout( path );
+            spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+            spec.CullMode       = CullMode::Back;
+            spec.Shader         = DefaultSurfaceProgram( path, MeshPass::DepthPrepass );
+            spec.TargetLayout   = DepthPrepassLayout();
+            if ( !spec.Shader )
+            {
+                LOG_ERROR( "[MeshRenderer] the forward depth prepass has no program '{}'",
+                           DefaultSurfaceShaderName( path, MeshPass::DepthPrepass ).value_or( "?" ) );
+                return nullptr;
+            }
+            const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+            if ( !pipeline )
+            {
+                LOG_ERROR( "[MeshRenderer] the forward depth prepass pipeline '{}' was refused: {}", name,
+                           pipeline.GetError() );
+                return nullptr;
+            }
+            return pipeline.GetValue();
+        };
+        // The base pass after the prepass (UE: the forward base pass at DepthEqual, depth writes off): the forward
+        // pipeline's own spec, testing Same and writing nothing - the shading of a pixel runs once, for the surface
+        // the prepass kept.
+        const auto prepassedOf = [this]( const GraphicsPipeline& forward,
+                                         const char*             twinName ) -> std::shared_ptr<GraphicsPipeline>
+        {
+            GraphicsPipelineSpecification spec = forward.GetSpecification();
+            spec.DebugName                     = twinName;
+            spec.DepthCompareOp                = DepthCompare::Same;
+            spec.DepthWriteEnabled             = false;
+            const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+            if ( !pipeline )
+            {
+                LOG_ERROR( "[MeshRenderer] the forward base pass after the depth prepass has no '{}': {}", twinName,
+                           pipeline.GetError() );
+                return nullptr;
+            }
+            return pipeline.GetValue();
+        };
+        if ( !m_StaticPipeline || !m_SkinnedPipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] the forward depth prepass needs the forward static and skinned pipelines" );
+            return false;
+        }
+        m_StaticPrepassPipeline    = prepassOf( MeshVertexPath::Static, "StaticMeshDepthPrepass" );
+        m_SkinnedPrepassPipeline   = prepassOf( MeshVertexPath::Skinned, "SkinnedMeshDepthPrepass" );
+        m_StaticPrepassedPipeline  = prepassedOf( *m_StaticPipeline, "StaticMeshGeometryPrepassed" );
+        m_SkinnedPrepassedPipeline = prepassedOf( *m_SkinnedPipeline, "SkinnedMeshGeometryPrepassed" );
+        m_PrepassUnownedMaterial   = CreateCellMaterial( MeshVertexPath::Static, MeshPass::DepthPrepass );
+        if ( !m_StaticPrepassPipeline || !m_SkinnedPrepassPipeline || !m_StaticPrepassedPipeline ||
+             !m_SkinnedPrepassedPipeline || !m_PrepassUnownedMaterial )
+            return false;
+
+        // Instancing in both passes or in neither: the forward instanced pipeline is optional (SetupGeometryPass),
+        // and a pass without its instanced pipeline draws the batches one object each - the same depth.
+        if ( m_StaticInstancedPipeline )
+        {
+            m_InstancedPrepassPipeline   = prepassOf( MeshVertexPath::Instanced, "StaticMeshDepthPrepassInstanced" );
+            m_InstancedPrepassedPipeline = prepassedOf( *m_StaticInstancedPipeline, "StaticMeshGeometryInstancedPrepassed" );
+            m_InstancedPrepassMaterial   = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::DepthPrepass );
+            if ( m_InstancedPrepassMaterial )
+                m_InstancedPrepassInstance = m_InstancedPrepassMaterial->CreateInstance( "StaticInstancedPrepassBatch" );
+            if ( !m_InstancedPrepassPipeline || !m_InstancedPrepassedPipeline || !m_InstancedPrepassInstance )
+                LOG_ERROR( "[MeshRenderer] instanced drawing is off in the forward depth prepass: its batches draw one "
+                           "object each there." );
+        }
+        return true;
+    }
+
+    void MeshRenderer::DeclareDepthPrepassDraws( RDG::PassBuilder& pass )
+    {
+        m_PrepassDraws.Clear();
+        if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr ||
+             !m_SceneRenderer->UsesForwardDepthPrepass() )
+            return;
+        // THE BASE PASS'S DRAWS (UE: the depth pass and the base pass process the same visible mesh batches): the
+        // same queues, groups, LODs and batches the base pass builds right after, each through its template's
+        // (path x DepthPrepass) cell. The cells sample no scene/view input.
+        m_BuildPass = MeshPass::DepthPrepass;
+        BuildStaticDraws( m_PrepassDraws );
+        BuildSkinnedDraws( m_PrepassDraws );
+        m_BuildPass = MeshPass::Forward;
+        m_PrepassDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderDepthPrepassManual( const RDG::PassContext& context ) const
+    {
+        return m_PrepassDraws.Record( context );
     }
 
 } // namespace Desert::Graphic::System

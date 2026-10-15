@@ -20,6 +20,12 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #include <Common/ShadowCasterBias.glslh>
 #endif
 #include <Common/ObjectMotion.glslh>
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass and the forward base pass rasterise the same primitive through two programs, and the
+// base pass tests EQUAL against the prepass depth: the clip position must be bit-identical in both (UE: every
+// vertex factory's position output is `invariant`).
+invariant gl_Position;
+#endif
 
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {

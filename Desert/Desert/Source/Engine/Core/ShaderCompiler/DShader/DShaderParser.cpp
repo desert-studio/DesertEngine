@@ -1444,10 +1444,11 @@ namespace Desert::Core::Preprocess
             if ( stage == ShaderStage::Vertex )
                 code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                             SurfaceVertexInclude( path ) );
-            else if ( pass == kSurfaceDepthPass && !masked )
+            else if ( ( pass == kSurfaceDepthPass || pass == kSurfaceDepthPrepassPass ) && !masked )
             {
-                // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
-                // not declare the surface's bindings at all: the pass header alone, no material declarations.
+                // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell (a
+                // cascade's or the view's prepass) must not declare the surface's bindings at all: the pass
+                // header alone, no material declarations.
                 code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                             SurfacePassInclude( pass, blend ) );
                 return AssembleStage( stage, code, include, std::string() );

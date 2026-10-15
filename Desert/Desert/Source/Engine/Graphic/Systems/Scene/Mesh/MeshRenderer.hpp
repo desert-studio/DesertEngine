@@ -419,6 +419,11 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Forward: DepthPrepass" (SceneRenderer::UsesForwardDepthPrepass): the frame's prepass draw list -
+        // the static, instanced and skinned meshes the base pass draws, each through its template's (path x
+        // DepthPrepass) cell - and its binding blocks (the cells sample no scene/view input). The exec records it.
+        void                                DeclareDepthPrepassDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderDepthPrepassManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
@@ -713,6 +718,13 @@ namespace Desert::Graphic::System
     private:
         bool SetupGeometryPass();
         bool SetupGBufferPass(); // deferred: static-mesh G-buffer write pipeline
+        // The forward depth prepass: per vertex path its (path x DepthPrepass) pipeline, and the base pass's
+        // EQUAL / no-depth-write twin of the forward pipeline it draws after a prepass. False (logged) = refused.
+        bool SetupDepthPrepass();
+        // The pipeline whose fixed state a draw of @p path takes in the pass being built (m_BuildPass): the
+        // G-buffer's, the prepass's, or the forward one - its EQUAL twin after a prepass, the wireframe variant in
+        // that view (static only). Null: that pass has none for the path.
+        [[nodiscard]] GraphicsPipeline* BuildPassPipeline( MeshVertexPath path ) const;
         // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
         // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
         // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
@@ -770,6 +782,7 @@ namespace Desert::Graphic::System
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer" static
+        MeshRendererDetail::MeshDrawList m_PrepassDraws; // "Forward: DepthPrepass": static + skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_SkinnedDraws;
         // "Deferred: Skinned"
@@ -828,7 +841,25 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
-        bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
+        // The pass the Build*Draws functions build a list for: the forward base pass, the G-buffer, or the forward
+        // depth prepass. Set around one build by its node's setup and back to Forward after it.
+        MeshPass m_BuildPass = MeshPass::Forward;
+
+        // THE FORWARD DEPTH PREPASS (SetupDepthPrepass). Per vertex path: the (path x DepthPrepass) pipeline (the
+        // view's depth + the contact-shadow word, DepthPrepassLayout) and the base pass's twin of the forward
+        // pipeline that draws after it (DepthCompare::Equal, no depth write: UE's forward base pass at DepthEqual).
+        std::shared_ptr<GraphicsPipeline> m_StaticPrepassPipeline;
+        std::shared_ptr<GraphicsPipeline> m_InstancedPrepassPipeline;
+        std::shared_ptr<GraphicsPipeline> m_SkinnedPrepassPipeline;
+        std::shared_ptr<GraphicsPipeline> m_StaticPrepassedPipeline;
+        std::shared_ptr<GraphicsPipeline> m_InstancedPrepassedPipeline;
+        std::shared_ptr<GraphicsPipeline> m_SkinnedPrepassedPipeline;
+        // The prepass's spares, for the same reasons as the G-buffer's (m_GBufferUnownedMaterial,
+        // m_InstancedGBufferMaterial): a material is one shader's descriptor sets, so the pass binds sets allocated
+        // from its own cell's reflection.
+        std::shared_ptr<DataDrivenMaterial>          m_PrepassUnownedMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedPrepassMaterial;
+        MaterialInstancePtr                          m_InstancedPrepassInstance;
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
         // rows — never shared with an opaque material, whose per-frame ring would then be written twice a frame

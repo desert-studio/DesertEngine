@@ -15,9 +15,9 @@ namespace Desert::Graphic::System
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
         // shaders sample no scene input: every block is the material's alone.
-        m_DeferredGeometry = true;
+        m_BuildPass = MeshPass::GBuffer;
         BuildStaticDraws( m_GBufferDraws );
-        m_DeferredGeometry = false;
+        m_BuildPass = MeshPass::Forward;
         m_GBufferDraws.Declare( pass, std::nullopt );
     }
 

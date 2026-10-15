@@ -157,6 +157,10 @@ namespace Desert::Graphic::System
         if ( !SetupSkinnedGeometryPass() )
             return Common::MakeError( "Failed to setup skinned geometry pass" );
 
+        // Required as the forward pipelines are: the forward path draws its opaque meshes only through it.
+        if ( !SetupDepthPrepass() )
+            return Common::MakeError( "Failed to setup the forward depth prepass" );
+
         if ( !SetupSilhouettePass() )
             return Common::MakeError( "Failed to setup silhouette pass" );
 
@@ -386,7 +390,10 @@ namespace Desert::Graphic::System
                 return;
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
-            BuildGenericDraws( m_ForwardDraws );
+            // After the depth prepass the custom-shader meshes (no surface cells, so no prepass cell; they write
+            // depth) draw in their own node after this one (SceneRenderer, "Deferred: Generic").
+            if ( !m_SceneRenderer->UsesForwardDepthPrepass() )
+                BuildGenericDraws( m_ForwardDraws );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 
@@ -452,11 +459,14 @@ namespace Desert::Graphic::System
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
-        // and the glass march the opaque scene depth (u_SceneDepth): the deferred path has it (the G-buffer
-        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        // and the glass march the opaque scene depth (u_SceneDepth) and read the hit texel's caster from its
+        // shading word (u_SceneShadingWord): the deferred path has both in the G-buffer, finished before any of them
+        // draws; the forward path has them from its depth prepass ("Forward: DepthPrepass"), except in the
+        // wireframe view, which draws no prepass and so marches nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
-                 *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
+                 *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+                             m_SceneRenderer->UsesForwardDepthPrepass() );
 
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),

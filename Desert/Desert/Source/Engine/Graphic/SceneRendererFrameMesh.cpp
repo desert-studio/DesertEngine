@@ -51,7 +51,8 @@ namespace Desert::Graphic
                         const std::vector<RDG::LoadOp>& colors, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
                         std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
-                        const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
+                        const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {},
+                        const bool                                                      depthWrite      = true )
         {
             graph.AddPass(
                  name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
@@ -64,8 +65,10 @@ namespace Desert::Graphic
                      for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
                          if ( targets.Colors[slot].IsValid() )
                              pass.ColorTarget( slot, targets.Colors[slot], colors[slot] );
+                     // A node that only tests the depth binds it read-only (RDG::Access::DepthRead), so it may also
+                     // sample that depth (the forward glass marching the prepass depth for its contact shadows).
                      if ( targets.Depth.IsValid() )
-                         pass.DepthTarget( targets.Depth, depth );
+                         pass.DepthTarget( targets.Depth, depth, depthWrite );
                      DeclareResolves( pass, targets.Resolves );
                      if ( declareBindings )
                      {
@@ -105,9 +108,11 @@ namespace Desert::Graphic
             const RDG::LoadOp color =
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
+            // A read-only depth is never cleared: it holds what an earlier node (the forward depth prepass) drew.
             const RDG::LoadOp depth =
-                 clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
-                        : RDG::LoadOp::Load();
+                 clears && !pass.DepthReadOnly
+                      ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
+                      : RDG::LoadOp::Load();
             AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
         }
     }
@@ -153,11 +158,87 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour and depth),
-        // then the meshes, then the terrain, both LOADING and sharing the depth so they resolve against each
-        // other.
+        if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
+            return;
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const auto            depthDesc  = graph.GetTextureDesc( sceneDepth );
+        if ( !depthDesc.IsSuccess() )
+        {
+            LOG_ERROR( "[SceneRenderer] Forward: DepthPrepass refused: the scene depth has no description: {}",
+                       depthDesc.GetError() );
+            return;
+        }
+        const uint32_t samples = m_TargetFramebuffer->GetSpecification().Samples;
+
+        // THE OPAQUE SCENE'S CONTACT-SHADOW CASTERS (UE bCastContactShadow, which the deferred path reads from the
+        // G-buffer's shading word): the prepass writes the same word - only its NO_CONTACT_SHADOW bit meaningful,
+        // Mesh/Surface/Pass_DepthPrepass.glslh - so the forward contact shadows read the hit texel's caster through
+        // the one shader the deferred composite uses. Cleared to the contract's zero (every texel casts). At MSAA a
+        // multisampled twin, resolved by SAMPLE 0: an integer word is never averaged.
+        RDG::TextureDesc desc;
+        desc.Size   = depthDesc.GetValue().Size;
+        desc.Format = ViewTargetFormats::kGBufferShadingWord;
+        GraphColor word;
+        word.Color = graph.CreateTexture( desc, "Forward.ContactShadowWord" );
+        if ( samples > 1 )
+        {
+            desc.Samples     = samples;
+            word.Multisample = graph.CreateTexture( desc, "Forward.ContactShadowWord.Multisample" );
+        }
+        word.Resolve = GraphColorResolve::SampleZero;
+        RasterTargets targets;
+        targets.Depth = sceneDepth;
+        if ( !AppendGraphColors( targets, std::span<const GraphColor>( &word, 1 ), samples > 1 ) )
+        {
+            LOG_ERROR( "[SceneRenderer] Forward: DepthPrepass refused: the contact-shadow word does not match the "
+                       "scene target's {} sample(s)",
+                       samples );
+            return;
+        }
+
+        // The meshes CLEAR the depth and the word; the terrain LOADS both (the graph merges the two nodes into one
+        // render pass). Two nodes, as the G-buffer's: each list's binding blocks are its node's only ones.
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+        auto* mesh    = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        AddRaster(
+             graph, "Forward: DepthPrepass", targets,
+             textures.ColorLoads( targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
+             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [mesh]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 if ( mesh == nullptr )
+                     return BOOLSUCCESS;
+                 return mesh->RenderDepthPrepassManual( context );
+             },
+             [mesh]( RDG::PassBuilder& pass )
+             {
+                 if ( mesh != nullptr )
+                     mesh->DeclareDepthPrepassDraws( pass );
+             } );
+        if ( terrain != nullptr )
+            AddRaster(
+                 graph, "Forward: TerrainDepthPrepass", targets, textures.ColorLoads( targets, RDG::LoadOp::Load() ),
+                 RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthPrepassManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthPrepassDraws( pass ); } );
+
+        // The contact shadows sample single-sample images: the word's and the depth's sample-0 resolves at MSAA (at
+        // one sample, the depth itself, bound read-only by every later node that samples it).
+        AddFrameGraphColorResolvesOf( graph, std::span<const GraphColor>( &word, 1 ) );
+        textures.Transients.SceneDepth       = AddFrameSceneDepthResolve( graph, textures );
+        textures.Transients.SceneShadingWord = word.Color;
+    }
+
+    void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures, const bool prepassed )
+    {
+        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour, and the depth
+        // unless the forward depth prepass filled it), then the meshes, then the terrain, both LOADING and sharing
+        // the depth so they resolve against each other. After the prepass every node binds the depth read-only:
+        // the meshes and the terrain test EQUAL and write none, the sky tests nothing.
         std::vector<SystemRasterPass> passes;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
@@ -168,6 +249,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
+        for ( SystemRasterPass& pass : passes )
+            pass.DepthReadOnly = prepassed;
         AddSystemRasters( graph, textures, passes, true );
     }
 
@@ -421,7 +504,9 @@ namespace Desert::Graphic
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGlassManual( context ); },
              [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); },
+             // Glass never writes depth (ApplySurfaceBlendMode): read-only, so it may sample the scene depth it tests.
+             /*depthWrite*/ false );
     }
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )

@@ -90,6 +90,7 @@ namespace Desert::Graphic
     }
     class FrameTextures;
     struct FrameValues;
+    struct GraphColor;
     class ReflectionCaptureRenderer;
 
     class SceneRenderer final
@@ -478,6 +479,16 @@ namespace Desert::Graphic
             return m_RenderPath;
         }
 
+        // THE FORWARD DEPTH PREPASS (UE: the forward shading path renders a full opaque depth prepass,
+        // EDepthDrawingMode DDM_AllOpaque): every opaque surface's depth first ("Forward: DepthPrepass"), then the base
+        // pass tests EQUAL against it and writes none, and the forward contact shadows march that depth. The
+        // wireframe view is the one exception: lines tested EQUAL against a filled depth would drop, so it draws its
+        // own base pass with depth writes, as before the prepass. The ONE answer every system of the frame asks.
+        [[nodiscard]] bool UsesForwardDepthPrepass() const
+        {
+            return m_RenderPath == Core::RenderPath::Forward && !m_DebugView.WireframeMode;
+        }
+
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
         PipelineCache& GetPipelineCache()
@@ -673,7 +684,13 @@ namespace Desert::Graphic
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        // @p prepassed: "Forward: DepthPrepass" filled the scene depth, so every node of the base pass LOADS it
+        // read-only (the meshes and the terrain test EQUAL, the sky tests nothing).
+        void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures, bool prepassed );
+        // The forward depth prepass (UsesForwardDepthPrepass): the meshes' then the terrain's depth and contact-shadow
+        // shading word, CLEARING the scene depth; then the word's and the depth's sample-0 resolves at MSAA. Sets
+        // the frame's SceneDepth / SceneShadingWord, which the forward contact shadows read.
+        void AddFrameDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
         // declared reads; @p color / @p depth are the loads of the node's targets.
@@ -755,9 +772,13 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // The single-sample scene depth a sampler reads: the resolve node's target at MSAA, the scene depth itself at
+        // one sample; invalid when there is none (no depth attachment, the resolve system not ready).
+        RDG::TextureRef AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
+        // The "<Color>: Resolve" nodes of @p colors (SampleZero graph colours of one multisampled target).
+        void AddFrameGraphColorResolvesOf( RDG::Builder& graph, std::span<const GraphColor> colors );
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.

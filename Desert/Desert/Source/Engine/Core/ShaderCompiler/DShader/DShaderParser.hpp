@@ -80,7 +80,8 @@ namespace Desert::Core::Preprocess
     // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
     // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
-    inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
+    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth",
+                                                                             "DepthPrepass" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
@@ -113,6 +114,10 @@ namespace Desert::Core::Preprocess
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
+    // The view's depth prepass (UE FDepthPassMeshProcessor, MeshPass::DepthPrepass): its opaque cells evaluate no
+    // surface either - the fragment writes the primitive's contact-shadow cast mask from the push block alone, so
+    // an opaque cell declares no material binding in that stage. A Masked cell evaluates the surface for its clip.
+    inline constexpr std::string_view kSurfaceDepthPrepassPass = "DepthPrepass";
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
     // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:

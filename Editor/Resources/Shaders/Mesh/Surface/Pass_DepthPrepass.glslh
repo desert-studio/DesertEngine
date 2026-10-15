@@ -1,0 +1,31 @@
+// Surface cell pass: the view's DEPTH PREPASS (UE FDepthPassMeshProcessor / DepthOnlyPixelShader.usf), drawn by the
+// forward path before its base pass, which then tests EQUAL against this depth and writes none. The camera's depth
+// is the rasterised one (no gl_FragDepth, early depth stays on); the one colour target is the opaque scene's shading
+// word (ViewTargetFormats::kGBufferShadingWord) carrying the primitive's contact-shadow cast flag and nothing else,
+// so the forward contact shadows read the hit texel's caster exactly as the deferred composite reads the G-buffer's
+// (Common/ContactShadow.glslh CONTACT_SHADOW_SHADING_WORD). The velocity is the base pass's (UE's default
+// r.VelocityOutputPass = 1: velocity written in the base pass).
+//
+// An opaque template's cell evaluates no surface: its fragment stage is this header alone (DShaderParser
+// kSurfaceDepthPrepassPass). A Masked one evaluates the surface for its clip, as the shadow-depth cell does, so the
+// base pass's EQUAL test finds depth only where the mask kept the pixel.
+#include <ShadingModels/ShadingModelContract.glslh>
+// The ONE engine push block (PrimitiveFlags): an opaque cell's fragment stage gets no injected copy.
+#include <Common/MaterialTransport.glslh>
+
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 0 ) out uvec2 oContactShadowWord;
+
+void main()
+{
+#ifdef DESERT_SURFACE_MASKED
+    const SurfaceOutput s =
+         EvaluateSurface( DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                              v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing ) );
+    DESERT_SURFACE_CLIP( s );
+#endif
+    // Only the cast bit is meaningful to the forward readers; the rest is the contract's clear value.
+    oContactShadowWord = DesertMarkContactShadowCast(
+         uvec2( 0u ), ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+}
