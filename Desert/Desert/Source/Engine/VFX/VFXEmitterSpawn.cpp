@@ -20,7 +20,7 @@ namespace Desert::VFX
                guid == kVFXSpawnFromChannelModule.Guid;
     }
 
-    bool UsesModule( const S::VFXModuleUse& use, const VFXEngineCpuModule& module )
+    bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module )
     {
         const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
         return guid && guid.GetValue() == module.Guid;
