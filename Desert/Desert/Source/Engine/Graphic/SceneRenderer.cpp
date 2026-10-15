@@ -669,8 +669,8 @@ namespace Desert::Graphic
 
         // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
         // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
-        // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene, which re-budgets
-        // to the low-detail cascades if it resolves to a ray-traced sun.
+        // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene; the first frame that
+        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor).
         if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality, /*sunRayTraced*/ false ) )
             m_ViewProfile.Shadows = *budget;
         m_ShadowBudgetGeneration = m_Quality.Generation;
@@ -815,26 +815,9 @@ namespace Desert::Graphic
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
 
-        // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
-        // Asked only when the quality generation moved — a level change, never per frame — and the maps are
-        // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
-        // updated with them so the view's memory census keeps describing what is allocated.
-        // The sun path is part of the budget (ShadowQualityOf): a ray-traced sun keeps only the low-detail cascades.
-        const bool sunRayTraced = SunShadowIsRayTraced();
-        if ( m_Quality.Generation != m_ShadowBudgetGeneration || sunRayTraced != m_ShadowBudgetSunRayTraced )
-        {
-            m_ShadowBudgetGeneration   = m_Quality.Generation;
-            m_ShadowBudgetSunRayTraced = sunRayTraced;
-            if ( const auto budget = ShadowReallocation( m_ViewProfile, quality, sunRayTraced ) )
-            {
-                m_ViewProfile.Shadows = *budget;
-                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                           ->RebudgetShadows( *budget ) )
-                    LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; "
-                               "nothing casts a shadow in this view.",
-                               m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
-            }
-        }
+        // THE SHADOW BUDGET is not taken here: it follows the FRAME's sun-shadow path, which OnUpdate decides
+        // after the view's TLAS (LowerShadowsForFrame) - RebudgetShadowsFor, called there before the maps are
+        // imported.
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
@@ -958,6 +941,30 @@ namespace Desert::Graphic
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
+    }
+
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets on
+    // r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level change
+    // or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are re-allocated only when
+    // the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is updated with them so the view's
+    // memory census keeps describing what is allocated. The sun path is part of the budget (ShadowQualityOf): a
+    // ray-traced sun keeps only the low-detail cascades; a frame that fell back to CascadedMaps gets the full ones.
+    void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
+                                            const bool                                  sunRayTraced )
+    {
+        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced )
+            return;
+        m_ShadowBudgetGeneration   = quality.Generation;
+        m_ShadowBudgetSunRayTraced = sunRayTraced;
+        const auto budget          = ShadowReallocation( m_ViewProfile, quality, sunRayTraced );
+        if ( !budget )
+            return;
+        m_ViewProfile.Shadows = *budget;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+            LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; nothing "
+                       "casts a shadow in this view.",
+                       m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
     }
 
     void SceneRenderer::OnUpdate( const UpdateInfo& sceneRenderInfo )
@@ -1232,6 +1239,11 @@ namespace Desert::Graphic
             LowerShadowsForFrame( m_RenderMethods, !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built &&
                                                                    EnsureRayTracedShadowResources() ) );
             ReportRenderMethods( m_RenderMethods );
+            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
+            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
+            // ray traced. Then the maps are imported at that budget, before any pass reads them.
+            RebudgetShadowsFor( m_Quality, SunShadowIsRayTraced() );
+            ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
             // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*

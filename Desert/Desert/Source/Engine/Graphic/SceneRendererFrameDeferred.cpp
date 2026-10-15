@@ -72,7 +72,7 @@ namespace Desert::Graphic
         return none;
     }
 
-    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
         if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
@@ -91,6 +91,14 @@ namespace Desert::Graphic
         // cascades' standard Z, "no occluder" - and the shader's cascade count (0) never reads it anyway.
         if ( !view.ShadowCascades.IsValid() )
             view.ShadowCascades = AddFrameNoSunCascades( graph );
+    }
+
+    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The sun's cascades and the local lights' atlas are NOT imported here: their budget follows the frame's
+        // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
+        // (ImportViewShadowMaps).
+        FrameTransients& view = textures.Transients;
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
