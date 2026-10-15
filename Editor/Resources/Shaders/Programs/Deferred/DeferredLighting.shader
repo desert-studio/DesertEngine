@@ -453,6 +453,7 @@ Shader "DeferredLighting"
         		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
         		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
+        		sampled.Traced      = 1.0;
         	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);

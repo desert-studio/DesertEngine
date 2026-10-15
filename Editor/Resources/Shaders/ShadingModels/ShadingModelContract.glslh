@@ -183,6 +183,12 @@ struct DesertAmbient
     vec2  SpecularBRDF; // split-sum LUT .rg at (max(dot(S.N, S.V), 0), S.Roughness)
     vec3  Indirect;     // one-bounce INCIDENT light (the deferred GI gather); vec3( 0.0 ) in the forward passes
     float Occlusion;    // the material's AmbientOcclusion times SSAO where the pass has it (DeferredLighting.shader:250)
+    // 1 when Irradiance and Prefiltered are a TRACED final gather (the screen probes: UE's Lumen diffuse indirect
+    // and its rough reflections), 0 when they are the sky cubes (UE's sky light). A model whose ambient reads a
+    // direction of its own (TwoSidedFoliage's far hemisphere) may read the sky cube only in the second case: in the
+    // first the cube is the open sky the trace has already occluded, so a leaf deep in a canopy would take the
+    // whole sky through its back face.
+    float Traced;
 };
 
 #endif

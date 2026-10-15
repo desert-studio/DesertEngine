@@ -64,6 +64,7 @@
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
+#include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -668,7 +669,8 @@ namespace Desert::Migration
         int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
-        // Materials whose retired OcclusionStrength was renamed AOStrength (MaterialAOParam.hpp).
+        // Materials with a retired parameter renamed: OcclusionStrength -> AOStrength (MaterialAOParam.hpp),
+        // FoliageSurface's AlphaCutoff -> OpacityMaskClipValue (MaterialMaskClipParam.hpp).
         int materialsRenamed = 0;
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
@@ -1180,19 +1182,35 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( oneAO.GetValue() )
+            // THE FOLIAGE TEMPLATE IS MASKED (MaterialMaskClipParam.hpp): its retired AlphaCutoff is renamed
+            // OpacityMaskClipValue - on the text the AO step left, so one run does both.
+            const std::string& afterAO = oneAO.GetValue() ? *oneAO.GetValue() : source;
+            const auto maskClip = Desert::Migration::FoliageMaterialWithMaskClipParam( path.string(), afterAO );
+            if ( !maskClip )
             {
+                err << "FAIL   " << maskClip.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( oneAO.GetValue() || maskClip.GetValue() )
+            {
+                const std::string renamed = maskClip.GetValue() ? *maskClip.GetValue() : afterAO;
+                const std::string what =
+                     oneAO.GetValue() && maskClip.GetValue()
+                          ? "OcclusionStrength -> AOStrength, AlphaCutoff -> OpacityMaskClipValue"
+                     : oneAO.GetValue() ? "OcclusionStrength -> AOStrength"
+                                        : "AlphaCutoff -> OpacityMaskClipValue";
                 ++materialsRenamed;
                 if ( check )
-                    out << "WOULD  " << path.string() << " — OcclusionStrength -> AOStrength\n";
-                else if ( !WriteText( path, *oneAO.GetValue(), err ) )
+                    out << "WOULD  " << path.string() << " — " << what << "\n";
+                else if ( !WriteText( path, renamed, err ) )
                 {
                     err << "FAIL   " << path.string() << " — the rename could not be written; the original file "
                         << "is untouched\n";
                     ++failed;
                 }
                 else
-                    out << "renamed " << path.string() << " — OcclusionStrength -> AOStrength\n";
+                    out << "renamed " << path.string() << " — " << what << "\n";
                 continue;
             }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
@@ -1707,7 +1725,8 @@ namespace Desert::Migration
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << materialsRaised << ( check ? " would be raised, " : " raised, " )
-            << materialsRenamed << ( check ? " would rename OcclusionStrength, " : " renamed OcclusionStrength, " )
+            << materialsRenamed
+            << ( check ? " would rename a retired parameter, " : " renamed a retired parameter, " )
             << prefabs.size() << " prefab(s), " << prefabsChanged << ( check ? " would change, " : " raised, " )
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
