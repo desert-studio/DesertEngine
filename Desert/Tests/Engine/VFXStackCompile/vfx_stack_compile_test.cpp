@@ -158,12 +158,15 @@ namespace
              "void VFX_WriteFloat( uint particle, uint c, float v ) {{ F[c * pc.Count + particle] = v; }}\n"
              "void VFX_WriteInt( uint particle, uint c, int v ) {{ I[c * pc.Count + particle] = v; }}\n"
              "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
+             "VFXChannelSpawn VFX_ChannelSpawn( uint row ) {{ return VFXChannelSpawn( vec4( 0.0 ), vec4( 0.0 ), "
+             "vec4( 1.0 ), vec4( 0.0, 1.0, 0.0, 0.0 ) ); }}\n"
              "void main()\n{{\n"
              "    const uint id = gl_GlobalInvocationID.x;\n"
              "    if ( id >= pc.Count ) return;\n"
              "    VFXSim sim;\n"
              "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
              "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
+             "    sim.Channel = 0u;\n"
              "    VFX_SimulateParticle( id, sim );\n}}\n",
              parsed.GetValue().Meta.ParticleSource );
 

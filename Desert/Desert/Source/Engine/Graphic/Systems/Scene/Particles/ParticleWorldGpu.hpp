@@ -61,13 +61,15 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( ParticleStepGpu ) == kParticleStepStride );
 
-    // One Spawn from Channel particle (ParticleSimulate `struct VFXChannelSpawn`), the payload bound to it.
+    // One Spawn from Channel particle (Common/VFXParticleContract.glslh `struct VFXChannelSpawn`), the payload
+    // bound to it.
     struct ParticleChannelSpawnGpu
     {
         glm::vec4 Position  = glm::vec4( 0.0f ); // xyz world cm, w = 1 when the module binds a Position field
         glm::vec4 Direction = glm::vec4( 0.0f ); // xyz start velocity direction, w = 1 when bound
-        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> InitializeColor when Scalars.z = 1
-        glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, z = 1 colour bound, w = 1 lifetime bound
+        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> SpawnFromChannel when Scalars.z = 1
+        glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, y = base-size scale, z = 1 colour bound,
+                                                 // w = 1 lifetime bound
     };
     static_assert( sizeof( ParticleChannelSpawnGpu ) == kParticleChannelSpawnStride );
 
@@ -147,8 +149,9 @@ namespace Desert::Graphic::System
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
-    // The pool's buffers: the slots (id + alive flag per particle, Common/ParticleState.glslh), the free list (one
-    // entry per particle) and the alive list (two per particle). The particles' data is the emitters' columns.
+    // The pool's buffers: the slots (id + alive flag per particle, ParticleSlot in Common/ParticlePool.glslh), the
+    // free list (one entry per particle) and the alive list (two per particle). The particles' data is the emitters'
+    // columns.
     struct ParticlePoolBuffers
     {
         std::shared_ptr<ShaderResources::StorageBuffer> Slots;
