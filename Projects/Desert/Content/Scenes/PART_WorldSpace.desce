@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a818816ace4cfcadaec60e24855458b8",
         "Versions": {
-            "SCNE": 56,
+            "SCNE": 57,
             "UNIT": 1
         },
         "Dependencies": ["707b4be308bb41c990f65b7b52e1737e"]
@@ -23,6 +23,7 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
@@ -166,7 +167,7 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 1.0,
+                    "ManualExposureEV100": 0.5260688662528992,
                     "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,

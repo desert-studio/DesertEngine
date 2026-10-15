@@ -252,7 +252,7 @@ namespace Desert::Editor
         ImGui::TextUnformatted( "Light (viewing only)" );
         auto& setup = m_Preview->Setup();
         ImGui::SliderFloat( "Sky intensity", &setup.SkyIntensity, 0.0f, 8.0f, "%.2f" );
-        ImGui::SliderFloat( "Exposure", &setup.Exposure, 0.01f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic );
+        ImGui::SliderFloat( "Manual EV100", &setup.ExposureEV100, -15.0f, 25.0f, "%.2f" );
         ImGui::SliderFloat( "Sun yaw", &setup.SunYawDegrees, -180.0f, 180.0f, "%.0f deg" );
         ImGui::SliderFloat( "Sun pitch", &setup.SunPitchDegrees, -89.0f, 89.0f, "%.0f deg" );
         ImGui::SliderFloat( "Sun intensity", &setup.LightIntensity, 0.0f, 20.0f, "%.2f" );
