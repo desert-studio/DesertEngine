@@ -124,9 +124,8 @@ namespace Desert::Graphic::API::Vulkan
                     vkDestroyQueryPool( m_Device, frame.Pool, nullptr );
 
         m_Frames.clear();
-        m_Active        = false;
-        m_Recording     = nullptr;
-        m_CommandBuffer = VK_NULL_HANDLE;
+        m_Active    = false;
+        m_Recording = nullptr;
     }
 
     VkQueryPool VulkanGpuProfiler::CreatePool( uint32_t queryCount ) const
@@ -175,8 +174,9 @@ namespace Desert::Graphic::API::Vulkan
         frame.QueryCount = wanted;
     }
 
-    void VulkanGpuProfiler::BeginFrame( VkCommandBuffer commandBuffer )
+    void VulkanGpuProfiler::BeginFrame()
     {
+        const VkCommandBuffer commandBuffer = m_RecordingTarget;
         if ( !m_Active || commandBuffer == VK_NULL_HANDLE )
             return;
 
@@ -195,7 +195,6 @@ namespace Desert::Graphic::API::Vulkan
         frame.Recorder.Reset( GpuScopeCapacity( frame.QueryCount ) );
         frame.FrameTotalWritten = false;
         m_Recording             = &frame;
-        m_CommandBuffer         = commandBuffer;
 
         // Switched OFF means off: no reset, no writes, not one command in the buffer. The reset is
         // conditional with the writes rather than unconditional-and-cheap so that turning GPU timing off
@@ -212,8 +211,9 @@ namespace Desert::Graphic::API::Vulkan
         frame.FrameTotalWritten = true;
     }
 
-    void VulkanGpuProfiler::EndFrame( VkCommandBuffer commandBuffer )
+    void VulkanGpuProfiler::EndFrame()
     {
+        const VkCommandBuffer commandBuffer = m_RecordingTarget;
         if ( !m_Active || commandBuffer == VK_NULL_HANDLE || m_Recording == nullptr )
             return;
 
@@ -225,8 +225,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( frame.Recorder.Requested() > m_HighWaterScopes )
             m_HighWaterScopes = frame.Recorder.Requested();
 
-        m_Recording     = nullptr;
-        m_CommandBuffer = VK_NULL_HANDLE;
+        m_Recording = nullptr;
     }
 
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
@@ -234,7 +233,10 @@ namespace Desert::Graphic::API::Vulkan
         // FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
         // toggle on mid-frame would write timestamps into queries nobody reset — undefined, and the kind
         // of thing that reads as a wild number rather than an error.
-        if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten )
+        // No buffer recording (between ExecuteGraph ending the frame's buffer and the graph arming its first
+        // segment, or after a failure disarmed the target): there is nowhere for the timestamp to go.
+        if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten ||
+             m_RecordingTarget == VK_NULL_HANDLE )
             return -1;
 
         // The owner is whichever view the ActiveViewScope targets, else the frame context. Its NAME is
@@ -250,7 +252,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( index < 0 )
             return -1;
 
-        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( index ) ) );
         return index;
     }
@@ -264,7 +266,11 @@ namespace Desert::Graphic::API::Vulkan
         // nesting it belongs to — so a scope closes against the view it opened in even if the active view
         // moved meanwhile.
         m_Recording->Recorder.End( handle );
-        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+        // A scope still open when a failure disarmed the target loses its end query; Resolve already reads a
+        // scope whose two queries did not both land as untimed.
+        if ( m_RecordingTarget == VK_NULL_HANDLE )
+            return;
+        vkCmdWriteTimestamp( m_RecordingTarget, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }
 

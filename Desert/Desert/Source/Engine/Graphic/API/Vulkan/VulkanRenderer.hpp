@@ -195,7 +195,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Absent in a Shipping build, together with the four calls into it — see
         /// Common/Core/DevInstruments.hpp.
 #if DESERT_DEV_INSTRUMENTS
-        VulkanGpuProfiler m_GpuProfiler;
+        VulkanGpuProfiler m_GpuProfiler{ m_CurrentCommandBuffer };
 #endif
 
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool

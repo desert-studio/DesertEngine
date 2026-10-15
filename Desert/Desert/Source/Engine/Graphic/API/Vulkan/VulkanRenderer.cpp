@@ -93,7 +93,7 @@ namespace Desert::Graphic::API::Vulkan
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
         // is recording and no pass is open.
 #if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.BeginFrame( m_CurrentCommandBuffer );
+        m_GpuProfiler.BeginFrame();
 #endif
 
         return BOOLSUCCESS;
@@ -113,7 +113,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( IsRecording() )
         {
 #if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.EndFrame( m_CurrentCommandBuffer );
+            m_GpuProfiler.EndFrame();
 #endif
 
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
