@@ -781,6 +781,8 @@ namespace Desert::Graphic
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // device, each lowered axis logged once.
         m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
+                                                           Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;

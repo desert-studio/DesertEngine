@@ -9,7 +9,7 @@
 //
 //   direct   the sun and the point/spot lights of the world light grid's cell at the hit
 //            (Mesh/LightGrid.glslh LightGridWorldLightsAt), each with a visibility ray (GITraceVisibility, the
-//            permutation's tracer);
+//            permutation's tracer) leaving the hit by the tracer's GIRayBias;
 //   bounce   the radiance cache's irradiance at the hit from the previous update (RadianceCacheIrradianceAt):
 //            every frame adds a bounce, as UE's radiance cache feedback does;
 //   material the hit's albedo and emissive from the G-buffer when the hit is the surface the view sees at its
@@ -20,7 +20,8 @@
 // The includer declares, before including this file: the GI frame record `giFrame` (Common/GIFrame.glslh), the point and
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
-// u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, and includes the tracer.
+// u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, and includes the tracer (Common/GITracer.glslh).
+// Nothing here knows which tracer that is.
 
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
@@ -30,7 +31,7 @@
 // 0.18 linear. A stand-in with a known end: GI-SURFACE-CACHE's cards give every hit its material and remove it.
 #define GI_HIT_ALBEDO_OFF_SCREEN 0.18
 
-void GIHitMaterial( GIHit hit, out vec3 albedo, out vec3 emissive )
+void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive )
 {
     albedo   = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
     emissive = vec3( 0.0 );
@@ -43,11 +44,8 @@ void GIHitMaterial( GIHit hit, out vec3 albedo, out vec3 emissive )
     const vec2  uv    = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
     const float depth = textureLod( u_GBufferDepth, uv, 0.0 ).r;
     const vec3  seen  = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
-    // The hit is the expanded field surface (up to half a voxel in front of the mesh): the pixel's surface counts
-    // as the hit within a voxel of it.
-    const int   level     = GlobalDistanceFieldLevelAt( hit.position, giFrame.gdfLevels );
-    const float tolerance = level >= 0 ? giFrame.gdfLevels[level].w : giFrame.gdfLevels[GDF_NUM_CLIPMAPS - 1].w;
-    if ( distance( seen, hit.position ) > tolerance )
+    // The pixel's surface counts as the hit within the tracer's tolerance.
+    if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance )
         return;
     albedo   = textureLod( u_GBufferA, uv, 0.0 ).rgb;
     emissive = textureLod( u_GBufferEmissive, uv, 0.0 ).rgb;
@@ -63,13 +61,11 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 {
     vec3 albedo;
     vec3 emissive;
-    GIHitMaterial( hit, albedo, emissive );
+    GIHitMaterial( hit, rayDirection, albedo, emissive );
 
     const vec3 N = hit.normal;
-    // Visibility rays leave the expanded surface a voxel out, so they do not re-enter the surface they start on.
-    const int   level  = GlobalDistanceFieldLevelAt( hit.position, giFrame.gdfLevels );
-    const float voxel  = level >= 0 ? giFrame.gdfLevels[level].w : giFrame.gdfLevels[GDF_NUM_CLIPMAPS - 1].w;
-    const vec3  origin = hit.position + N * voxel;
+    // Visibility rays leave the hit by the tracer's offset, so they do not re-enter the surface they start on.
+    const vec3 origin = hit.position + N * GIRayBias( hit.position, N, rayDirection ).normalOffset;
 
     // Irradiance (cosine-weighted, not yet divided by pi) of the analytic lights.
     vec3 direct = vec3( 0.0 );

@@ -1,9 +1,10 @@
 // DesertAsset {"Kind":"Shader","Guid":"a0fa2ae2b4ca49f2940bb34be1953134","Versions":{"SHDR":1},"Dependencies":[]}
 // THE RADIANCE CACHE UPDATE, 5/6 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per selected
-// probe. The probe is first moved out of geometry along the distance field's gradient (not in UE: a world-grid
+// probe. The probe is first moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a world-grid
 // probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way), then each of
-// its octahedral texels traces one jittered ray through the GI ray contract (Common/GITracing.glslh: the software
-// tracer, the hit lit in place, the sky on a miss) and blends it into the radiance atlas with the probe's history.
+// its octahedral texels traces one jittered ray through the GI ray contract (Common/GITracing.glslh: the
+// permutation's tracer, the hit lit in place, the sky on a miss) and blends it into the radiance atlas with the
+// probe's history. The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none.
 // .a keeps the hit distance for the visibility moments.
 Shader "RadianceCacheTrace"
 {
@@ -11,7 +12,6 @@ Shader "RadianceCacheTrace"
     {
         LocalSize(8, 8, 1);
 
-        #define DESERT_GI_TRACER_SOFTWARE 1
         #include <Common/RadianceCacheState.glslh>
         #include <Common/GIFrame.glslh>
         #include <Mesh/LightSources.glslh>
@@ -40,10 +40,7 @@ Shader "RadianceCacheTrace"
         #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
 
-        Uniform(11) sampler3D u_GlobalDistanceField0;
-        Uniform(12) sampler3D u_GlobalDistanceField1;
-        Uniform(13) sampler3D u_GlobalDistanceField2;
-        Uniform(14) sampler3D u_GlobalDistanceField3;
+        // 11..14: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
         Uniform(15) samplerCube u_EnvSpecularTex;
         Uniform(16) sampler2D u_GBufferDepth;
         Uniform(17) sampler2D u_GBufferA;
@@ -52,13 +49,11 @@ Shader "RadianceCacheTrace"
         Uniform(20) sampler2D u_RadianceCacheDepth;
         layout(binding = 21, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
 
-        #include <Common/GlobalDistanceField.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
-        #include <Common/GITracing.glslh>
-        #define GI_TRACE_GDF_LEVELS giFrame.gdfLevels
-        #include <Common/GITraceDistanceField.glslh>
+        #define GI_TRACER_BINDING 11
+        #include <Common/GITracer.glslh>
         #include <Common/GIHitLighting.glslh>
 
         // How far a probe ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance).
@@ -91,23 +86,8 @@ Shader "RadianceCacheTrace"
             {
                 // Out of geometry: up to a quarter cell of free space around the probe, at most 0.45 cell from the
                 // cell centre (the probe stays the cell's).
-                vec3        p    = centre;
-                const float want = 0.25 * cell;
-                for ( int i = 0; i < 4; ++i )
-                {
-                    const int level = GlobalDistanceFieldLevelAt( p, giFrame.gdfLevels );
-                    if ( level < 0 )
-                        break;
-                    const float d = SampleGlobalDistanceFieldLevel( level, p, giFrame.gdfLevels[level].w );
-                    if ( d >= want )
-                        break;
-                    const vec3 gradient = GlobalDistanceFieldGradient( level, p, giFrame.gdfLevels[level].w );
-                    if ( dot( gradient, gradient ) < 1e-12 )
-                        break;
-                    p = centre + clamp( p + normalize( gradient ) * ( want - d ) - centre, vec3( -0.45 * cell ),
-                                        vec3( 0.45 * cell ) );
-                }
-                s_Position = p;
+                const vec3 p = GIMoveOutOfGeometry( centre, 0.25 * cell, 0.45 * cell );
+                s_Position   = p;
                 radianceCacheProbes[probe].offset = vec4( p - centre, 0.0 );
             }
             barrier();

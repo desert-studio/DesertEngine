@@ -7,17 +7,31 @@
 // FRayTracedLightingContext / FRayTracedLightingResult (LumenHardwareRayTracingCommon.ush), reduced to what both
 // tracers fill.
 //
-// THE THREE FUNCTIONS — declared here, each DEFINED by exactly one include of the consumer's permutation:
-//   GITraceRay      the walk. DESERT_GI_TRACER_SOFTWARE: the global SDF march (GLOBAL-SDF); DESERT_GI_TRACER_HARDWARE:
-//                   rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
-//   GIHitRadiance   the radiance leaving a hit towards the ray's origin — ONE function for both tracers
-//                   (GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit outside card coverage,
-//                   or any hit under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only), is lit in place: the lights
-//                   of the world light grid with a shadow ray + emissive + albedo × the radiance cache. UE returns
-//                   black outside coverage (FSurfaceCacheSample.bValid = false); here it is never black.
-//   GIMissRadiance  the sky in the ray's direction (the live sky, not the baked ambient cube).
-// A consumer calls GIRayRadiance and nothing else; it composes the three below.
-
+// THE FUNCTIONS — declared here, each DEFINED by exactly one include of the consumer's permutation:
+//   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the global SDF march (GLOBAL-SDF, GITraceDistanceField);
+//                      DESERT_GI_TRACER_HARDWARE: rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
+//   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction — the
+//                      shadow ray of hit lighting (and of the cards' lighting where no shadow map covers them).
+//   GIRayBias          how far a secondary ray leaves a hit and how close the view's pixel surface must lie to
+//                      count as the hit: the TRACER's own numbers (UE: the SDF tracer's surface bias, the hardware
+//                      tracer's RayBias), so the shared hit lighting below knows no distance field.
+//   GIMoveOutOfGeometry  a point pushed out of nearby geometry (a radiance-cache probe before it traces).
+//   GIHitRadiance      the radiance leaving a hit towards the ray's origin — ONE function for both tracers
+//                      (GIHitLighting.glslh; GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit
+//                      with no cards (GI_NO_MESH_CARDS — this hit only, never the whole tracer), or any hit under
+//                      DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only), is lit in place: the lights of the world
+//                      light grid with GITraceVisibility + emissive + albedo x the radiance cache. UE returns black
+//                      outside coverage (FSurfaceCacheSample.bValid = false); here it is never black.
+//   GIMissRadiance     the sky in the ray's direction (the live sky, not the baked ambient cube).
+// A consumer includes Common/GITracer.glslh (the permutation's tracer) and Common/GIHitLighting.glslh, and calls
+// GIRayRadiance; it never names a tracer, a distance field or an acceleration structure.
+//
+// THE PERMUTATION comes from C++ only (GlobalIllumination::TracerVariant of Pipeline::Tracer). A compile with no
+// tracer define is the program's registered default, which the shader service compiles at load and no pass
+// dispatches; it is compiled as the software walk so that it compiles at all.
+#if !defined( DESERT_GI_TRACER_SOFTWARE ) && !defined( DESERT_GI_TRACER_HARDWARE )
+#define DESERT_GI_TRACER_SOFTWARE 1
+#endif
 #if defined( DESERT_GI_TRACER_SOFTWARE ) && defined( DESERT_GI_TRACER_HARDWARE )
 #error "GITracing.glslh: one tracer per permutation (DESERT_GI_TRACER_SOFTWARE or DESERT_GI_TRACER_HARDWARE)"
 #endif
@@ -56,7 +70,16 @@ struct GITraceResult {
     GIHit surface; // valid when hit
 };
 
+// The tracer's offsets (GIRayBias).
+struct GITraceBias {
+    float normalOffset;    // cm a secondary ray's origin leaves the hit along its normal
+    float screenTolerance; // cm within which the view's pixel surface counts as the hit (it holds the material)
+};
+
 GITraceResult GITraceRay( GITraceInput ray );
+float         GITraceVisibility( vec3 origin, vec3 direction, float maxT );
+GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
+vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 vec3          GIHitRadiance( GIHit hit, vec3 rayDirection );
 vec3          GIMissRadiance( vec3 rayDirection );
 

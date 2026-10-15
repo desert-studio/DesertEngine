@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/GlobalIllumination/RadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -25,8 +26,9 @@
 //             last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
 //   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
-//             the global distance field, the hit lit in place, the sky on a miss) into the radiance atlas, blended
-//             with its history.
+//             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
+//             with its history. Its program is the permutation of TracerVariant( Pipeline ) and its tracer reads
+//             are DeclareTracerReads — the pass names no tracer resource itself (GITracing.hpp).
 //   Filter    radiance -> irradiance probe and distance moments, octahedral borders; the probe is published.
 // The deferred composite then reads the irradiance at each pixel (RadianceCacheIrradianceAt) in place of the sky's
 // diffuse irradiance (decision 7 of GI-ALL-LIGHTS: the trace sees the sky where the sky is visible).
@@ -81,7 +83,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef                GBufferB; // normal
         RDG::TextureRef                GBufferEmissive;
         RDG::TextureRef                EnvSpecular; // the sky's radiance cube (or the system black cube)
-        std::array<RDG::TextureRef, 4> GlobalDistanceField;
+        TracerFrame                    Tracer;      // the active tracer and its reads (GITracing.hpp)
         RDG::BufferRef                 PointLights;
         RDG::BufferRef                 SpotLights;
         RDG::BufferRef                 WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
@@ -109,7 +111,8 @@ namespace Desert::Graphic::GlobalIllumination
         WorldRadianceCache( const WorldRadianceCache& )            = delete;
         WorldRadianceCache& operator=( const WorldRadianceCache& ) = delete;
 
-        // The six shaders and pipelines. An error names what is missing.
+        // The five tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation on the
+        // first update (EnsureTraceProgram). An error names what is missing.
         [[nodiscard]] Common::BoolResultStr Initialize();
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
@@ -134,10 +137,13 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         [[nodiscard]] Common::BoolResultStr EnsureResources( const RadianceCache::RadianceCacheInputs& shape );
+        // The Trace program compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline changes.
+        [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
         std::array<std::shared_ptr<Shader>, PassCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, PassCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, PassCount> m_Layouts;
+        Pipeline                                                m_TraceProgramFor{}; // what m_Shaders[Trace] is
 
         // Persistent state (StorageBuffer persistent = true: one device buffer every frame writes).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Indirection;

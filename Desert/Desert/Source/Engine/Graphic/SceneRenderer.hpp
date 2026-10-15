@@ -532,8 +532,8 @@ namespace Desert::Graphic
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
         // The view's global distance field (clipmaps follow this view's camera), made on first use.
         std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
-        // The view's world radiance cache (GI SoftwareTraced; clipmaps follow this view's camera), made on first
-        // use.
+        // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
+        // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
@@ -760,10 +760,11 @@ namespace Desert::Graphic
         // Whether a node of this frame reads the world light grid: the radiance cache's trace (a traced GI method
         // lights its hits with it) and the "Light Grid (World)" view mode (Deferred).
         [[nodiscard]] bool WorldLightGridRead() const;
-        // Whether this frame updates and reads the world radiance cache: the effective GI method is
-        // SoftwareTraced, on the Deferred path (its reader is the deferred composite).
+        // Whether this frame updates and reads the world radiance cache: the GI pipeline (m_GIPipeline) runs it —
+        // either tracer — on the Deferred path (its reader is the deferred composite).
         [[nodiscard]] bool RadianceCacheRuns() const;
-        // Whether a node of this frame reads the global distance field: the radiance cache, the debug view.
+        // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
+        // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;
         // Brings the view's global distance field up to this frame's camera and meshes, into
         // FrameTransients::GlobalDistanceField* — only when GlobalDistanceFieldRead().
@@ -889,6 +890,10 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // What the effective GI method runs of the traced machinery and which tracer walks its rays
+        // (GlobalIllumination::PipelineFor of the effective method, the quality and the device), with
+        // m_RenderMethods.
+        GlobalIllumination::Pipeline m_GIPipeline;
         float                   m_GIIntensity   = 2.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from

@@ -72,6 +72,8 @@ namespace Desert::Graphic::GlobalIllumination
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( uint32_t pass = 0; pass < PassCount; ++pass )
         {
+            if ( pass == Trace )
+                continue; // a tracer permutation, EnsureTraceProgram
             m_Shaders[pass] = shaders->GetByName( std::string( kShaderNames[pass] ) );
             if ( !m_Shaders[pass] )
                 return Common::MakeFormattedError<bool>( "radiance cache: shader {} not found",
@@ -83,6 +85,27 @@ namespace Desert::Graphic::GlobalIllumination
                                                          pipeline.GetError() );
             m_Pipelines[pass] = pipeline.GetValue();
         }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldRadianceCache::EnsureTraceProgram( const Pipeline& pipeline )
+    {
+        if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
+            return BOOLSUCCESS;
+        const std::string name( kShaderNames[Trace] );
+        auto              shader =
+             Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
+        if ( !shader )
+            return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) did not compile", name,
+                                                     TracerDefine( pipeline.Tracer ),
+                                                     HitLightingDefine( pipeline.Hits ) );
+        auto compute = ComputePipeline::Create(
+             { .Shader = shader, .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
+        if ( !compute )
+            return Common::MakeFormattedError<bool>( "radiance cache: {}: {}", name, compute.GetError() );
+        m_Shaders[Trace]   = std::move( shader );
+        m_Pipelines[Trace] = compute.GetValue();
+        m_TraceProgramFor  = pipeline;
         return BOOLSUCCESS;
     }
 
@@ -129,6 +152,10 @@ namespace Desert::Graphic::GlobalIllumination
                  "radiance cache: the quality gives no probe resolution or budget" );
         if ( const auto ensured = EnsureResources( shape ); !ensured )
             return Common::MakeError<RadianceCacheFrame>( ensured.GetError() );
+        if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
+            return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
+        if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
+            return Common::MakeError<RadianceCacheFrame>( traced.GetError() );
 
         for ( const auto& [buffer, external, name] :
               { std::tuple{ &m_Indirection, &m_IndirectionImport, "RadianceCache.Indirection" },
@@ -215,10 +242,7 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage( "LightGridWorldCellsUB", inputs.WorldGridCells, kR );
                      if ( pass == Trace )
                      {
-                         for ( uint32_t level = 0; level < 4; ++level )
-                             block.Sampled( std::format( "u_GlobalDistanceField{}", level ),
-                                            inputs.GlobalDistanceField[level], kS, all,
-                                            RDG::SamplerDesc::LinearRepeat() );
+                         DeclareTracerReads( block, inputs.Tracer );
                          block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
                                         RDG::SamplerDesc::LinearClamp() )
                               .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,

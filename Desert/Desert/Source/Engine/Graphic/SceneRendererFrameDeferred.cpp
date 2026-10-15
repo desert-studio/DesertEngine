@@ -394,8 +394,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::RadianceCacheRuns() const
     {
-        return m_RenderPath == Core::RenderPath::Deferred &&
-               m_RenderMethods.GlobalIllumination.Effective == Common::Scalability::GIMethod::SoftwareTraced;
+        return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache;
     }
 
     void SceneRenderer::AddFrameRadianceCache( RDG::Builder& graph, FrameTextures& textures,
@@ -406,13 +405,11 @@ namespace Desert::Graphic
         if ( !RadianceCacheRuns() )
             return;
         FrameTransients& t = textures.Transients;
-        if ( gbuffer.size() < 4 || !m_GBuffer || !t.GlobalDistanceField[0].IsValid() ||
-             !t.Lights.WorldGridCells.IsValid() )
+        if ( gbuffer.size() < 4 || !m_GBuffer || !t.Lights.WorldGridCells.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] RadianceCache: not updated: {}",
-                       gbuffer.size() < 4                    ? "the G-buffer has fewer than 4 colours"
-                       : !t.GlobalDistanceField[0].IsValid() ? "the global distance field was not brought up"
-                                                             : "the world light grid was not built" );
+                       gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
+                                          : "the world light grid was not built" );
             return;
         }
         if ( !m_RadianceCache )
@@ -439,7 +436,8 @@ namespace Desert::Graphic
         inputs.GBufferB            = gbuffer[1];
         inputs.GBufferEmissive     = gbuffer[3];
         inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        inputs.GlobalDistanceField = t.GlobalDistanceField;
+        inputs.Tracer              = GlobalIllumination::TracerFrame{ .Pipeline            = m_GIPipeline,
+                                                                      .GlobalDistanceField = t.GlobalDistanceField };
         inputs.PointLights         = t.Lights.Point;
         inputs.SpotLights          = t.Lights.Spot;
         inputs.WorldGridParams     = t.Lights.WorldGridParams;
@@ -548,8 +546,8 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI              = giAccum.IsValid() ? giAccum : refs.System.Black;
-        // The world radiance cache this frame's update left (SoftwareTraced), or its neutral stand-in: a record of
-        // zero clipmaps (every point reads as uncovered), one empty entry and probe, black atlases.
+        // The world radiance cache this frame's update left (a traced GI method), or its neutral stand-in: a
+        // record of zero clipmaps (every point reads as uncovered), one empty entry and probe, black atlases.
         if ( refs.Transients.RadianceCacheParams.IsValid() )
         {
             inputs.RadianceCacheParams      = refs.Transients.RadianceCacheParams;
@@ -645,7 +643,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::GlobalDistanceFieldRead() const
     {
-        if ( RadianceCacheRuns() )
+        if ( RadianceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
