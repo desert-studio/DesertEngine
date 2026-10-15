@@ -4,8 +4,8 @@
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 

@@ -1,6 +1,6 @@
 #include "EditorPreferences.hpp"
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>

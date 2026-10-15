@@ -26,8 +26,8 @@
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Core/SaveGame.hpp>
-#include <Engine/Project/ProjectContext.hpp>
-#include <Engine/Project/StartupLayout.hpp>
+#include <Projects/ProjectContext.hpp>
+#include <Projects/StartupLayout.hpp>
 #include <Engine/Settings/GameUserSettings.hpp>
 
 #include <Common/Core/Constants.hpp>

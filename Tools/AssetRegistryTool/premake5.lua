@@ -17,7 +17,7 @@ project "AssetRegistryTool"
 
     files {
         "Source/**.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
     }
 
     includedirs {

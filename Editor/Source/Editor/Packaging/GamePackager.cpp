@@ -7,7 +7,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/DevInstruments.hpp>

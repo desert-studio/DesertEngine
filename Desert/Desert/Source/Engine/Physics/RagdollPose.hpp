@@ -16,8 +16,8 @@
 
 #include <Engine/Animation/BoneControl.hpp>
 #include <Engine/Animation/Pose.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

@@ -6,7 +6,7 @@
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
 #include <Engine/Physics/PhysicsAssetGeneration.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>

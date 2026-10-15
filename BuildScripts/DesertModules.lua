@@ -98,11 +98,8 @@ DesertModules.Placement = {
     P( "Engine",          [[Engine/UI/Ecs/]] ),
     -- leaves
     P( "CoreReflection",  [[Engine/Reflection/]] ),
-    P( "Projects",        [[Engine/Project/]] ),
     P( "ImageCore",       [[Engine/Core/(Formats|IO)/]] ),
     P( "TextCore",        [[Engine/(Text|Vector)/]] ),
-    P( "PhysicsCore",     [[Engine/Physics/]] ),
-    P( "Audio",           [[Engine/Audio/]] ),
     P( "ApplicationCore", [[Engine/Core/(Window|WindowCloseGate|Input|Glfw|GlfwVulkan)\.|^Platform/]] ),
     -- the asset framework (CoreUObject package loading + AssetRegistry)
     P( "AssetCore",       [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|AssetEviction|AssetEvictionServices|DDCShipRegister|Common)\.]] ),

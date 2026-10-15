@@ -6,7 +6,7 @@
 // description need Animation::Skeleton, so they are Engine's. Every unit conversion of the ragdoll path
 // (RagdollDesc.hpp's header comment) is made here, once, in BuildRagdollDesc.
 
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

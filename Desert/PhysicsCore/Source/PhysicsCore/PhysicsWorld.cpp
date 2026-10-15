@@ -30,8 +30,8 @@
 #include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <algorithm>
 #include <cmath>

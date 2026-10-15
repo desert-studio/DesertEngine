@@ -17,7 +17,7 @@
 //   capsule:  authored along the body's local Z (UE FKSphylElem) -> Jolt's CapsuleShape, built along Y, under
 //             a +90 degree turn about X; Length (between the cap centres) -> Jolt's half-height = Length / 2.
 
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>

@@ -2,7 +2,7 @@
 
 #include "../IPanel.hpp"
 
-#include <Engine/Project/GameSettings.hpp>
+#include <Projects/GameSettings.hpp>
 
 #include <string>
 

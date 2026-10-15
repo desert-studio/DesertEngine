@@ -11,7 +11,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

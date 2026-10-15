@@ -3,7 +3,7 @@
 // property, and a test-only reflected struct carries PROPERTY(SaveGame)'s flag through capture and apply.
 #include <Engine/Core/SaveGame.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 

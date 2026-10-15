@@ -707,9 +707,9 @@ namespace
     };
 
     constexpr std::array<AheadOfImplementationRow, 6> k_AheadOfImplementation = { {
-         { "IClothingSimulation", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+         { "IClothingSimulation", "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
            "CLO1: Jolt SoftBody backend" },
-         { "IClothingSimulationFactory", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+         { "IClothingSimulationFactory", "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
            "CLO1: Jolt SoftBody backend" },
          { "IGroomSimulation", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp", "HAIR1: guide solver" },
          { "IGroomSimulationFactory", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",

@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <Engine/Physics/CollisionProfiles.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

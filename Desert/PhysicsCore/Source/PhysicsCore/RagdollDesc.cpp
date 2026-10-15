@@ -1,4 +1,4 @@
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <glm/gtc/constants.hpp>
 

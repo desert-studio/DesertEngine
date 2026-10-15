@@ -3,7 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
 
 #include <glm/glm.hpp>

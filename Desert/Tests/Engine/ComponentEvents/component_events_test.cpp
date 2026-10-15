@@ -22,8 +22,8 @@
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
-#include <Engine/Physics/CollisionProfiles.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 

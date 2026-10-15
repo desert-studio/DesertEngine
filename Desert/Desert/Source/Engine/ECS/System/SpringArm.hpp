@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>

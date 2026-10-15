@@ -1914,7 +1914,7 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 
     // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
-    for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+    for ( const char* seam : { "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
                                "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
                                "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
         EXPECT_NE( ReadFile( root / seam ).find( "ECS::WindAt" ), std::string::npos )

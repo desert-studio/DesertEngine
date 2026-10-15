@@ -6,7 +6,7 @@
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/ECS/System/DestructionVFXEvents.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
