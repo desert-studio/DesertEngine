@@ -155,13 +155,15 @@ namespace Desert::Graphic::GlobalIllumination
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
     //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
-    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it;
+    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it -
+    //                          and the field's object grid, the rows a hit may belong to (GIHitInstanceRows);
     //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
     struct TracerFrame
     {
         GlobalIllumination::Pipeline   Pipeline{};
         std::array<RDG::TextureRef, 4> GlobalDistanceField{};
-        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
+        RDG::BufferRef                 GlobalDistanceFieldLevels;     // "GITracerSoftwareUB"
+        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
     };
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
@@ -191,7 +193,8 @@ namespace Desert::Graphic::GlobalIllumination
                              RDG::Access sampled = RDG::Access::SampledCompute );
 
     // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card //
-    // records, the instance table and object grid of contract B3 (SurfaceCache.hpp), and the atlas layers a hit
+    // records, the instance table of contract B3 (SurfaceCache.hpp; the rows of a hit come from the tracer,
+    // GIHitInstanceRows), and the atlas layers a hit
     // samples - FinalLighting (what the hit returns: direct + the indirect of the radiosity slot + emissive),
     // Depth and Opacity (whether the card holds the hit). Filled by the frame's owner from the surface cache's
     // update (SurfaceCacheRenderer::HitReads) before any tracing consumer runs.
@@ -201,7 +204,6 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Pages;        // "SurfaceCardPageBuffer"
         RDG::BufferRef  MeshCards;    // "SurfaceMeshCardsBuffer"
         RDG::BufferRef  InstanceRows; // "SurfaceCacheInstancesUB"
-        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"
         RDG::TextureRef FinalLighting;
         RDG::TextureRef Depth;
         RDG::TextureRef Opacity;
@@ -211,6 +213,6 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
 
     // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
-    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 7).
+    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6).
     void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
 } // namespace Desert::Graphic::GlobalIllumination

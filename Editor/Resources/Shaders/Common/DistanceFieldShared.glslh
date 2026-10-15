@@ -29,4 +29,13 @@ const int   GDF_UPDATE_BRICK                = 8;   // the update granularity, vo
 const float GDF_CLIPMAP0_EXTENT             = 2500.0f; // half-size of clipmap 0, centimetres
 const float GDF_INFLUENCE_RANGE_IN_VOXELS   = 4.0f;
 
+// The global distance field's object grid (GlobalDistanceField.hpp; UE GlobalDistanceFieldObjectGrid.ush): cells of
+// two voxels (UE DISTANCE_FIELD_OBJECT_GRID_PAGE_RESOLUTION 4 per 8-voxel page), four rows a cell
+// (DISTANCE_FIELD_OBJECT_GRID_CELL_SIZE), an object listed when its surface lies within 1.5 voxels of the cell's box
+// (DISTANCE_FIELD_OBJECT_GRID_CARD_INTERPOLATION_RANGE_IN_VOXELS 3, in UE's half-voxel ClipmapVoxelExtent).
+const int   GDF_OBJECT_GRID_CELL_VOXELS          = 2;
+const int   GDF_OBJECT_GRID_RESOLUTION           = 64; // cells per side of a level: GDF_RESOLUTION / CELL_VOXELS
+const int   GDF_OBJECT_GRID_SLOTS                = 4;
+const float GDF_OBJECT_GRID_INTERPOLATION_VOXELS = 1.5f;
+
 #endif

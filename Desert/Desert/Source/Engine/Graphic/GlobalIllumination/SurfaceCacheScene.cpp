@@ -644,7 +644,7 @@ namespace Desert::Graphic::SurfaceCache
             }
             frame.MeshCards.push_back( mesh );
         }
-        BuildInstanceTable( frame, rowRecords, viewer );
+        BuildInstanceTable( frame, rowRecords );
         return frame;
     }
 
@@ -667,13 +667,10 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     void SurfaceCacheScene::BuildInstanceTable( SceneFrame&                                       frame,
-                                                const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords,
-                                                const glm::vec3&                                  viewer ) const
+                                                const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const
     {
         // THE TABLE: every row ever handed out; a freed row reads "no cards" until it is reused.
         frame.InstanceRows.assign( m_RowCount, InstanceRowPayload{} );
-        std::vector<uint32_t> liveRows;
-        liveRows.reserve( rowRecords.size() );
         for ( const auto& [row, meshIndex] : rowRecords )
         {
             const MeshCardsPayload& mesh  = frame.MeshCards[meshIndex];
@@ -702,71 +699,25 @@ namespace Desert::Graphic::SurfaceCache
             out.Cards     = glm::uvec4( anyVisible ? meshIndex : kNoMeshCards, firstPage, pages, 0u );
             out.BoundsMin = glm::vec4( lo, 0.0f );
             out.BoundsMax = glm::vec4( hi, 0.0f );
-            if ( anyVisible )
-                liveRows.push_back( row );
         }
 
-        // THE OBJECT GRID around the viewer: count, prefix, fill.
-        constexpr uint32_t dims  = kObjectGridDims;
-        constexpr uint32_t cells = dims * dims * dims;
-        const glm::vec3    origin =
-             ( glm::floor( viewer / kObjectGridCellSize ) - glm::vec3( static_cast<float>( dims / 2 ) ) ) *
-             kObjectGridCellSize;
-        const auto cellRange = [&]( const InstanceRowPayload& row, glm::ivec3& c0, glm::ivec3& c1 )
-        {
-            c0 = glm::ivec3( glm::floor( ( glm::vec3( row.BoundsMin ) - origin ) / kObjectGridCellSize ) );
-            c1 = glm::ivec3( glm::floor( ( glm::vec3( row.BoundsMax ) - origin ) / kObjectGridCellSize ) );
-            c0 = glm::max( c0, glm::ivec3( 0 ) );
-            c1 = glm::min( c1, glm::ivec3( static_cast<int>( dims ) - 1 ) );
-            return c0.x <= c1.x && c0.y <= c1.y && c0.z <= c1.z;
-        };
-        std::vector<uint32_t> counts( cells, 0u );
-        for ( const uint32_t row : liveRows )
-        {
-            glm::ivec3 c0, c1;
-            if ( !cellRange( frame.InstanceRows[row], c0, c1 ) )
-                continue;
-            for ( int z = c0.z; z <= c1.z; ++z )
-                for ( int y = c0.y; y <= c1.y; ++y )
-                    for ( int x = c0.x; x <= c1.x; ++x )
-                    {
-                        uint32_t& n =
-                             counts[( static_cast<uint32_t>( z ) * dims + static_cast<uint32_t>( y ) ) * dims +
-                                    static_cast<uint32_t>( x )];
-                        n = std::min( n + 1u, kObjectGridMaxPerCell );
-                    }
-        }
-        frame.ObjectGrid.assign( kObjectGridHeader + cells, 0u );
-        frame.ObjectGrid[0] = std::bit_cast<uint32_t>( origin.x );
-        frame.ObjectGrid[1] = std::bit_cast<uint32_t>( origin.y );
-        frame.ObjectGrid[2] = std::bit_cast<uint32_t>( origin.z );
-        frame.ObjectGrid[3] = std::bit_cast<uint32_t>( kObjectGridCellSize );
-        frame.ObjectGrid[4] = dims;
-        uint32_t entries    = 0;
-        for ( uint32_t cell = 0; cell < cells; ++cell )
-        {
-            frame.ObjectGrid[kObjectGridHeader + cell] = ( entries << 8u ) | counts[cell];
-            entries += counts[cell];
-        }
-        frame.ObjectGrid.resize( kObjectGridHeader + cells + entries, 0u );
-        std::fill( counts.begin(), counts.end(), 0u ); // now: entries written per cell
-        for ( const uint32_t row : liveRows )
-        {
-            glm::ivec3 c0, c1;
-            if ( !cellRange( frame.InstanceRows[row], c0, c1 ) )
-                continue;
-            for ( int z = c0.z; z <= c1.z; ++z )
-                for ( int y = c0.y; y <= c1.y; ++y )
-                    for ( int x = c0.x; x <= c1.x; ++x )
-                    {
-                        const uint32_t cell =
-                             ( static_cast<uint32_t>( z ) * dims + static_cast<uint32_t>( y ) ) * dims +
-                             static_cast<uint32_t>( x );
-                        const uint32_t word = frame.ObjectGrid[kObjectGridHeader + cell];
-                        if ( counts[cell] >= ( word & 0xFFu ) )
-                            continue; // the cell is full (kObjectGridMaxPerCell)
-                        frame.ObjectGrid[kObjectGridHeader + cells + ( word >> 8u ) + counts[cell]++] = row;
-                    }
-        }
+    }
+
+    uint64_t SurfaceCacheScene::PlacementKey( const void* mesh, const glm::mat4& world )
+    {
+        uint64_t     hash = std::bit_cast<uint64_t>( mesh ) * 0x9E3779B97F4A7C15ULL;
+        const float* m    = &world[0][0];
+        for ( int i = 0; i < 16; ++i )
+            hash = ( hash ^ std::bit_cast<uint32_t>( m[i] ) ) * 0x100000001B3ULL;
+        return hash;
+    }
+
+    std::unordered_map<uint64_t, uint32_t> SurfaceCacheScene::RowsByPlacement() const
+    {
+        std::unordered_map<uint64_t, uint32_t> rows;
+        rows.reserve( m_Instances.size() );
+        for ( const auto& [key, instance] : m_Instances )
+            rows.emplace( PlacementKey( instance.Mesh, instance.World ), instance.Row );
+        return rows;
     }
 } // namespace Desert::Graphic::SurfaceCache

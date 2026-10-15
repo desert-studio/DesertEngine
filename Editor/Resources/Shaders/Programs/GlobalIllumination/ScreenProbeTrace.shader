@@ -67,15 +67,15 @@ Shader "ScreenProbeTrace"
             RadianceCacheProbe radianceCacheProbes[];
         };
 
-        // 11..15: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
-        Uniform(16) samplerCube u_EnvSpecularTex;
-        Uniform(17) sampler2D u_GBufferDepth;
-        Uniform(18) sampler2D u_GBufferA;
-        Uniform(19) sampler2D u_GBufferEmissive;
-        Uniform(20) sampler2D u_RadianceCacheIrradiance;
-        Uniform(21) sampler2D u_RadianceCacheDepth;
-        Uniform(22) sampler2D u_RadianceCacheRadianceAtlas;
-        layout(binding = 23, rgba16f) restrict writeonly uniform image2D u_ScreenProbeTraced;
+        // 11..16: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
+        Uniform(17) samplerCube u_EnvSpecularTex;
+        Uniform(18) sampler2D u_GBufferDepth;
+        Uniform(19) sampler2D u_GBufferA;
+        Uniform(20) sampler2D u_GBufferEmissive;
+        Uniform(21) sampler2D u_RadianceCacheIrradiance;
+        Uniform(22) sampler2D u_RadianceCacheDepth;
+        Uniform(23) sampler2D u_RadianceCacheRadianceAtlas;
+        layout(binding = 24, rgba16f) restrict writeonly uniform image2D u_ScreenProbeTraced;
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
@@ -85,7 +85,7 @@ Shader "ScreenProbeTrace"
         #include <Common/RadianceCache.glslh>
         #define GI_TRACER_BINDING 11
         #include <Common/GITracer.glslh>
-        #define GI_SURFACE_CACHE_BINDING 24
+        #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
 
         // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).

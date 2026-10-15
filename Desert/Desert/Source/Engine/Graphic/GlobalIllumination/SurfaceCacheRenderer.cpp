@@ -351,7 +351,6 @@ namespace Desert::Graphic::SurfaceCache
                  .Pages         = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" ),
                  .MeshCards     = UploadBuffer( graph, frame.MeshCards, "SurfaceCache.MeshCards" ),
                  .InstanceRows  = UploadBuffer( graph, frame.InstanceRows, "SurfaceCache.InstanceRows" ),
-                 .ObjectGrid    = UploadBuffer( graph, frame.ObjectGrid, "SurfaceCache.ObjectGrid" ),
                  .LightingPages = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" ) };
     }
 
@@ -365,7 +364,6 @@ namespace Desert::Graphic::SurfaceCache
         reads.Pages         = buffers.Pages;
         reads.MeshCards     = buffers.MeshCards;
         reads.InstanceRows  = buffers.InstanceRows;
-        reads.ObjectGrid    = buffers.ObjectGrid;
         reads.Depth         = import( m_Layers[0], kLayerNames[0] );
         reads.Opacity       = import( m_Layers[2], kLayerNames[2] );
         reads.FinalLighting = import( m_LitLayers[2], kLitLayerNames[2] );

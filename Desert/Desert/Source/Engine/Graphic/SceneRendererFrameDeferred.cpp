@@ -713,25 +713,34 @@ namespace Desert::Graphic
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
         // off-screen too (a trace leaves the frustum).
         std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // The surface cache's instance-table row of each placement (mesh, world), which the field's object grid
+        // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
+        // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
+        // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
+        const std::unordered_map<uint64_t, uint32_t> rows =
+             m_SurfaceCache ? m_SurfaceCache->GetScene().RowsByPlacement() : std::unordered_map<uint64_t, uint32_t>{};
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
-        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                       const glm::mat4&                                            world )
+        const auto place = [&objects, &rows]( const void*                                                 mesh,
+                                              const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                              const glm::mat4&                                            world )
         {
+            const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
+            const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
                 objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world, row } );
         };
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( field, draw.Transform );
+                    place( draw.Mesh, field, draw.Transform );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( field, world );
+                        place( ism.Mesh, field, world );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -747,6 +756,7 @@ namespace Desert::Graphic
         }
         textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
+        textures.Transients.GlobalDistanceFieldObjectGrid = field.GetValue().ObjectGrid;
     }
 
 #if DESERT_DEV_INSTRUMENTS

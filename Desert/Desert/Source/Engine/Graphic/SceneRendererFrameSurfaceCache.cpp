@@ -50,7 +50,8 @@ namespace Desert::Graphic
     {
         const FrameTransients&          t = textures.Transients;
         GlobalIllumination::TracerFrame tracer{ .Pipeline            = pipeline,
-                                                .GlobalDistanceField = t.GlobalDistanceField };
+                                                .GlobalDistanceField = t.GlobalDistanceField,
+                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid };
         // The software walk's clipmap placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {

@@ -120,9 +120,9 @@ Shader "SurfaceCacheDirectLighting"
         #include <Mesh/LightGrid.glslh>
 
         // The indirect light the page last received (SurfaceCacheIndirectLighting.shader).
-        Uniform(26) sampler2D u_AtlasIndirectLighting;
+        Uniform(27) sampler2D u_AtlasIndirectLighting;
 
-        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..25.
+        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..26.
         #define GI_TRACER_BINDING 21
         #include <Common/GITracer.glslh>
 

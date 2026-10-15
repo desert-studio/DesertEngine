@@ -147,7 +147,8 @@ namespace Desert::Graphic::SurfaceCache
     // this table for as long as it lives (SurfaceCacheScene: the row is allocated on add, freed on remove, reused
     // by the next add): the number a traced hit carries to find its cards. The hardware tracer writes the row as
     // the TLAS instance custom index (GIHit::instance); the software tracer, whose global distance field has no
-    // object identity, finds the rows around its hit in the object grid below. A row whose instance has no cards
+    // object identity, finds the rows around its hit in the field's object grid (DistanceField::
+    // GlobalDistanceField, THE OBJECT GRID; Common/GITracing.glslh GIHitInstanceRows). A row whose instance has no cards
     // this frame (none built, none resident: small and far meshes) holds kNoMeshCards - the hit is lit in place.
     inline constexpr uint32_t kNoMeshCards = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_MESH_CARDS
     inline constexpr uint32_t kNoInstance  = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_INSTANCE
@@ -162,19 +163,6 @@ namespace Desert::Graphic::SurfaceCache
         glm::vec4  BoundsMax{ 0.0f };
     };
     static_assert( sizeof( InstanceRowPayload ) == 48 );
-
-    // THE OBJECT GRID — which rows a software hit may belong to (UE: the global distance field's page object grid,
-    // r.LumenScene.GlobalSDF / GlobalDistanceFieldPageObjectGridBuffer, read by Lumen's global SDF hits to sample
-    // the surface cache). A camera-centred grid of kObjectGridDims³ cells of kObjectGridCellSize cm, each listing
-    // the rows whose card box overlaps it. One uint array (Common/SurfaceCacheSampling.glslh surfaceCacheGrid[]):
-    //   [0..2]  the grid origin (cm, float bits), [3] the cell size (cm, float bits), [4] dims, [5..7] 0;
-    //   [8 .. 8 + dims³)  per cell: first entry << 8 | entry count (count clamped to 255);
-    //   then the entries: rows.
-    // A hit outside the grid finds no row and is lit in place.
-    inline constexpr uint32_t kObjectGridDims       = 64;
-    inline constexpr float    kObjectGridCellSize   = 256.0f; // cm: the grid spans 164 m around the camera
-    inline constexpr uint32_t kObjectGridHeader     = 8;
-    inline constexpr uint32_t kObjectGridMaxPerCell = 255;
 
     // ---- The budget (Scalability, GlobalIllumination group: UE sg.GlobalIlluminationQuality) -----------------
     struct SurfaceCacheBudget
