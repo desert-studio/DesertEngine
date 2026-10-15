@@ -143,7 +143,9 @@
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 16,
                 "Shadows.LightGridMaxLightsPerCell": 32,
-                "Shadows.RayTracedSamplesPerPixel": 1
+                "Shadows.RayTracedSamplesPerPixel": 1,
+                "Shadows.RayTracedTranslucencyCascades": 1,
+                "Shadows.RayTracedTranslucencyMapSize": 512
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -154,7 +156,9 @@
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 24,
                 "Shadows.LightGridMaxLightsPerCell": 32,
-                "Shadows.RayTracedSamplesPerPixel": 1
+                "Shadows.RayTracedSamplesPerPixel": 1,
+                "Shadows.RayTracedTranslucencyCascades": 1,
+                "Shadows.RayTracedTranslucencyMapSize": 512
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -165,7 +169,9 @@
                 "Shadows.LightGridPixelSize": 64,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 32,
-                "Shadows.RayTracedSamplesPerPixel": 1
+                "Shadows.RayTracedSamplesPerPixel": 1,
+                "Shadows.RayTracedTranslucencyCascades": 2,
+                "Shadows.RayTracedTranslucencyMapSize": 1024
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -176,7 +182,9 @@
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 32,
                 "Shadows.LightGridMaxLightsPerCell": 64,
-                "Shadows.RayTracedSamplesPerPixel": 1
+                "Shadows.RayTracedSamplesPerPixel": 1,
+                "Shadows.RayTracedTranslucencyCascades": 2,
+                "Shadows.RayTracedTranslucencyMapSize": 1024
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -187,7 +195,9 @@
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 64,
                 "Shadows.LightGridMaxLightsPerCell": 64,
-                "Shadows.RayTracedSamplesPerPixel": 2
+                "Shadows.RayTracedSamplesPerPixel": 2,
+                "Shadows.RayTracedTranslucencyCascades": 2,
+                "Shadows.RayTracedTranslucencyMapSize": 1024
             }
         },
         "GlobalIllumination": {

@@ -76,7 +76,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                 return Common::MakeError( "DeferredLighting shader not found" );
             // The permutation of "Shadows: Ray Traced Sun": u_ScreenShadowMask in place of u_ShadowCascades.
             m_Programs[kRayTracedSunProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting", Core::ShaderVariant{ .Defines = { "DESERT_SUN_SHADOW_RAY_QUERY" } } );
+                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowRayQueryDefine ) } } );
             if ( !m_Programs[kRayTracedSunProgram].Shader )
                 return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_RAY_QUERY) did not compile" );
 

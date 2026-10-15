@@ -41,8 +41,15 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
+#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+// "Shadows: Ray Traced Sun" (the permutation the deferred path draws a forward mesh with when the sun is ray
+// traced, as DeferredLighting.shader's): the screen shadow mask the trace wrote, at the render extent this target
+// has (r = visibility, 1 = lit), in place of the cascades - bound by SceneViewInputs (kSceneViewSunShadowMaskName).
+layout( binding = 5 ) uniform sampler2D u_ScreenShadowMask;
+#else
 // The cascaded shadow's two bindings; Mesh/CascadedShadow.glslh reads them by these names.
 layout( binding = 5 ) uniform sampler2DArray u_ShadowCascades;
+#endif
 layout( binding = 7 ) uniform ShadowUB
 {
     mat4 u_LightViewProj[4];
@@ -55,7 +62,9 @@ layout( binding = 7 ) uniform ShadowUB
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
 };
 
+#ifndef DESERT_SUN_SHADOW_RAY_QUERY
 #include <Mesh/CascadedShadow.glslh>
+#endif
 
 // THE CONTACT SHADOWS (UE ContactShadowLength), the same march as the deferred composite's, through the opaque
 // scene depth (u_SceneDepth, Mesh/Surface/SurfaceTypes.glslh: the G-buffer depth on the deferred path; the forward
@@ -129,9 +138,14 @@ void main()
     const vec3 sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
     // The receiver's subsurface opacity for its contact shadows (UE IsSubsurfaceModel; -1 = not subsurface).
     const float subsurfaceOpacity = DesertSubsurfaceOpacity( DESERT_SHADING_MODEL_INDEX, payload );
+#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+    const float sunVisibility = texelFetch( u_ScreenShadowMask, ivec2( gl_FragCoord.xy ), 0 ).r;
+#else
     int         cascade;
-    float       shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade ) *
-                   ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
+    const float sunVisibility = ShadowFactor( i.WorldPosition, N, sunDir, cascade );
+#endif
+    float shadow =
+         sunVisibility * ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
     if ( s.ReceiveSunShadows < 0.5 )
         shadow = 1.0;
     shadow *= CloudShadowFactor( i.WorldPosition );
@@ -190,12 +204,15 @@ void main()
         return;
     }
 
-    // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit).
+    // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit). A traced sun has no cascades:
+    // mode 2 shows the raw factor there.
+#ifndef DESERT_SUN_SHADOW_RAY_QUERY
     if ( u_ShadowParams.z > 1.5 )
     {
         oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );
         return;
     }
+#endif
     if ( u_ShadowParams.z > 0.5 )
     {
         oColor = vec4( vec3( shadow ), 1.0 );

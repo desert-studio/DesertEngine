@@ -107,6 +107,12 @@ namespace Desert::Graphic::System
                   ShadowAttachmentLease::LiveHolders() );
     }
 
+    void MeshRenderer::InvalidateCascadeCaches()
+    {
+        for ( CascadeCacheState& cache : m_CascadeCache )
+            cache = CascadeCacheState{};
+    }
+
     void MeshRenderer::TakeShadowBudget( const ShadowQuality& budget )
     {
         m_Shadow = budget;

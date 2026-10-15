@@ -3,6 +3,7 @@
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
+#include <unordered_set>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -400,6 +401,14 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
+        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
+        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
+        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_RAY_QUERY permutation, the lit
+        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
+        // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them current).
+        void InvalidateCascadeCaches();
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
         // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the
@@ -453,6 +462,15 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
+        // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
+        // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
+        // that are shaded forward over the composite. The exec records that list. @p rayTracedSun: the frame
+        // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
+        // sun-reading opaque programs through their DESERT_SUN_SHADOW_RAY_QUERY permutation - the forward
+        // pipeline whose readiness this prepass checks together with its own.
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
+        [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
@@ -474,11 +492,6 @@ namespace Desert::Graphic::System
         // draw whose shader has slots for it); the exec records that list.
         void DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context ) const;
-        // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
-        // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
-        // otherwise). Forward path draws them inside MeshGeometryPass.
-        void DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
-        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
         // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
         // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
         // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
@@ -766,8 +779,28 @@ namespace Desert::Graphic::System
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // Which part of the generic queue a list takes, and through which program of each draw's template.
+        enum class GenericSlice : uint8_t
+        {
+            // The forward render path: every draw, its own program, in MeshGeometryPass.
+            Forward,
+            // Deferred, "Deferred: GBuffer": the Shader Override draws naming a SURFACE template (it has cells)
+            // through its (Static x GBuffer) cell — a surface material, shaded by the composite like the lit
+            // queue, never forward.
+            DeferredSurfaceGBuffer,
+            // Deferred, "Deferred: Forward Depth/Normal": the other draws whose program is opaque, through their
+            // template's (Static x DepthNormal) program.
+            DeferredDepthNormal,
+            // Deferred, "Deferred: Generic": the other draws, their own program over the composite; an opaque one
+            // at CloserOrEqual against its own prepassed depth.
+            DeferredForward,
+            // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
+            // through its DESERT_SUN_SHADOW_RAY_QUERY permutation (ReadsSunShadowRayTraced), which reads the view's
+            // screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through itself.
+            DeferredForwardRayTracedSun,
+        };
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list, GenericSlice slice );
         // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
         // its cache and its MOVABLE ones over the copied cache, every frame.
         enum class ShadowCasterLayer : uint8_t
@@ -794,10 +827,9 @@ namespace Desert::Graphic::System
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
-        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer" static
+        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
-        MeshRendererDetail::MeshDrawList m_SkinnedDraws;
-        // "Deferred: Skinned"
+        MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
@@ -815,6 +847,22 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
+        // DESERT_SUN_SHADOW_RAY_QUERY permutation while the sun is ray traced. A blended program (TextSDF) or one
+        // that reads no sun shadow is shaded through itself.
+        [[nodiscard]] static bool ReadsSunShadowRayTraced( const Shader& shader, bool opaque );
+        // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
+        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass does.
+        [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
+                                                        const std::string& shaderName, bool rayTracedSun );
+        // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward Depth/Normal"
+        // admits it when BOTH its depth-normal and its forward pipeline are Ready and records it here; "Deferred:
+        // Generic" shades only what this frame admitted, so no draw is shaded forward against a missing prepass
+        // depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the view's frame.
+        bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
+        std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
+        std::optional<uint64_t>                          m_GenericPrepassFrame;
+        bool                                             m_GenericPrepassRayTracedSun = false;
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
@@ -853,6 +901,12 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
+        // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
+        // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal.
+        // Null if the cell is missing, and SetupGBufferPass says skinned meshes are then absent from a deferred
+        // scene. The unowned material is the skinned twin of m_GBufferUnownedMaterial (same reason).
+        std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
+        std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
@@ -1222,7 +1276,7 @@ namespace Desert::Graphic::System
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
-            std::shared_ptr<GraphicsPipeline> Pipeline;
+            GraphicsPipeline*                 Pipeline = nullptr; // held by the pipeline cache / m_CellPipelines
             uint32_t                          Row = 0;
         };
         // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.
