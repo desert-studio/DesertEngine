@@ -131,6 +131,19 @@ namespace Desert::Graphic::System
             return std::nullopt;
         }
 
+        /// Which of the three answers GetEnvironment() is giving (SkyLightState). The same branches in the
+        /// same order, so the state and the environment cannot disagree: a procedural sky is Ready once its
+        /// first bake landed (a re-bake in flight keeps the previous environment, which is still Ready), an
+        /// HDR skybox once its material holds both cubes, and a scene with neither has NoSky.
+        [[nodiscard]] SkyLightState GetSkyLightState() const
+        {
+            if ( m_UseProceduralSky )
+                return m_ProceduralEnv ? SkyLightState::Ready : SkyLightState::Settling;
+            if ( const auto& material = m_MaterialSkybox.lock() )
+                return material->GetEnvironment() ? SkyLightState::Ready : SkyLightState::Settling;
+            return SkyLightState::NoSky;
+        }
+
         // The sky draw, the first pass of SceneRenderer::AddFrameBasePass: it CLEARS the scene target (colour and
         // depth) and the geometry after it loads. Empty (no TargetFramebuffer) without a target.
         [[nodiscard]] SystemRasterPass SkyPass();

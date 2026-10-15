@@ -94,4 +94,25 @@ namespace Desert::Graphic
         // The mip read with textureLod: the skybox viewer walks the prefiltered chain with it. 0 elsewhere.
         float Lod = 0.0f;
     };
+
+    /**
+     * @brief WHERE THE SCENE'S SKY LIGHT IS — the answer every consumer of the baked environment needs
+     *        before it can tell a correct black ambient from a broken one (UE: a scene with no
+     *        USkyLightComponent vs. a sky light whose capture has not run yet vs. a captured one).
+     *
+     * Our sky light is not a component of its own: it is DERIVED from the scene's sky (the procedural
+     * atmosphere's bake, or the HDR skybox's convolution), so "no sky" and "no sky light" are one fact.
+     *  - NoSky:    the scene has neither a procedural sky nor an HDR skybox. The sky ambient is ZERO by
+     *              definition (the descriptors hold the engine's black cube) — the defined answer, not a gap.
+     *  - Settling: there is a sky, and its environment has not landed yet (a procedural bake waiting for
+     *              this frame's atmosphere LUTs or still on the GPU; an HDR skybox still convolving). The
+     *              ambient is black until it lands, for that reason and no other.
+     *  - Ready:    the irradiance and prefiltered cubes exist and are what the ambient reads.
+     */
+    enum class SkyLightState : uint8_t
+    {
+        NoSky,
+        Settling,
+        Ready,
+    };
 } // namespace Desert::Graphic

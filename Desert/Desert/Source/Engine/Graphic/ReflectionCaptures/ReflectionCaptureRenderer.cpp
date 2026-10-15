@@ -302,10 +302,17 @@ namespace Desert::Graphic
         }
         m_FacesRenderedThisFrame = true;
 
-        // Settled once the face views have held ONE sky environment for kCaptureSettleFrames frames.
-        uint64_t faceEnvironment = 0;
-        if ( const auto env = m_Faces[0]->Renderer->GetEnvironment();
-             env.has_value() && env->PreFilteredMap.IsValid() )
+        // Settled once the face views have held ONE sky environment for kCaptureSettleFrames frames. A scene
+        // with NO sky has no environment to wait for: its defined answer (zero sky light) is as stable as a
+        // landed bake, so it settles too — waiting for a sky that cannot arrive kept six complete face views
+        // rendering every frame, forever, and never wrote the capture as settled. Only a sky whose
+        // environment is still on its way (Settling) holds the counter at zero.
+        constexpr uint64_t kNoSkyEnvironment = ~uint64_t{ 0 };
+        uint64_t           faceEnvironment   = 0;
+        if ( m_Faces[0]->Renderer->GetSkyLightState() == SkyLightState::NoSky )
+            faceEnvironment = kNoSkyEnvironment;
+        else if ( const auto env = m_Faces[0]->Renderer->GetEnvironment();
+                  env.has_value() && env->PreFilteredMap.IsValid() )
             faceEnvironment = ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
                               env->PreFilteredMap.Value.Generation;
         if ( faceEnvironment != 0 && faceEnvironment == m_PendingEnvironment )

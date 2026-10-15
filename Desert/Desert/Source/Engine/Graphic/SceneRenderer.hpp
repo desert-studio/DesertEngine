@@ -409,6 +409,10 @@ namespace Desert::Graphic
         // so a capture of this view waits on this instead of the main thread waiting on the GPU.
         bool IsEnvironmentSettling() const;
 
+        // Where this view's sky light is (SkyLightState): no sky at all, a sky whose environment has not landed,
+        // or a landed one. What tells a defined black ambient (no sky) from one that is still on its way.
+        [[nodiscard]] SkyLightState GetSkyLightState() const;
+
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
         float CloudVolumeBakeProgress() const;

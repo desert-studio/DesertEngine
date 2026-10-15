@@ -1742,6 +1742,16 @@ namespace Desert::Graphic
         return ( sky != nullptr ) && sky->IsEnvironmentSettling();
     }
 
+    SkyLightState SceneRenderer::GetSkyLightState() const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return SkyLightState::NoSky;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
+    }
+
     float SceneRenderer::CloudVolumeBakeProgress() const
     {
         const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
