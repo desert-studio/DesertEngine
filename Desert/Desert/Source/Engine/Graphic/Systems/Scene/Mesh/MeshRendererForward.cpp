@@ -526,6 +526,37 @@ namespace Desert::Graphic::System
         return opaque && SceneViewDetail::Reflects2D( shader, kSceneViewShadowCascadesName );
     }
 
+    bool MeshRenderer::SunCascadeReadersQueued() const
+    {
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( camera == nullptr )
+            return false;
+        const Core::Frustum frustum = camera->GetFrustum();
+        auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
+        for ( const auto& g : m_GenericQueue )
+        {
+            if ( g.Mesh == nullptr ||
+                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                continue;
+            std::string shaderName = g.ShaderName;
+            if ( g.SlotMaterial != nullptr )
+            {
+                const auto* material = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial );
+                if ( material == nullptr )
+                    continue;
+                shaderName = material->GetShaderName();
+            }
+            const auto shader = shaders->GetByName( shaderName );
+            if ( !shader || !shader->IsCompiled() )
+                continue;
+            const auto& state  = shader->GetProgramMeta().State;
+            const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+            if ( !opaque && SceneViewDetail::Reflects2D( *shader, kSceneViewShadowCascadesName ) )
+                return true;
+        }
+        return false;
+    }
+
     bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
                                                     const std::string& shaderName, const bool rayTracedSun )
     {
@@ -658,8 +689,10 @@ namespace Desert::Graphic::System
             PrecacheRequestedMaterials();
             return;
         }
-        // The graph opens the render pass (LOAD, over the deferred lighting composite). While the sun is ray
-        // traced the view carries its screen mask, and the programs read it in place of the cascades.
+        // The graph opens the render pass (LOAD, over the deferred lighting composite). The view carries a sun
+        // shadow mask exactly when the frame resolved to a ray-traced sun (SceneRenderer::AddFrameGeneric: the mask,
+        // or System.White when its trace could not be declared), and the opaque programs read it in place of the
+        // cascades - the same decision the depth/normal prepass was declared with.
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );

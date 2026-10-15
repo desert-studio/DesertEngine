@@ -132,6 +132,11 @@ namespace Common::Scalability
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // (translucency; volumes when one reads them): drawn only on a frame with such a reader
+        // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
+        ShadowRayTracedTranslucencyCascades,
+        ShadowRayTracedTranslucencyMapSize,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

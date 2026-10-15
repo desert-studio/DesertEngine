@@ -401,6 +401,14 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
+        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
+        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
+        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_RAY_QUERY permutation, the lit
+        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
+        // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them current).
+        void InvalidateCascadeCaches();
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
         // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the

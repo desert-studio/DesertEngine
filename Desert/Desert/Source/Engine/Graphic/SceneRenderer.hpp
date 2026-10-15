@@ -677,13 +677,18 @@ namespace Desert::Graphic
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
-        // The sun's cascade depths (MeshRenderer::ShadowCascadePasses); not declared when SunShadowIsRayTraced.
+        // The sun's cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameSunCascades.
         void AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer& mesh );
-        // This frame's sun shadow is "Shadows: Ray Traced Sun" (the resolved Shadows method is HardwareTraced):
-        // no cascade pass, the deferred composite's DESERT_SUN_SHADOW_RAY_QUERY permutation reads the mask.
+        // The one-texel far-plane cascade array a view binds when no cascade is drawn this frame ("CSM.None").
+        RDG::TextureRef AddFrameNoSunCascades( RDG::Builder& graph );
+        // This frame's sun shadow is "Shadows: Ray Traced Sun": the Shadows method resolved to HardwareTraced AND
+        // this view-frame's TLAS was built (OnUpdate lowers it with LowerShadowsForFrame before any pass is
+        // declared, so every reader of one frame sees one answer). The composite's and the opaque generic
+        // programs' DESERT_SUN_SHADOW_RAY_QUERY permutations read the mask.
         [[nodiscard]] bool SunShadowIsRayTraced() const;
         // "Shadows: Ray Traced Sun" over the G-buffer, then the DENOISE-CORE ShadowVisibility signal (SourceAngle,
-        // closest occluder): the composite's screen shadow mask. Invalid (logged) when it could not be declared.
+        // closest occluder): the composite's screen shadow mask. Invalid (logged) only when the trace pass itself
+        // could not be declared; its readers then bind System.White (the sun unshadowed that frame).
         RDG::TextureRef AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
@@ -993,6 +998,14 @@ namespace Desert::Graphic
         System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
+        // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with a
+        // cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static caches
+        // after a gap in which nothing drew them.
+        bool m_FrameSunCascades          = true;
+        bool m_SunCascadesDrawnLastFrame = false;
+        // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
+        // low-detail ones. Re-budgeted when it or the quality generation moves.
+        bool m_ShadowBudgetSunRayTraced = false;
         // Scalability Shadows.RayTracedSamplesPerPixel and the elected sun's SourceAngle, taken each BeginScene.
         uint32_t m_RayTracedShadowSamples = 1;
         float    m_SunSourceAngleDegrees  = 0.0f;

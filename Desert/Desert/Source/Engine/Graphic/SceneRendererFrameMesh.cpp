@@ -126,9 +126,9 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
-            // "Shadows: Ray Traced Sun" replaces the sun's cascades (AddFrameRayTracedSunShadow): no cascade pass
-            // is declared, the deferred composite reads the screen shadow mask instead.
-            if ( !SunShadowIsRayTraced() )
+            // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs read
+            // the screen mask, and the cascades are drawn only for the blended programs that sample them.
+            if ( m_FrameSunCascades )
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
@@ -412,7 +412,10 @@ namespace Desert::Graphic
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
         SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        view.SunShadowMask   = sunShadowMask;
+        // Under the frame's ray-traced sun the RT permutations read the mask; a trace pass that could not be
+        // declared (AddFrameRayTracedSunShadow logged it) leaves the sun unshadowed, as in the composite.
+        if ( SunShadowIsRayTraced() )
+            view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr

@@ -66,6 +66,8 @@ namespace Desert::Graphic
                     return "the forward render path has no G-buffer";
                 case MethodLimit::NotImplemented:
                     return "not implemented in this build";
+                case MethodLimit::FrameScene:
+                    return "the view's ray-traced scene was not built this frame";
             }
             return {};
         }
@@ -103,6 +105,15 @@ namespace Desert::Graphic
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
+    }
+
+    void LowerShadowsForFrame( RenderMethods& methods, const bool rayTracedSceneReady )
+    {
+        if ( rayTracedSceneReady || methods.Shadows.Effective != ShadowMethod::HardwareTraced )
+            return;
+        methods.Shadows.Effective = ShadowMethod::CascadedMaps;
+        if ( methods.Shadows.Limit == MethodLimit::None )
+            methods.Shadows.Limit = MethodLimit::FrameScene;
     }
 
     std::vector<std::string> FormatRenderMethods( const RenderMethods& methods )
