@@ -213,6 +213,20 @@ namespace Desert::Graphic
                                              std::nullopt } );
                 return *this;
             }
+            // The view's TLAS (RayTracingSceneFrame::Tlas), ray-queried by the pass's shader.
+            BlockDeclaration& AccelerationStructure( std::string_view shaderName, RDG::BufferRef tlas )
+            {
+                Block().Entries.push_back( { std::string( shaderName ),
+                                             RDG::ShaderResourceKind::AccelerationStructure,
+                                             {},
+                                             {},
+                                             {},
+                                             tlas,
+                                             RDG::Access::AccelStructRead,
+                                             RDG::SubresourceRange::All(),
+                                             std::nullopt } );
+                return *this;
+            }
             BlockDeclaration& PushConstantBytes( uint32_t bytes )
             {
                 Block().PushConstantBytes = bytes;
@@ -381,6 +395,9 @@ namespace Desert::Graphic
                         break;
                     case RDG::ShaderResourceKind::StorageBuffer:
                         bindings.Storage( entry.ShaderName, entry.Buffer, entry.Access );
+                        break;
+                    case RDG::ShaderResourceKind::AccelerationStructure:
+                        bindings.AccelerationStructure( entry.ShaderName, entry.Buffer );
                         break;
                 }
             }

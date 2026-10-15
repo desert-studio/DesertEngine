@@ -188,6 +188,11 @@ namespace Desert::Graphic::API::Vulkan
         // barriers and binds @p buffer, and never destroys it; the engine buffer outlives every graph that
         // imports it because its own frames-in-flight release waits for them.
         static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size );
+        // Wrap of the buffer backing @p accelerationStructure (a view's TLAS): a block entry of kind
+        // AccelerationStructure on it binds @p accelerationStructure.
+        static std::shared_ptr<VulkanRdgBuffer>
+        WrapAccelerationStructure( VkBuffer buffer, uint64_t size,
+                                   VkAccelerationStructureKHR accelerationStructure );
         ~VulkanRdgBuffer() override;
 
         [[nodiscard]] RDG::BackendKind GetBackendKind() const override
@@ -207,6 +212,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_AccessMask;
         }
+        // VK_NULL_HANDLE unless made by WrapAccelerationStructure.
+        [[nodiscard]] VkAccelerationStructureKHR GetAccelerationStructure() const
+        {
+            return m_AccelerationStructure;
+        }
         // Null unless host-visible. Reading it is only meaningful after the submission's fence.
         [[nodiscard]] const void* GetMapped() const
         {
@@ -224,6 +234,8 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t      m_Size       = 0;
         uint32_t      m_AccessMask = 0;
         void*         m_Mapped     = nullptr;
+
+        VkAccelerationStructureKHR m_AccelerationStructure = VK_NULL_HANDLE;
     };
 
     // Physical resources for transients, WITHOUT aliasing: every transient gets its own image or buffer.
@@ -287,7 +299,10 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgPassDescriptors
     {
     public:
-        VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers, uint32_t frameSlots );
+        // @p accelerationStructures: the device has VK_KHR_acceleration_structure enabled, so the pools also hold
+        // ACCELERATION_STRUCTURE_KHR descriptors (a pool size of that type is invalid without it).
+        VulkanRdgPassDescriptors( VkDevice device, VulkanSamplerCache& samplers, uint32_t frameSlots,
+                                  bool accelerationStructures );
         ~VulkanRdgPassDescriptors();
         VulkanRdgPassDescriptors( const VulkanRdgPassDescriptors& )            = delete;
         VulkanRdgPassDescriptors& operator=( const VulkanRdgPassDescriptors& ) = delete;
@@ -301,6 +316,11 @@ namespace Desert::Graphic::API::Vulkan
         // @p type: UNIFORM_BUFFER or STORAGE_BUFFER; the whole buffer is bound.
         Common::BoolResultStr WriteBuffer( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
                                            const RDG::BufferBinding& buffer );
+        // An ACCELERATION_STRUCTURE_KHR slot: the acceleration structure @p tlas stores
+        // (VulkanRdgBuffer::WrapAccelerationStructure), written through
+        // VkWriteDescriptorSetAccelerationStructureKHR.
+        Common::BoolResultStr WriteAccelerationStructure( VkDescriptorSet set, uint32_t binding,
+                                                          VkDescriptorType type, const RDG::BufferBinding& tlas );
         // The frame loop, after the slot's fence: resets that slot's pool.
         void BeginFrameSlot( uint32_t slot );
         // The sampler @p desc describes, from the device's VulkanSamplerCache: made on its first request, shared
@@ -321,6 +341,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<SlotPools> m_Slots; // one per frame slot
         uint32_t               m_Slot = 0;
         VulkanSamplerCache&    m_SamplerCache;
+        bool                   m_AccelerationStructures = false;
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,

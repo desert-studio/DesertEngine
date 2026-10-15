@@ -44,6 +44,7 @@
 #include <memory>
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -222,7 +223,9 @@ namespace Desert::Graphic::System
         {
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
-            class Desert::Mesh*                           Mesh = nullptr;
+            // The entity that owns the field: each instance's GPU-scene row is keyed {Entity, instance}.
+            uint32_t                                      Entity = 0;
+            class Desert::Mesh*                           Mesh   = nullptr;
             MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
@@ -231,6 +234,10 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
+            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions): instance
+            // i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and its GI
+            // card-table row (one row per instance, 1:1 with the TLAS instance).
+            uint32_t FirstMotionRow = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -261,6 +268,9 @@ namespace Desert::Graphic::System
             // The producers that ARE meshes opt in; ECS::Rules::RouteMeshShadowCaster decides which
             // single draw of an entity does so, because the shadow pass draws a mesh WHOLE.
             bool CastShadows = false;
+            // Whether the view's TLAS holds this record (UE bVisibleInRayTracing). Off by default for the reason
+            // CastShadows is: a text glyph quad is not a surface a ray should hit. The mesh producers opt in.
+            bool VisibleInRayTracing = false;
 
             Graphic::Material*        SlotMaterial      = nullptr; // owned by MaterialService (stable)
             uint64_t                  VisibleSubmeshMask = ~0ull;  // bit i = submesh i drawn
@@ -306,6 +316,43 @@ namespace Desert::Graphic::System
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
         [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+
+        // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
+        // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
+        [[nodiscard]] std::span<const StaticMeshRenderData> GetStaticQueue() const
+        {
+            return m_StaticQueue;
+        }
+        // This frame's skinned queue, rows assigned: what the ray-tracing skin cache skins (RayTracingSkinCache).
+        [[nodiscard]] std::span<const SkinnedMeshRenderData> GetSkinnedQueue() const
+        {
+            return m_SkinnedQueue;
+        }
+        // This frame's generic queue, rows assigned: the records with VisibleInRayTracing enter the TLAS.
+        [[nodiscard]] std::span<const GenericMeshRenderData> GetGenericQueue() const
+        {
+            return m_GenericQueue;
+        }
+        // This frame's ISM / foliage fields; with GetInstancedMotionRows, one TLAS instance per field instance.
+        [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
+        {
+            return m_InstancedQueue;
+        }
+        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
+        [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
+        {
+            return m_InstancedMotionRows;
+        }
+        // This frame's rows and the view's ObjectBones (BuildObjectMotions): the skin cache skins from the same
+        // palette at the same BoneOffset the raster does - one source of the pose.
+        [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
+        {
+            return m_ScratchMotionRows;
+        }
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetObjectBones() const
+        {
+            return m_ObjectBones;
+        }
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -1109,6 +1156,7 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
+        std::vector<uint32_t>                m_InstancedMotionRows; // see GetInstancedMotionRows
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

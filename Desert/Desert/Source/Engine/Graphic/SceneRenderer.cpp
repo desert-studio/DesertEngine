@@ -719,6 +719,8 @@ namespace Desert::Graphic
         m_FrameExtensions = &scene.GetExtensionPasses();
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
+        m_FrameRayTracingCache = &scene.GetRayTracingCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1180,6 +1182,35 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
+        // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            const auto* camera = GetMainCamera();
+            const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+            const float     lensScale =
+                 camera != nullptr
+                          ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } )
+                          : 1.0f;
+            Common::BoolResultStr tlas = BOOLSUCCESS;
+            if ( m_FrameRayTracingCache == nullptr )
+                tlas = Common::MakeError(
+                     std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
+            else
+                tlas = m_RayTracingScene.AddPasses( graph, RayTracing::RayTracingSceneRequired( m_RenderMethods ),
+                                                    *meshes, *m_FrameRayTracingCache, viewOrigin, lensScale );
+            for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}", m_ViewResources.GetName(),
+                           error );
+            }
+            if ( !tlas )
+                LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
+                           "nothing this frame: {}",
+                           m_ViewResources.GetName(), tlas.GetError() );
+        }
+
         AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
@@ -1377,6 +1408,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
+        m_FrameRayTracingCache    = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1667,7 +1699,8 @@ namespace Desert::Graphic
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows )
+                                           const std::string& directTextureSampler, bool castShadows,
+                                           bool visibleInRayTracing )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1679,6 +1712,7 @@ namespace Desert::Graphic
                                     .Overrides            = overrides,
                                     .Outlined             = outlined,
                                     .CastShadows          = castShadows,
+                                    .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
                                     .DirectTextureSampler = directTextureSampler } );
     }
@@ -1696,6 +1730,8 @@ namespace Desert::Graphic
                                     .Transform          = transform,
                                     .Outlined           = outlined,
                                     .CastShadows        = castShadows,
+                                    // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
+                                    .VisibleInRayTracing = true,
                                     .SlotMaterial       = material,
                                     .VisibleSubmeshMask = visibleSubmeshMask } );
     }
@@ -1708,7 +1744,8 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
+                                             const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1722,7 +1759,8 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh              = mesh,
+             ->SubmitInstancedMesh( { .Entity            = entity,
+                                      .Mesh              = mesh,
                                       .Material          = material,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,

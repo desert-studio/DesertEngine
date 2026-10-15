@@ -216,7 +216,7 @@ TEST( DeviceCaps, TheRequiredSetIsWhatTheRendererUsesToday )
     // imageCubeArray: REFL-CAPTURE keeps every reflection capture in one cube array.
     EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "imageCubeArray",
                                                   "swapchain" } ) );
-    EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_1 );
+    EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_2 );
 }
 
 // VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605: the view pipelines give each colour attachment its

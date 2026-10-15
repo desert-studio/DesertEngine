@@ -117,14 +117,18 @@ namespace Desert::Graphic::RDG
         const std::string_view pass   = context.GetPassName();
         const std::string      handle = fmt::format( "buffer #{}", buffer.Index );
         const bool             legal  = kind == ShaderResourceKind::UniformBuffer ? declared == Access::UniformRead
-                                                                                  : IsStorageAccess( declared );
+                                        : kind == ShaderResourceKind::AccelerationStructure
+                                             ? declared == Access::AccelStructRead
+                                             : IsStorageAccess( declared );
         if ( !legal )
         {
-            KeepFirstError(
-                 firstError, pass, shaderName, handle,
-                 fmt::format( "a {} entry cannot be declared as {}",
-                              kind == ShaderResourceKind::UniformBuffer ? "uniform buffer" : "storage buffer",
-                              GetAccessName( declared ) ) );
+            KeepFirstError( firstError, pass, shaderName, handle,
+                            fmt::format( "a {} entry cannot be declared as {}",
+                                         kind == ShaderResourceKind::UniformBuffer ? "uniform buffer"
+                                         : kind == ShaderResourceKind::AccelerationStructure
+                                              ? "acceleration structure"
+                                              : "storage buffer",
+                                         GetAccessName( declared ) ) );
             return;
         }
         const bool taken = std::any_of( textures.begin(), textures.end(),
@@ -210,6 +214,8 @@ namespace Desert::Graphic::RDG
                     return "uniform buffer";
                 case ShaderResourceKind::StorageBuffer:
                     return "storage buffer";
+                case ShaderResourceKind::AccelerationStructure:
+                    return "acceleration structure";
             }
             return "unknown";
         }
@@ -324,6 +330,15 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
+    BindingBlockBuilder& BindingBlockBuilder::AccelerationStructure( std::string_view shaderName, BufferRef tlas )
+    {
+        m_Pass.DeclareBuffer( tlas, Access::AccelStructRead, false, "Bindings.AccelerationStructure" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer,
+               tlas.Index, Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
+        return *this;
+    }
+
     BindingBlockBuilder& BindingBlockBuilder::PushConstantBytes( uint32_t bytes )
     {
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].PushConstantBytes = bytes;
@@ -363,6 +378,11 @@ namespace Desert::Graphic::RDG
                 case ShaderResourceKind::StorageBuffer:
                     AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, entry.ShaderName,
                                BufferRef{ entry.Index }, entry.Declared, ShaderResourceKind::StorageBuffer );
+                    break;
+                case ShaderResourceKind::AccelerationStructure:
+                    AddBuffer( m_Context, m_Textures, m_Buffers, m_FirstError, entry.ShaderName,
+                               BufferRef{ entry.Index }, Access::AccelStructRead,
+                               ShaderResourceKind::AccelerationStructure );
                     break;
             }
         }

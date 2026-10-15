@@ -76,6 +76,7 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
 namespace Desert::Core
 {
@@ -273,7 +274,8 @@ namespace Desert::Graphic
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
-                                const std::string& directTextureSampler = {}, bool castShadows = false );
+                                const std::string& directTextureSampler = {}, bool castShadows = false,
+                                bool visibleInRayTracing = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
@@ -292,7 +294,7 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
-        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+        void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
                                   const InstanceCullDistance& cullDistance, const InstanceWind& wind );
@@ -861,6 +863,9 @@ namespace Desert::Graphic
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
+        // The ray-tracing geometry of the scene BeginScene was handed (Core::Scene owns it, shared by its views):
+        // read by this view's TLAS gather in OnUpdate, cleared by EndScene.
+        RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -902,6 +907,17 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
+        RayTracing::RayTracingSceneRenderer m_RayTracingScene;
+
+    public:
+        // This view's RT scene (instances, skips, stats) as of its last frame - the viewport's RT scene overlay.
+        [[nodiscard]] const RayTracing::RayTracingSceneRenderer& GetRayTracingScene() const
+        {
+            return m_RayTracingScene;
+        }
+
+    private:
         float                   m_GIIntensity   = 2.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from

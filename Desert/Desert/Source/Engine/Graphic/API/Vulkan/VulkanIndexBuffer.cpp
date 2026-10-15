@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
@@ -150,7 +151,7 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             auto vertexBufferCreateInfo = CreateIndexBufferInfo(
-                 m_Size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                 m_Size, MeshBufferUsage( MeshBufferRole::Index, allocator->GetDeviceCaps() ),
                  VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "IndexBuffer", vertexBufferCreateInfo,
