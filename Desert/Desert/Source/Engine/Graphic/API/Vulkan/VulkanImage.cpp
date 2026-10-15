@@ -723,10 +723,12 @@ namespace Desert::Graphic::API::Vulkan
         m_IsLoaded           = true;
         m_ResourceGeneration = NextResourceGeneration();
 
-        // An image made from uploaded pixels is a texture: it gets its bindless slot now, for its GPU life.
-        // Attachments, storage and multisampled images never do (the graph writes them; BindlessTextureTable).
-        if ( Core::Formats::HasData( m_Specification.Data ) &&
-             m_Specification.Usage != Core::Formats::Image2DUsage::Attachment &&
+        // A sampled texture gets its bindless slot now, for its GPU life: with uploaded pixels, and without them
+        // too (an AM2 texture still cooking is filled later by SetData / RecordSetData into this same view). The
+        // pixels are no test of it: ReleaseUploadedPixels above has already emptied Data, and testing it here left
+        // every uploaded texture without a slot, drawing the table's missing texture. Attachments, storage and
+        // multisampled images never get one (the graph writes them; BindlessTextureTable).
+        if ( m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
              ( m_Specification.Properties & Core::Formats::Storage ) == 0 && m_Specification.Samples <= 1 )
         {
             const auto slot = GetBindlessTextureTable().Register( *this );

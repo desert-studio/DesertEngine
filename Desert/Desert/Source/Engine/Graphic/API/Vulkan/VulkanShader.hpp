@@ -189,7 +189,10 @@ namespace Desert::Graphic::API::Vulkan
         // shader with a named reason than to bind something of the wrong shape.
         Common::BoolResultStr Reflect( VkShaderStageFlagBits flag, const std::vector<uint32_t>& spirvBinary,
                                        ShaderResource::ReflectionData& into );
-        Common::BoolResultStr CreateDescriptorsLayout();
+        // Builds into @p layouts, never into the shader: it runs before the compile is committed, so a stage
+        // over a per-stage limit leaves the shader uncompiled (IsCompiled) and no pipeline is ever built on it.
+        Common::BoolResultStr CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
+                                                       std::vector<DescriptorSetLayoutRef>&  layouts ) const;
 
         Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
 

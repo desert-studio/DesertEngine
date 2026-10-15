@@ -140,7 +140,7 @@ namespace Desert::Graphic
                          m_ShaderName, p.Name,
                          texture->SamplesEncoded()
                               ? "asks for the image's stored encoding, which the bindless table does not hold"
-                              : "has no bindless slot: only uploaded, single-sample, non-attachment, "
+                              : "has no bindless slot: only sampled (Image2DUsage::Image2D), single-sample, "
                                 "non-storage images are in the table" );
                 }
                 m_Row[slot] = glm::vec4( glm::uintBitsToFloat( image.Index ),

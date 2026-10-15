@@ -182,9 +182,9 @@ namespace Desert::Graphic
         // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.
         static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
 
-        /// This image's slot in the global bindless table (BindlessTextureTable): valid for an image created from
-        /// uploaded pixels that is neither an attachment, storage nor multisampled; invalid (0) otherwise. Stable
-        /// until the image's GPU resource is released.
+        /// This image's slot in the global bindless table (BindlessTextureTable): valid for a sampled image
+        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled;
+        /// invalid (0) otherwise. Stable until the image's GPU resource is released.
         [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const noexcept
         {
             return m_BindlessSlot;

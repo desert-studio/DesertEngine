@@ -142,6 +142,20 @@ namespace Desert::Graphic::API::Vulkan
         if ( reflection.PushConstantRanges )
             reflection.PushConstantRanges->Size = cell.Layout.PushSize;
 
+        // The per-stage limits and the set layouts are part of the transaction: committing first left a shader
+        // the limit check had refused with modules and stage infos, so IsCompiled() held and the pipeline was
+        // still built on it (VUID-VkGraphicsPipelineCreateInfo-layout-07988, VK_ERROR_INITIALIZATION_FAILED).
+        std::vector<DescriptorSetLayoutRef> layouts;
+        {
+            const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );
+            auto                          laidOut = CreateDescriptorsLayout( reflection, layouts );
+            if ( !laidOut.IsSuccess() )
+            {
+                discard();
+                return laidOut;
+            }
+        }
+
         // Past this line the compile has succeeded, so the old state may go. The modules are ours alone
         // (a pipeline copies what it needs at creation) and are destroyed; the layouts are only
         // RELEASED, because a pipeline layout, a descriptor pool or an allocated set built from one is
@@ -155,10 +169,8 @@ namespace Desert::Graphic::API::Vulkan
         m_PipelineShaderStageCreateInfos = std::move( stageInfos );
         m_ReflectionData                 = std::move( reflection );
         m_MaterialLayout                 = std::move( cell.Layout );
-        m_DescriptorSetLayouts.clear();
-
-        const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );
-        return CreateDescriptorsLayout();
+        m_DescriptorSetLayouts           = std::move( layouts );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanShader::Reflect( VkShaderStageFlagBits vkStage, const std::vector<uint32_t>& spirv,
@@ -193,7 +205,9 @@ namespace Desert::Graphic::API::Vulkan
                                            diagnostics.front() );
     }
 
-    Common::BoolResultStr VulkanShader::CreateDescriptorsLayout()
+    Common::BoolResultStr
+    VulkanShader::CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
+                                           std::vector<DescriptorSetLayoutRef>&  layouts ) const
     {
         const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
         auto       device  = logical->GetVulkanLogicalDevice();
@@ -203,7 +217,7 @@ namespace Desert::Graphic::API::Vulkan
         // MoltenVK fails the pipeline with no word of which resource tipped it (16 samplers per stage there).
         const DeviceCaps&              caps = logical->GetPhysicalDevice()->GetDeviceCaps();
         const std::vector<std::string> overrun =
-             ShaderReflection::PerStageLimitRefusals( m_ReflectionData, caps.PerStage, caps.DescriptorIndexing );
+             ShaderReflection::PerStageLimitRefusals( reflection, caps.PerStage, caps.DescriptorIndexing );
         for ( const auto& message : overrun )
         {
             LOG_ERROR( "Shader '{}': {}", m_ShaderName, message );
@@ -212,40 +226,40 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError(
                  "Shader '{}' exceeds {} per-stage descriptor limit(s) of '{}'; first: {}", m_ShaderName,
                  overrun.size(), caps.DeviceName, overrun.front() );
-        for ( const auto& [setIndex, descriptorSet] : m_ReflectionData.ShaderDescriptorSets )
+        for ( const auto& [setIndex, descriptorSet] : reflection.ShaderDescriptorSets )
         {
             // The binding list comes from the device-free reflection unit, so the shape a pipeline
             // layout and a descriptor set have to agree on is computed by code a test can run without
             // Vulkan (Tests/Engine/ShaderCacheKey drives it over the real engine shaders).
             const auto bindings = ShaderReflection::BuildLayoutBindings( descriptorSet );
 
-            if ( setIndex >= m_DescriptorSetLayouts.size() )
-                m_DescriptorSetLayouts.resize( setIndex + 1 );
+            if ( setIndex >= layouts.size() )
+                layouts.resize( setIndex + 1 );
 
             auto layout = std::make_shared<VulkanDescriptorSetLayout>( device, setIndex, bindings, m_ShaderName );
             if ( layout->Handle() == VK_NULL_HANDLE )
                 return Common::MakeFormattedError( "Shader '{}': descriptor set layout {} could not be created",
                                                    m_ShaderName, setIndex );
 
-            m_DescriptorSetLayouts[setIndex] = std::move( layout );
+            layouts[setIndex] = std::move( layout );
         }
 
         // The bindless set's layout is the table's own (update-after-bind, variable count), shared by every
         // pipeline that samples the table, so the one live table set binds to all of them. Reflection has already
         // refused anything else declared in that set.
-        if ( m_ReflectionData.UsesBindlessTable )
+        if ( reflection.UsesBindlessTable )
         {
             const auto logicalDevice = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-            if ( kBindlessSetIndex >= m_DescriptorSetLayouts.size() )
-                m_DescriptorSetLayouts.resize( kBindlessSetIndex + 1 );
-            m_DescriptorSetLayouts[kBindlessSetIndex] = logicalDevice->GetBindlessTextureTable().GetLayout();
+            if ( kBindlessSetIndex >= layouts.size() )
+                layouts.resize( kBindlessSetIndex + 1 );
+            layouts[kBindlessSetIndex] = logicalDevice->GetBindlessTextureTable().GetLayout();
         }
 
         // A set the shader skips below one it uses gets an EMPTY layout: a pipeline layout cannot hold
         // VK_NULL_HANDLE in pSetLayouts (RawHandles), and a pass allocates and binds sets 0..N-1 contiguously.
-        for ( size_t setIndex = 0; setIndex < m_DescriptorSetLayouts.size(); ++setIndex )
+        for ( size_t setIndex = 0; setIndex < layouts.size(); ++setIndex )
         {
-            if ( m_DescriptorSetLayouts[setIndex] )
+            if ( layouts[setIndex] )
                 continue;
             auto empty = std::make_shared<VulkanDescriptorSetLayout>( device, static_cast<uint32_t>( setIndex ),
                                                                       std::vector<VkDescriptorSetLayoutBinding>{},
@@ -253,7 +267,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( empty->Handle() == VK_NULL_HANDLE )
                 return Common::MakeFormattedError(
                      "Shader '{}': empty descriptor set layout {} could not be created", m_ShaderName, setIndex );
-            m_DescriptorSetLayouts[setIndex] = std::move( empty );
+            layouts[setIndex] = std::move( empty );
         }
 
         return BOOLSUCCESS;
