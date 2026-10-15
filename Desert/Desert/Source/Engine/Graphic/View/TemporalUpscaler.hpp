@@ -51,7 +51,7 @@ namespace Desert::Graphic
         // only the weights, and the history needs no rescale.
         RDG::TextureRef Exposure; // auto exposure on: last frame's adapted luminance, 1x1 (AutoExposure.Previous);
                                   // off: System.White (1)
-        float ExposureScale = 1.0f; // auto exposure on: the key; off: the manual exposure
+        float                        ExposureScale = 1.0f; // auto exposure on: the key; off: the manual exposure
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
     };
 

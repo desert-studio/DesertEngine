@@ -293,13 +293,14 @@ namespace Desert::Graphic
                 quality = "High";
                 break;
         }
-        const std::string history = status.HistoryReset == HistoryResetReason::None
-                                         ? std::string( "history read" )
-                                         : std::format( "history reset: {}",
-                                                        HistoryResetReasonName( status.HistoryReset ) );
-        return std::format( "AA: {} {} {}% {}x{} -> {}x{}, jitter {}/{} ({:+.2f}, {:+.2f}) px, {}", method, quality,
-                            status.Split.RenderScalePercent, status.Split.Render.Width, status.Split.Render.Height,
-                            status.Split.Output.Width, status.Split.Output.Height, status.JitterIndex + 1,
-                            status.JitterSequenceLength, status.JitterPixels.x, status.JitterPixels.y, history );
+        const std::string history =
+             status.HistoryReset == HistoryResetReason::None
+                  ? std::string( "history read" )
+                  : std::format( "history reset: {}", HistoryResetReasonName( status.HistoryReset ) );
+        return std::format( "AA: {} {} {}% {}x{} -> {}x{}, jitter {}/{} ({:+.2f}, {:+.2f}) px, {}", method,
+                            quality, status.Split.RenderScalePercent, status.Split.Render.Width,
+                            status.Split.Render.Height, status.Split.Output.Width, status.Split.Output.Height,
+                            status.JitterIndex + 1, status.JitterSequenceLength, status.JitterPixels.x,
+                            status.JitterPixels.y, history );
     }
 } // namespace Desert::Graphic

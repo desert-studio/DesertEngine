@@ -228,7 +228,8 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                           Material;   // slot 0 (Lit)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             // The snapshot this view drew last frame, same count as Transforms (MotionHistory::PreviousInstances,
-            // written by BuildObjectMotions): instance i's previous world, the second matrix of its view-pass pair.
+            // written by BuildObjectMotions): instance i's previous world, the second matrix of its view-pass
+            // pair.
             std::shared_ptr<const std::vector<glm::mat4>> PrevTransforms;
             bool                                          CastShadows = true;
             bool                                          CastContactShadow = true; // UE bCastContactShadow
@@ -1061,17 +1062,17 @@ namespace Desert::Graphic::System
             std::array<std::shared_ptr<SkinnedMesh>, 2>  Twins;
             std::array<std::shared_ptr<VertexBuffer>, 2> Vertices;
             std::shared_ptr<VertexBuffer>                BaseVertices;
-            uint32_t                                     Current = 0; // the output holding Revision's shape
-            bool                                         Blended = false;
+            uint32_t                                     Current  = 0; // the output holding Revision's shape
+            bool                                         Blended  = false;
             uint64_t                                     Revision = 0;
             bool                                         Pending  = false;
             std::vector<float>                           PendingWeights;
             uint64_t                                     PendingRevision = 0;
             uint64_t                                     LastDrawn       = 0;
-            bool                                         DrawnLastFrame  = false; // decided by the frame's first draw
-            RDG::ExternalBuffer                          BaseImport;
-            RDG::ExternalBuffer                          DeltasImport;
-            std::array<RDG::ExternalBuffer, 2>           OutputImports;
+            bool                               DrawnLastFrame = false; // decided by the frame's first draw
+            RDG::ExternalBuffer                BaseImport;
+            RDG::ExternalBuffer                DeltasImport;
+            std::array<RDG::ExternalBuffer, 2> OutputImports;
         };
         static constexpr uint64_t               kMorphTwinIdleFrames = 8;
         std::unordered_map<uint32_t, MorphTwin> m_MorphTwins;
@@ -1187,7 +1188,7 @@ namespace Desert::Graphic::System
             // Per instance, parallel to Transforms: the world the view drew it with last frame (an auto-batched
             // static's motion row PrevWorld, an ISM instance's PrevTransforms entry). Uploaded interleaved with
             // Transforms (Mesh/Surface/Vertex_Instanced.glslh: a view pass reads a pair per instance).
-            std::vector<glm::mat4>      PrevTransforms;
+            std::vector<glm::mat4>       PrevTransforms;
             std::vector<glm::vec4>       Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
@@ -1228,8 +1229,8 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
-        std::vector<uint32_t>                    m_ScratchIsmVisibleIndices; // the view pass: indices into Transforms
-        std::vector<glm::mat4>                   m_ScratchInstancePairs;     // a view set's interleaved upload
+        std::vector<uint32_t>  m_ScratchIsmVisibleIndices;                // the view pass: indices into Transforms
+        std::vector<glm::mat4> m_ScratchInstancePairs;                    // a view set's interleaved upload
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the

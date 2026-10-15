@@ -1709,7 +1709,8 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
+                                             const MaterialInstancePtr&                           material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1873,9 +1874,9 @@ namespace Desert::Graphic
         const auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         const bool  adapted = tonemap != nullptr && tonemap->IsAutoExposureEnabled() && exposure.IsValid();
         const TemporalUpscalerInputs inputs{
-             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
-             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
-             .Velocity   = textures.Transients.Velocity,
+             .SceneColor    = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth    = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity      = textures.Transients.Velocity,
              .ResponsiveAA  = textures.Transients.ResponsiveAA,
              .Exposure      = adapted ? exposure : textures.System.White,
              .ExposureScale = tonemap != nullptr ? tonemap->GetExposureScale() : 1.0f,

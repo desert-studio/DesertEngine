@@ -187,7 +187,8 @@ namespace Desert::Graphic::System
                         unmorph( *twin, in.GetError() );
                         continue;
                     }
-                    if ( const auto in = Renderer::ImportVertexBuffer( twin->Vertices[next], twin->OutputImports[next] );
+                    if ( const auto in =
+                              Renderer::ImportVertexBuffer( twin->Vertices[next], twin->OutputImports[next] );
                          !in )
                     {
                         unmorph( *twin, in.GetError() );
@@ -198,7 +199,8 @@ namespace Desert::Graphic::System
                          twin->PendingWeights, base.GetMorphTargetCount(), base.GetVertexCount() );
                     const RDG::BufferRef baseRef    = graph.RegisterExternal( twin->BaseImport, "Morph.Base" );
                     const RDG::BufferRef deltasRef  = graph.RegisterExternal( twin->DeltasImport, "Morph.Deltas" );
-                    const RDG::BufferRef outRef     = graph.RegisterExternal( twin->OutputImports[next], "Morph.Output" );
+                    const RDG::BufferRef outRef =
+                         graph.RegisterExternal( twin->OutputImports[next], "Morph.Output" );
                     const RDG::BufferRef weightsRef = graph.CreateBuffer(
                          RDG::BufferDesc{ weights.size() * sizeof( uint32_t ) }, "Morph.Weights" );
                     graph.QueueBufferUpload( weightsRef, std::as_bytes( std::span( weights ) ) );

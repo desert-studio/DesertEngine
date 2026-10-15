@@ -1236,13 +1236,14 @@ namespace Desert::Graphic::System
                 // The LOD question is per instance for the same reason the visibility question is: the
                 // batch is one entity but forty thousand placements, and the near ones and the far ones
                 // of a single ISM are not the same object to a renderer.
-                auto& visible = m_ScratchIsmVisibleIndices;
+                auto&                   visible = m_ScratchIsmVisibleIndices;
                 auto& levels  = m_ScratchLodLevels;
                 const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
                 CollectIsmInstanceIndices( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
                                            mainView, mainView, ism.Mesh->GetLODScreenSizes(), visible, levels );
                 // Last frame's snapshot (BuildObjectMotions), the same count by MotionHistory::PreviousInstances.
-                const std::vector<glm::mat4>& previous = ism.PrevTransforms ? *ism.PrevTransforms : *ism.Transforms;
+                const std::vector<glm::mat4>& previous =
+                     ism.PrevTransforms ? *ism.PrevTransforms : *ism.Transforms;
                 m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;

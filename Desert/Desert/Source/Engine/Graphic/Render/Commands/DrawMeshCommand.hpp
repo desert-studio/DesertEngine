@@ -86,9 +86,9 @@ namespace Desert::Graphic::Render
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         bool castContactShadow, const InstanceCullDistance& cullDistance,
                                         const InstanceWind& wind )
-             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
-               Wind( wind )
+             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ),
+               Transforms( std::move( transforms ) ), CastShadows( castShadows ),
+               CastContactShadow( castContactShadow ), CullDistance( cullDistance ), Wind( wind )
         {
         }
 
