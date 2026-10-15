@@ -1578,7 +1578,7 @@ namespace Desert::Graphic::System
         // The wireframe view draws the glass as it draws every mesh (StaticMeshWireframe): the cell's own state in
         // line polygon mode. Not in a player's build (see m_StaticWireframePipeline); a debug view, so a refusal
         // costs the view and not the glass.
-        spec.DebugName   = cellShader + ".Wireframe";
+        spec.DebugName   = std::format( "{}.Wireframe", cellShader );
         spec.PolygonMode = PrimitivePolygonMode::Wireframe;
         if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
             draw->WireframePipeline = wireframe.GetValue();
