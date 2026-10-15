@@ -748,7 +748,10 @@ namespace Desert::Graphic
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameRSM( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                           const glm::vec3& sunDir );
-        void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where a
+        // generic program's DESERT_SUN_SHADOW_RAY_QUERY permutation reads it (SceneViewInputs.SunShadowMask).
+        void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
+                              RDG::TextureRef sunShadowMask );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer );

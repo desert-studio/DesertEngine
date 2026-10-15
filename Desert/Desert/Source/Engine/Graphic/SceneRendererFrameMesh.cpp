@@ -385,14 +385,15 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
+                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || meshRenderer == nullptr )
             return;
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
-        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        view.SunShadowMask   = sunShadowMask;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
