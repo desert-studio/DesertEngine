@@ -124,12 +124,47 @@ namespace Desert::Graphic
             sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
     }
 
+    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        if ( volume == nullptr )
+            return;
+
+        // The sun exactly as the surfaces receive it: DirLights[0] after the atmosphere's transmittance
+        // (BeginScene), times its VolumetricScatteringIntensity, shadowed by the same cascades.
+        System::VolumetricFogSunInput sun;
+        if ( const auto& lights = m_DirectionLights.DirectionLights; !lights.empty() )
+        {
+            sun.Present   = true;
+            sun.TowardSun = glm::normalize( -glm::vec3( lights[0].Direction ) );
+            sun.Radiance  = glm::vec3( lights[0].ColorIntensity ) * lights[0].ColorIntensity.w *
+                           glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+             mesh != nullptr && mesh->AreShadowsEnabled() && mesh->GetCascadeViewProj() != nullptr )
+        {
+            sun.CascadeCount = std::min<uint32_t>( mesh->GetValidCascadeCount(), 4u );
+            for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
+                sun.CascadeViewProj[c] = mesh->GetCascadeViewProj()[c];
+            sun.CascadeWorldPerTexel = mesh->GetCascadeWorldPerTexel();
+            sun.CascadeDepthRange    = mesh->GetCascadeDepthRange();
+        }
+        // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
+        AddComputeNodes( graph, textures, volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun ) );
+    }
+
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        const System::VolumetricFogFrameResult volumeResult =
+             volume != nullptr ? volume->GetFrameResult() : System::VolumetricFogFrameResult{};
         if ( fog != nullptr )
-            AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients ) );
+            AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,

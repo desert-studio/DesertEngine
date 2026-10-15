@@ -93,7 +93,11 @@ namespace Desert::Core
     // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
     // script slot's Props are only the values that differ from the script's declared defaults
     // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
-    inline constexpr int kSceneVersion = 54;
+    // v59 (VOLFOG): ExponentialHeightFog states the Volumetric Fog group and every light its
+    // VolumetricScatteringIntensity. Additive: the step rewrites nothing, a v58 record loads with the declared
+    // defaults and the save states them; the number moves so an older build refuses a file whose fog it would
+    // silently drop (Tools/SceneMigrator, kSceneVersionVolumetricFog). v55..v58 are other branches' steps.
+    inline constexpr int kSceneVersion = 59;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

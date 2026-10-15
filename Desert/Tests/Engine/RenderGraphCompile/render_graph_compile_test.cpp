@@ -2390,7 +2390,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Glass",
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
-         "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
+         // VOLFOG: the volumetric fog's froxels, lit and integrated before the fog pass composes them.
+         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
+         "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
          // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
          "extension[AfterOpaque]",
@@ -3852,7 +3854,8 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     for ( const char* needle :
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
-            "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
+            "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun))",
+            "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients,volumeResult))",
             "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),

@@ -4,6 +4,7 @@
 
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/Graphic/Fog/FogPayload.hpp>
+#include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -83,9 +84,12 @@ namespace Desert::Graphic::System
          * @brief Stage S1. Must be called outside any render pass, after the scene depth is final and
          *        after this frame's aerial-perspective volume has been filled. Creates this frame's fog
          *        image in @p graph and stores its ref in @p transients.HeightFog (left invalid when the
-         *        pass does not run this frame - the apply then draws nothing).
+         *        pass does not run this frame - the apply then draws nothing). @p volume is this frame's
+         *        volumetric fog (VolumetricFogRenderer::GetFrameResult, after its nodes were added): composed in
+         *        front of the analytic fog when its volume is set.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients );
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                                               const VolumetricFogFrameResult& volume );
 
     private:
         bool CreatePipelines();

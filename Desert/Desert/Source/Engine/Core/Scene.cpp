@@ -669,6 +669,7 @@ namespace Desert::Core
                 const auto& transform = m_Registry.get<ECS::TransformComponent>( *sun );
                 // Chosen implies DirectionValid, so the gate below cannot refuse; asked anyway, because the
                 // optional is the one place that normalizes a light's Translation.
+                sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
                 if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
                     sceneRendererInfo.DirLights.DirectionLights.push_back(
                          { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );

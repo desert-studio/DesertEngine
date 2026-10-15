@@ -488,6 +488,12 @@ namespace Desert::Graphic
                           SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
                      !fogInit )
                     LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
+                // The volumetric fog (froxel grid) the height fog composes; non-fatal like it.
+                RegisterSystem<System::VolumetricFogRenderer>( "VolumetricFogSystem", this, m_TargetFramebuffer );
+                if ( const auto volumeInit =
+                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )->Initialize();
+                     !volumeInit )
+                    LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -803,6 +809,15 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        // The volumetric fog's ceiling and grid (Scalability Effects.VolumetricFog*), handed to its system each
+        // BeginScene like the knobs above.
+        if ( const auto it = m_RenderSystems.find( "VolumetricFogSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::VolumetricFogRenderer, it->second )
+                 ->SetQuality( VolumetricFogQuality{
+                      .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
+                      .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
+                      .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
 
         // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
         // Asked only when the quality generation moved — a level change, never per frame — and the maps are
@@ -958,6 +973,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_SunVolumetricScatteringIntensity = sceneRenderInfo.SunVolumetricScatteringIntensity;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -1263,6 +1279,7 @@ namespace Desert::Graphic
 
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
+        AddFrameVolumetricFog( graph, textures, frame );
         AddFrameAtmosphericFog( graph, textures );
         AddFrameVolumetricClouds( graph, textures, frame );
 
@@ -2050,6 +2067,9 @@ namespace Desert::Graphic
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
     {
         UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )
+             ->SetFogSettings( present, data, fogHeightY );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
              ->SetFogSettings( present, data, fogHeightY );
     }
 

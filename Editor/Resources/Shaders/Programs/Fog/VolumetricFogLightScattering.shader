@@ -22,6 +22,10 @@ Shader "VolumetricFogLightScattering"
         #include <Mesh/Spotlight.glslh>
         #include <Mesh/LocalLightShadowView.glslh>
         #include <Mesh/LightGrid.glslh>
+        // SKY_DISTANT_LIGHT_SPHERE_TEXEL only; like HeightFog.shader this pass defines neither LUT callback, so
+        // the integrator half of SkyScattering.glslh stays out.
+        #include <Common/SkyMedium.glslh>
+        #include <Common/SkyScattering.glslh>
 
         layout(binding = 0, rgba16f) restrict writeonly uniform image3D u_LightScattering;
 

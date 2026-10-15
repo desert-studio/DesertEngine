@@ -83,6 +83,19 @@ Shader "HeightFog"
         // always bound, read only when u_FogAmbient.w says the value is real.
         Uniform(4) sampler2D u_DistantSkyLight;
 
+        // The VOLUMETRIC FOG's integrated froxels (VolumetricFogRenderer, Programs/Fog/VolumetricFogIntegration.shader):
+        // per froxel, the lit fog between the camera and that froxel's far edge, premultiplied, transmittance in
+        // .a. Always bound (the engine's 3D fallback when the volume did not run); read only when
+        // u_FogVolumetric0.w says it is real. Trilinear: the grid is coarse, and the filter is what hides it.
+        Uniform(5) sampler3D u_VolumetricFog;
+
+        // View depth (cm) of a slice coordinate of the froxel grid (Common/VolumetricFog.glslh's mapping, with
+        // the parameters this pass gets in its own block).
+        float VolumetricDepthFromSlice(float slice)
+        {
+            return (exp2(slice / u_FogVolumetric1.z) - u_FogVolumetric1.y) / u_FogVolumetric1.x;
+        }
+
         PushConstant FogPush
         {
             mat4 u_InverseViewProjection;
@@ -122,6 +135,16 @@ Shader "HeightFog"
             {
                 HeightFogParams params = FogUnpackParams();
 
+                // UE's ExcludeDistance: where the volumetric fog's grid reaches, the closed form starts - the same
+                // medium must not be counted twice, once lit per froxel and once analytically.
+                if (u_FogVolumetric0.w > 0.5f)
+                {
+                    float gridFarKm = VolumetricDepthFromSlice(u_FogVolumetric1.w) *
+                                      (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
+                    params.StartDistanceKm    = max(params.StartDistanceKm, gridFarKm);
+                    params.DirectionalStartKm = max(params.DirectionalStartKm, gridFarKm);
+                }
+
                 // THE SKY'S OWN AMBIENT, added to the fog's in-scattering colour before the closed form
                 // integrates it — which is what makes it an ambient and not an overlay: the same
                 // transmittance that hides distant geometry is what fades this in. In the physical
@@ -135,6 +158,28 @@ Shader "HeightFog"
                 }
 
                 fog = HeightFogEvaluate(params, cameraKm, worldKm);
+            }
+
+            // The volumetric fog, IN FRONT of the analytic fog (it covers the near part of the ray, the closed form
+            // the rest): rgb = Vol.rgb + Fog.rgb * Vol.a, a = Fog.a * Vol.a (UE CombineVolumetricFog). Sky pixels
+            // read the grid's last slice, the whole grid in front of them.
+            if (u_ApParams.w > 0.5f && u_FogVolumetric0.w > 0.5f)
+            {
+                // The view axis from the inverse view-projection: two points on the centre ray.
+                vec4 nearH   = u_InverseViewProjection * vec4(0.0f, 0.0f, 1.0f, 1.0f);
+                vec4 midH    = u_InverseViewProjection * vec4(0.0f, 0.0f, 0.5f, 1.0f);
+                vec3 forward = normalize(midH.xyz / midH.w - nearH.xyz / nearH.w);
+                float depthCm = max(dot(worldPos - u_CameraPosition.xyz, forward), 0.0f);
+                float slice   = log2(max(depthCm * u_FogVolumetric1.x + u_FogVolumetric1.y, 1e-6f)) * u_FogVolumetric1.z;
+
+                // Slice z of the volume holds the integral to its FAR edge (slice coordinate z + 1), so the
+                // coordinate s reads texel s - 1; in front of slice 0's far edge it fades from the empty integral.
+                vec2 gridUv = uv * vec2(size) / (u_FogVolumetric0.yz * u_FogVolumetric0.x);
+                vec3 uvw    = vec3(gridUv, (clamp(slice, 1.0f, u_FogVolumetric1.w) - 0.5f) / u_FogVolumetric1.w);
+                vec4 volume = mix(vec4(0.0f, 0.0f, 0.0f, 1.0f), texture(u_VolumetricFog, uvw), clamp(slice, 0.0f, 1.0f));
+
+                fog.Inscattering  = volume.rgb + fog.Inscattering * volume.a;
+                fog.Transmittance = fog.Transmittance * clamp(volume.a, 0.0f, 1.0f);
             }
 
             // Aerial perspective, on OPAQUE PIXELS ONLY. A sky pixel (depth at the far plane) already

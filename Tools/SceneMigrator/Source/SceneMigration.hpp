@@ -290,7 +290,16 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionScriptDefaults = 54;
 
-    static_assert( kSceneVersionScriptDefaults == kSceneVersion,
+    //  59 - VOLUMETRIC FOG (VOLFOG, UE's Volumetric Fog group and ULightComponent::VolumetricScatteringIntensity).
+    //       ExponentialHeightFog gains VolumetricFog, VolumetricFogScatteringDistribution, VolumetricFogAlbedo,
+    //       VolumetricFogEmissive, VolumetricFogExtinctionScale, VolumetricFogDistance, VolumetricFogStartDistance
+    //       and VolumetricFogNearFadeInDistance; DirectionLight, PointLight and SpotLight gain
+    //       VolumetricScatteringIntensity. Every new field is ADDITIVE with a default that reproduces the old
+    //       picture (VolumetricFog off, intensity 1), so the step has no transform of its own: the record is read
+    //       with the declared defaults and the migrator's save states them. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionVolumetricFog = 59;
+
+    static_assert( kSceneVersionVolumetricFog == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 

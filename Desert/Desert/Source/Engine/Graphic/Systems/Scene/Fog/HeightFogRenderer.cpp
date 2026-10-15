@@ -121,7 +121,8 @@ namespace Desert::Graphic::System
     }
 
     std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes( RDG::Builder&    graph,
-                                                                              FrameTransients& transients )
+                                                                              FrameTransients& transients,
+                                                                              const VolumetricFogFrameResult& volume )
     {
         std::vector<ComputeNodeDeclaration> nodes;
 
@@ -158,7 +159,17 @@ namespace Desert::Graphic::System
         // The atmosphere is a coupling, not a dependency: without one the fog keeps its authored colour
         // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
         // sky-less scene is legitimate, so there is no bail-out here.
-        const FogGpuPayload payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
+        FogGpuPayload payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
+        // The volumetric fog runs only with the fog itself (VolumetricFogRenderer::IsActive), so a volume here is
+        // always one this fog block describes.
+        const bool volumetric = fogActive && volume.Integrated != nullptr;
+        if ( volumetric )
+        {
+            payload.Volumetric0 = glm::vec4( volume.GridPixels, static_cast<float>( volume.GridSize.x ),
+                                             static_cast<float>( volume.GridSize.y ), 1.0f );
+            payload.Volumetric1 = glm::vec4( volume.GridZParams.x, volume.GridZParams.y, volume.GridZParams.z,
+                                             static_cast<float>( volume.GridSize.z ) );
+        }
         // BUILD TIME: the node exists only when this upload lands; it fills this frame's slot before the graph
         // runs.
         const auto uploaded = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
@@ -226,7 +237,12 @@ namespace Desert::Graphic::System
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
              .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
                        GlobalTextureFilterSampler(),
-                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
+                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" )
+             .Sampled( "u_VolumetricFog",
+                       volumetric ? volume.Integrated
+                                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ),
+                       RDG::Access::SampledCompute, VolumeSampler(),
+                       volumetric ? "VolumetricFog.Integrated" : "HeightFog.VolumetricFogFallback" );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
         {

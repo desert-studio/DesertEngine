@@ -69,6 +69,7 @@
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
+#include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
 
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -106,6 +107,10 @@ namespace Desert::Graphic
             // would never be re-baked).
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
+            // The sun's (DirLights[0]) VolumetricScatteringIntensity: how much of it the volumetric fog scatters.
+            // Beside the payload rather than in it: DirectionLightsUB is a GPU layout every lit shader shares, and
+            // only the volumetric fog reads this.
+            float SunVolumetricScatteringIntensity = 1.0f;
         };
 
         struct RenderSubmissionExtra
@@ -804,6 +809,9 @@ namespace Desert::Graphic
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
+        // The volumetric fog's two compute nodes (VolumetricFogRenderer), after the light grid and the shadow
+        // depths, before AddFrameAtmosphericFog, which composes its integrated volume.
+        void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
@@ -836,6 +844,7 @@ namespace Desert::Graphic
         SunLightFx m_SunLightFx;
 
         ShaderProtocols::DirectionLight m_DirectionLights;
+        float                           m_SunVolumetricScatteringIntensity = 1.0f; // this frame's, see RenderInfo
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.

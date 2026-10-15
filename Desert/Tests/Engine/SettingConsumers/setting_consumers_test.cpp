@@ -174,6 +174,8 @@ namespace
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kFogPayload = "Desert/Desert/Source/Engine/Graphic/Fog/FogPayload.hpp";
+    constexpr const char* kVolumetricFog =
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.cpp";
     constexpr const char* kFogRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp";
 
@@ -202,6 +204,16 @@ namespace
          { "DirectionalInscatteringExponent", kFogPayload },
          { "DirectionalInscatteringStartDistance", kFogPayload },
          { "DirectionalInscatteringLuminance", kFogPayload },
+
+         // VOLFOG: the froxel grid's medium, read by the volumetric fog's packer.
+         { "VolumetricFog", kVolumetricFog },
+         { "VolumetricFogScatteringDistribution", kVolumetricFog },
+         { "VolumetricFogAlbedo", kVolumetricFog },
+         { "VolumetricFogEmissive", kVolumetricFog },
+         { "VolumetricFogExtinctionScale", kVolumetricFog },
+         { "VolumetricFogDistance", kVolumetricFog },
+         { "VolumetricFogStartDistance", kVolumetricFog },
+         { "VolumetricFogNearFadeInDistance", kVolumetricFog },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -606,6 +618,7 @@ namespace
          { "ContactShadowLengthInWorldSpace", kViewSettings },
          { "ContactShadowCastingIntensity", kViewSettings },
          { "ContactShadowNonCastingIntensity", kViewSettings },
+         { "VolumetricScatteringIntensity", kScene }, // the sun's share of the volumetric fog (VOLFOG)
     };
 
     constexpr Row kPointLightRows[] = {
@@ -626,6 +639,7 @@ namespace
          { "ContactShadowLengthInWorldSpace", kPointLight },
          { "ContactShadowCastingIntensity", kPointLight },
          { "ContactShadowNonCastingIntensity", kPointLight },
+         { "VolumetricScatteringIntensity", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
@@ -645,6 +659,7 @@ namespace
          { "ContactShadowLengthInWorldSpace", kSpotLight },
          { "ContactShadowCastingIntensity", kSpotLight },
          { "ContactShadowNonCastingIntensity", kSpotLight },
+         { "VolumetricScatteringIntensity", kSpotLight },
     };
 
     // REFL-CAPTURE: every field is packed by ReflectionCaptureRenderer's gather into the capture's GPU row.

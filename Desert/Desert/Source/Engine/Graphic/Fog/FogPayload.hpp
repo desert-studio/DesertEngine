@@ -39,6 +39,14 @@ namespace Desert::Graphic
         // adds nothing and Inscattering below carries whatever ambient the model does have — see
         // PackFogParams.
         glm::vec4 Ambient;
+
+        // The VOLUMETRIC FOG this pass composes under the analytic fog (VolumetricFogRenderer's integrated volume,
+        // UE's CombineVolumetricFog). Not authored data: PackFogParams leaves both zero (no volume) and
+        // HeightFogRenderer fills them from the frame's VolumetricFogFrameResult when the volume ran.
+        //   Volumetric0: x = froxel edge (render pixels), y/z = froxels across/down, w = 1 when the volume is bound
+        //   Volumetric1: x/y/z = B, O, S of slice = log2(depth * B + O) * S (depth in cm), w = slices
+        glm::vec4 Volumetric0;
+        glm::vec4 Volumetric1;
     };
 
     static_assert( offsetof( FogGpuPayload, SunDirection ) == 0 );
@@ -47,7 +55,9 @@ namespace Desert::Graphic
     static_assert( offsetof( FogGpuPayload, Layer0 ) == 48 );
     static_assert( offsetof( FogGpuPayload, Layer1 ) == 64 );
     static_assert( offsetof( FogGpuPayload, Ambient ) == 80 );
-    static_assert( sizeof( FogGpuPayload ) == 96, "Six vec4s, nothing else — the shader reads exactly this." );
+    static_assert( offsetof( FogGpuPayload, Volumetric0 ) == 96 );
+    static_assert( offsetof( FogGpuPayload, Volumetric1 ) == 112 );
+    static_assert( sizeof( FogGpuPayload ) == 128, "Eight vec4s, nothing else — the shader reads exactly this." );
 
     // Already a multiple of std430's 16-byte block alignment, so the buffer size IS the struct size.
     inline constexpr uint32_t kFogPayloadBytes = sizeof( FogGpuPayload );

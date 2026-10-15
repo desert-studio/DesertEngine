@@ -26,6 +26,8 @@ layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
     vec4 u_FogLayer0;       // x = density /km, y = height falloff /km, z = fog height (km), w = start distance (km)
     vec4 u_FogLayer1;       // x = density /km, y = height falloff /km, z = fog height (km), w = cutoff distance (km; 0 = off)
     vec4 u_FogAmbient;      // rgb = sky-ambient contribution scale, w = 1 when the distant sky light must be sampled
+    vec4 u_FogVolumetric0;  // x = froxel edge (px), y/z = froxels across/down, w = 1 when the volumetric fog is bound
+    vec4 u_FogVolumetric1;  // xyz = B, O, S of the froxel slice mapping (cm), w = slices
 };
 
 // Unpacks the block into the struct Common/HeightFog.glslh evaluates (include that first).
