@@ -388,7 +388,8 @@ TEST( PostProcessVolume, ABoundedVolumeAppliesInsideFadesAcrossItsRadiusAndNotBe
     AddVolume( reg, glm::vec3( 1000.0f, 0.0f, 0.0f ), box );
     const float base = Core::PostProcessSettings{}.ManualExposureEV100;
 
-    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1050.0f, 0.0f, 0.0f ) ).Post.ManualExposureEV100, 5.0f );
+    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1050.0f, 0.0f, 0.0f ) ).Post.ManualExposureEV100,
+               5.0f );
     const auto fringe = Graphic::ResolveViewSettings( reg, glm::vec3( 1200.0f, 0.0f, 0.0f ) ); // 100 cm out
     EXPECT_FLOAT_EQ( fringe.Post.ManualExposureEV100, base * 0.5f + 5.0f * 0.5f );
     const auto outside = Graphic::ResolveViewSettings( reg, glm::vec3( 1400.0f, 0.0f, 0.0f ) );

@@ -102,8 +102,8 @@ namespace Desert::Editor::HdrSphereThumbnail
         // The exposure is the manual default at compensation 0 (the former multiplier 1) - a tile has no scene to
         // meter.
         const Core::PostProcessSettings grade{};
-        const float     exposure = Graphic::ManualExposureScale( grade.ManualExposureEV100, 1.0f );
-        const glm::vec3 display  = FilmCombine( linear * exposure, Graphic::FilmGradeOf( grade ) );
+        const float                     exposure = Graphic::ManualExposureScale( grade.ManualExposureEV100, 1.0f );
+        const glm::vec3                 display  = FilmCombine( linear * exposure, Graphic::FilmGradeOf( grade ) );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
             out[static_cast<size_t>( c )] = static_cast<unsigned char>( std::lround( 255.0f * display[c] ) );

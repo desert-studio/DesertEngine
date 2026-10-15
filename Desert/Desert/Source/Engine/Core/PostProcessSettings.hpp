@@ -185,8 +185,8 @@ namespace Desert::Core
 
         // UE's Manual metering mode, in EV100: the meter reading the exposure is fixed at when auto-exposure is
         // off. The scale is Graphic::ManualExposureScale - 2^AutoExposureBias x 0.18 / EV100ToLuminance(EV100),
-        // the auto path's own law with the reading fixed, so a manual EV100 matches an auto-exposure adapted to the
-        // same EV100, and the Exposure Compensation offsets both (UE applies it in Manual too). Higher EV100 =
+        // the auto path's own law with the reading fixed, so a manual EV100 matches an auto-exposure adapted to
+        // the same EV100, and the Exposure Compensation offsets both (UE applies it in Manual too). Higher EV100 =
         // darker picture: ~15 a 100 000 lux sunlit scene, ~0 a lit interior. Scenes before v57 stated a
         // multiplier; v57 re-stated it as the EV100 giving the same scale at that scene's key, and v62 states the
         // key as the compensation of a volume that stays manual. The default is the former multiplier 1 at

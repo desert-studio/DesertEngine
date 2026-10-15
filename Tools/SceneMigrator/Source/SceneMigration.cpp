@@ -1454,7 +1454,7 @@ namespace Desert::Migration
         // v57's default ManualExposureEV100: the former multiplier 1 at the default key, log2(0.18 / 1) + 3.
         const double     kOldManualEV100 = std::log2( kOldKey ) + 3.0;
         constexpr double kFloatMatch     = 1e-5;
-        const auto isOld = []( double value, double old ) { return std::abs( value - old ) <= kFloatMatch; };
+        const auto       isOld = []( double value, double old ) { return std::abs( value - old ) <= kFloatMatch; };
 
         UEGradeReport report;
 
@@ -1472,9 +1472,9 @@ namespace Desert::Migration
                      auto fields = stated.value().to_object();
                      if ( !fields.has_value() )
                      {
-                         report.Refused.push_back( std::format(
-                              "{}: PostProcessVolume.Settings {} is not an object", who,
-                              Describe( stated.value() ) ) );
+                         report.Refused.push_back(
+                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                           Describe( stated.value() ) ) );
                          return false;
                      }
                      rfl::Generic::Object settings = std::move( fields.value() );
@@ -1542,7 +1542,7 @@ namespace Desert::Migration
                          }
                          if ( !autoExposed )
                          {
-                             const double statedKey = key.has_value()  ? key.value()
+                             const double statedKey = key.has_value()    ? key.value()
                                                       : bias.has_value() ? kOldKey * std::exp2( bias.value() )
                                                                          : kOldKey;
                              const double scale =

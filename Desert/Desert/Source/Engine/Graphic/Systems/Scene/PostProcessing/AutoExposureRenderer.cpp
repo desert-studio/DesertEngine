@@ -187,10 +187,10 @@ namespace Desert::Graphic::System
             return Common::MakeError( "PostFX: AutoExposureAverage: the average pipeline is not initialised" );
         // 3) Resolve: percentile-clipped log average, clamped into the EV100 range, adapted in EV toward it at the
         //    up / down speed (UE's ComputeEyeAdaptation) -> newLum (1x1).
-        const EyeAdaptationParameters eye = ComputeEyeAdaptationParameters(
-             m_Settings.AutoExposureMinEV100, m_Settings.AutoExposureMaxEV100,
-             m_Settings.AutoExposureLowPercent, m_Settings.AutoExposureHighPercent, m_Settings.AutoExposureSpeedUp,
-             m_Settings.AutoExposureSpeedDown );
+        const EyeAdaptationParameters eye =
+             ComputeEyeAdaptationParameters( m_Settings.AutoExposureMinEV100, m_Settings.AutoExposureMaxEV100,
+                                             m_Settings.AutoExposureLowPercent, m_Settings.AutoExposureHighPercent,
+                                             m_Settings.AutoExposureSpeedUp, m_Settings.AutoExposureSpeedDown );
 
         const float forceTarget = m_SnapNextAdaptation ? 1.0f : 0.0f;
         m_SnapNextAdaptation    = false;

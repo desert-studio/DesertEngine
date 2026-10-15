@@ -138,7 +138,7 @@ namespace Desert::Graphic
     };
 
     // r.EyeAdaptation.ExponentialTransitionDistance's default.
-    inline constexpr float kEyeAdaptationStartDistance = 1.5f;
+    inline constexpr float         kEyeAdaptationStartDistance = 1.5f;
     inline EyeAdaptationParameters ComputeEyeAdaptationParameters( float minEV100, float maxEV100,
                                                                    float lowPercent, float highPercent,
                                                                    float speedUp, float speedDown )
@@ -158,15 +158,7 @@ namespace Desert::Graphic
         const float     upM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedUp ) ) * startTimeUp );
         const float downM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedDown ) ) * startTimeDown );
 
-        return { minAverage,
-                 maxAverage,
-                 low,
-                 high,
-                 speedUp,
-                 speedDown,
-                 upM,
-                 downM,
-                 kEyeAdaptationStartDistance };
+        return { minAverage, maxAverage, low, high, speedUp, speedDown, upM, downM, kEyeAdaptationStartDistance };
     }
 
     // The luminance a bin index stands for when the average is reconstructed — AEAverage's own formula.
