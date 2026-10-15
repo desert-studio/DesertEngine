@@ -214,6 +214,32 @@ namespace Desert::Graphic::API::Vulkan
             m_DescriptorSetLayouts[setIndex] = std::move( layout );
         }
 
+        // The bindless set's layout is the table's own (update-after-bind, variable count), shared by every
+        // pipeline that samples the table, so the one live table set binds to all of them. Reflection has already
+        // refused anything else declared in that set.
+        if ( m_ReflectionData.UsesBindlessTable )
+        {
+            const auto logicalDevice = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+            if ( kBindlessSetIndex >= m_DescriptorSetLayouts.size() )
+                m_DescriptorSetLayouts.resize( kBindlessSetIndex + 1 );
+            m_DescriptorSetLayouts[kBindlessSetIndex] = logicalDevice->GetBindlessTextureTable().GetLayout();
+        }
+
+        // A set the shader skips below one it uses gets an EMPTY layout: a pipeline layout cannot hold
+        // VK_NULL_HANDLE in pSetLayouts (RawHandles), and a pass allocates and binds sets 0..N-1 contiguously.
+        for ( size_t setIndex = 0; setIndex < m_DescriptorSetLayouts.size(); ++setIndex )
+        {
+            if ( m_DescriptorSetLayouts[setIndex] )
+                continue;
+            auto empty = std::make_shared<VulkanDescriptorSetLayout>(
+                 device, static_cast<uint32_t>( setIndex ), std::vector<VkDescriptorSetLayoutBinding>{},
+                 m_ShaderName );
+            if ( empty->Handle() == VK_NULL_HANDLE )
+                return Common::MakeFormattedError( "Shader '{}': empty descriptor set layout {} could not be created",
+                                                   m_ShaderName, setIndex );
+            m_DescriptorSetLayouts[setIndex] = std::move( empty );
+        }
+
         return BOOLSUCCESS;
     }
 

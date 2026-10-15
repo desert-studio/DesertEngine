@@ -170,6 +170,9 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
@@ -441,11 +444,23 @@ namespace Desert::Graphic::API::Vulkan
             using Sets = std::vector<VkDescriptorSet>;
             Sets sets;
             sets.reserve( layouts.size() );
+            // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
+            // bound as it is, and slots written into it later reach commands already recorded. A layout is the
+            // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
+            // table exists whenever this matches.
+            const VulkanBindlessTextureTable* bindless   = BindlessTableIn( layouts );
+            const auto                        isBindless = [bindless]( size_t set )
+            { return bindless != nullptr && set == kBindlessSetIndex; };
             for ( size_t index = 0; index < layouts.size(); ++index )
             {
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
+                if ( isBindless( index ) )
+                {
+                    sets.push_back( bindless->GetDescriptorSet() );
+                    continue;
+                }
                 const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
@@ -459,6 +474,11 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry.Slot.Set >= sets.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
                                                              pass, name, entry.Slot.Set, sets.size() );
+                if ( isBindless( entry.Slot.Set ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
+                         "through BindlessTextureTable::Register",
+                         pass, name, entry.Slot.Set );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
