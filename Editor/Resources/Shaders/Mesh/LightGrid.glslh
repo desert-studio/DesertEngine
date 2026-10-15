@@ -12,7 +12,7 @@
 //   (LightGridWorldLightsAt below).
 //
 // Binding-free: the includer declares the buffers (the parameters as `lightGrid`, the frustum cells as
-// `lightGridCells[]`; a reader of the world layout defines LIGHT_GRID_WORLD_CELLS as the name of its cell array).
+// `lightGridCells[]`; a reader of the world layout defines LIGHT_GRID_WORLD_CELLS as the name of its cell array — see the end).
 //
 // One index space for both kinds: i < Counts.x is point light i, otherwise spot light (i - Counts.x). The builder
 // walks the lights in that order, so a cell's list keeps the order the full loop summed them in.
@@ -130,7 +130,12 @@ uint LightGridWorldPoolBase( LightGridParams grid )
     return 1u + 2u * LightGridCellCount( grid );
 }
 
-#ifdef LIGHT_GRID_WORLD_CELLS
+#endif // LIGHT_GRID_GLSLH
+
+// THE WORLD READ, outside the guard above: a reader includes this file once for the struct, declares its world cell
+// buffer, defines LIGHT_GRID_WORLD_CELLS as that array's name and includes the file again.
+#if defined( LIGHT_GRID_WORLD_CELLS ) && !defined( LIGHT_GRID_WORLD_READ_GLSLH )
+#define LIGHT_GRID_WORLD_READ_GLSLH
 // THE LIGHTS AT A WORLD POINT — what lighting a GI hit iterates: for k < range.count, light LightGridWorldLight(k)
 // (the one index space above). A point past the coarsest clipmap, or in a cell the pool could not hold, gets every
 // light: slower, never wrong.
@@ -163,5 +168,3 @@ uint LightGridWorldLight( LightGridWorldRange range, uint k )
     return range.everyLight ? k : LIGHT_GRID_WORLD_CELLS[range.first + k];
 }
 #endif // LIGHT_GRID_WORLD_CELLS
-
-#endif // LIGHT_GRID_GLSLH

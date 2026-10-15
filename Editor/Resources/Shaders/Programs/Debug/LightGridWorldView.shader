@@ -23,7 +23,6 @@ Shader "LightGridWorldView"
 
     Fragment
     {
-        #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
         #include <Common/ReconstructPosition.glslh>
 
@@ -42,6 +41,9 @@ Shader "LightGridWorldView"
         {
         	uint lightGridWorldCells[];
         };
+        // The world read (LightGridWorldLightsAt), now that the cell array is declared.
+        #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
+        #include <Mesh/LightGrid.glslh>
 
         Out(0) vec4 oColor;
 
