@@ -1200,11 +1200,17 @@ namespace Desert::Graphic
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // Deferred SSR's trace (null / empty on Forward or with SSR off): its scene colour history is the scene
+        // copy the translucency below fills.
+        System::SSRRenderer* ssr = nullptr;
+        FrameSSR             ssrFrame;
+
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
-        // the post chain.
+        // the post chain. Forward shaded its opaque meshes in the base pass above.
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
-            auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
 
             AddFrameGBuffer( graph, textures, meshRenderer );
@@ -1224,13 +1230,12 @@ namespace Desert::Graphic
             // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
             // history, which this frame's scene copy below refills.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            System::SSRRenderer* const ssr =
-                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
-                           EnsureSSRResources()
-                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
-                      : nullptr;
-            const FrameSSR ssrFrame =
-                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+            ssr = m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
+                            EnsureSSRResources()
+                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                       : nullptr;
+            if ( ssr != nullptr )
+                ssrFrame = AddFrameSSR( graph, textures, *ssr, gbuffer, frame );
 
             RDG::TextureRef giAccum;
 
@@ -1251,7 +1256,15 @@ namespace Desert::Graphic
                                lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer );
             AddFrameSkinned( graph, textures, meshRenderer );
+        }
 
+        // THE SCENE'S TRANSLUCENT SURFACES, ON EVERY SHADING PATH (UE: the translucency renders after the opaque
+        // scene whatever the path - FDeferredShadingSceneRenderer and FMobileSceneRenderer alike). The opaque scene
+        // is complete in the scene target here (Forward: the base pass; Deferred: the composite and its forward
+        // passes); each path hands the nodes what it has - the scene view inputs (cascades, captures, the light
+        // grid and the local shadow atlas, neutral where a path has no producer) and, on Deferred with SSR, the
+        // SSR history the copy refills.
+        {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy

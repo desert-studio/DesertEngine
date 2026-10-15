@@ -2385,9 +2385,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Composite",
          "Deferred: Generic",
          "Deferred: Skinned",
-         "Deferred: SceneCopy",
-         "Deferred: Water",
-         "Deferred: Glass",
+         "Scene: ColorCopy",
+         "Scene: Water",
+         "Scene: Glass",
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
@@ -3182,7 +3182,7 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
     for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
+                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Scene: Glass\"",
                                "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
@@ -4526,7 +4526,7 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
             glassFlat += ' ';
     }
     EXPECT_NE( glassFlat.find( "m_GlassDraws.Declare( pass, view," ), std::string::npos )
-         << "Deferred: Glass no longer declares the scene/view inputs in its binding blocks";
+         << "Scene: Glass no longer declares the scene/view inputs in its binding blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGlassBindings( pass, sceneCopy, view );" ), std::string::npos );
 
     const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );

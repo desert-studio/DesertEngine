@@ -40,7 +40,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // SETUP of "Deferred: SceneCopy": the node's one block (block 0) - u_Input, the shader's only resource,
+        // SETUP of "Scene: ColorCopy": the node's one block (block 0) - u_Input, the shader's only resource,
         // so no other route. The sampler is the one the material route sampled the scene colour with (the
         // image's own: linear, REPEAT). Without a pipeline nothing is declared and Record refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef source ) const
@@ -56,7 +56,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
         {
             if ( !m_Pipeline )
-                return Common::MakeError( "Deferred: SceneCopy: the copy pipeline is not initialised" );
+                return Common::MakeError( "Scene: ColorCopy: the copy pipeline is not initialised" );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, nullptr );
         }

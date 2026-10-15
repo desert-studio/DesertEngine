@@ -422,10 +422,10 @@ namespace Desert::Graphic::System
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
-        // inside the "Deferred: Glass" graph node whose @p context this is and records the list
+        // inside the "Scene: Glass" graph node whose @p context this is and records the list
         // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
-        // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
+        // SETUP of the "Scene: Glass" node: the frame's translucent draw list, one binding block per cell (its
         // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
@@ -774,7 +774,7 @@ namespace Desert::Graphic::System
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
-        MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Scene: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"

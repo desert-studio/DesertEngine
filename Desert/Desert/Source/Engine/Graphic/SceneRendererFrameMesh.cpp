@@ -410,14 +410,14 @@ namespace Desert::Graphic
     {
         if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
-        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Scene: Glass" );
         if ( !targets )
             return;
         // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
         // its binding block, declared here (the block entries are the node's reads), resolved in the body.
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         AddRaster(
-             graph, "Deferred: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             graph, "Scene: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGlassManual( context ); },
              [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
@@ -430,13 +430,13 @@ namespace Desert::Graphic
         auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
         if ( water == nullptr || !water->HasDraws() )
             return;
-        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Scene: Water" );
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
         // depth, so the glass, the fog and the particles after it see the surface.
         AddRaster(
-             graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             graph, "Scene: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
              [water]( RDG::PassBuilder& pass ) { water->DeclareDraws( pass ); } );

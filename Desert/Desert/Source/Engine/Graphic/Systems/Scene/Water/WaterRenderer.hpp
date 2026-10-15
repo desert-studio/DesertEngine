@@ -25,8 +25,8 @@ namespace Desert::Graphic::System
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it
     // walks every submitted zone's quadtree from the main camera (Water::WaterQuadTree::Traverse: LOD by distance,
-    // frustum-culled), packs the selected tiles as rows of one storage buffer, and draws them in the deferred
-    // path's "Deferred: Water" node — after the scene-colour copy (the scene without water, which WATER-W7's
+    // frustum-culled), packs the selected tiles as rows of one storage buffer, and draws them in the "Scene: Water"
+    // node (Forward and Deferred alike) — after the scene-colour copy (the scene without water, which WATER-W7's
     // refraction reads) and before the glass — as one vertexless instanced draw per grid density
     // (WaterSurface.shader).
     class WaterRenderer final : public RenderSystem

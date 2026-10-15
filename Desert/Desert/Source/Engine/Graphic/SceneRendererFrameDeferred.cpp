@@ -628,7 +628,7 @@ namespace Desert::Graphic
         const auto desc = graph.GetTextureDesc( sceneColor.front() );
         if ( !desc )
         {
-            LOG_ERROR( "[SceneRenderer] Deferred: SceneCopy: {}", desc.GetError() );
+            LOG_ERROR( "[SceneRenderer] Scene: ColorCopy: {}", desc.GetError() );
             return {};
         }
         RDG::TextureDesc copyDesc          = desc.GetValue();
@@ -638,11 +638,11 @@ namespace Desert::Graphic
         copyDesc.Samples                   = 1;
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
-        // -> Deferred: Glass, Water; and, as SSR's scene colour history, next frame's Deferred: SSR
+        // -> Scene: Glass, Water; and, as SSR's scene colour history, next frame's Deferred: SSR
         // (u_SceneColor).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
-             "Deferred: SceneCopy", RDG::PassFlags::Raster,
+             "Scene: ColorCopy", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  // The copy samples attachment 0; the other scene-colour refs stay plain reads of the node.
