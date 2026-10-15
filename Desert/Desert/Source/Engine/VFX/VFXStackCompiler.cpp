@@ -273,11 +273,15 @@ namespace Desert::VFX
                  "{}: a stack module is a `Domain Particle` shader "
                  "with a Particle block",
                  where );
+        return ParseModuleBlock( meta.ParticleSource, where, true );
+    }
 
+    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where,
+                                                           const bool requireModuleFunction )
+    {
         VFXParticleModule     module;
         std::set<std::string> attributeNames;
         std::set<std::string> inputNames;
-        const std::string&    source = meta.ParticleSource;
         std::size_t           pos    = 0;
         while ( pos < source.size() )
         {
@@ -321,7 +325,7 @@ namespace Desert::VFX
             definesModule |= startOk && endOk;
             at += 6;
         }
-        if ( !definesModule )
+        if ( requireModuleFunction && !definesModule )
             return Common::MakeFormattedError<VFXParticleModule>(
                  "{}: the Particle block defines no `void Module( inout ParticleCtx p, inout VFXSim sim, in "
                  "ModuleInputs i )`",

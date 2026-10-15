@@ -58,6 +58,12 @@ namespace Desert::VFX
     Common::ResultStr<VFXParticleModule> ParseParticleModule( const std::string& shaderText,
                                                               std::string_view   where );
 
+    /// The inside of a module block: the `Attribute` / `Input` declaration lines, then the GLSL. One reader for
+    /// the `.shader` Particle block (ParseParticleModule) and the `.dfxmod` module asset (VFXModuleAsset.hpp).
+    /// @p requireModuleFunction is false only for a CPU module, which declares inputs and has no GLSL.
+    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where,
+                                                           bool requireModuleFunction );
+
     /// The GLSL spelling of a value type ("float", "vec3", "int", "bool"...).
     [[nodiscard]] std::string_view GlslTypeName( VFXValueType type );
 
