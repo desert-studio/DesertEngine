@@ -52,11 +52,13 @@ namespace Desert::Graphic::SurfaceCache
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // The captured layers this renderer owns (SurfaceCache::Layer Depth..Emissive).
-        static constexpr std::array<Layer, 5> kCapturedLayers{ Layer::Depth, Layer::Albedo, Layer::Opacity,
-                                                               Layer::Normal, Layer::Emissive };
-        // The lit layers of the direct lighting (GI-SURFACE-CACHE-4). IndirectLighting and the radiosity count
-        // arrive with the radiosity (the next task of the programme).
-        static constexpr std::array<Layer, 2> kLitLayers{ Layer::DirectLighting, Layer::FinalLighting };
+        static constexpr std::array<Layer, 5> kCapturedLayers{
+             Layer::Depth, Layer::Albedo, Layer::Opacity, Layer::Normal,
+             Layer::Emissive }; // The lit layers: the direct lighting (GI-SURFACE-CACHE-4), the indirect lighting
+                                // off the world radiance
+        // cache (GI-CARD-LOOKUP) and their combine. The radiosity count arrives with the radiosity probes.
+        static constexpr std::array<Layer, 3> kLitLayers{ Layer::DirectLighting, Layer::IndirectLighting,
+                                                          Layer::FinalLighting };
 
         // The frame's records as graph buffers, uploaded once and read by every pass of the frame.
         struct FrameBuffers
@@ -66,6 +68,7 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef MeshCards;
             RDG::BufferRef InstanceRows; // contract B3: the instance table
             RDG::BufferRef ObjectGrid;   // and the object grid of a software hit
+            RDG::BufferRef LightingPages; // the pages relit this frame (SceneFrame::LightingPages)
         };
         // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene
         // view inputs - cascades, cloud map, local shadow atlas -, the view's light buffers, the composite's
@@ -81,6 +84,19 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4                       LightDir{ 0.0f, -1.0f, 0.0f, 0.0f };
             glm::vec4                       LightColor{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
+            // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
+            // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
+            bool IndirectLighting = false;
+        };
+        // The world radiance cache of this frame, as the indirect lighting reads it (GlobalIllumination::
+        // RadianceCacheFrame: its read section, Common/RadianceCache.glslh RadianceCacheIrradianceAt).
+        struct IndirectLightingInputs
+        {
+            RDG::BufferRef  Params;
+            RDG::BufferRef  Indirection;
+            RDG::BufferRef  Probes;
+            RDG::TextureRef Irradiance;
+            RDG::TextureRef Depth;
         };
 
         // Shaders, the copy pipeline and the capture framebuffer.
@@ -114,10 +130,14 @@ namespace Desert::Graphic::SurfaceCache
         [[nodiscard]] GlobalIllumination::SurfaceCacheFrame HitReads( const ImportImage&  import,
                                                                       const FrameBuffers& buffers ) const;
         // UE LumenSceneDirectLighting: the frame's LightingPages relit into DirectLighting and FinalLighting.
-        [[nodiscard]] Common::BoolResultStr AddDirectLightingPass( RDG::Builder& graph, const ImportImage& import,
-                                                                   const SceneFrame&           frame,
-                                                                   const FrameBuffers&         buffers,
-                                                                   const DirectLightingInputs& inputs );
+        [[nodiscard]] Common::BoolResultStr AddDirectLightingPass(
+             RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame, const FrameBuffers& buffers,
+             const DirectLightingInputs& inputs ); // The radiosity slot (SurfaceCacheIndirectLighting.shader): the
+                                                   // frame's LightingPages take the radiance
+        // cache's irradiance as IndirectLighting and recombine FinalLighting. After the cache's update.
+        [[nodiscard]] Common::BoolResultStr
+        AddIndirectLightingPass( RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame,
+                                 const FrameBuffers& buffers, const IndirectLightingInputs& inputs );
         // "Surface Cache Atlas": the four captured layers, a quadrant each (albedo, normal, depth, opacity).
         [[nodiscard]] Common::BoolResultStr AddAtlasViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target );
@@ -142,7 +162,7 @@ namespace Desert::Graphic::SurfaceCache
         SurfaceCacheScene                                                     m_Scene;
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, 5>                               m_Layers;
-        std::array<std::shared_ptr<Image2D>, 2>                               m_LitLayers;
+        std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;
         std::shared_ptr<ComputePipeline>                                      m_CopyPipeline;
@@ -155,6 +175,9 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_LightingLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         GlobalIllumination::Pipeline                                          m_LightingProgramFor{};
+        std::shared_ptr<Shader>                                               m_IndirectShader;
+        mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
+        std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

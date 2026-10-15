@@ -173,7 +173,9 @@ namespace Desert::Graphic
             lighting.LightDir           = sun.Direction;
             lighting.LightColor         = sun.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
-            lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
+            // lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() ); The traced GI relights
+            // the pages' indirect term after its radiance cache update (AddFrameTracedGI).
+            lighting.IndirectLighting = RadianceCacheRuns();
             if ( const auto lit = m_SurfaceCache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {

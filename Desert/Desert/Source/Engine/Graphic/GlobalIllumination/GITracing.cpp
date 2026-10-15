@@ -45,8 +45,7 @@ namespace Desert::Graphic::GlobalIllumination
             return "the surface cache's card records were not uploaded this frame";
         if ( !frame.InstanceRows.IsValid() || !frame.ObjectGrid.IsValid() )
             return "the surface cache's instance table was not uploaded this frame";
-        if ( !frame.FinalLighting.IsValid() || !frame.Albedo.IsValid() || !frame.Depth.IsValid() ||
-             !frame.Opacity.IsValid() )
+        if ( !frame.FinalLighting.IsValid() || !frame.Depth.IsValid() || !frame.Opacity.IsValid() )
             return "the surface cache's atlas layers were not imported this frame";
         return {};
     }
@@ -60,8 +59,6 @@ namespace Desert::Graphic::GlobalIllumination
              .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
              .Storage( "SurfaceCacheObjectGridUB", frame.ObjectGrid, RDG::Access::StorageRead )
              .Sampled( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all,
-                       RDG::SamplerDesc::PointClamp() )
-             .Sampled( "u_SurfaceCacheAlbedo", frame.Albedo, RDG::Access::SampledCompute, all,
                        RDG::SamplerDesc::PointClamp() )
              .Sampled( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all,
                        RDG::SamplerDesc::PointClamp() )

@@ -473,7 +473,8 @@ namespace Desert::Graphic::SurfaceCache
                         const AtlasRect& rect = card.Pages[py * card.PagesX + px];
                         const glm::uvec2 offset( px * kVirtualPageSize, py * kVirtualPageSize );
                         CardPagePayload  page;
-                        page.Card       = glm::uvec4( cardIndex, 1u, 0u, 0u );
+                        // z = 1: captured this frame (its lit layers hold a stranger's texels until relit).
+                        page.Card       = glm::uvec4( cardIndex, 1u, capture != captured.end() ? 1u : 0u, 0u );
                         page.CardUVRect = glm::vec4( static_cast<float>( offset.x ) / card.ResX,
                                                      static_cast<float>( offset.y ) / card.ResY,
                                                      static_cast<float>( rect.Width ) / card.ResX,

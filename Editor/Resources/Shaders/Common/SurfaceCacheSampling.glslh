@@ -4,7 +4,7 @@
 // A TRACED HIT READ FROM THE SURFACE CACHE (GI-CARD-LOOKUP; UE LumenSurfaceCacheSampling.ush SampleLumenMeshCards /
 // EvaluateRayHitFromSurfaceCache). The C++ side is GlobalIllumination::SurfaceCacheFrame (GITracing.hpp) and the
 // records of Graphic/GlobalIllumination/SurfaceCache.hpp; the reads are declared here, at descriptor bindings
-// GI_SURFACE_CACHE_BINDING .. GI_SURFACE_CACHE_BINDING + 8, which the includer reserves and defines.
+// GI_SURFACE_CACHE_BINDING .. GI_SURFACE_CACHE_BINDING + 7, which the includer reserves and defines.
 //
 // WHICH CARDS (contract B3): a hit that names its instance row (the hardware tracer: the TLAS custom index) reads
 // that row of the instance table; a hit that does not (the software tracer: the global distance field has no
@@ -20,7 +20,7 @@
 #include <Common/SurfaceCache.glslh>
 
 #ifndef GI_SURFACE_CACHE_BINDING
-#error "SurfaceCacheSampling.glslh: define GI_SURFACE_CACHE_BINDING (the first of the surface cache's nine bindings)"
+#error "SurfaceCacheSampling.glslh: define GI_SURFACE_CACHE_BINDING (the first of the surface cache's eight bindings)"
 #endif
 
 layout( std430, binding = GI_SURFACE_CACHE_BINDING + 0 ) readonly buffer SurfaceCardBuffer
@@ -53,9 +53,8 @@ layout( std430, binding = GI_SURFACE_CACHE_BINDING + 4 ) readonly buffer Surface
     uint surfaceCacheGrid[];
 };
 layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform sampler2D u_SurfaceCacheFinalLighting;
-layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform sampler2D u_SurfaceCacheAlbedo;
-layout( binding = GI_SURFACE_CACHE_BINDING + 7 ) uniform sampler2D u_SurfaceCacheDepth;
-layout( binding = GI_SURFACE_CACHE_BINDING + 8 ) uniform sampler2D u_SurfaceCacheOpacity;
+layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform sampler2D u_SurfaceCacheDepth;
+layout( binding = GI_SURFACE_CACHE_BINDING + 7 ) uniform sampler2D u_SurfaceCacheOpacity;
 
 #define SURFACE_CACHE_GRID_HEADER 8u
 // Below this summed weight the cards hold too little of the hit to stand for it (UE: bValid needs a weight).
@@ -63,7 +62,6 @@ layout( binding = GI_SURFACE_CACHE_BINDING + 8 ) uniform sampler2D u_SurfaceCach
 
 struct SurfaceCacheHitSample {
     vec3  lighting; // weighted FinalLighting
-    vec3  albedo;   // weighted captured albedo
     float weight;
 };
 
@@ -121,7 +119,6 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
             if ( w <= 0.0 )
                 continue;
             acc.lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
-            acc.albedo += texelFetch( u_SurfaceCacheAlbedo, atlasTexel, 0 ).rgb * w;
             acc.weight += w;
         }
     }
@@ -138,12 +135,11 @@ void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float toleranc
     SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, tolerance, acc );
 }
 
-// The surface cache's radiance at @p hit (FinalLighting) and its albedo; false where no card holds the hit.
-bool SurfaceCacheHitLighting( GIHit hit, float tolerance, out vec3 lighting, out vec3 albedo )
+// The surface cache's radiance at @p hit (FinalLighting); false where no card holds the hit.
+bool SurfaceCacheHitLighting( GIHit hit, float tolerance, out vec3 lighting )
 {
     SurfaceCacheHitSample acc;
     acc.lighting = vec3( 0.0 );
-    acc.albedo   = vec3( 0.0 );
     acc.weight   = 0.0;
     if ( hit.instance != GI_NO_INSTANCE )
     {
@@ -170,11 +166,9 @@ bool SurfaceCacheHitLighting( GIHit hit, float tolerance, out vec3 lighting, out
     if ( acc.weight < SURFACE_CACHE_MIN_HIT_WEIGHT )
     {
         lighting = vec3( 0.0 );
-        albedo   = vec3( 0.0 );
         return false;
     }
     lighting = acc.lighting / acc.weight;
-    albedo   = acc.albedo / acc.weight;
     return true;
 }
 

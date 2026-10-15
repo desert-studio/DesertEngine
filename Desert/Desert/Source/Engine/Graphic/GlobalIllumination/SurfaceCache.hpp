@@ -115,7 +115,8 @@ namespace Desert::Graphic::SurfaceCache
     // One page of a card mapped into the atlas (UE FLumenPageTableEntry / LUMEN_CARD_PAGE_DATA_STRIDE). 80 bytes.
     struct CardPagePayload
     {
-        // x = card index, y = mapped (0/1), z = ResLevelPageTableOffset, w = ResLevelSizeInTiles (x | y << 16)
+        // x = card index, y = mapped (0/1), z = 1 when the card is captured this frame (its lit layers are not its
+        // own yet), w = 0
         glm::uvec4 Card{ 0u };
         glm::vec4  CardUVRect{ 0.0f };          // the page's rectangle in card UV
         glm::vec4  PhysicalAtlasUVRect{ 0.0f }; // the same rectangle in atlas UV

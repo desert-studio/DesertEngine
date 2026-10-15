@@ -28,16 +28,17 @@ namespace Desert::Graphic::SurfaceCache
                                                                 "u_AtlasNormal", "u_AtlasEmissive" };
         constexpr uint32_t kCopyGroup = 8; // Programs/SurfaceCache/SurfaceCacheCardCopy.shader LocalSize
 
-        constexpr std::array<std::string_view, 2> kLitLayerNames{ "SurfaceCache.DirectLighting",
-                                                                  "SurfaceCache.FinalLighting" };
+        constexpr std::array<std::string_view, 3> kLitLayerNames{
+             "SurfaceCache.DirectLighting", "SurfaceCache.IndirectLighting", "SurfaceCache.FinalLighting" };
 
         // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader SurfaceDirectLightingPush.
         struct DirectLightingPush
         {
-            glm::vec4 LightDir{ 0.0f };
-            glm::vec4 LightColor{ 0.0f };
+            glm::vec4  LightDir{ 0.0f };
+            glm::vec4  LightColor{ 0.0f };
+            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame)
         };
-        static_assert( sizeof( DirectLightingPush ) == 32 );
+        static_assert( sizeof( DirectLightingPush ) == 48 );
 
         struct SceneViewPush
         {
@@ -69,16 +70,36 @@ namespace Desert::Graphic::SurfaceCache
         m_SceneViewShader  = shaders->GetByName( "SurfaceCacheSceneView" );
         // The direct lighting is compiled per tracer (its shadow rays): EnsureLightingProgram, at its first pass.
         m_LightingShader = shaders->GetByName( "SurfaceCacheDirectLighting" );
-        for ( const auto& [shader, name] : { std::pair{ m_CopyShader.get(), "SurfaceCacheCardCopy" },
-                                             std::pair{ m_AtlasViewShader.get(), "SurfaceCacheAtlasView" },
-                                             std::pair{ m_SceneViewShader.get(), "SurfaceCacheSceneView" },
-                                             std::pair{ m_LightingShader.get(), "SurfaceCacheDirectLighting" } } )
+        m_IndirectShader = shaders->GetByName( "SurfaceCacheIndirectLighting" );
+        for ( const auto& [shader, name] :
+              { std::pair{ m_CopyShader.get(), "SurfaceCacheCardCopy" },
+                std::pair{ m_AtlasViewShader.get(), "SurfaceCacheAtlasView" },
+                std::pair{ m_SceneViewShader.get(), "SurfaceCacheSceneView" },
+                std::pair{ m_LightingShader.get(), "SurfaceCacheDirectLighting" },
+                std::pair{ m_IndirectShader.get(), "SurfaceCacheIndirectLighting" } } )
             if ( shader == nullptr )
                 return Common::MakeFormattedError<bool>( "surface cache: shader {} not found", name );
         auto pipeline = ComputePipeline::Create( { .Shader = m_CopyShader, .DebugName = "SurfaceCacheCardCopy" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
-        m_CopyPipeline = pipeline.GetValue();
+        m_CopyPipeline = pipeline.GetValue(); // The indirect lighting: one quad per relit page into
+                                              // IndirectLighting and FinalLighting.
+        {
+            GraphicsPipelineSpecification indirect;
+            indirect.DebugName = "SurfaceCacheIndirectLighting";
+            indirect.TargetLayout =
+                 RenderTargetLayout{ .ColorFormats = { kLayerFormats[static_cast<std::size_t>( kLitLayers[1] )],
+                                                       kLayerFormats[static_cast<std::size_t>( kLitLayers[2] )] },
+                                     .DepthFormat  = std::nullopt,
+                                     .Samples      = 1 };
+            indirect.Shader             = m_IndirectShader;
+            indirect.DepthTestEnabled   = false;
+            indirect.DepthWriteEnabled  = false;
+            const auto indirectPipeline = GraphicsPipeline::Create( indirect );
+            if ( !indirectPipeline )
+                return Common::MakeError<bool>( indirectPipeline.GetError() );
+            m_IndirectPipeline = indirectPipeline.GetValue();
+        }
 
         // The capture atlas: the RSM's slots (the light-view permutation's outputs), its own fixed side.
         FramebufferSpecification spec;
@@ -285,7 +306,7 @@ namespace Desert::Graphic::SurfaceCache
                 opacity = layer;
         }
         // The Lit view shows the cards' FinalLighting where the Cards view shows their albedo.
-        const RDG::TextureRef color = lit ? import( m_LitLayers[1], kLitLayerNames[1] ) : albedo;
+        const RDG::TextureRef color = lit ? import( m_LitLayers[2], kLitLayerNames[2] ) : albedo;
         SceneViewPush         push;
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
@@ -325,11 +346,12 @@ namespace Desert::Graphic::SurfaceCache
     SurfaceCacheRenderer::FrameBuffers SurfaceCacheRenderer::UploadRecords( RDG::Builder&     graph,
                                                                             const SceneFrame& frame ) const
     {
-        return { .Cards        = UploadBuffer( graph, frame.Cards, "SurfaceCache.Cards" ),
-                 .Pages        = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" ),
-                 .MeshCards    = UploadBuffer( graph, frame.MeshCards, "SurfaceCache.MeshCards" ),
-                 .InstanceRows = UploadBuffer( graph, frame.InstanceRows, "SurfaceCache.InstanceRows" ),
-                 .ObjectGrid   = UploadBuffer( graph, frame.ObjectGrid, "SurfaceCache.ObjectGrid" ) };
+        return { .Cards         = UploadBuffer( graph, frame.Cards, "SurfaceCache.Cards" ),
+                 .Pages         = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" ),
+                 .MeshCards     = UploadBuffer( graph, frame.MeshCards, "SurfaceCache.MeshCards" ),
+                 .InstanceRows  = UploadBuffer( graph, frame.InstanceRows, "SurfaceCache.InstanceRows" ),
+                 .ObjectGrid    = UploadBuffer( graph, frame.ObjectGrid, "SurfaceCache.ObjectGrid" ),
+                 .LightingPages = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" ) };
     }
 
     GlobalIllumination::SurfaceCacheFrame SurfaceCacheRenderer::HitReads( const ImportImage&  import,
@@ -344,9 +366,8 @@ namespace Desert::Graphic::SurfaceCache
         reads.InstanceRows  = buffers.InstanceRows;
         reads.ObjectGrid    = buffers.ObjectGrid;
         reads.Depth         = import( m_Layers[0], kLayerNames[0] );
-        reads.Albedo        = import( m_Layers[1], kLayerNames[1] );
         reads.Opacity       = import( m_Layers[2], kLayerNames[2] );
-        reads.FinalLighting = import( m_LitLayers[1], kLitLayerNames[1] );
+        reads.FinalLighting = import( m_LitLayers[2], kLitLayerNames[2] );
         return reads;
     }
 
@@ -368,7 +389,7 @@ namespace Desert::Graphic::SurfaceCache
              std::format( "SurfaceCacheDirectLighting ({})", GlobalIllumination::TracerDefine( tracer.Tracer ) );
         lighting.TargetLayout =
              RenderTargetLayout{ .ColorFormats = { kLayerFormats[static_cast<std::size_t>( kLitLayers[0] )],
-                                                   kLayerFormats[static_cast<std::size_t>( kLitLayers[1] )] },
+                                                   kLayerFormats[static_cast<std::size_t>( kLitLayers[2] )] },
                                  .DepthFormat  = std::nullopt,
                                  .Samples      = 1 };
         lighting.Shader            = shader;
@@ -409,8 +430,9 @@ namespace Desert::Graphic::SurfaceCache
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
         const RDG::TextureRef direct   = import( m_LitLayers[0], kLitLayerNames[0] );
-        const RDG::TextureRef finalLit = import( m_LitLayers[1], kLitLayerNames[1] );
-        const RDG::BufferRef  relit    = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" );
+        const RDG::TextureRef indirect = import( m_LitLayers[1], kLitLayerNames[1] );
+        const RDG::TextureRef finalLit = import( m_LitLayers[2], kLitLayerNames[2] );
+        const RDG::BufferRef  relit    = buffers.LightingPages;
         const RDG::BufferRef shadow = UploadBuffer( graph, std::vector{ inputs.Shadow }, "SurfaceCache.ShadowUB" );
         const RDG::BufferRef cloud =
              UploadBuffer( graph, std::vector{ inputs.Cloud }, "SurfaceCache.CloudShadowUB" );
@@ -418,6 +440,7 @@ namespace Desert::Graphic::SurfaceCache
         DirectLightingPush push;
         push.LightDir                 = inputs.LightDir;
         push.LightColor               = inputs.LightColor;
+        push.Flags.x                  = inputs.IndirectLighting ? 1u : 0u;
         GraphicsPipeline* const raw   = m_LightingPipeline.get();
         const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
         graph.AddPass(
@@ -443,6 +466,8 @@ namespace Desert::Graphic::SurfaceCache
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 block.Sampled( "u_AtlasIndirectLighting", indirect, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
@@ -458,6 +483,60 @@ namespace Desert::Graphic::SurfaceCache
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 // Six vertices per relit page (its atlas rectangle), one instance per page.
+                 return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
+             } );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SurfaceCacheRenderer::AddIndirectLightingPass( RDG::Builder&                 graph,
+                                                                         const ImportImage&            import,
+                                                                         const SceneFrame&             frame,
+                                                                         const FrameBuffers&           buffers,
+                                                                         const IndirectLightingInputs& inputs )
+    {
+        if ( frame.LightingPages.empty() )
+            return BOOLSUCCESS;
+        if ( !inputs.Params.IsValid() || !inputs.Indirection.IsValid() || !inputs.Probes.IsValid() ||
+             !inputs.Irradiance.IsValid() || !inputs.Depth.IsValid() )
+            return Common::MakeError<bool>(
+                 "surface cache indirect lighting: the world radiance cache was not updated this frame" );
+        std::array<RDG::TextureRef, 5> layers;
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+            layers[i] = import( m_Layers[i], kLayerNames[i] );
+        const RDG::TextureRef   direct   = import( m_LitLayers[0], kLitLayerNames[0] );
+        const RDG::TextureRef   indirect = import( m_LitLayers[1], kLitLayerNames[1] );
+        const RDG::TextureRef   finalLit = import( m_LitLayers[2], kLitLayerNames[2] );
+        GraphicsPipeline* const raw      = m_IndirectPipeline.get();
+        const uint32_t          count    = static_cast<uint32_t>( frame.LightingPages.size() );
+        const auto              all      = RDG::SubresourceRange::All();
+        graph.AddPass(
+             std::format( "SurfaceCache: Indirect Lighting ({} pages)", count ), RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 const auto& layout = m_IndirectLayout.Get( m_IndirectShader );
+                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 block.Storage( "SurfaceCardBuffer", buffers.Cards, RDG::Access::StorageRead )
+                      .Storage( "SurfaceCardPageBuffer", buffers.Pages, RDG::Access::StorageRead )
+                      .Storage( "SurfaceLightingPages", buffers.LightingPages, RDG::Access::StorageRead )
+                      .Storage( "RadianceCacheParamsUB", inputs.Params, RDG::Access::StorageRead )
+                      .Storage( "RadianceCacheIndirectionUB", inputs.Indirection, RDG::Access::StorageRead )
+                      .Storage( "RadianceCacheProbesUB", inputs.Probes, RDG::Access::StorageRead )
+                      .Sampled( "u_RadianceCacheIrradiance", inputs.Irradiance, RDG::Access::SampledGraphics, all,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Sampled( "u_RadianceCacheDepth", inputs.Depth, RDG::Access::SampledGraphics, all,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Sampled( "u_AtlasDirectLighting", direct, RDG::Access::SampledGraphics, all,
+                                RDG::SamplerDesc::PointClamp() );
+                 for ( std::size_t i = 0; i < layers.size(); ++i )
+                     block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics, all,
+                                    RDG::SamplerDesc::PointClamp() );
+                 pass.ColorTarget( 0, indirect, RDG::LoadOp::Load() );
+                 pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
+             },
+             [raw, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  // Six vertices per relit page (its atlas rectangle), one instance per page.
                  return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
              } );

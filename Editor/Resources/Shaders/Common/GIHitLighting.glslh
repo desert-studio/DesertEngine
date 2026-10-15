@@ -5,9 +5,8 @@
 //
 //   cards    FIRST, the surface cache (GI-CARD-LOOKUP; UE LumenSurfaceCacheSampling.ush, the hit read from the
 //            cards: LightingFromSurfaceCache): the FinalLighting of the card texels at the hit
-//            (Common/SurfaceCacheSampling.glslh — the instance table and object grid of contract B3), plus the
-//            next bounce: the card albedo x the radiance cache's irradiance at the hit, which the cards' radiosity
-//            replaces when it lands (FinalLighting holds direct light + emissive until then);
+//            (Common/SurfaceCacheSampling.glslh — the instance table and object grid of contract B3): direct light,
+//            the indirect of the radiosity slot (SurfaceCacheIndirectLighting.shader) and emissive — one fetch;
 //   in place where no card holds the hit (GI_NO_MESH_CARDS: no cards built, none resident — small and far meshes
 //            — or a coverage hole), or under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only): a port of UE Lumen's
 //            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
@@ -25,7 +24,7 @@
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
 // u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, includes the tracer (Common/GITracer.glslh),
-// and defines GI_SURFACE_CACHE_BINDING (the surface cache's nine bindings). Nothing here knows which tracer that is.
+// and defines GI_SURFACE_CACHE_BINDING (the surface cache's eight bindings). Nothing here knows which tracer that is.
 
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
@@ -69,13 +68,9 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
         vec3 cardLighting;
-        vec3 cardAlbedo;
         if ( SurfaceCacheHitLighting( hit, GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance,
-                                      cardLighting, cardAlbedo ) )
-        {
-            const vec4 cardBounce = RadianceCacheIrradianceAt( hit.position, hit.normal, -rayDirection, 0.5 );
-            return cardLighting + cardAlbedo * max( cardBounce.rgb, vec3( 0.0 ) );
-        }
+                                      cardLighting ) )
+            return cardLighting;
     }
 #endif
     vec3 albedo;

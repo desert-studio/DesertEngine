@@ -9,8 +9,9 @@
 // Mesh/LocalLightShadow.glslh), so a card cannot be lit by a different formula than the surface it holds.
 //
 // Two targets, both R11G11B10F atlas layers: DirectLighting = the irradiance (sum of radiance x cos x shadow, UE
-// stores the same), FinalLighting = albedo / PI x (direct + indirect) + emissive (UE CombineLumenSceneLighting,
-// Diffuse_Lambert). Indirect (radiosity) is the next task of the programme and is zero until then.
+// stores the same), FinalLighting = albedo / PI x direct + albedo x indirect + emissive (UE CombineLumenSceneLighting,
+// Diffuse_Lambert), indirect = the page's IndirectLighting layer as SurfaceCacheIndirectLighting.shader last wrote it
+// (already / PI); zero on a page captured this frame (its layer holds a stranger's texels until that pass runs).
 //
 // One instance per page to relight: six vertices cover the page's rectangle of the atlas; the fragment works out
 // its card texel from the page's card rectangle. A texel the capture saw no surface in (opacity 0) is unlit.
@@ -43,10 +44,12 @@ Shader "SurfaceCacheDirectLighting"
         layout(location = 0) out flat uint v_CardIndex;
         layout(location = 1) out flat vec4 v_CardUVRect;
         layout(location = 2) out flat vec4 v_AtlasUVRect;
+        layout(location = 3) out flat uint v_Captured;
 
         void main()
         {
             const SurfaceCardPage page    = surfaceCardPages[lightingPages[gl_InstanceIndex]];
+            v_Captured    = page.card.z; // 1: captured this frame (SurfaceCacheScene::Update)
             const vec2            corners[6] = vec2[6](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
                                                        vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
             const vec2 uv = page.physicalAtlasUVRect.xy + corners[gl_VertexIndex] * page.physicalAtlasUVRect.zw;
@@ -116,14 +119,17 @@ Shader "SurfaceCacheDirectLighting"
         #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
 
+        // The indirect light the page last received (SurfaceCacheIndirectLighting.shader).
+        Uniform(26) sampler2D u_AtlasIndirectLighting;
+
         // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..25.
         #define GI_TRACER_BINDING 21
         #include <Common/GITracer.glslh>
 
         PushConstant SurfaceDirectLightingPush
         {
-            vec4 u_LightDir;   // xyz = the direction the sun's light travels
-            vec4 u_LightColor; // rgb = colour, a = intensity
+            vec4 u_LightDir;   // xyz = the direction the sun's light travels            vec4  u_LightColor; // rgb = colour, a = intensity
+            uvec4 u_Flags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting)
         };
 
         // The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a visibility ray
@@ -155,6 +161,7 @@ Shader "SurfaceCacheDirectLighting"
         layout(location = 0) in flat uint v_CardIndex;
         layout(location = 1) in flat vec4 v_CardUVRect;
         layout(location = 2) in flat vec4 v_AtlasUVRect;
+        layout(location = 3) in flat uint v_Captured;
         Out(0) vec4 oDirect;
         Out(1) vec4 oFinal;
 
@@ -243,7 +250,9 @@ Shader "SurfaceCacheDirectLighting"
             const vec3 albedo   = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;
             const vec3 emissive = texelFetch(u_AtlasEmissive, atlasTexel, 0).rgb;
             oDirect = vec4(irradiance, 0.0);
-            oFinal  = vec4(albedo / PI * irradiance + emissive, 0.0);
+            const vec3 indirect =
+                 (v_Captured != 0u || u_Flags.x == 0u) ? vec3(0.0) : texelFetch(u_AtlasIndirectLighting, atlasTexel, 0).rgb;
+            oFinal  = vec4(albedo / PI * irradiance + albedo * indirect + emissive, 0.0);
         }
     }
 }

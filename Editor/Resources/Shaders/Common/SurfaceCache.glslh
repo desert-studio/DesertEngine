@@ -25,7 +25,7 @@ struct SurfaceCard {
 
 // std430 — must match SurfaceCache::CardPagePayload (80 bytes).
 struct SurfaceCardPage {
-    uvec4 card;                // x = card index, y = mapped, z = ResLevelPageTableOffset, w = ResLevelSizeInTiles
+    uvec4 card;                // x = card index, y = mapped, z = 1 when captured this frame, w = 0
     vec4  cardUVRect;          // the page in card UV
     vec4  physicalAtlasUVRect; // the page in atlas UV
     vec4  texelScale;          // xy = card UV texel scale, zw = atlas UV texel scale
