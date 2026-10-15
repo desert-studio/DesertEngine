@@ -366,11 +366,15 @@ namespace Desert::Graphic::API::Vulkan
             // window -> device -> context: by the time the context is destroyed this device is already
             // gone, so a release there would free device children through a destroyed device. Every owner
             // that queues work — the swapchain included — has already run by the time we get here.
+            // The table's own missing texture goes while the context can still retire its image.
+            if ( m_Bindless )
+                m_Bindless->ReleaseMissingTexture();
             if ( const auto context = EngineContext::GetInstance().GetRendererContext() )
                 context->Shutdown();
 
             // Every texture, slot and graph pass that held a sampler is gone with the content released above;
-            // the samplers themselves are the device's, so they go here, last before the device.
+            // the table's sets name those samplers, so it goes first; the samplers last before the device.
+            m_Bindless.reset();
             m_Samplers.reset();
 
             if ( m_PipelineCache != VK_NULL_HANDLE )
@@ -440,6 +444,22 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( m_Samplers != nullptr,
                        "GetSamplerCache: the device was not created or is already destroyed" );
         return *m_Samplers;
+    }
+
+    VulkanBindlessTextureTable& VulkanLogicalDevice::GetBindlessTextureTable()
+    {
+        if ( m_Bindless )
+            return *m_Bindless;
+        DESERT_VERIFY( m_LogicalDevice != VK_NULL_HANDLE,
+                       "GetBindlessTextureTable: the device was not created or is already destroyed" );
+        const DescriptorIndexingLimits& limits = m_PhysicalDevice->GetDeviceCaps().DescriptorIndexing;
+        const uint32_t ceiling = BindlessCapacityCeiling( kBindlessInitialTextureCapacity, limits.SampledImageCeiling() );
+        // Published before Initialize: the missing texture registers itself through this getter.
+        m_Bindless = std::make_unique<VulkanBindlessTextureTable>( m_LogicalDevice, ceiling, &AcquireSlotSampler );
+        const auto initialized = m_Bindless->Initialize();
+        DESERT_VERIFY( initialized.IsSuccess(), "{}",
+                       initialized.IsSuccess() ? std::string{} : initialized.GetError() );
+        return *m_Bindless;
     }
 
     VulkanSamplerCache& EngineSamplerCache()
@@ -660,4 +680,28 @@ namespace Desert::Graphic::API::Vulkan
         return VK_FORMAT_UNDEFINED;
     }
 
+
+    namespace
+    {
+        VulkanLogicalDevice* EngineVulkanDevice()
+        {
+            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() ).get();
+        }
+    } // namespace
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic
+{
+    BindlessTextureTable& GetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        DESERT_VERIFY( device != nullptr, "GetBindlessTextureTable: no engine device" );
+        return device->GetBindlessTextureTable();
+    }
+
+    BindlessTextureTable* TryGetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        return device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+    }
+} // namespace Desert::Graphic

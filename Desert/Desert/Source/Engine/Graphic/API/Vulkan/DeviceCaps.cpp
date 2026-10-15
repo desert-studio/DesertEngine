@@ -177,12 +177,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( caps.Has( Capability::DescriptorIndexing ) )
         {
             const DescriptorIndexingLimits& limits = caps.DescriptorIndexing;
-            if ( limits.SampledImageCeiling() < kBindlessInitialTextureCapacity )
+            // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
+            if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
             {
                 if ( !missing.empty() )
                     missing += ", ";
                 missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
-                                        kBindlessInitialTextureCapacity,
+                                        2 * kBindlessInitialTextureCapacity,
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
                                         limits.MaxSetUpdateAfterBindSampledImages );
             }

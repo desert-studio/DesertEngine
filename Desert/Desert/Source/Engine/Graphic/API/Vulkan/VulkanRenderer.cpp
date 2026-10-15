@@ -170,6 +170,9 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
