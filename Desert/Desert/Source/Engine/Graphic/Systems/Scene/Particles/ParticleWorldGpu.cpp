@@ -173,9 +173,13 @@ namespace Desert::Graphic::System
         auto params = VFX::BuildEmitterParams( compiled.GetValue(), system, index, curves.GetValue() );
         if ( !params.IsSuccess() )
             return refuse( params.GetError() );
+        auto userRows = VFX::UserParamRowsOf( compiled.GetValue(), system );
+        if ( !userRows.IsSuccess() )
+            return refuse( userRows.GetError() );
         const auto source = StackHostSource( compiled.GetValue() );
         if ( !source.IsSuccess() )
             return refuse( source.GetError() );
+        gpu.UserRows = std::move( userRows.GetValue() );
 
         gpu.Pipeline = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
         if ( !gpu.Pipeline )
@@ -289,6 +293,8 @@ namespace Desert::Graphic::System
                      offset += gpu.Capacity;
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
+                     // This placement's User.* values (VFXWorld resolved the component's overrides this tick).
+                     VFX::ApplyUserParamRows( gpu.ParamRows, gpu.UserRows, instances->User );
                      if ( !PrepareEmitter( gpu, *instance, range, entityId, worldPos, stepSeconds, stepSerial ) )
                          continue;
                  }

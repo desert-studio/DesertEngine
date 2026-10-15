@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/VFX/VFXUserParams.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
@@ -123,6 +125,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
         ParticleDrawLayoutGpu                           DrawColumns;
         std::vector<glm::vec4>                          ParamRows;
+        // VFX-PARAMS: the User rows of ParamRows, rewritten each tick from the instance's resolved User values.
+        std::vector<VFX::VFXUserParamRow>               UserRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;

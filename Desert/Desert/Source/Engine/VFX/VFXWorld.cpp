@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -131,6 +132,19 @@ namespace Desert::VFX
                      }
                  }
                  system.Seen = true;
+
+                 // The placed system's User.* values for this tick: what Details, VFX.setParam and a Sequencer
+                 // VFX parameter track wrote into the component, over the system's defaults.
+                 VFXResolvedUserParams user = ResolveUserParams( *data, vfx.Data.UserParams );
+                 if ( user.Unknown != system.UnknownUser )
+                 {
+                     for ( const std::string& name : user.Unknown )
+                         LOG_ERROR( "[VFX] entity {} overrides user parameter '{}', which the system does not "
+                                    "declare (renamed or removed there); the override is not applied",
+                                    uuid, name );
+                     system.UnknownUser = std::move( user.Unknown );
+                 }
+                 system.User = std::move( user.Values );
 
                  // The editor's Restart: this system alone starts over.
                  if ( vfx.RequestRestart )
