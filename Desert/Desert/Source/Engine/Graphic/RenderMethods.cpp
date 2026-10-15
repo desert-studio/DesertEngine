@@ -98,8 +98,8 @@ namespace Desert::Graphic
         out.Reflections = ResolveAxis( post.ReflectionsMethod,
                                        quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), rayQuery,
                                        gBuffer );
-        out.Shadows =
-             ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), rayQuery, gBuffer );
+        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
+                                   rayQuery, gBuffer );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
