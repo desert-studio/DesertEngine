@@ -4,6 +4,7 @@
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <string_view>
 
@@ -53,6 +54,8 @@ namespace Desert::Graphic
                     return "TAA";
                 case TemporalMethod::TAAU:
                     return "TAAU";
+                case TemporalMethod::DLSS:
+                    return "DLSS";
             }
             return "<unknown TemporalMethod>";
         }
@@ -256,6 +259,7 @@ namespace Desert::Graphic
 
         ViewFrame f;
         f.FrameIndex = m_HasCommitted ? m_Committed.FrameIndex + 1 : 0;
+        f.ViewKey    = m_ViewKey;
         f.Split      = split.GetValue();
         f.Method     = method.GetValue();
         f.Quality    = inputs.Quality;
@@ -352,5 +356,16 @@ namespace Desert::Graphic
     uint64_t SceneViewState::HeldBytes() const
     {
         return m_History.HeldBytes();
+    }
+
+    uint32_t SceneViewState::NextViewKey()
+    {
+        // 0 is "no view state", skipped when the counter wraps. A key is only compared among views alive together,
+        // and an SDK feature of a long-dead view is freed by age long before 2^32 more views exist.
+        static std::atomic<uint32_t> s_Next{ 1 };
+        uint32_t                     key = 0;
+        while ( key == 0 )
+            key = s_Next.fetch_add( 1, std::memory_order_relaxed );
+        return key;
     }
 } // namespace Desert::Graphic

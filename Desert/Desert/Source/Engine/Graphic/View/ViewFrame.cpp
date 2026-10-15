@@ -18,6 +18,13 @@ namespace Desert::Graphic
         // memory (the blend forgets a sample before the sequence comes back to it).
         constexpr uint32_t kMaxJitterSequenceLength = 64;
 
+        // DLSS has an implementation only where Streamline is built (Windows: premake defines DESERT_WITH_STREAMLINE).
+#if defined( DESERT_WITH_STREAMLINE )
+        constexpr bool kDlssInThisBuild = true;
+#else
+        constexpr bool kDlssInThisBuild = false;
+#endif
+
         [[nodiscard]] std::string_view UpscalerName( const Scal::Upscaler upscaler )
         {
             switch ( upscaler )
@@ -121,6 +128,8 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
+            if ( upscaler == Scal::Upscaler::DLSS && kDlssInThisBuild )
+                return Common::MakeSuccess( TemporalMethod::DLSS );
             // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
             // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
             if ( upscaler == Scal::Upscaler::Spatial )
@@ -159,8 +168,13 @@ namespace Desert::Graphic
             case Scal::AntiAliasingMethod::SMAA:
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
-            case Scal::AntiAliasingMethod::FSRNative:
+            // DLSS's network at output size; never on a supersampled split (Scalability Resolve demotes it there,
+            // and the DLSS implementation's Supports refuses one).
             case Scal::AntiAliasingMethod::DLAA:
+                if ( kDlssInThisBuild )
+                    return Common::MakeSuccess( TemporalMethod::DLSS );
+                break;
+            case Scal::AntiAliasingMethod::FSRNative:
                 break;
         }
         return Common::MakeFormattedError<TemporalMethod>(
@@ -178,7 +192,10 @@ namespace Desert::Graphic
                 return 0;
             case TemporalMethod::TAA:
                 return kJitterSamplesPerOutputPixel;
+            // DLSS: NVIDIA's rule is UE's TAAU rule (8 phases per output pixel, the render/output pixel ratio
+            // times it), so it shares TAAU's sequence length below.
             case TemporalMethod::TAAU:
+            case TemporalMethod::DLSS:
                 break;
         }
 

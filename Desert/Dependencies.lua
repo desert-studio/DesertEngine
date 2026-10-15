@@ -166,6 +166,31 @@ end
 -- MSVC, both of which ccache hashes: five premake runs over the same tree gave five orders and therefore
 -- five cache keys for every engine object. Integer keys (a list such as getVulkanLibs' result) come first
 -- in their own order, then names in byte order, so the generated project files are identical run to run.
+-- NVIDIA STREAMLINE (DLSS Super Resolution), Windows only: the SDK release vendored under ThirdParty/Streamline
+-- (VERSION names it). The engine compiles against its headers (Desert/Desert/premake5.lua) and LOADS
+-- sl.interposer.dll at run time from the executable's directory (Graphic/API/Vulkan/Streamline/StreamlineRuntime):
+-- nothing links it, so a machine without it starts and simply has no DLSS. These are the files that run, next
+-- to every executable that renders, plus NVIDIA's redistribution licence the DLSS runtime requires shipped with it.
+DesertStreamlineRedistributables = {
+    "sl.interposer.dll",
+    "sl.common.dll",
+    "sl.dlss.dll",
+    "nvngx_dlss.dll",
+    "nvngx_dlss.license.txt",
+}
+
+-- Called inside an executable's project: copies DesertStreamlineRedistributables into its target directory
+-- after the link (Windows only).
+function DesertCopyStreamlineRuntime()
+    filter "system:windows"
+        for _, file in ipairs(DesertStreamlineRedistributables) do
+            postbuildcommands {
+                '{COPYFILE} "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/bin/x64/' .. file .. '" "%{cfg.targetdir}"',
+            }
+        end
+    filter {}
+end
+
 function DesertSortedPairs(t)
     local keys = {}
     for key in pairs(t) do

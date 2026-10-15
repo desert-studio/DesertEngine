@@ -310,6 +310,9 @@ namespace Desert::Graphic
         [[nodiscard]] uint64_t HeldBytes() const;
 
     private:
+        // A process-unique, never-zero key per SceneViewState (ViewFrame::ViewKey).
+        [[nodiscard]] static uint32_t NextViewKey();
+
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;                     // returned by the last BeginFrame, committed by EndFrame
         ViewFrame       m_Committed;                   // the previous frame
@@ -319,6 +322,7 @@ namespace Desert::Graphic
         uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;
+        const uint32_t  m_ViewKey                 = NextViewKey(); // ViewFrame::ViewKey
         TemporalHistory m_History;
         MotionHistory   m_Motion;
     };

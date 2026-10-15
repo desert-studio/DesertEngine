@@ -20,6 +20,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 
 #include <algorithm> // std::max — largest device-local heap
 #include <array>
@@ -195,6 +196,11 @@ namespace Desert::Graphic::API::Vulkan
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+
+        // A platform runtime enables what it needs on the chosen device before the catalog is probed from it and
+        // before vkCreateDevice (VulkanDeviceExtensions.hpp).
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnPhysicalDeviceSelected( VulkanContext::GetVulkanInstance(), *probed.GetValue().Physical );
 
         auto physical = VulkanPhysicalDevice::Create( probed.ExtractValue() );
         if ( !physical )
@@ -373,6 +379,10 @@ namespace Desert::Graphic::API::Vulkan
             // the samplers themselves are the device's, so they go here, last before the device.
             m_Samplers.reset();
 
+            // The GPU is idle (above): a platform runtime releases what it made on this device while it exists.
+            for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+                extension->OnDeviceDestroying();
+
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
                 // The pipelines built since the last in-run write (PersistPipelineCache is throttled).
@@ -428,6 +438,17 @@ namespace Desert::Graphic::API::Vulkan
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );
+
+        VulkanDeviceHandles handles;
+        handles.Instance              = VulkanContext::GetVulkanInstance();
+        handles.PhysicalDevice        = m_PhysicalDevice->GetBootstrapDevice().physical_device;
+        handles.Device                = m_LogicalDevice;
+        handles.GraphicsFamily        = graphics;
+        handles.ComputeFamily         = compute;
+        handles.GraphicsQueuesCreated = 1;
+        handles.ComputeQueuesCreated  = 1;
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnDeviceCreated( handles );
 
         CreatePipelineCache();
         m_Samplers = std::make_unique<VulkanSamplerCache>( m_LogicalDevice );

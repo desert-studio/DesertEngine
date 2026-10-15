@@ -169,14 +169,14 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's, minus the vendor temporal methods (FSRNative / DLAA): no pass runs
-            // them in this build, so offering them would be a dead setting. TAA runs (TAA1-B) and is the method
-            // that lets Resolution.Percent go below 100 %.
+            // MSAA. The list is the catalog's, minus FSRNative: no pass runs it in this build, so offering it would be
+            // a dead setting. DLAA runs where the catalog offers it (Windows, NVIDIA RTX, Streamline's DLSS ready).
+            // TAA runs (TAA1-B) and is the method that lets Resolution.Percent go below 100 %.
             std::vector<SC::AntiAliasingMethod> methods;
             for ( const SC::AntiAliasingMethod method : catalog.AntiAliasingMethods )
                 if ( method == SC::AntiAliasingMethod::None || method == SC::AntiAliasingMethod::FXAA ||
                      method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA ||
-                     method == SC::AntiAliasingMethod::TAA )
+                     method == SC::AntiAliasingMethod::TAA || method == SC::AntiAliasingMethod::DLAA )
                     methods.push_back( method );
 
             const auto requestedMethod =

@@ -58,16 +58,17 @@ namespace Desert::Graphic
     // ---- The temporal method of this frame -------------------------------------------------------------
     //
     // What resolves the frame's samples over time, derived from the two SCAL1 axes after
-    // ResolveAntiAliasingForPath. Vendor upscalers are not named here: they arrive as further ITemporalUpscaler
-    // implementations behind Common::Scalability::Upscaler, and SelectTemporalMethod refuses a value with no
-    // implementation (it is never offered by CapabilityCatalog until one exists, so reaching it means the catalog
-    // and the build disagree).
+    // ResolveAntiAliasingForPath. A vendor upscaler is one value here per ITemporalUpscaler implementation behind
+    // Common::Scalability::Upscaler, and SelectTemporalMethod refuses a value with no implementation (it is never
+    // offered by CapabilityCatalog until one exists, so reaching it means the catalog and the build disagree).
     enum class TemporalMethod : uint8_t
     {
         None, // FXAA / SMAA / MSAA / None at Native or Supersample, and None / FXAA / SMAA under Upscaler
               // Spatial below 100 %: no jitter, no history, no temporal pass
         TAA,  // AntiAliasingMethod::TAA at Native or Supersample: same-extent temporal resolve
         TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
+        DLSS, // Upscaler::DLSS below 100 % and AntiAliasingMethod::DLAA at 100 %: NVIDIA DLSS Super Resolution
+              // (Graphic/View/Streamline/DLSSUpscaler, Windows + NVIDIA RTX only); its history is internal to it
     };
 
     // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):
@@ -87,10 +88,11 @@ namespace Desert::Graphic
     };
 
     // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
-    // Upscale and the upscaler is TAAU; None for a non-temporal method at Native/Supersample, and for one under
+    // Upscale and the upscaler is TAAU; DLSS iff the split is Upscale under Upscaler::DLSS, or not Upscale under
+    // AntiAliasingMethod::DLAA; None for a non-temporal method at Native/Supersample, and for one under
     // Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split with Upscaler::None,
-    // Spatial under a temporal method, or any vendor upscaler (FSR / DLSS / XeSS / MetalFX: no implementation in
-    // this build) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
+    // Spatial under a temporal method, or a vendor upscaler with no implementation in this build (FSR / XeSS /
+    // MetalFX) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
     // not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
@@ -146,6 +148,10 @@ namespace Desert::Graphic
     struct ViewFrame
     {
         uint64_t FrameIndex = 0; // this view's frame count (SceneViewState), not the engine's
+        // The SceneViewState this frame belongs to (UE: FSceneViewState::UniqueID), unique in the process and never
+        // 0; 0 for a frame made without one (MakeStillViewFrame, light views). An upscaler whose history lives in
+        // its SDK keys that history by it.
+        uint32_t ViewKey = 0;
 
         // Pose and lens of this frame. View / Projection are the camera's, unmodified.
         glm::mat4 View{ 1.0f };

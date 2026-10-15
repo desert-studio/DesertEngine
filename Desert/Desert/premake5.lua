@@ -72,7 +72,8 @@ local function EngineModuleLibrary(module, legacyFiles)
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
     for _, file in ipairs(legacyFiles) do
         local target = commonFiles
-        if file:find("^Platform/Windows/") then
+        -- Every Streamline/ directory is the NVIDIA Streamline integration (DLSS), Windows only.
+        if file:find("^Platform/Windows/") or file:find("/Streamline/") then
             target = windowsFiles
         elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
             target = macFiles
@@ -157,6 +158,10 @@ end
 
     filter { "system:windows" }
         defines { "DESERT_PLATFORM_WINDOWS" }
+        -- NVIDIA Streamline (DLSS): the Streamline/ sources above and the code that registers them
+        -- (Graphic/API/Vulkan/VulkanDeviceExtensions.cpp, Graphic/View/TemporalUpscaler.cpp, ViewFrame.cpp).
+        defines { "DESERT_WITH_STREAMLINE" }
+        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/include" }
         -- /bigobj: MSVC caps an object file at 65279 sections, and the generated reflection +
         -- component-registry translation units (one template instantiation per reflected type) blow
         -- past it. Clang has no such limit, which is why this only bites the Windows build.

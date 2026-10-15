@@ -3,6 +3,7 @@
 #include <vk-bootstrap/VkBootstrap.h>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -201,6 +202,12 @@ namespace Desert::Graphic::API::Vulkan
             builder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME )
                  .enable_extension( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
         }
+
+        // What the platform's runtimes need on the instance (VulkanDeviceExtensions.hpp), each list already checked
+        // present by its runtime.
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            for ( const char* name : extension->InstanceExtensions() )
+                builder.enable_extension( name );
 
         auto built = builder.build();
 

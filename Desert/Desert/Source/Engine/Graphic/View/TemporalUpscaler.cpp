@@ -5,6 +5,9 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
+#if defined( DESERT_WITH_STREAMLINE )
+#include <Engine/Graphic/View/Streamline/DLSSUpscaler.hpp>
+#endif
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
@@ -33,6 +36,14 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
             case TemporalMethod::TAAU:
                 return std::make_unique<TemporalAA>( method );
+            case TemporalMethod::DLSS:
+#if defined( DESERT_WITH_STREAMLINE )
+                return std::make_unique<DLSSUpscaler>();
+#else
+                // Not in this build (no Streamline: every platform but Windows): SelectTemporalMethod never selects
+                // DLSS here, and null is "no implementation", which SceneViewState::BeginFrame names.
+                return nullptr;
+#endif
         }
         return nullptr;
     }

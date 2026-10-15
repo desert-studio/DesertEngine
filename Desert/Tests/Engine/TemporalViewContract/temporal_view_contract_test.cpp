@@ -180,9 +180,9 @@ TEST( TemporalViewContract, MethodRefusesWhatScalabilityNeverProduces )
     // Below 100 % with no upscaler, and an upscaler at native scale: SCAL1's Resolve rule 5 removes both.
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::None ).IsSuccess() );
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::TAAU ).IsSuccess() );
-    // A vendor upscaler has no implementation in this build: an error naming it, not a quiet TAAU.
-    for ( const Scal::Upscaler vendor :
-          { Scal::Upscaler::FSR, Scal::Upscaler::DLSS, Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
+    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. (DLSS has one
+    // where Streamline is built - Windows, ViewFrame.cpp kDlssInThisBuild - so it is not in this platform-free list.)
+    for ( const Scal::Upscaler vendor : { Scal::Upscaler::FSR, Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
     {
         const auto chosen = SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), vendor );
         EXPECT_FALSE( chosen.IsSuccess() );

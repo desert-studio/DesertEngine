@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -93,6 +94,10 @@ namespace Desert::Graphic::API::Vulkan
                     probe.PresentModes.clear();
             }
         }
+        // What a vendor runtime offers (DlssAvailable...): its own answer, given once the device's requirements
+        // were enabled or refused.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( probe );
         return probe;
     }
 } // namespace Desert::Graphic::API::Vulkan
