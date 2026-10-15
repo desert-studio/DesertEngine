@@ -96,7 +96,7 @@ namespace Desert::Assets
         };
 
         // ── reading ───────────────────────────────────────────────────────────────────────────────────
-        struct Reader
+        struct MeshSourceReader
         {
             std::span<const std::byte> Bytes;
             size_t                     At = 0;
@@ -335,7 +335,7 @@ namespace Desert::Assets
 
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes )
         {
-            Reader     r{ bytes };
+            MeshSourceReader r{ bytes };
             const auto version = r.U32();
             if ( r.Ok && version != kImportInfoVersion )
                 return Common::MakeFormattedError<MeshImportInfo>(
@@ -412,7 +412,7 @@ namespace Desert::Assets
 
         Common::ResultStr<MeshSourceData> DecodeSource( std::span<const std::byte> bytes )
         {
-            Reader     r{ bytes };
+            MeshSourceReader r{ bytes };
             const auto version = r.U32();
             if ( r.Ok && version != kSourceVersion )
                 return Common::MakeFormattedError<MeshSourceData>(

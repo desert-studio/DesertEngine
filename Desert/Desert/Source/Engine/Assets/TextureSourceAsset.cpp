@@ -44,7 +44,7 @@ namespace Desert::Assets
                 out.push_back( static_cast<std::byte>( c ) );
         }
 
-        struct Reader
+        struct TextureSourceReader
         {
             std::span<const std::byte> Bytes;
             size_t                     At = 0;
@@ -95,7 +95,7 @@ namespace Desert::Assets
         Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                                const uint32_t expected = kImportInfoVersion )
         {
-            Reader            r{ bytes };
+            TextureSourceReader r{ bytes };
             TextureImportInfo info;
             const auto        version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != expected )
@@ -135,7 +135,7 @@ namespace Desert::Assets
 
         Common::BoolResultStr DecodeCookedKey( std::span<const std::byte> bytes, TextureAssetKey& key )
         {
-            Reader     r{ bytes };
+            TextureSourceReader r{ bytes };
             const auto version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != kCookedKeyVersion )
                 return Common::MakeFormattedError<bool>(

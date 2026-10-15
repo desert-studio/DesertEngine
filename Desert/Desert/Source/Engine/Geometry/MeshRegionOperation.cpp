@@ -2,6 +2,7 @@
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
@@ -463,5 +464,17 @@ namespace Desert::Geometry
         if ( !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
+    }
+
+    void SimplifyToTriangleCount( DynamicMesh3& mesh, int targetTriangles )
+    {
+        QemSimplification simplifier( mesh );
+        simplifier.SimplifyToTriangleCount( targetTriangles );
+        if ( mesh.HasAttributes() && mesh.Attributes()->PrimaryNormals() != nullptr )
+        {
+            MeshNormals normals( &mesh );
+            normals.RecomputeOverlayNormals( mesh.Attributes()->PrimaryNormals() );
+            normals.CopyToOverlay( mesh.Attributes()->PrimaryNormals() );
+        }
     }
 } // namespace Desert::Geometry

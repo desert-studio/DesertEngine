@@ -7,48 +7,25 @@
 // CARDS - that cover them, the outermost first (near plane 0), then the best-covering inner ones.
 
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/StratifiedHemisphereSamples.hpp>
 #include <Engine/Geometry/TriangleBvh.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstring>
 #include <limits>
 
 namespace Desert::Assets
 {
     namespace
     {
-        // UE FRandomStream (seed 0): MutateSeed, then a float in [0, 1) from the seed's top 23 bits.
-        struct UeRandomStream
-        {
-            uint32_t Seed = 0;
-            float    GetFraction()
-            {
-                Seed                  = Seed * 196314165u + 907633515u;
-                const uint32_t bits   = 0x3F800000u | ( Seed >> 9 );
-                float          result = 0.0f;
-                std::memcpy( &result, &bits, sizeof( result ) );
-                return result - 1.0f;
-            }
-        };
-
-        // UE MeshUtilities::GenerateStratifiedUniformHemisphereSamples(32): trunc(sqrt(32)) = 5, 5 x 5 strata.
+        // UE MeshUtilities::GenerateStratifiedUniformHemisphereSamples(32): trunc(sqrt(32)) = 5, 5 x 5 strata,
+        // from a stream at seed 0.
         std::vector<glm::dvec3> HemisphereDirections( const int numSamples )
         {
-            const int               dim = static_cast<int>( std::sqrt( static_cast<float>( numSamples ) ) );
-            UeRandomStream          random;
-            std::vector<glm::dvec3> out;
-            for ( int x = 0; x < dim; ++x )
-                for ( int y = 0; y < dim; ++y )
-                {
-                    const float  u1  = random.GetFraction();
-                    const float  u2  = random.GetFraction();
-                    const double phi = 2.0 * 3.14159265358979323846 * ( ( x + u1 ) / static_cast<float>( dim ) );
-                    const double cosTheta = ( y + u2 ) / static_cast<float>( dim );
-                    const double sinTheta = std::sqrt( std::max( 0.0, 1.0 - cosTheta * cosTheta ) );
-                    out.emplace_back( std::cos( phi ) * sinTheta, std::sin( phi ) * sinTheta, cosTheta );
-                }
+            Common::Math::RandomStream random;
+            std::vector<glm::dvec3>    out;
+            AppendStratifiedUniformHemisphereSamples( numSamples, random, 1.0, out );
             return out;
         }
 
