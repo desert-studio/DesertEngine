@@ -66,32 +66,39 @@ namespace Desert::Graphic::RayTracing
         // (RayTracingSceneCache).
         cache.BeginViewFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
 
-        // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
-        GatherRayTracingPrimitives( { .Static              = meshes.GetStaticQueue(),
-                                      .Generic             = meshes.GetGenericQueue(),
-                                      .Instanced           = meshes.GetInstancedQueue(),
-                                      .InstancedMotionRows = meshes.GetInstancedMotionRows(),
-                                      .Skinned             = meshes.GetSkinnedQueue(),
-                                      .ViewOrigin          = viewOrigin,
-                                      .DrawDistanceScale   = drawDistanceScale },
-                                    cache.GetVariants(), m_Gather );
-        // Skinned primitives trace their per-frame BLAS: the scene's skin cache skins and builds each once per
-        // frame (an earlier view's build is reused). The gather appends one skinned primitive per skinned record,
-        // last.
         m_DynamicBlas.clear();
         m_DynamicBuilds.clear();
-        const auto firstSkinned =
-             static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
-        if ( const Common::BoolResultStr skinned =
-                  cache.GetSkinCache().AddPasses( graph, meshes, m_BonesImport, m_Gather.Primitives, firstSkinned,
-                                                  cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
-             !skinned )
-            return skinned;
-        // Meshes the uploader built no BLAS for (procedural): built in the same pass, once per buffer upload.
-        if ( const Common::BoolResultStr procedural = cache.GetProcedural().AddBuilds(
-                  graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
-             !procedural )
-            return procedural;
+        {
+            // Every device object the scene's cache makes below (BLAS variants, skin-cache BLASes and positions,
+            // procedural BLASes) is a row of the SCENE, not of this view (RT-LEDGER-2): shared by every view, so
+            // in no view's budget. The view's own scope (its TLAS below, its landscape tiles) resumes after.
+            const ResourceAttributionScope sceneRows = cache.OpenLedgerScope();
+
+            // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
+            GatherRayTracingPrimitives( { .Static              = meshes.GetStaticQueue(),
+                                          .Generic             = meshes.GetGenericQueue(),
+                                          .Instanced           = meshes.GetInstancedQueue(),
+                                          .InstancedMotionRows = meshes.GetInstancedMotionRows(),
+                                          .Skinned             = meshes.GetSkinnedQueue(),
+                                          .ViewOrigin          = viewOrigin,
+                                          .DrawDistanceScale   = drawDistanceScale },
+                                        cache.GetVariants(), m_Gather );
+            // Skinned primitives trace their per-frame BLAS: the scene's skin cache skins and builds each once per
+            // frame (an earlier view's build is reused). The gather appends one skinned primitive per skinned
+            // record, last.
+            const auto firstSkinned =
+                 static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
+            if ( const Common::BoolResultStr skinned = cache.GetSkinCache().AddPasses(
+                      graph, meshes, m_BonesImport, m_Gather.Primitives, firstSkinned, cache.GetFrame(),
+                      m_DynamicBuilds, m_DynamicBlas );
+                 !skinned )
+                return skinned;
+            // Meshes the uploader built no BLAS for (procedural): built in the same pass, once per buffer upload.
+            if ( const Common::BoolResultStr procedural = cache.GetProcedural().AddBuilds(
+                      graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
+                 !procedural )
+                return procedural;
+        }
         // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
         // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are
         // read by the TLAS like every other dynamic BLAS.

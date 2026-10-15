@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
@@ -413,8 +414,10 @@ namespace Desert::Graphic
 
         // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
         // the same table the view's build is checked against) plus every per-view copy its ViewResources
-        // keeps (uniform/storage buffer copies, ...). What the view-budget rule counts as "open views hold"
-        // (Engine/Core/ViewBudget.hpp).
+        // keeps (uniform/storage buffer copies, ...), plus the view's ray-tracing rows in the resource ledger
+        // (its TLAS, its landscape tiles' buffers and BLASes; ResourceLedger::TakeFor the view's instance — the
+        // scene-shared RT rows are the scene's and are NOT here). What the view-budget rule counts as "open views
+        // hold" (Engine/Core/ViewBudget.hpp).
         [[nodiscard]] uint64_t HeldBytes() const;
 
         // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
@@ -527,6 +530,23 @@ namespace Desert::Graphic
         CloudShadowInput GetCloudShadowInput() const;
 
     private:
+        // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
+        // buffers and BLASes — carry this instance (the RT block's scope in OnUpdate); HeldBytes reads them back
+        // from the ledger. DECLARED FIRST so it is destroyed LAST: its destructor reads the ledger after every
+        // member that held a row of the view is gone, and logs what is left (0, or a leak by name).
+        struct LedgerView
+        {
+            ResourceOwnerInstance Instance = ResourceOwnerInstance::NewView();
+
+            LedgerView() = default;
+            ~LedgerView();
+            LedgerView( const LedgerView& )            = delete;
+            LedgerView& operator=( const LedgerView& ) = delete;
+            LedgerView( LedgerView&& )                 = delete;
+            LedgerView& operator=( LedgerView&& )      = delete;
+        };
+        LedgerView m_LedgerView;
+
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
         // the view's name in every log line. Made the target of per-frame writes by an ActiveViewScope at the
         // top of each frame phase (BeginScene/OnUpdate/EndScene).

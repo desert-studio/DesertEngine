@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProceduralGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
@@ -65,7 +66,29 @@ namespace Desert::Graphic::RayTracing
             return m_Procedural;
         }
 
+        // THE SCENE in the resource ledger (RT-LEDGER-2): every device object this cache's members create — BLAS
+        // variants, skin-cache BLASes and positions, procedural BLASes — is a row of ResourceOwner::SceneRenderer
+        // AND of this instance, opened under OpenLedgerScope(). A view's own RT rows carry the view's instance
+        // instead, so the two are told apart and the scene's are never counted in any one view's budget.
+        [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerInstance;
+        }
+        // The scope a view opens around every call into this cache that may create a device object. Nested
+        // inside the view's own scope (SceneRenderer's RT block); the view's scope is restored when it closes.
+        [[nodiscard]] ResourceAttributionScope OpenLedgerScope() const
+        {
+            return ResourceAttributionScope( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        }
+        // What the scene's shared RT state holds on the device, read from its ledger rows (the one statement of
+        // those bytes). Reported on the scene ([ViewMemory] "scene-shared"), never added to a view's HeldBytes.
+        [[nodiscard]] ResourceInstanceCensus TakeLedgerCensus() const
+        {
+            return ResourceLedger::TakeFor( m_LedgerInstance );
+        }
+
     private:
+        ResourceOwnerInstance      m_LedgerInstance = ResourceOwnerInstance::NewScene();
         RayTracingGeometryVariants m_Variants{ MakeVariantBuild() };
         RayTracingSkinCache        m_SkinCache;
         RayTracingProceduralCache  m_Procedural; // BLASes of meshes the uploader built none for

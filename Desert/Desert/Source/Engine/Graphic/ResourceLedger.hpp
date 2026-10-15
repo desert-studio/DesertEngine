@@ -3,8 +3,12 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Core.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -201,6 +205,70 @@ namespace Desert::Graphic
         return "Unknown";
     }
 
+    /// Which KIND of owner instance holds a row (see `ResourceOwnerInstance`).
+    enum class ResourceInstanceKind : uint8_t
+    {
+        /// The row belongs to its owner category as a whole: a service's asset object, a device default.
+        None = 0,
+        /// One `Core::Scene`'s renderer state shared by every view of it (the scene's RayTracingSceneCache).
+        Scene,
+        /// One view: one `SceneRenderer` and what it alone holds (its TLAS, its landscape tiles' BLASes).
+        View,
+    };
+
+    constexpr const char* ResourceInstanceKindName( const ResourceInstanceKind kind )
+    {
+        switch ( kind )
+        {
+            case ResourceInstanceKind::None:
+                return "none";
+            case ResourceInstanceKind::Scene:
+                return "scene";
+            case ResourceInstanceKind::View:
+                return "view";
+        }
+        return "unknown";
+    }
+
+    /**
+     * @brief WHICH INSTANCE of an owner holds a row — the scene or the view, not only the owner's category.
+     *
+     * `ResourceOwner` names a LIFETIME CATEGORY. Two views of one scene and that scene's shared ray-tracing
+     * geometry are all `SceneRenderer`, so a census of categories cannot say what ONE view costs on the device,
+     * cannot tell a scene-shared BLAS from a view's TLAS, and cannot show that a closed view's rows are gone
+     * (RT-LEDGER-2). The instance is that answer, carried on the row beside the owner.
+     *
+     * Minted ONCE by the object that holds the rows (`NewView()` by a SceneRenderer, `NewScene()` by a scene's
+     * RayTracingSceneCache) and never reused — the same rule as the row ids: an instance of a closed view must
+     * find nothing, never a newer view that happened to get its number. Not the scene's generation: the scene's
+     * renderer state survives `Scene::Clear()` (a reload keeps the cache object), and the rows belong to the
+     * object that holds them, not to the world it drew last.
+     */
+    struct ResourceOwnerInstance
+    {
+        ResourceInstanceKind Kind = ResourceInstanceKind::None;
+        /// Unique per kind for the process' life; 0 only with `Kind == None`.
+        uint64_t Id = 0;
+
+        [[nodiscard]] static ResourceOwnerInstance NewScene();
+        [[nodiscard]] static ResourceOwnerInstance NewView();
+
+        [[nodiscard]] bool IsNone() const noexcept
+        {
+            return Kind == ResourceInstanceKind::None;
+        }
+
+        bool operator==( const ResourceOwnerInstance& ) const = default;
+    };
+
+    /// "view #3", "scene #1", "none" — the name the census prints and the logs quote.
+    [[nodiscard]] inline std::string ResourceOwnerInstanceName( const ResourceOwnerInstance instance )
+    {
+        if ( instance.IsNone() )
+            return ResourceInstanceKindName( instance.Kind );
+        return std::format( "{} #{}", ResourceInstanceKindName( instance.Kind ), instance.Id );
+    }
+
     /**
      * @brief A LIVE ROW IN THE LEDGER, held BY the resource it describes. Move-only; destroying it is the
      *        removal.
@@ -241,7 +309,12 @@ namespace Desert::Graphic
         /// Called by whoever takes ownership; see the header note on why this is not a constructor
         /// argument. Claiming an unaccounted token is a no-op, not a crash: a resource built before the
         /// first `Take()` is legal.
-        void Claim( ResourceOwner owner, Common::AssetHandle asset = Common::AssetHandle{} );
+        ///
+        /// A claim REPLACES the row's instance too (`ResourceOwnerInstance`): a mesh BLAS built inside a view's
+        /// scope and then claimed by the mesh service for its asset belongs to the service, not to that view —
+        /// leaving the view's instance on it would put an asset's BLAS in one view's budget.
+        void Claim( ResourceOwner owner, Common::AssetHandle asset = Common::AssetHandle{},
+                    ResourceOwnerInstance instance = ResourceOwnerInstance{} );
 
         /// Correct the size once the object knows it (a Vulkan image learns its footprint only after the
         /// allocator answers). Silently ignored on an unaccounted token.
@@ -249,6 +322,7 @@ namespace Desert::Graphic
 
         [[nodiscard]] ResourceOwner       GetOwner() const;
         [[nodiscard]] Common::AssetHandle GetAsset() const;
+        [[nodiscard]] ResourceOwnerInstance GetInstance() const;
         /// The device bytes the row holds (0 for an unaccounted token or a row whose size nobody reported).
         /// THE way an owner states its own footprint: a size kept beside the token is a second statement of
         /// the row's number, and the two drift (RT-LEDGER: an acceleration structure's stats said the
@@ -287,7 +361,12 @@ namespace Desert::Graphic
     class ResourceAttributionScope final
     {
     public:
+        /// Rows opened in the scope belong to @p owner as a category (no instance). A nested category scope
+        /// clears the enclosing instance: a bake inside a view's scope is the bake's, not the view's.
         explicit ResourceAttributionScope( ResourceOwner owner ) noexcept;
+        /// Rows opened in the scope belong to @p owner AND to @p instance — one view, or one scene's shared
+        /// state (RT-LEDGER-2: a view's TLAS and landscape tiles, the scene's skin cache and BLAS variants).
+        ResourceAttributionScope( ResourceOwner owner, ResourceOwnerInstance instance ) noexcept;
         ~ResourceAttributionScope();
 
         ResourceAttributionScope( const ResourceAttributionScope& )            = delete;
@@ -296,7 +375,20 @@ namespace Desert::Graphic
         ResourceAttributionScope& operator=( ResourceAttributionScope&& )      = delete;
 
     private:
-        ResourceOwner m_Previous;
+        ResourceOwner         m_Previous;
+        ResourceOwnerInstance m_PreviousInstance;
+    };
+
+    /// What ONE owner instance holds right now: its live rows and the bytes over the rows that reported one.
+    /// Taken in one pass under the ledger's lock, like `ResourceCensus`. THE source of a view's ray-tracing
+    /// footprint in its budget (SceneRenderer::HeldBytes) and of a scene's shared one: a closed view's instance
+    /// reads `Live == 0`.
+    struct ResourceInstanceCensus
+    {
+        ResourceOwnerInstance Instance;
+        uint32_t              Live          = 0;
+        uint64_t              Bytes         = 0;
+        uint32_t              BytesKnownFor = 0;
     };
 
     /// A whole-ledger answer, taken in ONE pass under ONE lock. A caller that asked for the total and then
@@ -382,6 +474,10 @@ namespace Desert::Graphic
         /// The census, at this instant.
         [[nodiscard]] static ResourceCensus Take();
 
+        /// What @p instance holds, at this instant. A `None` instance is refused with an empty answer rather
+        /// than summed: "every row nobody gave an instance to" is not one holder's footprint.
+        [[nodiscard]] static ResourceInstanceCensus TakeFor( ResourceOwnerInstance instance );
+
         /// The census as lines a person reads, owners first and then the kinds under each. Written for the
         /// log and for the control channel; the numbers are the same object as `Take()`.
         [[nodiscard]] static std::string Report();
@@ -398,9 +494,14 @@ namespace Desert::Graphic
 
         static uint64_t Open( ResourceKind kind, std::size_t bytes );
         static void     Close( uint64_t row );
-        static void     Attribute( uint64_t row, ResourceOwner owner, Common::AssetHandle asset );
+        static void     Attribute( uint64_t row, ResourceOwner owner, Common::AssetHandle asset,
+                                   ResourceOwnerInstance instance );
         static void     SetBytes( uint64_t row, std::size_t bytes );
-        static bool     Read( uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset );
+        static bool     Read( uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset,
+                              ResourceOwnerInstance& instance );
+        /// The census body; the caller holds the lock. @p perInstance (may be null) receives one entry per
+        /// live non-None instance, in instance order, from the SAME pass as the census.
+        static ResourceCensus TakeLocked( std::vector<ResourceInstanceCensus>* perInstance );
         static std::size_t ReadBytes( uint64_t row );
     };
 
@@ -415,6 +516,7 @@ namespace Desert::Graphic
             ResourceKind        Kind  = ResourceKind::Image2D;
             ResourceOwner       Owner = ResourceOwner::Unclaimed;
             Common::AssetHandle Asset;
+            ResourceOwnerInstance Instance;
             std::size_t         Bytes      = 0;
             bool                BytesKnown = false;
         };
@@ -455,17 +557,50 @@ namespace Desert::Graphic
             static thread_local ResourceOwner owner = ResourceOwner::Unclaimed;
             return owner;
         }
+
+        /// The instance a new row gets beside the ambient owner. Thread-local for the same reason.
+        inline ResourceOwnerInstance& AmbientInstance()
+        {
+            static thread_local ResourceOwnerInstance instance;
+            return instance;
+        }
+
+        /// The next id of @p kind. One counter per kind, never reused (see ResourceOwnerInstance).
+        inline uint64_t MintInstanceId( const ResourceInstanceKind kind )
+        {
+            static std::atomic<uint64_t> scenes{ 0 };
+            static std::atomic<uint64_t> views{ 0 };
+            return ( kind == ResourceInstanceKind::Scene ? scenes : views ).fetch_add( 1 ) + 1;
+        }
     } // namespace LedgerDetail
 
-    inline ResourceAttributionScope::ResourceAttributionScope( const ResourceOwner owner ) noexcept
-         : m_Previous( LedgerDetail::AmbientOwner() )
+    inline ResourceOwnerInstance ResourceOwnerInstance::NewScene()
     {
-        LedgerDetail::AmbientOwner() = owner;
+        return { ResourceInstanceKind::Scene, LedgerDetail::MintInstanceId( ResourceInstanceKind::Scene ) };
+    }
+
+    inline ResourceOwnerInstance ResourceOwnerInstance::NewView()
+    {
+        return { ResourceInstanceKind::View, LedgerDetail::MintInstanceId( ResourceInstanceKind::View ) };
+    }
+
+    inline ResourceAttributionScope::ResourceAttributionScope( const ResourceOwner owner ) noexcept
+         : ResourceAttributionScope( owner, ResourceOwnerInstance{} )
+    {
+    }
+
+    inline ResourceAttributionScope::ResourceAttributionScope( const ResourceOwner         owner,
+                                                               const ResourceOwnerInstance instance ) noexcept
+         : m_Previous( LedgerDetail::AmbientOwner() ), m_PreviousInstance( LedgerDetail::AmbientInstance() )
+    {
+        LedgerDetail::AmbientOwner()    = owner;
+        LedgerDetail::AmbientInstance() = instance;
     }
 
     inline ResourceAttributionScope::~ResourceAttributionScope()
     {
-        LedgerDetail::AmbientOwner() = m_Previous;
+        LedgerDetail::AmbientOwner()    = m_Previous;
+        LedgerDetail::AmbientInstance() = m_PreviousInstance;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -502,10 +637,11 @@ namespace Desert::Graphic
         return *this;
     }
 
-    inline void ResourceOwnership::Claim( const ResourceOwner owner, const Common::AssetHandle asset )
+    inline void ResourceOwnership::Claim( const ResourceOwner owner, const Common::AssetHandle asset,
+                                          const ResourceOwnerInstance instance )
     {
         if ( m_Row != 0 )
-            ResourceLedger::Attribute( m_Row, owner, asset );
+            ResourceLedger::Attribute( m_Row, owner, asset, instance );
     }
 
     inline void ResourceOwnership::RecordBytes( const std::size_t bytes )
@@ -516,20 +652,32 @@ namespace Desert::Graphic
 
     inline ResourceOwner ResourceOwnership::GetOwner() const
     {
-        ResourceOwner       owner = ResourceOwner::Unclaimed;
-        Common::AssetHandle asset;
+        ResourceOwner         owner = ResourceOwner::Unclaimed;
+        Common::AssetHandle   asset;
+        ResourceOwnerInstance instance;
         if ( m_Row != 0 )
-            (void)ResourceLedger::Read( m_Row, owner, asset );
+            (void)ResourceLedger::Read( m_Row, owner, asset, instance );
         return owner;
     }
 
     inline Common::AssetHandle ResourceOwnership::GetAsset() const
     {
-        ResourceOwner       owner = ResourceOwner::Unclaimed;
-        Common::AssetHandle asset;
+        ResourceOwner         owner = ResourceOwner::Unclaimed;
+        Common::AssetHandle   asset;
+        ResourceOwnerInstance instance;
         if ( m_Row != 0 )
-            (void)ResourceLedger::Read( m_Row, owner, asset );
+            (void)ResourceLedger::Read( m_Row, owner, asset, instance );
         return asset;
+    }
+
+    inline ResourceOwnerInstance ResourceOwnership::GetInstance() const
+    {
+        ResourceOwner         owner = ResourceOwner::Unclaimed;
+        Common::AssetHandle   asset;
+        ResourceOwnerInstance instance;
+        if ( m_Row != 0 )
+            (void)ResourceLedger::Read( m_Row, owner, asset, instance );
+        return instance;
     }
 
     inline std::size_t ResourceOwnership::GetBytes() const
@@ -553,6 +701,7 @@ namespace Desert::Graphic
         // owner outright, because naming the asset behind an object is more specific than naming the
         // subsystem that happened to be building when it appeared.
         row.Owner      = LedgerDetail::AmbientOwner();
+        row.Instance   = LedgerDetail::AmbientInstance();
         row.Bytes      = bytes;
         row.BytesKnown = bytes != 0;
         LedgerDetail::Rows().emplace( id, row );
@@ -567,13 +716,14 @@ namespace Desert::Graphic
     }
 
     inline void ResourceLedger::Attribute( const uint64_t row, const ResourceOwner owner,
-                                           const Common::AssetHandle asset )
+                                           const Common::AssetHandle asset, const ResourceOwnerInstance instance )
     {
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
         if ( const auto it = LedgerDetail::Rows().find( row ); it != LedgerDetail::Rows().end() )
         {
-            it->second.Owner = owner;
-            it->second.Asset = asset;
+            it->second.Owner    = owner;
+            it->second.Asset    = asset;
+            it->second.Instance = instance;
         }
     }
 
@@ -587,14 +737,16 @@ namespace Desert::Graphic
         }
     }
 
-    inline bool ResourceLedger::Read( const uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset )
+    inline bool ResourceLedger::Read( const uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset,
+                                      ResourceOwnerInstance& instance )
     {
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
         const auto                  it = LedgerDetail::Rows().find( row );
         if ( it == LedgerDetail::Rows().end() )
             return false;
-        owner = it->second.Owner;
-        asset = it->second.Asset;
+        owner    = it->second.Owner;
+        asset    = it->second.Asset;
+        instance = it->second.Instance;
         return true;
     }
 
@@ -608,10 +760,55 @@ namespace Desert::Graphic
     inline ResourceCensus ResourceLedger::Take()
     {
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+        return TakeLocked( nullptr );
+    }
 
+    inline ResourceInstanceCensus ResourceLedger::TakeFor( const ResourceOwnerInstance instance )
+    {
+        ResourceInstanceCensus census;
+        census.Instance = instance;
+        if ( instance.IsNone() )
+            return census;
+
+        std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+        for ( const auto& [id, row] : LedgerDetail::Rows() )
+        {
+            if ( row.Instance != instance )
+                continue;
+            ++census.Live;
+            if ( row.BytesKnown )
+            {
+                census.Bytes += row.Bytes;
+                ++census.BytesKnownFor;
+            }
+        }
+        return census;
+    }
+
+    inline ResourceCensus ResourceLedger::TakeLocked( std::vector<ResourceInstanceCensus>* const perInstance )
+    {
         ResourceCensus census;
         for ( const auto& [id, row] : LedgerDetail::Rows() )
         {
+            if ( perInstance != nullptr && !row.Instance.IsNone() )
+            {
+                // Linear: live instances are the open views plus the open scenes, a handful.
+                auto entry = std::find_if( perInstance->begin(), perInstance->end(),
+                                           [&]( const ResourceInstanceCensus& item )
+                                           { return item.Instance == row.Instance; } );
+                if ( entry == perInstance->end() )
+                {
+                    perInstance->push_back( ResourceInstanceCensus{ .Instance = row.Instance } );
+                    entry = std::prev( perInstance->end() );
+                }
+                ++entry->Live;
+                if ( row.BytesKnown )
+                {
+                    entry->Bytes += row.Bytes;
+                    ++entry->BytesKnownFor;
+                }
+            }
+
             ++census.Live;
             ++census.PerKind[static_cast<std::size_t>( row.Kind )];
             ++census.PerOwner[static_cast<std::size_t>( row.Owner )];
@@ -635,12 +832,24 @@ namespace Desert::Graphic
                                                [static_cast<std::size_t>( row.Kind )];
             }
         }
+        if ( perInstance != nullptr )
+            std::sort( perInstance->begin(), perInstance->end(),
+                       []( const ResourceInstanceCensus& a, const ResourceInstanceCensus& b )
+                       {
+                           return a.Instance.Kind != b.Instance.Kind ? a.Instance.Kind < b.Instance.Kind
+                                                                     : a.Instance.Id < b.Instance.Id;
+                       } );
         return census;
     }
 
     inline std::string ResourceLedger::Report()
     {
-        const ResourceCensus census = Take();
+        std::vector<ResourceInstanceCensus> instances;
+        ResourceCensus                      census;
+        {
+            std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+            census = TakeLocked( &instances );
+        }
 
         std::string text;
         text += "live=" + std::to_string( census.Live );
@@ -679,6 +888,13 @@ namespace Desert::Graphic
                 text += " known=" + std::to_string( census.BytesKnownPerOwnerKind[owner][kind] );
             }
         }
+
+        // PER INSTANCE (RT-LEDGER-2): which scene / view holds the rows that carry one. A closed view has no
+        // line here — its rows went with it; a view whose line survives its close is a leak, by name.
+        for ( const ResourceInstanceCensus& instance : instances )
+            std::format_to( std::back_inserter( text ), "\n  instance {} = {} bytes={} known={}",
+                            ResourceOwnerInstanceName( instance.Instance ), instance.Live, instance.Bytes,
+                            instance.BytesKnownFor );
 
         return text;
     }

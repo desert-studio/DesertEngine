@@ -634,10 +634,29 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::HeldBytes() const
     {
+        // The RT term is READ FROM THE ROWS (RT-LEDGER-2): the ledger is the one statement of those bytes, so
+        // the budget and the [Resources] census cannot disagree. Only the RT block opens rows under the view's
+        // instance (the staged init's targets are counted by the census forecast above, not by instance), so
+        // nothing here is counted twice; the scene cache's rows carry the scene's instance and are not here.
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
                     .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
+               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes() +
+               ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
     }
+
+    SceneRenderer::LedgerView::~LedgerView()
+    try
+    {
+        // Every member that held a row of this view has been destroyed by now (this one is declared first).
+        const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
+        if ( left.Live == 0 )
+            LOG_INFO( "[Resources] {} closed: 0 ledger rows left.", ResourceOwnerInstanceName( Instance ) );
+        else
+            LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
+                       "device object outlived the view.",
+                       ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+    }
+    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
     {
@@ -1185,12 +1204,15 @@ namespace Desert::Graphic
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
             // Every RT allocation this block makes is a ledger row of the scene renderer (RT-SCENE-2 contract,
-            // Memory accounting): the view's TLAS storage, the landscape tiles' vertex / index buffers and BLASes,
-            // and the scene cache's variant, procedural and skin-cache BLASes and skinned positions. A mesh BLAS
-            // built here by a lazy upload is claimed by the mesh service for its asset (an explicit claim wins).
-            // The graph transients (TLAS instance rows, build scratch, PrimitiveInstances) live in the device's
-            // transient heaps, each a TransientHeap row of the Device.
-            const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
+            // Memory accounting). The VIEW's rows — its TLAS storage, its landscape tiles' vertex / index buffers
+            // and BLASes — carry this view's instance (RT-LEDGER-2) and are counted in HeldBytes. The scene
+            // cache's variant, procedural and skin-cache BLASes and skinned positions carry the SCENE's instance
+            // (RayTracingSceneRenderer::AddPasses opens the cache's scope around them): shared, in no view's
+            // budget. A mesh BLAS built here by a lazy upload is claimed by the mesh service for its asset (an
+            // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
+            // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
+            // Device.
+            const ResourceAttributionScope owned( ResourceOwner::SceneRenderer, m_LedgerView.Instance );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const auto*     camera     = GetMainCamera();
@@ -1277,6 +1299,18 @@ namespace Desert::Graphic
                 m_LoggedRayTracingTlasBytes = rtStats.TlasBytes;
                 LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
                           RayTracing::FormatRayTracingSceneMemory( rtStats ) );
+                // The two ledger instances side by side (RT-LEDGER-2): what this view's budget counts, and what
+                // the scene shares across its views and no view's budget counts.
+                const ResourceInstanceCensus viewRows  = ResourceLedger::TakeFor( m_LedgerView.Instance );
+                const ResourceInstanceCensus sceneRows = m_FrameRayTracingCache != nullptr
+                                                              ? m_FrameRayTracingCache->TakeLedgerCensus()
+                                                              : ResourceInstanceCensus{};
+                LOG_INFO( "[ViewMemory] view '{}' ray-tracing ledger rows: {} {} rows {:.2f} MiB (in the view's "
+                          "budget); {} {} rows {:.2f} MiB (scene-shared, in no view's budget)",
+                          m_ViewResources.GetName(), ResourceOwnerInstanceName( viewRows.Instance ), viewRows.Live,
+                          static_cast<double>( viewRows.Bytes ) / ( 1024.0 * 1024.0 ),
+                          ResourceOwnerInstanceName( sceneRows.Instance ), sceneRows.Live,
+                          static_cast<double>( sceneRows.Bytes ) / ( 1024.0 * 1024.0 ) );
             }
 #endif
         }
