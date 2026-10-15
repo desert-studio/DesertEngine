@@ -875,8 +875,8 @@ namespace Desert::ECS
         REFLECT()
 
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature,
-                  Tooltip( "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky "
-                           "is the Sky Atmosphere component's Sun Color / Sun Intensity." ) )
+                  Tooltip( "Tint of the sun light (UE). With a Physical Atmosphere sky this is also the sun "
+                           "the sky scatters and the disc you see." ) )
         glm::vec3 Color = glm::vec3( 1.0f );
 
         // UE UDirectionalLightComponent::Intensity: ILLUMINANCE in lux on a surface facing the light (a clear
@@ -884,11 +884,13 @@ namespace Desert::ECS
         // by Color x Intensity directly - lux IS its unit, the same unit a point light's candelas reach a surface
         // in (ECS::LightPhotometry) - and the exposure range (PostProcessSettings, EV100) is what makes a physical
         // value look right. Scenes authored before units existed stated the same number; it was always lux.
+        // As in UE it is the OUTER-SPACE illuminance of the atmosphere sun: the Physical Atmosphere sky
+        // scatters exactly this (Graphic::SkySunInputs), and the ground receives it times the transmittance.
         PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 150000.0f ), Summary,
                   Units( "lux" ),
                   Tooltip( "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 "
-                           "overcast, ~0.25 full moon. The sun you SEE in the sky is the Sky Atmosphere "
-                           "component's Sun Color / Sun Intensity." ) )
+                           "overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the "
+                           "sky's brightness and the sun disc." ) )
         float Intensity = 1.0f;
 
         // Defaults to true so that every scene authored before this field existed keeps working: a field
@@ -921,6 +923,14 @@ namespace Desert::ECS
                            "sun at ground level, so it reddens and dims at sunset. Physical Atmosphere "
                            "only." ) )
         bool AffectedByAtmosphereTransmittance = true;
+
+        // UE UDirectionalLightComponent::AtmosphereSunDiskColorScale, same name, same default (white): scales
+        // ONLY the disc the physical sky draws for this sun — not the sky's scattering, not the surfaces.
+        // Scenes from before v57, whose sky had its own sun numbers, state here what their disc was.
+        PROPERTY( DisplayName( "Atmosphere Sun Disk Color Scale" ), Category( "Atmosphere" ), Color,
+                  EditCondition( "AtmosphereSunLight" ),
+                  Tooltip( "Scales the sun disc the Physical Atmosphere sky draws for this light (UE)." ) )
+        glm::vec3 AtmosphereSunDiskColorScale = glm::vec3( 1.0f );
 
         // ---- Light Shafts (UE's category, UE's names, UE's defaults) ----------------------------------
         // The screen-space sun streaks: a bright-pass of the HDR scene around the sun's position on

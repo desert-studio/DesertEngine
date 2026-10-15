@@ -119,7 +119,7 @@ Shader "SkyViewLut"
 
             // Outer-space sun illuminance: the authored sun colour times intensity — the same pair
             // the gradient's disc reads, reinterpreted as illuminance by the physical model.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             SkyScatterResult result = SkyIntegrateScatteredLuminance(atm, originKm, rayDir, sunDir,
                                                                      sunIlluminance, kSkyViewSampleCount);

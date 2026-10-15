@@ -83,8 +83,16 @@ namespace Desert::Core
 
         PROPERTY( DisplayName( "Tonemapper" ), Category( "Film" ) )
         TonemapOperator Tonemapper = TonemapOperator::ACES;
-        PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
+        // UE's Manual metering mode, in EV100: the meter reading the exposure is fixed at when auto-exposure is
+        // off. The scale is Graphic::ManualExposureScale (key / EV100ToLuminance) — the auto path's own law, so a
+        // manual EV100 matches an auto-exposure adapted to the same EV100. Higher EV100 = darker picture: ~15 a
+        // 100 000 lux sunlit scene, ~0 a lit interior. Scenes before v57 stated a multiplier; the migration
+        // re-states it as the EV100 giving the same scale at that scene's key. The default is the former
+        // multiplier 1 at the default key 0.18.
+        PROPERTY( DisplayName( "Manual EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Exposure when Auto Exposure is off (UE Manual): the scene EV100 shown as middle "
+                           "grey. ~15 clear sun (100 000 lux), ~10 overcast, ~0 interior, ~-3 night street." ) )
+        float ManualExposureEV100 = 0.5260688f;
         PROPERTY( DisplayName( "Gamma" ), Category( "Film" ), Range( 1.0f, 3.0f ) )
         float Gamma = 2.2f;
         PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Film" ), Range( 1.0f, 20.0f ) )

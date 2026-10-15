@@ -301,7 +301,19 @@ namespace Desert::Migration
     //       v55 is SourceAngle (Windows); scenes and prefabs alike.
     inline constexpr int kSceneVersionLightUnits = 56;
 
-    static_assert( kSceneVersionLightUnits == kSceneVersion,
+    //  57 - THE PHYSICAL SKY'S SUN IS THE LIGHT; MANUAL EXPOSURE IS EV100 (LIGHT-UNITS-2, UE). The Physical
+    //       Atmosphere sky stopped reading SkyAtmosphere SunColor x SunIntensity: it scatters the atmosphere sun
+    //       light's Color x Intensity (lux), as UE. A scene whose physical sky had its own sun keeps its picture
+    //       by UE's factors: r = SunColor*SunIntensity / (light Color*Intensity), per channel, multiplies the
+    //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
+    //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
+    //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
+    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
+    //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSkySunFromLight = 57;
+
+    static_assert( kSceneVersionSkySunFromLight == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -589,6 +601,19 @@ namespace Desert::Migration
     // the record and in every prefab override. PURE.
     LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateSkySunFromLightV56ToV57 did to one file.
+    struct SkySunFromLightReport
+    {
+        std::size_t              Skies   = 0; // physical skies whose sun ratio was folded into UE's factors
+        std::size_t              Volumes = 0; // PostProcessVolume Settings whose Exposure is now EV100
+        std::vector<std::string> Refused;
+    };
+
+    // Raises SkyAtmosphere / DirectionLight / PostProcessVolume blocks to the rule kSceneVersionSkySunFromLight
+    // states, in the record and in every prefab override (an override only has its stated Exposure re-stated).
+    // PURE.
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -862,6 +887,9 @@ namespace Desert::Migration
         bool             LightUnitsRaised = false; // below kSceneVersionLightUnits
         LightUnitsReport LightUnits;
 
+        bool                  SkySunFromLightRaised = false; // below kSceneVersionSkySunFromLight
+        SkySunFromLightReport SkySunFromLight;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -875,7 +903,7 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised;
         }
     };
 

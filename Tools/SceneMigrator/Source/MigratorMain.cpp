@@ -512,6 +512,12 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionScriptDefaults << "->v"
                 << Desert::Migration::kSceneVersionLightUnits << " (" << report.LightUnits.Lights
                 << " light(s) state Unitless, " << report.LightUnits.Volumes << " exposure range(s) in EV100)";
+        if ( report.SkySunFromLightRaised &&
+             ( report.SkySunFromLight.Skies > 0 || report.SkySunFromLight.Volumes > 0 ) )
+            out << " scene v" << Desert::Migration::kSceneVersionLightUnits << "->v"
+                << Desert::Migration::kSceneVersionSkySunFromLight << " (" << report.SkySunFromLight.Skies
+                << " physical sky sun(s) folded into UE factors, " << report.SkySunFromLight.Volumes
+                << " manual exposure(s) in EV100)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

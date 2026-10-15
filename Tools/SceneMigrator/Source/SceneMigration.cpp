@@ -1200,6 +1200,219 @@ namespace Desert::Migration
         return report;
     }
 
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
+    {
+        SkySunFromLightReport report;
+
+        // What the v56 types defaulted to: a record states every key, so these only answer for a key it lacks.
+        const ECS::SkyAtmosphereData    kOldSky;
+        const ECS::DirectionalLightData kOldLight;
+        constexpr double                kOldExposure = 1.0;
+        constexpr double                kOldKey      = 0.18;
+        static_assert( static_cast<int>( ECS::SkyModel::PhysicalAtmosphere ) == 1,
+                       "SkyModel moved: the migration reads PhysicalAtmosphere as 1" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+        // A stated vec3 (a three-number array), or @p fallback when the key is not stated; nullopt when it is
+        // stated in another shape.
+        const auto vec3 = [&]( const rfl::Generic::Object& block, const char* key,
+                               const glm::vec3& fallback ) -> std::optional<glm::dvec3>
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return glm::dvec3( fallback );
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() || array.value().size() != 3 )
+                return std::nullopt;
+            glm::dvec3 v;
+            for ( int i = 0; i < 3; ++i )
+            {
+                const auto n = number( array.value()[static_cast<std::size_t>( i )] );
+                if ( !n.has_value() )
+                    return std::nullopt;
+                v[i] = n.value();
+            }
+            return v;
+        };
+        const auto scalar = [&]( const rfl::Generic::Object& block, const char* key,
+                                 double fallback ) -> std::optional<double>
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? number( stated.value() ) : std::optional<double>( fallback );
+        };
+        const auto flag = []( const rfl::Generic::Object& block, const char* key, bool fallback )
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? stated.value().to_bool().value_or( fallback ) : fallback;
+        };
+        const auto put3 = []( rfl::Generic::Object& block, const char* key, const glm::dvec3& v )
+        {
+            DropKey( block, key );
+            block[key] = rfl::Generic(
+                 rfl::Generic::Array{ rfl::Generic( v.x ), rfl::Generic( v.y ), rfl::Generic( v.z ) } );
+        };
+        const auto object = []( rfl::ExtraFields<rfl::Generic>& components,
+                                const char*                     component ) -> std::optional<rfl::Generic::Object>
+        {
+            const auto payload = components.get( component );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return std::nullopt;
+            return std::move( fields.value() );
+        };
+
+        // ---- Manual exposure: multiplier -> EV100 at the volume's key. ----
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock(
+                 components, "PostProcessVolume",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "Settings" );
+                     if ( !stated.has_value() )
+                         return false;
+                     auto fields = stated.value().to_object();
+                     if ( !fields.has_value() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                           Describe( stated.value() ) ) );
+                         return false;
+                     }
+                     rfl::Generic::Object settings = std::move( fields.value() );
+                     if ( settings.get( "ManualExposureEV100" ).has_value() )
+                         return false;
+                     const bool statesExposure = settings.get( "Exposure" ).has_value();
+                     if ( !record && !statesExposure )
+                         return false; // a delta that does not state it inherits its prefab's
+                     const auto m   = scalar( settings, "Exposure", kOldExposure );
+                     const auto key = scalar( settings, "AutoExposureKey", kOldKey );
+                     if ( !m.has_value() || !( m.value() > 0.0 ) || !key.has_value() || !( key.value() > 0.0 ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings Exposure / AutoExposureKey is not a positive "
+                              "number",
+                              who ) );
+                         return false;
+                     }
+                     DropKey( settings, "Exposure" );
+                     settings["ManualExposureEV100"] = rfl::Generic( std::log2( key.value() / m.value() ) + 3.0 );
+                     DropKey( block, "Settings" );
+                     block["Settings"] = rfl::Generic( std::move( settings ) );
+                     ++report.Volumes;
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    exposure( override_.Components, false, who );
+        }
+
+        // ---- The physical sky's sun: fold the sky's own sun into UE's factors against the atmosphere light. ----
+        Assets::EntityData* skyEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto sky = object( entity.Components, "SkyAtmosphere" );
+            if ( !sky.has_value() )
+                continue;
+            const auto model =
+                 scalar( sky.value(), "Model", static_cast<double>( static_cast<int>( kOldSky.Model ) ) );
+            if ( model.has_value() && static_cast<int>( model.value() ) == 1 &&
+                 flag( sky.value(), "Enabled", kOldSky.Enabled ) )
+            {
+                if ( skyEntity != nullptr )
+                {
+                    report.Refused.push_back( "two enabled Physical Atmosphere skies: the engine draws one" );
+                    return report;
+                }
+                skyEntity = &entity;
+            }
+        }
+        if ( skyEntity == nullptr )
+            return report;
+
+        Assets::EntityData* lightEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto light = object( entity.Components, "DirectionLight" );
+            if ( light.has_value() && flag( light.value(), "AtmosphereSunLight", kOldLight.AtmosphereSunLight ) )
+            {
+                lightEntity = &entity; // the engine renders exactly one directional light
+                break;
+            }
+        }
+
+        rfl::Generic::Object sky          = object( skyEntity->Components, "SkyAtmosphere" ).value();
+        const auto           sunColor     = vec3( sky, "SunColor", kOldSky.SunColor );
+        const auto           sunIntensity = scalar( sky, "SunIntensity", kOldSky.SunIntensity );
+        const auto           apFactor =
+             vec3( sky, "SkyAndAerialPerspectiveLuminanceFactor", kOldSky.SkyAndAerialPerspectiveLuminanceFactor );
+        if ( !sunColor.has_value() || !sunIntensity.has_value() || !apFactor.has_value() )
+        {
+            report.Refused.push_back(
+                 "SkyAtmosphere SunColor / SunIntensity / SkyAndAerialPerspectiveLuminanceFactor "
+                 "is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 skySun = sunColor.value() * sunIntensity.value();
+        if ( lightEntity == nullptr )
+        {
+            if ( glm::all( glm::equal( skySun, glm::dvec3( 0.0 ) ) ) )
+                return report;
+            report.Refused.push_back( "a Physical Atmosphere sky with no atmosphere sun light: from v57 the sky "
+                                      "scatters the light's illuminance, and there is none to keep this picture" );
+            return report;
+        }
+        rfl::Generic::Object light      = object( lightEntity->Components, "DirectionLight" ).value();
+        const auto           lightColor = vec3( light, "Color", kOldLight.Color );
+        const auto           lightLux   = scalar( light, "Intensity", kOldLight.Intensity );
+        const auto           diskScale  = vec3( light, "AtmosphereSunDiskColorScale", glm::vec3( 1.0f ) );
+        if ( !lightColor.has_value() || !lightLux.has_value() || !diskScale.has_value() )
+        {
+            report.Refused.push_back( "DirectionLight Color / Intensity is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 lightSun = lightColor.value() * lightLux.value();
+        glm::dvec3       ratio( 1.0 );
+        for ( int i = 0; i < 3; ++i )
+        {
+            if ( lightSun[i] > 0.0 )
+                ratio[i] = skySun[i] / lightSun[i];
+            else if ( skySun[i] > 0.0 )
+            {
+                report.Refused.push_back( std::format(
+                     "the atmosphere sun light's illuminance is 0 in channel {} under a sky sun of {}: no factor "
+                     "keeps that picture",
+                     i, skySun[i] ) );
+                return report;
+            }
+        }
+        if ( glm::all( glm::lessThan( glm::abs( ratio - glm::dvec3( 1.0 ) ), glm::dvec3( 1e-6 ) ) ) )
+            return report; // the sky's sun already was the light's
+        put3( sky, "SkyAndAerialPerspectiveLuminanceFactor", apFactor.value() * ratio );
+        skyEntity->Components["SkyAtmosphere"] = rfl::Generic( std::move( sky ) );
+        put3( light, "AtmosphereSunDiskColorScale", diskScale.value() * ratio );
+        lightEntity->Components["DirectionLight"] = rfl::Generic( std::move( light ) );
+        ++report.Skies;
+        return report;
+    }
+
     namespace
     {
         // A literal default a script declares: what `Name = Property.<Kind>( <literal>` states.
@@ -3543,6 +3756,18 @@ namespace Desert::Migration
                 }
             }
 
+            // The physical sky's sun is the light; manual exposure is EV100 (LIGHT-UNITS-2).
+            if ( statedSceneVersion < kSceneVersionSkySunFromLight )
+            {
+                report.SkySunFromLightRaised = true;
+                report.SkySunFromLight       = MigrateSkySunFromLightV56ToV57( entities );
+                if ( !report.SkySunFromLight.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SkySunFromLight.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3970,6 +4195,17 @@ namespace Desert::Migration
             {
                 const LightUnitsReport lifted = MigrateLightUnitsV55ToV56( scene.Entities );
                 report.LightUnits.Volumes += lifted.Volumes;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its manual exposure as EV100 (idempotent - a volume stating ManualExposureEV100 is skipped).
+            if ( report.SkySunFromLightRaised )
+            {
+                const SkySunFromLightReport lifted = MigrateSkySunFromLightV56ToV57( scene.Entities );
+                report.SkySunFromLight.Volumes += lifted.Volumes;
                 if ( !lifted.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );

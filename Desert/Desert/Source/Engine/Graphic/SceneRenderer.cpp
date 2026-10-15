@@ -836,8 +836,16 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
+        // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
+        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetParams( post.Exposure, post.Gamma );
+             ->SetParams( manualExposure, post.Gamma );
+        // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
+        // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->SetSkyLuminanceCeiling( SkyLuminanceCeiling(
+                  post.AutoExposure ? LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey )
+                                    : manualExposure ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetTonemapOperator( post.Tonemapper );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -878,14 +886,10 @@ namespace Desert::Graphic
         // unit, so ordinary daylight sky was a bloom source. Dividing here puts the comparison back in the
         // space the number was written in; neither authored number was retuned.
         //
-        // AUTO-EXPOSURE IS NOT FIXED BY THIS AND IS NOT PRETENDED TO BE. There the exposure is
-        // `key / adaptedLuminance` evaluated in the composite from a 1x1 image the CPU never reads, so
-        // this function has nothing to divide by and leaves the threshold in raw radiance — the behaviour
-        // it has always had. No repository scene enables auto-exposure. Closing it means giving the bloom
-        // pass the adapted-luminance image and doing the comparison on the GPU, which is a binding this
-        // pass does not have; it is written down in Docs/Clouds/CALIBRATION.md rather than left to be
-        // rediscovered.
-        const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
+        // AUTO-EXPOSURE does the same division on the GPU: the exposure there is `key / adaptedLuminance` from a
+        // 1x1 image the CPU never reads, so the bloom pass binds that image and divides the threshold itself
+        // (BloomRenderer::SetAutoExposure, BloomDownsample.shader) — here it is left in exposed units.
+        const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( manualExposure, 1e-30f );
 
         m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
@@ -943,6 +947,8 @@ namespace Desert::Graphic
              ->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
+             ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
