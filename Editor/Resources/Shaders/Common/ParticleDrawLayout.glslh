@@ -1,0 +1,28 @@
+// WHERE A RENDERER FINDS THE PARTICLE (UE: FNiagaraSpriteUniformParameters' PositionDataOffset / ColorDataOffset /
+// SizeDataOffset / RotationDataOffset ... over NiagaraParticleDataFloat, NiagaraSpriteVertexFactory.ush). The
+// particle's data is the emitter's SoA attribute columns, the ones its compiled stack writes
+// (Programs/Particles/ParticleSimulate.shader): component c of range-local particle n at c * Count + n. Which
+// column each drawn attribute starts at depends on the stack, so the emitter carries this block - built from the
+// compiled layout by ParticleWorldGpu (its kDrawnAttributes, the one table of what a renderer reads) and uploaded
+// with the emitter's range and world position every tick. A stack that does not declare an
+// attribute has PARTICLE_ATTR_NONE there and the reader gets UE's default (Position 0, Color white, SpriteSize
+// 50 x 50 cm, SpriteRotation 0, Age 0, Lifetime 0).
+//
+// The C++ statement is Graphic::System::ParticleDrawLayoutGpu (ParticleWorldGpu.hpp, kParticleDrawLayoutSize).
+//
+// The readers are Common/ParticleDrawRead.glslh, included after the consumer's two storage blocks.
+
+#ifndef PARTICLE_DRAW_LAYOUT_GLSLH
+#define PARTICLE_DRAW_LAYOUT_GLSLH
+
+#define PARTICLE_ATTR_NONE 0xFFFFFFFFu
+
+struct ParticleDrawLayout
+{
+    uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space
+    uvec4 Columns0;   // first float column of x = Position, y = SpriteSize, z = Color, w = SpriteRotation
+    uvec4 Columns1;   // first float column of x = Age, y = Lifetime; zw = PARTICLE_ATTR_NONE
+    vec4  EmitterPos; // xyz = the emitter's world position (cm): a Local emitter's Position is relative to it
+};
+
+#endif // PARTICLE_DRAW_LAYOUT_GLSLH

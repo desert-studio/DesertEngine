@@ -28,6 +28,12 @@ namespace Desert::Reflection
             return *this;
         }
 
+        TypeBuilder& ScriptName( std::string name )
+        {
+            m_Info.ScriptName = std::move( name );
+            return *this;
+        }
+
         TypeBuilder& Function( FunctionInfo function )
         {
             m_Info.Functions.push_back( std::move( function ) );

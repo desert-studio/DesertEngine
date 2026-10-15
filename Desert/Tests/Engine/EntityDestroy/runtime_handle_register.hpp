@@ -136,7 +136,7 @@ namespace Desert::Tests::RuntimeHandles
            "one log line per refused element, forgotten when the element is demanded again" },
          // Keyed by `uint32_t` (the entity's integer value), so the text scan for entt::entity keys cannot see
          // these two; they are listed by hand and their declarations are still checked to exist.
-         { "Desert/Desert/Source/Engine/Scripting/Internal/ScriptRuntime.hpp", "Slots", Release::Listener,
+         { "Desert/Desert/Source/Engine/Scripting/Luau/LuauHost.hpp", "Slots", Release::Listener,
            "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp", "on_destroy<ScriptComponent>().connect",
            "each entity's Luau script slots and their timers (SCR-LUAU-3), ScriptEngine::Impl::ReleaseEntity" },
          { "Desert/Desert/Source/Engine/ECS/System/LandscapeECSSystem.hpp", "m_Tiles", Release::Sweep,
@@ -147,12 +147,12 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Emitters",
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp", "m_Systems",
            Release::Sweep, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp",
-           "RetireDestroyedEmitters( m_Emitters, reg )",
-           "the emitter's step/counter/dispatch buffers in the scene's pool; PrepareTick drops emitters whose "
-           "entity "
-           "is gone or lost the component, released through the allocator's deletion ring (EntityDestroy."
-           "DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletionRing)" },
+           "RetireDestroyedEmitters( m_Systems, reg )",
+           "each VFX system's per-emitter step/counter/dispatch buffers in the scene's pool (VFX-HOST); "
+           "PrepareTick drops systems whose entity is gone or lost the component, released through the "
+           "allocator's deletion ring (EntityDestroy.DestroyingAnEmitterReleasesItsGpuStateThroughTheDeletion"
+           "Ring)" },
     } };
 } // namespace Desert::Tests::RuntimeHandles

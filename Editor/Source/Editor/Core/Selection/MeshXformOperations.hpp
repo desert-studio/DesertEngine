@@ -2,7 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 
 #include <cstdint>
 

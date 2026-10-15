@@ -25,14 +25,14 @@ local function blink()
         if light then
             light.Intensity = lit and Properties.Intensity or 0.0
         end
-        self:setMaterialParam("EmissionFactor", lit and 1.0 or 0.0)
+        self:setMaterialParam("EmissionFactor", { x = lit and 1.0 or 0.0, y = 0, z = 0, w = 1 })
     end
     Timer.after(Properties.Period, blink) -- re-arm: a repeating timer is just recursion
 end
 
 function OnStart()
     local light = self:add("PointLight")
-    light.Color = { x = 1.0, y = 0.55, z = 0.15 }
+    light.Color = vector.create(1.0, 0.55, 0.15)
     light.Intensity = 0.0
 
     Timer.after(Properties.Period, blink)
@@ -46,14 +46,14 @@ function OnUpdate(dt)
         if not enabled then
             local light = self:component("PointLight")
             if light then light.Intensity = 0.0 end
-            self:setMaterialParam("EmissionFactor", 0.0)
+            self:setMaterialParam("EmissionFactor", { x = 0.0, y = 0, z = 0, w = 1 })
             lit = false
         end
     end
 
     -- Report how far the player is, once a beacon phase (cheap demo of distanceTo/forward).
     local player = World.find("Player")
-    if player:valid() and Input.wasPressed("N") then
+    if player and player:valid() and Input.wasPressed("N") then
         Log.info(string.format("player is %.1fm away", self:distanceTo(player)))
     end
 end

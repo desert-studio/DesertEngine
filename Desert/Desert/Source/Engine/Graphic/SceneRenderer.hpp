@@ -12,6 +12,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -35,6 +36,7 @@
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <functional>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -85,6 +87,7 @@ namespace Desert::Graphic
     }
     class FrameTextures;
     struct FrameValues;
+    class ReflectionCaptureRenderer;
 
     class SceneRenderer final
     {
@@ -207,6 +210,15 @@ namespace Desert::Graphic
         void OnUpdate( const UpdateInfo& sceneRenderInfo );
 
         [[nodiscard]] Common::BoolResultStr EndScene();
+
+        // THE REFLECTION CAPTURES (ReflectionCaptures/ReflectionCaptureRenderer.hpp) are the scene's; a view only
+        // reads them. Whether this view's profile does (ViewProfile::ReflectionCaptures), and the identity of the
+        // sky bake it holds (0 before it has one) - the scene recaptures when it changes.
+        [[nodiscard]] bool     ReadsReflectionCaptures() const;
+        [[nodiscard]] uint64_t GetEnvironmentIdentity();
+        // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
+        // reflection capture resamples into its cube. Null before the targets exist.
+        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
@@ -483,14 +495,18 @@ namespace Desert::Graphic
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
         // away on the first view, and the second view then got a moved-from light.
-        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight );
+        // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
+        // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
+        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                            const LocalLightShadowSettings&           shadow );
 
         const auto& GetPointLights() const
         {
             return m_PointLight;
         }
 
-        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight );
+        void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                           const LocalLightShadowSettings&          shadow );
 
         const auto& GetSpotLights() const
         {
@@ -622,6 +638,7 @@ namespace Desert::Graphic
         {
             RDG::TextureRef    Color;
             RDG::TextureRef    Velocity;
+            RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    Depth;
             [[nodiscard]] bool IsValid() const
             {
@@ -787,6 +804,9 @@ namespace Desert::Graphic
         ShaderProtocols::DirectionLight m_DirectionLights;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
+        // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
+        std::vector<LocalLightShadowSettings> m_PointLightShadows;
+        std::vector<LocalLightShadowSettings> m_SpotLightShadows;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
@@ -804,6 +824,9 @@ namespace Desert::Graphic
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
+        // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
+        // views): published into this view's graph by OnUpdate, cleared by EndScene.
+        ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

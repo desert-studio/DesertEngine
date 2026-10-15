@@ -47,15 +47,25 @@ namespace Desert::Graphic
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
         RDG::TextureRef Velocity;
+        // The view's responsive-AA mask (ViewRasterTargets.hpp CreateViewResponsiveAA): a colour slot of the scene
+        // target only, written by ResponsiveAA translucency (glass, particles)   -> TAA
+        RDG::TextureRef ResponsiveAA;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: cascade c (MeshRenderer's CSM map, invalid past the valid count), the scene environment's
         // two cubes (invalid when the scene has no baked sky) and the renderer's split-sum BRDF LUT. Never read
         // directly: a pass takes SceneViewInputsOf, which states the neutral texture for each one that is absent.
         std::array<RDG::TextureRef, kSceneViewShadowCascades> ShadowCascades;
+        // The view's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: the renderer owns
+        // it and keeps cached tiles in it across frames). Invalid while no light of the view has cast a shadow.
+        RDG::TextureRef                                       LocalShadowAtlas;
         RDG::TextureRef                                       EnvIrradiance;
         RDG::TextureRef                                       EnvSpecular;
         RDG::TextureRef                                       BrdfLut;
+        // The view's reflection captures (ReflectionCaptureRenderer::AddPasses, every graph): the cube array and
+        // the capture list the lighting pass reads (Common/ReflectionEnvironment.glslh)   -> Deferred: Composite
+        RDG::TextureRef ReflectionCaptureCubes;
+        RDG::BufferRef  ReflectionCaptures;
         // The procedural sky's transmittance / sky-view LUTs (SkyboxRenderer, imported under the names its LUT
         // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
         RDG::TextureRef SkyTransmittanceLut;
@@ -95,6 +105,13 @@ namespace Desert::Graphic
         RDG::TextureRef                                       EnvSpecular; // prefiltered cube, or System.BlackCube
         RDG::TextureRef                                       BrdfLut;     // split-sum LUT, or System.Black
         RDG::TextureRef                                       CloudShadowMap; // CloudShadowMapOrWhite
+        // The point/spot shadow atlas, or System.White (depth 1 everywhere = "no occluder"; no light then names a
+        // view of it, so it is never read).
+        RDG::TextureRef LocalShadowAtlas;
+        // The reflection captures: their cube array (System.BlackCube is a cube, not an array - the view always
+        // publishes its own, a one-cube black array when it has no captures) and their list.
+        RDG::TextureRef ReflectionCaptureCubes;
+        RDG::BufferRef  ReflectionCaptures;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -107,7 +124,8 @@ namespace Desert::Graphic
             };
             for ( const RDG::TextureRef map : ShadowMaps )
                 add( map );
-            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap } )
+            for ( const RDG::TextureRef ref : { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, LocalShadowAtlas,
+                                                ReflectionCaptureCubes } )
                 add( ref );
             return refs;
         }
@@ -121,6 +139,9 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
     inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
     inline constexpr std::string_view kSceneViewCloudShadowMapName = "u_CloudShadowMap";
+    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
+    inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
+    inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -132,6 +153,9 @@ namespace Desert::Graphic
         inputs.EnvSpecular    = t.EnvSpecular.IsValid() ? t.EnvSpecular : refs.System.BlackCube;
         inputs.BrdfLut        = t.BrdfLut.IsValid() ? t.BrdfLut : refs.System.Black;
         inputs.CloudShadowMap = CloudShadowMapOrWhite( refs );
+        inputs.LocalShadowAtlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
+        inputs.ReflectionCaptureCubes = t.ReflectionCaptureCubes;
+        inputs.ReflectionCaptures     = t.ReflectionCaptures;
         return inputs;
     }
 
@@ -176,6 +200,11 @@ namespace Desert::Graphic
             bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLutName, inputs.BrdfLut, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewCloudShadowMapName, inputs.CloudShadowMap, RDG::SamplerDesc::LinearRepeat() );
+            // Read with texelFetch (Mesh/LocalLightShadow.glslh filters by hand inside each tile).
+            bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, RDG::SamplerDesc::PointClamp() );
+            if ( inputs.ReflectionCaptureCubes.IsValid() )
+                bind( kSceneViewReflectionCubesName, inputs.ReflectionCaptureCubes,
+                      RDG::SamplerDesc::LinearClamp() );
         }
 
         template <typename Samples>
@@ -185,7 +214,8 @@ namespace Desert::Graphic
                 if ( samples( name ) )
                     return true;
             return samples( kSceneViewEnvIrradianceName ) || samples( kSceneViewEnvSpecularName ) ||
-                   samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName );
+                   samples( kSceneViewBrdfLutName ) || samples( kSceneViewCloudShadowMapName ) ||
+                   samples( kSceneViewLocalShadowAtlasName );
         }
     } // namespace SceneViewDetail
 
@@ -215,5 +245,13 @@ namespace Desert::Graphic
     {
         SceneViewDetail::BindWhere( block, inputs, [&layout]( std::string_view name )
                                     { return SceneViewDetail::LayoutSamples( layout, name ); } );
+        // The capture list is a storage buffer, bound where the layout has that block.
+        if ( inputs.ReflectionCaptures.IsValid() &&
+             std::any_of( layout.Slots.begin(), layout.Slots.end(),
+                          []( const RDG::ShaderSlot& slot ) {
+                              return slot.Name == kSceneViewReflectionListName &&
+                                     slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
+                          } ) )
+            block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
     }
 } // namespace Desert::Graphic

@@ -129,12 +129,8 @@ TEST( ParticleEmitterToVFX, NameAndGuidAreDeterministicAndARerunWritesTheSameFil
     EXPECT_EQ( ra.NewSystems, rb.NewSystems );
     EXPECT_FALSE( a[0].Components.get( "ParticleEmitter" ).has_value() );
     const auto vfx = a[0].Components.get( "VFX" ).value().to_object().value();
-    const auto ref = vfx.get( "System" ).value().to_object().value();
-    EXPECT_EQ( ref.get( "Path" ).value().to_string().value(),
+    EXPECT_EQ( vfx.get( "System" ).value().to_string().value(),
                std::format( "VFX/Level_{}.dfx", Common::UUID( 0x1234 ).ToString() ) );
-    EXPECT_EQ( ref.get( "Guid" ).value().to_string().value(),
-               Common::Content::AssetGuidToText(
-                    Migration::MigrationGuidForPath( ref.get( "Path" ).value().to_string().value() ) ) );
     EXPECT_TRUE( vfx.get( "AutoActivate" ).value().to_bool().value() );
 
     // Rerun over the raised file: nothing left to convert.
@@ -156,17 +152,7 @@ TEST( ParticleEmitterToVFX, IdenticalEmittersShareOneSystem )
     EXPECT_EQ( report.Shared, 1u );
     EXPECT_EQ( report.NewSystems.size(), 2u );
     const auto path = []( const EntityData& e )
-    {
-        return e.Components.get( "VFX" )
-             .value()
-             .to_object()
-             .value()
-             .get( "System" )
-             .value()
-             .to_object()
-             .value()
-             .get( "Path" );
-    };
+    { return e.Components.get( "VFX" ).value().to_object().value().get( "System" ); };
     EXPECT_EQ( path( entities[0] ).value().to_string().value(), path( entities[1] ).value().to_string().value() );
     EXPECT_NE( path( entities[0] ).value().to_string().value(), path( entities[2] ).value().to_string().value() );
 }

@@ -13,18 +13,18 @@
                 "AntiAliasing.TemporalQuality": 1
             },
             "High": {
-                "AntiAliasing.Method": "FXAA",
+                "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
                 "AntiAliasing.TemporalQuality": 2
             },
             "Epic": {
-                "AntiAliasing.Method": "MSAA",
-                "AntiAliasing.Samples": 4,
+                "AntiAliasing.Method": "TAA",
+                "AntiAliasing.Samples": 1,
                 "AntiAliasing.TemporalQuality": 2
             },
             "Cinematic": {
-                "AntiAliasing.Method": "MSAA",
-                "AntiAliasing.Samples": 8,
+                "AntiAliasing.Method": "TAA",
+                "AntiAliasing.Samples": 1,
                 "AntiAliasing.TemporalQuality": 2
             }
         },
@@ -190,22 +190,27 @@
         "Reflections": {
             "Low": {
                 "Reflections.MaxSteps": 12,
+                "Reflections.CaptureSize": 64,
                 "Reflections.Method": "ScreenSpace"
             },
             "Medium": {
                 "Reflections.MaxSteps": 20,
+                "Reflections.CaptureSize": 128,
                 "Reflections.Method": "ScreenSpace"
             },
             "High": {
                 "Reflections.MaxSteps": 32,
+                "Reflections.CaptureSize": 128,
                 "Reflections.Method": "HardwareTraced"
             },
             "Epic": {
                 "Reflections.MaxSteps": 48,
+                "Reflections.CaptureSize": 128,
                 "Reflections.Method": "HardwareTraced"
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 64,
+                "Reflections.CaptureSize": 256,
                 "Reflections.Method": "PathTraced"
             }
         },

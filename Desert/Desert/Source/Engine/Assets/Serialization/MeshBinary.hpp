@@ -84,7 +84,7 @@ namespace Desert::Assets::Serialization
     /// form that predates the container, which is recognised by the ABSENCE of the magic.
     ///
     /// Version 2 (M4) appends ONE section, `PolyGroups`: one int32 per face, in `Indices` order, or none.
-    /// A polygroup is the one piece of an EditMesh a cooked mesh has no other field for - topology, seams,
+    /// A polygroup is the one piece of an editable mesh a cooked mesh has no other field for - topology, seams,
     /// normals, the tangent frame, UV 0 and the material split all come back from the render arrays through
     /// Geometry::FromRenderMesh, while colours and UV layers 1..7 have no render field to be drawn from, so a
     /// cooked mesh storing them would store data nothing reads. A version-1 file IS a version-2 file with

@@ -28,6 +28,7 @@ namespace Desert::Graphic::API::Vulkan
         // Vulkan 1.0 features and the swapchain — what the renderer uses today.
         TessellationShader,
         IndependentBlend,
+        ImageCubeArray,
         Swapchain,
         WideLines,
         FillModeNonSolid,

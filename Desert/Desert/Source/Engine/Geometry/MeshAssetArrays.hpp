@@ -10,11 +10,10 @@
 
 namespace Desert::Geometry
 {
-    // THE ONE PLACE A .stmesh's ARRAYS MEET THE RENDER ARRAYS. Both modeling cores (EditMesh, EditMeshAsset.hpp,
-    // and DynamicMesh3, DynamicMeshAsset.hpp) go through their own ToRenderMesh / FromRenderMesh and then
-    // through these two functions, so the file a core writes depends only on the render arrays it produced:
-    // two cores that draw the same thing write the same bytes, and neither can drift in naming, slot binding
-    // or polygroup order on its own.
+    // THE ONE PLACE A .stmesh's ARRAYS MEET THE RENDER ARRAYS. The modeling core (DynamicMesh3,
+    // DynamicMeshAsset.hpp) goes through its ToRenderMesh / FromRenderMesh and then through these two
+    // functions, so the file it writes depends only on the render arrays it produced: two meshes that draw
+    // the same thing write the same bytes, and naming, slot binding and polygroup order live here once.
 
     // Render arrays -> asset data. Submesh k takes slotMaterials[k] (null GUID past the end) and, when unnamed,
     // the name "Section<k>". polyGroups holds one group per render triangle, in render.Indices order.

@@ -105,7 +105,7 @@ namespace Desert::Destruction
         double           Volume          = 0.0; // cm^3, of the node's whole subtree
         glm::dvec3       CenterOfMass{ 0.0 };   // cm, of uniform density
 
-        Geometry::EditMeshSer         Mesh;         // leaves: the piece's closed mesh
+        Geometry::MeshSavedForm       Mesh;         // leaves: the piece's closed mesh
         std::vector<glm::vec3>        HullVertices; // leaves: the convex hull (Jolt ConvexHullBuilder)
         std::vector<std::vector<int>> HullFaces;    // polygons into HullVertices, counter-clockwise outside
 

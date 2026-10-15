@@ -13,6 +13,8 @@ include "BuildScripts/Configurations.lua"
 include "BuildScripts/PlatformWindows.lua"
 include "BuildScripts/PlatformMacOS.lua"
 include "BuildScripts/UnityBuild.lua"
+-- The engine's module table and the one way to link the engine (one library per module): before any project.
+include "BuildScripts/DesertModuleLibs.lua"
 
 group "ThirdParty"
 include "ThirdParty/"

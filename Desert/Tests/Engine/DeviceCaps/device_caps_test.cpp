@@ -213,7 +213,9 @@ TEST( DeviceCaps, TheRequiredSetIsWhatTheRendererUsesToday )
     for ( const CapabilitySpec& spec : CapabilityTable() )
         if ( spec.Need == CapabilityNeed::Required )
             required.insert( std::string( spec.Name ) );
-    EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "swapchain" } ) );
+    // imageCubeArray: REFL-CAPTURE keeps every reflection capture in one cube array.
+    EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "imageCubeArray",
+                                                  "swapchain" } ) );
     EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_2 );
 }
 

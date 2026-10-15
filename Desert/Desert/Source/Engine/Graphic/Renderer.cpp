@@ -144,10 +144,10 @@ namespace Desert::Graphic
         return s_RendererAPI->PresentFinalImage();
     }
 
-    void Renderer::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                const MaterialExecutor* materialExecutor )
+    void Renderer::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                 const MaterialExecutor* materialExecutor )
     {
-        s_RendererAPI->SubmitLines( pipeline, vertexCount, lineWidth, materialExecutor );
+        s_RendererAPI->SubmitPulled( pipeline, vertexCount, lineWidth, materialExecutor );
     }
 
     RDG::ShaderBindingLayout Renderer::GetBindingLayout( const Shader& shader )
@@ -245,6 +245,17 @@ namespace Desert::Graphic
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
         s_RendererAPI->SetScissor( x, y, width, height );
+    }
+
+    void Renderer::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
+    {
+        s_RendererAPI->SetViewportRegion( x, y, width, height );
+    }
+
+    void Renderer::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                uint32_t height, const glm::vec4& color, float depth )
+    {
+        s_RendererAPI->ClearRegion( framebuffer, x, y, width, height, color, depth );
     }
 
     Common::BoolResultStr Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )

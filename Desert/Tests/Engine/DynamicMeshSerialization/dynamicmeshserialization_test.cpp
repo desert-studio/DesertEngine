@@ -1,13 +1,9 @@
-// P6: DynamicMesh3 reads and writes the scene's StaticMesh.EditMesh block, the form EditMesh already writes.
+// P6: DynamicMesh3 reads and writes the scene's StaticMesh.EditMesh block (SavedMeshForm.hpp).
 //
-// WHAT IS ASSERTED IS THE RELATION TO THE CORE BEING REPLACED, not the new core alone:
 //   - on every tracked scene carrying the block, and on synthetic variants of it that exercise what the scene
 //     does not (colours, a second UV layer, partly set layers, flipped handedness, mixed materials, an
-//     enabled-but-empty normal layer), read -> write through EditMesh and read -> write through DynamicMesh3
-//     give the same JSON text, and ToRenderMesh of the two cores gives the same render arrays (bitangents to
-//     1e-6, as in P5);
-//   - the new path's own round trip is byte-stable (the witness file itself is hand-spelled in doubles that are
-//     not floats, so the first write narrows it - identically in both cores, which the equivalence covers);
+//     enabled-but-empty normal layer), the round trip is byte-stable (the witness file itself is hand-spelled
+//     in doubles that are not floats, so the first write narrows it);
 //   - broken data is refused with the entity's name in the message.
 
 #include <gtest/gtest.h>
@@ -33,8 +29,7 @@ namespace
 } // namespace
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 
 #include <glm/geometric.hpp>
 
@@ -54,7 +49,7 @@ namespace
     struct CorpusMesh
     {
         std::string Name; // "<scene file>:<entity tag>"
-        EditMeshSer Saved;
+        MeshSavedForm Saved;
     };
 
     // Every tracked scene with a StaticMesh.EditMesh block. Discovered, not listed, so a scene added later is
@@ -100,72 +95,25 @@ namespace
     }
 
     // The scene's own write of the block, as text: what "byte for byte" is measured on.
-    std::string Written( const EditMeshSer& saved )
+    std::string Written( const MeshSavedForm& saved )
     {
         StaticMeshComponentSer block;
         block.EditMesh = saved;
         return Common::Json::Write( Common::Json::FromStruct( block ) );
     }
 
-    EditMesh OldRead( const EditMeshSer& saved )
-    {
-        auto mesh = FromSerialized( saved );
-        EXPECT_TRUE( mesh.IsSuccess() ) << ( mesh.IsSuccess() ? "" : mesh.GetError() );
-        return mesh.IsSuccess() ? mesh.ExtractValue() : EditMesh{};
-    }
-
-    DynamicMesh3 NewRead( const EditMeshSer& saved, const std::string& name )
+    DynamicMesh3 NewRead( const MeshSavedForm& saved, const std::string& name )
     {
         auto mesh = DynamicMeshFromSerialized( saved, name );
         EXPECT_TRUE( mesh.IsSuccess() ) << ( mesh.IsSuccess() ? "" : mesh.GetError() );
         return mesh.IsSuccess() ? mesh.ExtractValue() : DynamicMesh3{};
     }
 
-    void ExpectSameRender( const std::string& name, const EditMesh& oldMesh, const DynamicMesh3& newMesh )
-    {
-        auto oldRender = ToRenderMesh( oldMesh );
-        auto newRender = ToRenderMesh( newMesh );
-        ASSERT_EQ( oldRender.IsSuccess(), newRender.IsSuccess() )
-             << name << ": " << ( oldRender.IsSuccess() ? "" : oldRender.GetError() ) << " / "
-             << ( newRender.IsSuccess() ? "" : newRender.GetError() );
-        if ( !oldRender.IsSuccess() )
-            return;
-        RenderMeshData a = oldRender.ExtractValue();
-        RenderMeshData b = newRender.ExtractValue();
-        ASSERT_EQ( a.Vertices.size(), b.Vertices.size() ) << name;
-        ASSERT_EQ( a.Indices.size(), b.Indices.size() ) << name;
-        ASSERT_EQ( a.Submeshes.size(), b.Submeshes.size() ) << name;
-        for ( size_t i = 0; i < a.Vertices.size(); ++i )
-        {
-            EXPECT_LT( glm::length( a.Vertices[i].Bitangent - b.Vertices[i].Bitangent ), 1e-6f )
-                 << name << " " << i;
-            a.Vertices[i].Bitangent = b.Vertices[i].Bitangent = glm::vec3( 0.0f );
-        }
-        EXPECT_EQ(
-             0, std::memcmp( a.Vertices.data(), b.Vertices.data(), a.Vertices.size() * sizeof( Desert::Vertex ) ) )
-             << name;
-        EXPECT_EQ( 0,
-                   std::memcmp( a.Indices.data(), b.Indices.data(), a.Indices.size() * sizeof( Desert::Index ) ) )
-             << name;
-        for ( size_t i = 0; i < a.Submeshes.size(); ++i )
-        {
-            EXPECT_EQ( a.Submeshes[i].Name, b.Submeshes[i].Name ) << name;
-            EXPECT_EQ( a.Submeshes[i].VertexOffset, b.Submeshes[i].VertexOffset ) << name;
-            EXPECT_EQ( a.Submeshes[i].VertexCount, b.Submeshes[i].VertexCount ) << name;
-            EXPECT_EQ( a.Submeshes[i].IndexOffset, b.Submeshes[i].IndexOffset ) << name;
-            EXPECT_EQ( a.Submeshes[i].IndexCount, b.Submeshes[i].IndexCount ) << name;
-        }
-        EXPECT_EQ( a.SubmeshMaterialIds, b.SubmeshMaterialIds ) << name;
-        // The streams beside the vertex come out of both cores alike.
-        EXPECT_TRUE( a.Colors == b.Colors ) << name << ": the colour streams differ";
-        EXPECT_TRUE( a.UV1 == b.UV1 ) << name << ": the UV1 streams differ";
-    }
-
     // Per-vertex elements for a new layer: element v = the values of vertex v, every triangle set except
     // the rows in @p unsetRows.
-    EditMeshOverlaySer PerVertex( const EditMeshSer& mesh, int components, std::vector<size_t> unsetRows )
+    MeshOverlaySavedForm PerVertex( const MeshSavedForm& mesh, int components, std::vector<size_t> unsetRows )
     {
-        EditMeshOverlaySer out;
+        MeshOverlaySavedForm out;
         const size_t       vertices = mesh.Positions.size() / 3;
         for ( size_t v = 0; v < vertices; ++v )
             for ( int c = 0; c < components; ++c )
@@ -205,7 +153,7 @@ namespace
         bare.Name += " normals enabled but empty, no tangents, no UVs";
         bare.Saved.Tangents.reset();
         bare.Saved.UVs.clear();
-        bare.Saved.Normals = EditMeshOverlaySer{ {}, std::vector<int>( base.Saved.Triangles.size(), -1 ) };
+        bare.Saved.Normals = MeshOverlaySavedForm{ {}, std::vector<int>( base.Saved.Triangles.size(), -1 ) };
         out.push_back( bare );
 
         CorpusMesh none = base;
@@ -231,7 +179,7 @@ namespace
         return all;
     }
 
-    EditMeshSer Witness()
+    MeshSavedForm Witness()
     {
         for ( const CorpusMesh& mesh : CorpusWithVariants() )
             if ( mesh.Name == "M4_RampNormalMap.desce:Ramp_EditMesh" )
@@ -240,7 +188,7 @@ namespace
         return {};
     }
 
-    std::string RefusalOf( const EditMeshSer& saved )
+    std::string RefusalOf( const MeshSavedForm& saved )
     {
         auto mesh = DynamicMeshFromSerialized( saved, "Broken_Entity" );
         EXPECT_FALSE( mesh.IsSuccess() );
@@ -256,7 +204,7 @@ TEST( DynamicMeshSerialization, CorpusHoldsTheWitnessScene )
     std::printf( "corpus: %zu meshes with variants\n", CorpusWithVariants().size() );
     for ( const CorpusMesh& mesh : CorpusWithVariants() )
         std::printf( "  %s\n", mesh.Name.c_str() );
-    const EditMeshSer witness = Witness();
+    const MeshSavedForm witness = Witness();
     EXPECT_EQ( witness.Triangles.size(), 36u );
     ASSERT_TRUE( witness.Tangents.has_value() );
     // the witness carries both handedness signs, so the sign recovery is exercised by the scene itself
@@ -279,24 +227,13 @@ TEST( DynamicMeshSerialization, RoundTripIsByteStable )
     }
 }
 
-TEST( DynamicMeshSerialization, BothCoresWriteTheSameBytes )
-{
-    for ( const CorpusMesh& mesh : CorpusWithVariants() )
-        EXPECT_EQ( Written( ToSerialized( OldRead( mesh.Saved ) ) ),
-                   Written( ToSerialized( NewRead( mesh.Saved, mesh.Name ) ) ) )
-             << mesh.Name;
-}
-
-TEST( DynamicMeshSerialization, BothCoresDrawTheSameMesh )
+TEST( DynamicMeshSerialization, TheSceneAndAVariantDraw )
 {
     int drawn = 0;
     for ( const CorpusMesh& mesh : CorpusWithVariants() )
-    {
-        ExpectSameRender( mesh.Name, OldRead( mesh.Saved ), NewRead( mesh.Saved, mesh.Name ) );
         drawn += ToRenderMesh( NewRead( mesh.Saved, mesh.Name ) ).IsSuccess();
-    }
     // The scene and one variant draw. The layer-less ones, and the one whose colour / UV1 layers are only partly
-    // set (a drawn stream has no value for an unset triangle), are refused by both alike.
+    // set (a drawn stream has no value for an unset triangle), are refused.
     EXPECT_GE( drawn, 2 );
 }
 
@@ -304,7 +241,7 @@ TEST( DynamicMeshSerialization, HolesAreCompactedOnWrite )
 {
     DynamicMesh3 mesh = NewRead( Witness(), "witness" );
     ASSERT_EQ( mesh.RemoveTriangle( 3, false ), MeshResult::Ok );
-    const EditMeshSer saved = ToSerialized( mesh );
+    const MeshSavedForm saved = ToSerialized( mesh );
     EXPECT_EQ( saved.Triangles.size(), 33u );
     EXPECT_EQ( saved.PolyGroups.size(), 11u );
     const DynamicMesh3 back = NewRead( saved, "witness" );
@@ -314,14 +251,14 @@ TEST( DynamicMeshSerialization, HolesAreCompactedOnWrite )
 
 TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
 {
-    const EditMeshSer good = Witness();
+    const MeshSavedForm good = Witness();
 
-    EditMeshSer outOfRange  = good;
+    MeshSavedForm outOfRange = good;
     outOfRange.Triangles[4] = 99;
     EXPECT_NE( RefusalOf( outOfRange ).find( "names vertex 99 of 8" ), std::string::npos );
 
     // a third triangle on the edge (0, 1): the first two already share it
-    EditMeshSer nonManifold = good;
+    MeshSavedForm nonManifold = good;
     nonManifold.Positions.insert( nonManifold.Positions.end(), { 0.0f, -300.0f, 0.0f } );
     nonManifold.Triangles.insert( nonManifold.Triangles.end(), { 0, 1, 8 } );
     nonManifold.PolyGroups.push_back( 0 );
@@ -330,38 +267,38 @@ TEST( DynamicMeshSerialization, BrokenDataIsRefusedByEntityName )
         layer->Triangles.insert( layer->Triangles.end(), { -1, -1, -1 } );
     EXPECT_NE( RefusalOf( nonManifold ).find( "non-manifold" ), std::string::npos );
 
-    EditMeshSer degenerate  = good;
+    MeshSavedForm degenerate = good;
     degenerate.Triangles[1] = degenerate.Triangles[0];
     EXPECT_NE( RefusalOf( degenerate ).find( "degenerate" ), std::string::npos );
 
-    EditMeshSer elementOutOfRange           = good;
+    MeshSavedForm elementOutOfRange         = good;
     elementOutOfRange.Normals->Triangles[0] = 1000;
     EXPECT_NE( RefusalOf( elementOutOfRange ).find( "normals: triangle 0 names element 1000" ),
                std::string::npos );
 
     // triangle 0 is (0, 1, 2) and triangle 1 is (2, 3, 0): point triangle 1's corner at vertex 3 at the element
     // triangle 0 uses at vertex 1
-    EditMeshSer sharedElement           = good;
+    MeshSavedForm sharedElement         = good;
     sharedElement.Normals->Triangles[4] = sharedElement.Normals->Triangles[1];
     EXPECT_NE( RefusalOf( sharedElement ).find( "is used at vertex" ), std::string::npos );
 
-    EditMeshSer partly         = good;
+    MeshSavedForm partly       = good;
     partly.UVs[0].Triangles[5] = -1;
     EXPECT_NE( RefusalOf( partly ).find( "only partly set" ), std::string::npos );
 
-    EditMeshSer unused = good;
+    MeshSavedForm unused = good;
     unused.Normals->Values.insert( unused.Normals->Values.end(), { 0.0f, 1.0f, 0.0f } );
     EXPECT_NE( RefusalOf( unused ).find( "is used by no triangle" ), std::string::npos );
 
-    EditMeshSer halfSign         = good;
+    MeshSavedForm halfSign       = good;
     halfSign.Tangents->Values[3] = 0.5f;
     EXPECT_NE( RefusalOf( halfSign ).find( "handedness 0.5" ), std::string::npos );
 
-    EditMeshSer tangentOnly = good;
+    MeshSavedForm tangentOnly = good;
     tangentOnly.Normals.reset();
     EXPECT_NE( RefusalOf( tangentOnly ).find( "without a normal layer" ), std::string::npos );
 
-    EditMeshSer ragged = good;
+    MeshSavedForm ragged = good;
     ragged.Positions.pop_back();
     EXPECT_NE( RefusalOf( ragged ).find( "not a whole number of vertices" ), std::string::npos );
 }

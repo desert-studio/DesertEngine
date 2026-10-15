@@ -31,6 +31,11 @@ namespace Desert::Graphic::RDG
         Tex2D, // Layers >= 1 makes it an array (shadow cascades are layers of one 2D texture)
         Tex3D, // a volume: Layers must be 1, the mip chain spans all three extents
         Cube,  // Layers is a multiple of six
+        // Layers is a multiple of six, and every sampled or storage view of it is a CUBE ARRAY - also at six
+        // layers, where a Cube's view is a plain cube. The shader declares samplerCubeArray / imageCubeArray
+        // whatever the count, so the view type cannot follow the count (the reflection captures' array holds
+        // one cube when the scene has one capture).
+        CubeArray,
     };
 
     struct TextureDesc

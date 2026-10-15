@@ -91,11 +91,11 @@ namespace
       "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.Method": "PathTraced" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.Method": "ScreenSpace" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.Method": "ScreenSpace" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.Method": "HardwareTraced" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.Method": "HardwareTraced" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.Method": "PathTraced" }
+      "Low":       { "Reflections.MaxSteps": 12, "Reflections.CaptureSize": 64, "Reflections.Method": "ScreenSpace" },
+      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.CaptureSize": 128, "Reflections.Method": "ScreenSpace" },
+      "High":      { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.Method": "HardwareTraced" },
+      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.Method": "HardwareTraced" },
+      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 256, "Reflections.Method": "PathTraced" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
@@ -710,7 +710,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     const ScalabilityTable& table = parsed.GetValue();
     const auto              high  = [&]( Parameter p ) { return table.ValueAt( p, Level::High ); };
 
-    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    // The one deliberate move off the old frame: TAA-FINISH made the temporal resolve High's anti-aliasing
+    // (High/Epic/Cinematic, UE's r.AntiAliasingMethod default), so High is TAA, no longer the old FXAA.
+    EXPECT_NE( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), static_cast<ParameterValue>( AntiAliasingMethod::TAA ) );
     EXPECT_EQ( high( Parameter::AntiAliasingSamples ), kOldSamples );
     EXPECT_EQ( high( Parameter::RenderScalePercent ), kOldScale );
     EXPECT_EQ( high( Parameter::Upscaler ), static_cast<ParameterValue>( Upscaler::None ) );

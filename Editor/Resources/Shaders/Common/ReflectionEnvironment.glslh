@@ -1,0 +1,148 @@
+#ifndef REFLECTION_ENVIRONMENT_GLSLH
+#define REFLECTION_ENVIRONMENT_GLSLH
+
+// THE REFLECTION ENVIRONMENT: the reflection captures around a point, parallax-corrected and blended, then the
+// sky where they do not reach (UE: ReflectionEnvironmentShared.ush GatherRadiance + the sky term, ported).
+// One function for every reader: the lit passes' ambient specular (Mesh/AmbientIBL.glslh) today, and the
+// fallback of every traced reflection on a miss (SSR2, RT reflections) next — they call
+// DesertReflectionEnvironment with the ray they could not resolve.
+//
+// THE INCLUDER DECLARES THE TWO BINDINGS (the slots are its layout's), before including this file:
+//   #include <Common/ReflectionCaptureGpu.glslh>
+//   ReadBuffer(n) ReflectionCapturesUB { uvec4 u_ReflectionCaptureHeader; ReflectionCaptureGpu u_ReflectionCaptures[]; };
+//   Uniform(m) samplerCubeArray u_ReflectionCaptureCubes;
+// The CPU side of both is
+// Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp (ReflectionCaptureGpu, the same layout, std430).
+//
+// u_ReflectionCaptureHeader.x = capture count. The captures are sorted SMALLEST INFLUENCE FIRST: the loop
+// composites front to back with UE's under-operator, so the most local capture wins where several overlap.
+
+#include <Common/ReflectionCaptureGpu.glslh>
+#include <Common/ReflectionCaptureMip.glslh>
+
+// UE r.ReflectionEnvironmentBeginMixingRoughness 0.1 / EndMixingRoughness 0.3 / LightmapMixLargestWeight 10000:
+// a mirror is not normalised (it must match SSR and planar reflections), a rough lobe fully is.
+const float kReflectionMixBeginRoughness = 0.1;
+const float kReflectionMixEndRoughness   = 0.3;
+const float kReflectionMixLargestWeight  = 10000.0;
+
+// UE ComputeMixingWeight. The captures carry high DIRECTIONAL frequency but low SPATIAL frequency (one cube for a
+// whole room); the local diffuse lighting has the opposite. The capture's low spatial frequency is replaced by the
+// local one: scaled by (local indirect irradiance / the capture's average brightness), luminance only so the hue
+// is kept.
+float ReflectionCaptureMixingWeight(float indirectIrradiance, float averageBrightness, float roughness)
+{
+	const float scale  = 1.0 / (kReflectionMixEndRoughness - kReflectionMixBeginRoughness);
+	const float mixing = smoothstep(0.0, 1.0, clamp(roughness * scale - kReflectionMixBeginRoughness * scale, 0.0, 1.0));
+	const float weight = min(indirectIrradiance / max(averageBrightness, 0.0001), kReflectionMixLargestWeight);
+	return mix(1.0, weight, mixing);
+}
+
+// UE GetLookupVectorForSphereCapture: the reflection ray from the shaded point is intersected with the capture's
+// sphere and the cube is read towards the hit, seen from the capture point. distanceAlpha fades the capture out
+// over the outer 40 % of its radius.
+vec3 ReflectionCaptureSphereLookup(vec3 R, vec3 P, ReflectionCaptureGpu capture, float normalizedDistance,
+                                   out float distanceAlpha)
+{
+	distanceAlpha             = 0.0;
+	vec3        lookup        = R;
+	const float radius        = capture.PositionRadius.w;
+	const vec3  localPosition = P - capture.PositionRadius.xyz;
+	const float b             = dot(R, localPosition);
+	const float c             = dot(localPosition, localPosition) - radius * radius;
+	const float determinant   = b * b - c;
+	if (determinant >= 0.0)
+	{
+		const float farHit = sqrt(determinant) - b;
+		lookup             = localPosition + farHit * R - capture.CaptureOffsetBrightness.xyz;
+		const float x      = clamp(2.5 * normalizedDistance - 1.5, 0.0, 1.0);
+		distanceAlpha      = 1.0 - x * x * (3.0 - 2.0 * x);
+	}
+	return lookup;
+}
+
+// UE GetLookupVectorForBoxCapture: the ray is intersected with the box in box space ([-1, 1]^3) - the exit point,
+// the nearest of the three far planes - and the cube is read towards it from the capture point. distanceAlpha
+// fades the capture in across the transition distance inside the walls.
+vec3 ReflectionCaptureBoxLookup(vec3 R, vec3 P, ReflectionCaptureGpu capture, vec3 localPosition,
+                                out float distanceAlpha)
+{
+	const vec3  localDirection = (capture.WorldToBox * vec4(R, 0.0)).xyz;
+	const vec3  invDirection   = 1.0 / localDirection;
+	const vec3  first          = (-1.0 - localPosition) * invDirection;
+	const vec3  second         = (1.0 - localPosition) * invDirection;
+	const vec3  furthest       = max(first, second);
+	const float hit            = min(furthest.x, min(furthest.y, furthest.z));
+	const vec3  hitPosition    = P + hit * R;
+
+	const vec3  extent         = capture.BoxExtentTransition.xyz;
+	const vec3  insideDistance = extent - abs(localPosition) * extent;
+	const float wallDistance   = min(insideDistance.x, min(insideDistance.y, insideDistance.z));
+	distanceAlpha = smoothstep(0.0, max(0.7 * capture.BoxExtentTransition.w, 0.0001), wallDistance);
+
+	return hitPosition - (capture.PositionRadius.xyz + capture.CaptureOffsetBrightness.xyz);
+}
+
+// The captures' share of the reflection along R at P: rgb = their composited radiance (normalised), a = how much
+// of the reflection they cover (1 - what is left for the sky).
+vec4 GatherReflectionCaptures(vec3 P, vec3 R, float roughness, float indirectIrradiance)
+{
+	const uint count = u_ReflectionCaptureHeader.x;
+	if (count == 0u)
+		return vec4(0.0);
+
+	// The engine's one ramp (Common/ReflectionCaptureMip.glslh), the inverse of the one ReflectionCaptureFilter wrote.
+	const float lod = ComputeReflectionCaptureMipFromRoughness(roughness,
+	                                                           float(textureQueryLevels(u_ReflectionCaptureCubes) - 1));
+
+	vec3  radiance          = vec3(0.0);
+	float remaining         = 1.0;
+	float brightness        = 0.0;
+	for (uint i = 0u; i < count && remaining > 0.001; ++i)
+	{
+		const ReflectionCaptureGpu capture = u_ReflectionCaptures[i];
+		float distanceAlpha = 0.0;
+		vec3  lookup;
+		if (capture.ShapeCube.x == 0u)
+		{
+			const vec3  toPoint = P - capture.PositionRadius.xyz;
+			const float d2      = dot(toPoint, toPoint);
+			const float radius  = capture.PositionRadius.w;
+			if (d2 >= radius * radius)
+				continue;
+			lookup = ReflectionCaptureSphereLookup(R, P, capture, sqrt(d2) / radius, distanceAlpha);
+		}
+		else
+		{
+			const vec3 local = (capture.WorldToBox * vec4(P, 1.0)).xyz;
+			if (any(greaterThan(abs(local), vec3(1.0))))
+				continue;
+			lookup = ReflectionCaptureBoxLookup(R, P, capture, local, distanceAlpha);
+		}
+		if (distanceAlpha <= 0.0)
+			continue;
+
+		const vec4  s      = textureLod(u_ReflectionCaptureCubes, vec4(lookup, float(capture.ShapeCube.y)), lod);
+		const float weight = distanceAlpha * remaining;
+		radiance   += s.rgb * capture.CaptureOffsetBrightness.w * weight;
+		brightness += s.a * capture.CaptureOffsetBrightness.w * weight;
+		remaining  *= 1.0 - distanceAlpha;
+	}
+
+	const float coverage = 1.0 - remaining;
+	if (coverage <= 0.0)
+		return vec4(0.0);
+	const float averageBrightness = brightness / coverage;
+	return vec4(radiance * ReflectionCaptureMixingWeight(indirectIrradiance, averageBrightness, roughness), coverage);
+}
+
+// THE reflection fallback: the captures, then the sky's prefiltered radiance where they leave a remainder.
+// @p skyPrefiltered is the sky's sample along R (Mesh/AmbientIBL.glslh DesertAmbientSpecular); @p indirectIrradiance
+// is the luminance of the local diffuse ambient the captures are normalised to.
+vec3 DesertReflectionEnvironment(vec3 P, vec3 R, float roughness, vec3 skyPrefiltered, float indirectIrradiance)
+{
+	const vec4 captures = GatherReflectionCaptures(P, R, roughness, indirectIrradiance);
+	return captures.rgb + skyPrefiltered * (1.0 - captures.a);
+}
+
+#endif // REFLECTION_ENVIRONMENT_GLSLH

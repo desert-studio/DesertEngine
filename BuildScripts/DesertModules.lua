@@ -8,8 +8,10 @@
 --     and emits one RegisterReflection_<Module>() per module (plan C11);
 --   * the ModuleBoundary suite (Desert/Tests/Tools/ModuleBoundary) walks every #include of the engine and
 --     reports each line that crosses into a module outside the includer's declared dependency closure.
--- The file is DATA plus three pure functions; the C++ readers execute it with the Lua VM and read only
--- `Modules`, `LegacyRoot` and `Placement`, so whatever premake can parse they parse the same way.
+-- The file is DATA plus pure functions; the C++ readers execute it with the Lua VM and read `Modules`,
+-- `LegacyRoot` and `Placement`, so whatever premake can parse they parse the same way. premake also builds
+-- one static library per module from the legacy files (BuildScripts/DesertModuleLibs.lua), placing each
+-- file with PlaceLegacy() below - the same rows, matched by a Lua matcher of the ECMAScript subset they use.
 --
 -- Modules: in layer order (a module only depends on modules above it in this list - Validate() fails
 -- otherwise). `Deps` are DIRECT dependencies, like UE's PublicDependencyModuleNames; the transitive closure
@@ -66,8 +68,10 @@ DesertModules.Modules = {
     -- L7
     M( "Foliage",         { "Landscape" },                        "Foliage" ),
     -- L8
-    M( "Scripting",       { "Engine", "Renderer", "Media", "Landscape", "Foliage", "Destruction", "VFX", "Water" },
-                                                                  "ScriptPlugin" ),
+    -- the language-free script host: Engine's public reflected layer only (FUNCTION/EVENT), no feature module
+    M( "Scripting",       { "Engine" },                           "ScriptPlugin" ),
+    -- L9: a script language is a plugin over Scripting (Luau: the VM, the reflection binder, the host natives)
+    M( "ScriptLuau",      { "Scripting" },                        "ScriptPlugin" ),
 }
 
 local function P( module, pattern )
@@ -90,7 +94,7 @@ DesertModules.Placement = {
     P( "AssetCore",       [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|AssetEviction|AssetEvictionServices|DDCShipRegister|Common)\.]] ),
     P( "Localization",    [[Engine/Localization/|Engine/Assets/StringTable(Asset|Source)\.]] ),
     -- geometry / animation runtime cores
-    P( "Engine",          [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|EditMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]] ),
+    P( "Engine",          [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]] ),
     P( "GeometryCore",    [[Engine/Geometry/]] ),
     P( "Engine",          [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Modular/)]] ),
     P( "AnimationCore",   [[Engine/Animation/]] ),
@@ -111,6 +115,7 @@ DesertModules.Placement = {
     P( "VFX",             [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|Serialization/VFXSystem)\.]] ),
     P( "Water",           [[Engine/Water/|Engine/Assets/(WaterWavesAsset|Serialization/WaterWaves)\.]] ),
     P( "Hair",            [[Engine/Hair/]] ),
+    P( "ScriptLuau",      [[Engine/Scripting/Luau/]] ),
     P( "Scripting",       [[Engine/Scripting/]] ),
     P( "Engine",          [[^]] ), -- everything else of the old library (Core, ECS, Runtime, typed Assets, Generated, pch)
 }
@@ -120,6 +125,164 @@ DesertModules.Placement = {
 for index, module in ipairs( DesertModules.Modules ) do
     table.insert( DesertModules.Placement, index,
                   P( module.Name, "Engine/Generated/Reflection_" .. module.Name .. "\\.gen\\.cpp$" ) )
+end
+
+-- THE PLACEMENT MATCHER premake runs (BUILD-MOD2). The C++ readers search each Pattern with std::regex
+-- (ECMAScript); Lua has no regular expressions, so this is a backtracking matcher for the SUBSET the rows use:
+-- literals, `.`, `\w` `\d`, an escaped metacharacter (`\.`, `\/`...), groups `( )` with `|` alternation, the
+-- greedy `*` `+` `?`, and the anchors `^` `$`. Anything else (`[...]`, `{n}`, `\b`, `(?`, lazy quantifiers) is
+-- an error naming the row - Validate() compiles every row - so a row the two readers would read differently
+-- cannot be written. Only "does it match" is asked, which backtracking answers exactly as regex_search does.
+-- The ModuleBoundary suite places every legacy file through both and requires the same module.
+local function CompileRegex( pattern )
+    local pos = 1
+    local function fail( message )
+        error( string.format( "DesertModules.lua: pattern \"%s\": %s at character %d", pattern, message, pos ), 0 )
+    end
+    local parseAlternation
+    local function parseAtom()
+        local c = pattern:sub( pos, pos )
+        if c == "(" then
+            pos = pos + 1
+            if pattern:sub( pos, pos ) == "?" then
+                fail( "'(?' is outside the supported subset" )
+            end
+            local node = parseAlternation()
+            if pattern:sub( pos, pos ) ~= ")" then
+                fail( "unclosed group" )
+            end
+            pos = pos + 1
+            return node
+        elseif c == "\\" then
+            local e = pattern:sub( pos + 1, pos + 1 )
+            if e == "w" then
+                pos = pos + 2
+                return { t = "class", test = function( ch ) return ch:match( "^[A-Za-z0-9_]$" ) ~= nil end }
+            elseif e == "d" then
+                pos = pos + 2
+                return { t = "class", test = function( ch ) return ch:match( "^[0-9]$" ) ~= nil end }
+            elseif e ~= "" and e:match( "^[%.%\\/%(%)|%*%+%?%^%$%-]$" ) then
+                pos = pos + 2
+                return { t = "char", c = e }
+            end
+            fail( "escape '\\" .. e .. "' is outside the supported subset" )
+        elseif c == "." then
+            pos = pos + 1
+            return { t = "any" }
+        elseif c == "^" then
+            pos = pos + 1
+            return { t = "begin" }
+        elseif c == "$" then
+            pos = pos + 1
+            return { t = "end" }
+        elseif c:match( "^[%[%]{}]$" ) then
+            fail( "'" .. c .. "' is outside the supported subset" )
+        end
+        pos = pos + 1
+        return { t = "char", c = c }
+    end
+    local function parseSequence()
+        local sequence = {}
+        while pos <= #pattern do
+            local c = pattern:sub( pos, pos )
+            if c == "|" or c == ")" then
+                break
+            end
+            if c == "*" or c == "+" or c == "?" then
+                fail( "quantifier with nothing to repeat" )
+            end
+            local atom = parseAtom()
+            local q    = pattern:sub( pos, pos )
+            if q == "*" or q == "+" or q == "?" then
+                pos = pos + 1
+                if pattern:sub( pos, pos ) == "?" then
+                    fail( "lazy quantifiers are outside the supported subset" )
+                end
+                atom = { t = "repeat", node = atom, min = ( q == "+" ) and 1 or 0, max = ( q == "?" ) and 1 or math.huge }
+            end
+            sequence[#sequence + 1] = atom
+        end
+        return sequence
+    end
+    parseAlternation = function()
+        local alternatives = { parseSequence() }
+        while pattern:sub( pos, pos ) == "|" do
+            pos = pos + 1
+            alternatives[#alternatives + 1] = parseSequence()
+        end
+        return { t = "alt", alternatives = alternatives }
+    end
+    local root = parseAlternation()
+    if pos <= #pattern then
+        fail( "unbalanced ')'" )
+    end
+    return root
+end
+
+local MatchNode
+local function MatchSequence( sequence, index, s, i, continue )
+    if index > #sequence then
+        return continue( i )
+    end
+    return MatchNode( sequence[index], s, i, function( j ) return MatchSequence( sequence, index + 1, s, j, continue ) end )
+end
+
+MatchNode = function( node, s, i, continue )
+    local t = node.t
+    if t == "char" then
+        return s:sub( i, i ) == node.c and continue( i + 1 )
+    elseif t == "any" then
+        return i <= #s and s:sub( i, i ) ~= "\n" and continue( i + 1 )
+    elseif t == "class" then
+        return i <= #s and node.test( s:sub( i, i ) ) and continue( i + 1 )
+    elseif t == "begin" then
+        return i == 1 and continue( i )
+    elseif t == "end" then
+        return i == #s + 1 and continue( i )
+    elseif t == "alt" then
+        for _, sequence in ipairs( node.alternatives ) do
+            if MatchSequence( sequence, 1, s, i, continue ) then
+                return true
+            end
+        end
+        return false
+    end
+    -- "repeat", greedy: one more, then the rest; an iteration that consumes nothing ends the loop
+    local function try( count, j )
+        if count < node.max and MatchNode( node.node, s, j, function( k ) return k ~= j and try( count + 1, k ) end ) then
+            return true
+        end
+        return count >= node.min and continue( j )
+    end
+    return try( 0, i )
+end
+
+local compiled = {}
+local function Search( pattern, s )
+    compiled[pattern] = compiled[pattern] or CompileRegex( pattern )
+    local root = compiled[pattern]
+    for start = 1, #s + 1 do
+        if MatchNode( root, s, start, function() return true end ) then
+            return true
+        end
+    end
+    return false
+end
+
+-- The module of a path relative to LegacyRoot ("Engine/ECS/Scene.hpp"): the first Placement row that matches.
+function DesertModules.PlaceLegacy( legacyRelative )
+    for _, row in ipairs( DesertModules.Placement ) do
+        if Search( row.Pattern, legacyRelative ) then
+            return row.Module
+        end
+    end
+    error( string.format( "DesertModules.lua: no placement row matches '%s'", legacyRelative ), 0 )
+end
+
+-- The static library premake builds from a module's legacy files (Desert/Desert/premake5.lua). A module that
+-- also has its own project in its Folder (Common, Render2DCore, DesertUI) keeps that project's name for it.
+function DesertModules.LegacyLibName( name )
+    return "Desert" .. name
 end
 
 function DesertModules.Find( name )
@@ -167,6 +330,7 @@ function DesertModules.Validate()
         if not position[row.Module] then
             error( string.format( "DesertModules.lua: placement row %d names '%s', which is not a module", index, row.Module ) )
         end
+        compiled[row.Pattern] = compiled[row.Pattern] or CompileRegex( row.Pattern )
     end
 end
 

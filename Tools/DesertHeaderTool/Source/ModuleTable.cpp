@@ -112,6 +112,34 @@ namespace Desert::HeaderTool
         return Common::MakeSuccess( std::move( table ) );
     }
 
+    Common::ResultStr<std::vector<std::string>>
+    ModuleTable::CallForEach( const std::filesystem::path& tableFile, const char* function,
+                              const std::vector<std::string>& arguments )
+    {
+        LuaState const owned( luaL_newstate() );
+        lua_State*     L = owned.get();
+        luaL_openlibs( L );
+        if ( luaL_dofile( L, tableFile.string().c_str() ) != LUA_OK || !lua_istable( L, -1 ) )
+            return Common::MakeError<std::vector<std::string>>(
+                 std::format( "module table {}: {}", tableFile.string(), TopError( L ) ) );
+        std::vector<std::string> results;
+        results.reserve( arguments.size() );
+        for ( const std::string& argument : arguments )
+        {
+            lua_getfield( L, -1, function );
+            if ( !lua_isfunction( L, -1 ) )
+                return Common::MakeError<std::vector<std::string>>(
+                     std::format( "module table {} has no function {}", tableFile.string(), function ) );
+            lua_pushstring( L, argument.c_str() );
+            if ( lua_pcall( L, 1, 1, 0 ) != LUA_OK || lua_isstring( L, -1 ) == 0 )
+                return Common::MakeError<std::vector<std::string>>(
+                     std::format( "{}( {} ): {}", function, argument, TopError( L ) ) );
+            results.emplace_back( lua_tostring( L, -1 ) );
+            lua_pop( L, 1 );
+        }
+        return Common::MakeSuccess( std::move( results ) );
+    }
+
     const ModuleInfo* ModuleTable::Find( std::string_view name ) const
     {
         const auto it = std::find_if( m_Modules.begin(), m_Modules.end(),

@@ -108,7 +108,9 @@ namespace Common::Scalability
         AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
-        DepthOfFieldQuality, // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        DepthOfFieldQuality,   // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
+        ReflectionCaptureSize, // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
+                               // 2^n
         // THE MACHINE'S CEILING of each render method (Common/Settings/RenderMethods.hpp): the highest method this
         // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which also
         // applies the device (no device narrowing here: the device's limit and this one are reported together, as

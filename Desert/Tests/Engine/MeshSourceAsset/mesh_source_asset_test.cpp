@@ -34,9 +34,9 @@ namespace
         m.Triangles   = { 0, 1, 2, 0, 2, 3 };
         m.PolyGroups  = { 7, 7 };
         m.MaterialIds = { 0, 1 };
-        m.Normals     = Desert::Geometry::EditMeshOverlaySer{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
-        m.Tangents    = Desert::Geometry::EditMeshOverlaySer{ { 1.f, 0.f, 0.f, -1.f }, { 0, 0, 0, 0, 0, 0 } };
-        m.Colors      = Desert::Geometry::EditMeshOverlaySer{ { 1.f, 0.5f, 0.25f, 1.f }, { 0, 0, 0, -1, -1, -1 } };
+        m.Normals  = Desert::Geometry::MeshOverlaySavedForm{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
+        m.Tangents = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.f, 0.f, -1.f }, { 0, 0, 0, 0, 0, 0 } };
+        m.Colors   = Desert::Geometry::MeshOverlaySavedForm{ { 1.f, 0.5f, 0.25f, 1.f }, { 0, 0, 0, -1, -1, -1 } };
         m.UVs         = { { { 0.f, 0.f, 1.f, 0.f, 1.f, 1.f, 0.f, 1.f }, { 0, 1, 2, 0, 2, 3 } } };
         // Slot 2 is unassigned and slot 1 repeats A: the header names A and B once each.
         a.Source.MaterialSlots = { { "Body", kMatA }, { "Trim", kMatB }, { "Spare", {} }, { "Again", kMatA } };
@@ -56,7 +56,7 @@ namespace
         lod1.Triangles       = { 0, 1, 2, 0, 2, 3 };
         lod1.PolyGroups      = { 3, 4 };
         lod1.MaterialIds     = { 1, 0 };
-        lod1.Normals         = Desert::Geometry::EditMeshOverlaySer{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
+        lod1.Normals         = Desert::Geometry::MeshOverlaySavedForm{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
         auto& lod2           = a.Source.Models.emplace_back().Mesh;
         lod2.Positions       = { -30.f, 0.f, -15.f, 30.f, 0.f, -15.f, 0.f, 0.f, 15.f };
         lod2.Triangles       = { 0, 1, 2 };
@@ -283,7 +283,7 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     slot.Source.Models[0].Mesh.MaterialIds[1] = 4;
     EXPECT_FALSE( EncodeMeshSourceAsset( slot ).IsSuccess() );
     MeshSourceAsset torn = MakeQuad( false );
-    std::optional<Desert::Geometry::EditMeshOverlaySer>& colors = torn.Source.Models[0].Mesh.Colors;
+    std::optional<Desert::Geometry::MeshOverlaySavedForm>& colors = torn.Source.Models[0].Mesh.Colors;
     if ( !colors.has_value() )
     {
         ADD_FAILURE() << "the quad fixture lost its colour overlay";

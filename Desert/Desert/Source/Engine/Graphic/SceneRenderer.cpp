@@ -42,6 +42,8 @@
 #include <string_view>
 #include <vector>
 
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+
 namespace Desert::Graphic
 {
     void SceneRenderer::Init()
@@ -715,6 +717,8 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+        // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
+        m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -981,6 +985,16 @@ namespace Desert::Graphic
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
         }
 
+        // The point and spot lights' shadow views, the same boundary: tiles of the atlas allocated (and the atlas
+        // itself, on the first light that casts), each light's ShadowView written into its payload, and the views
+        // whose cached depth is stale marked for this frame's graph (MeshRenderer::LocalShadowPasses).
+        {
+            DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                 ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
+                                       m_SpotLightShadows );
+        }
+
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
         // small graph, ending with the morphed vertices in vertex-input state for every pass of the view graph.
         {
@@ -1094,6 +1108,9 @@ namespace Desert::Graphic
         }
         FrameTextures textures( graph );
         ImportSceneViewTextures( textures );
+        // The reflection captures, before any lit node reads them (SceneViewInputs).
+        if ( m_FrameReflectionCaptures )
+            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1119,6 +1136,11 @@ namespace Desert::Graphic
             textures.Transients.Velocity = velocity.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, VelocityColor( velocity, target.Samples ) );
             textures.AddGraphColor( m_GBuffer, VelocityColor( velocity, 1 ) );
+            // After the velocity on the scene target (kSceneTargetResponsiveAASlot); the G-buffer has no such slot.
+            const ViewVelocity responsive = CreateViewResponsiveAA(
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
+            textures.Transients.ResponsiveAA = responsive.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor( responsive, target.Samples ) );
         }
         const auto values = std::make_shared<FrameValues>();
 
@@ -1334,7 +1356,10 @@ namespace Desert::Graphic
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
-        m_FrameExtensions = nullptr;
+        m_PointLightShadows.clear();
+        m_SpotLightShadows.clear();
+        m_FrameExtensions         = nullptr;
+        m_FrameReflectionCaptures = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1815,6 +1840,7 @@ namespace Desert::Graphic
              .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
              .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
              .Velocity   = textures.Transients.Velocity,
+             .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
              .Exposure = exposure.IsValid() ? exposure : textures.System.White,
              .History  = histories };
@@ -1896,6 +1922,8 @@ namespace Desert::Graphic
         desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
         desc.Format      = ViewTargetFormats::kVelocity;
         overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
+        desc.Format          = ViewTargetFormats::kResponsiveAA;
+        overlay.ResponsiveAA = graph.CreateTexture( desc, "Overlay.ResponsiveAA" );
         desc.Format      = ViewTargetFormats::kSceneDepth;
         overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
         const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();
@@ -1910,6 +1938,24 @@ namespace Desert::Graphic
              [populate]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return populate->Record( context ); } );
         return overlay;
+    }
+
+    bool SceneRenderer::ReadsReflectionCaptures() const
+    {
+        return m_ViewProfile.ReflectionCaptures;
+    }
+
+    uint64_t SceneRenderer::GetEnvironmentIdentity()
+    {
+        if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
+            return ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
+                   env->PreFilteredMap.Value.Generation;
+        return 0;
+    }
+
+    std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
+    {
+        return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
@@ -1930,14 +1976,18 @@ namespace Desert::Graphic
              ->GetColorAttachmentImage();
     }
 
-    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight )
+    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                                       const LocalLightShadowSettings&           shadow )
     {
         m_PointLight.PointLights.push_back( pointLight );
+        m_PointLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight )
+    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                                      const LocalLightShadowSettings&          shadow )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
+        m_SpotLightShadows.push_back( shadow );
     }
 
     void SceneRenderer::TrackRenderSystem( const std::string& name, std::shared_ptr<IRenderSystem> system )

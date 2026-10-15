@@ -161,6 +161,9 @@ namespace
               "DST-05: it writes the frame's destruction events into the VFX data channels (UE: Chaos break "
               "events read by Niagara); a hidden destructible is still simulated and still breaks, and the "
               "picture is the reading emitter's, whose own Visible decides whether it is drawn." },
+         Row{ "FracturePieceDraw.hpp", Verdict::Honours,
+              "DST-06: it records a fractured entity's pieces as static-mesh draws in place of its mesh, so a "
+              "hidden destructible must draw no piece, exactly as MeshECSSystem draws no hidden static." },
          Row{ "HeightFogECSSystem.hpp", Verdict::Honours,
               "emits the frame's fog; the renderer keeps fog state across frames, so a hidden volume "
               "that is still collected stays on screen forever." },
@@ -257,6 +260,7 @@ namespace
     };
 
     constexpr std::array kHonourSites = {
+         Site{ "FracturePieceDraw.hpp", "fracture pieces", "std::unordered_set<entt::entity> drawn;" },
          Site{ "LandscapeECSSystem.hpp", "landscape tiles", "gpu.NeighbourMask = mask;" },
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },

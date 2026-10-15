@@ -126,6 +126,10 @@ namespace Desert::Graphic
         {
             const std::vector<SystemRasterPass> cascades = mesh->ShadowCascadePasses();
             AddSystemRasters( graph, textures, cascades, true );
+            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
+            // light and casters stood still keeps last frame's depth (it has no pass at all).
+            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            AddSystemRasters( graph, textures, local, false );
         }
     }
 
@@ -188,6 +192,10 @@ namespace Desert::Graphic
         // there is nothing for them to draw over.
         if ( !m_FrameExtensions || !m_TargetFramebuffer )
             return;
+        // A reflection capture's face view draws the game scene only: the editor's grid, gizmos and UI are not
+        // what a reflection shows.
+        if ( m_ViewProfile.SceneCapture )
+            return;
         m_FrameExtensions->ForEachAt(
              point,
              [&]( const ExtensionPass& extension )
@@ -235,18 +243,20 @@ namespace Desert::Graphic
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
         // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-        // PopulateSceneDepth filled; one sample, so no resolves).
+        // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
+        // resolves).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
-            if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
+            if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
             {
                 LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                           "replaces exactly colour 0 and the velocity slot",
+                           "replaces exactly colour 0, the velocity slot and the responsive-AA slot",
                            pass.Name, targets->Colors.size() );
                 return;
             }
-            targets->Colors[0]                        = overlay.Color;
-            targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
+            targets->Colors[0]                            = overlay.Color;
+            targets->Colors[kSceneTargetVelocitySlot]     = overlay.Velocity;
+            targets->Colors[kSceneTargetResponsiveAASlot] = overlay.ResponsiveAA;
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }

@@ -81,6 +81,23 @@ Shader "DeferredLighting"
 
         // The ambient model itself, shared verbatim with StaticMeshLit / StaticMeshLit_Instanced /
         // SkinnedMeshLit. Included after the three bindings above because it names them.
+        // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
+        // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
+        // SET 1, bindings 0 and 1. Set 0 has no room for two: 0-23 are taken in this layout (22 and 23 are the
+        // local shadow atlas and its views), 24 is the only spare, 25-27 are the reserved scene-read range
+        // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
+        // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
+        // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
+        // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.
+        // Raw layout() for the buffer: the DSL's ReadBuffer(n) sugar has no set form.
+        #define DESERT_REFLECTION_CAPTURES
+        #include <Common/ReflectionCaptureGpu.glslh>
+        layout(std430, set = 1, binding = 0) readonly buffer ReflectionCapturesUB
+        {
+            uvec4                u_ReflectionCaptureHeader; // x = capture count
+            ReflectionCaptureGpu u_ReflectionCaptures[];
+        };
+        Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -209,6 +226,17 @@ Shader "DeferredLighting"
         // Included after the two bindings above because it names them.
         #include <Common/CloudShadowReceiver.glslh>
 
+        // THE POINT AND SPOT LIGHTS' SHADOWS: the view's local shadow atlas and the table of its views
+        // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
+        // The row struct first, then the two bindings, then the reader, which names them.
+        #include <Mesh/LocalLightShadowView.glslh>
+        Uniform(22) sampler2D u_LocalShadowAtlas;
+        ReadBuffer(23) LocalShadowViewsUB
+        {
+        	LocalShadowView localShadowViews[];
+        };
+        #include <Mesh/LocalLightShadow.glslh>
+
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
         vec3 HeatColor(float t)
@@ -320,15 +348,16 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit (not shadowed yet).
+        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
+        	// atlas views when it casts shadows.
         	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertPointLightAt(pointLights[i], worldPos), surface,
-        		                                     payload);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N),
+        		                                     surface, payload);
 
-        	// Spot lights (street lamps / headlights).
+        	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
         	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertSpotLightAt(spotLights[i], worldPos), surface,
-        		                                     payload);
+        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
+        		                                     surface, payload);
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only

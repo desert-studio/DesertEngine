@@ -1,13 +1,16 @@
 // Ported from UE 5.8 Engine/Source/Developer/MeshBuilder/Private/StaticMeshBuilder.cpp (FStaticMeshBuilder::Build:
 // build settings applied to the MeshDescription, tangents computed when missing, LODs reduced, render buffers
-// written), adapted: the source is our EditMesh (EditMeshSer), the transform is Geometry::TransformMesh, the
-// reduction is meshopt (SimplifyLODLevels), the render buffers are one MeshBinary container, and authored LOD
+// written), adapted: the source is our DynamicMesh3 (its saved form), the transform is Geometry::TransformMesh,
+// the reduction is meshopt (SimplifyLODLevels), the render buffers are one MeshBinary container, and authored LOD
 // source models (UE SourceModels[k>0]) are folded as extra index sets of LOD0's sections.
 #include "MeshDeriver.hpp"
 #include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshXformOperations.hpp>
+#include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -80,36 +83,28 @@ namespace Desert::Editor
 
         Common::ResultStr<BuiltModel> BuildModel( const Assets::MeshSourceAsset& asset, const size_t lod )
         {
-            auto lifted = Geometry::Bridge::EditMeshFromSavedForm( asset.Source.Models[lod].Mesh );
+            auto lifted = Geometry::DynamicMeshFromSerialized( asset.Source.Models[lod].Mesh, asset.Name );
             if ( !lifted.IsSuccess() )
                 return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: the source does not load: {}",
                                                                asset.Name, lod, lifted.GetError() );
-            Geometry::EditMesh mesh = lifted.ExtractValue();
+            Geometry::DynamicMesh3 mesh = lifted.ExtractValue();
+            if ( !mesh.HasAttributes() )
+                return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: the source has no attribute set",
+                                                               asset.Name, lod );
 
-            std::vector<int> triangles;
-            BuiltModel       built;
-            for ( int t = 0; t < mesh.MaxTriangleId(); ++t )
-                if ( mesh.IsTriangle( t ) )
-                {
-                    triangles.push_back( t );
-                    built.MaterialIds.push_back( mesh.Attributes().GetMaterialId( t ) );
-                }
-            if ( mesh.Attributes().Tangents() == nullptr )
-            {
-                mesh.Attributes().EnableTangents();
-                if ( auto r = Geometry::ComputeTangentsAt( mesh, triangles ); !r.IsSuccess() )
-                    return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: tangents: {}", asset.Name, lod,
-                                                                   r.GetError() );
-            }
+            BuiltModel built;
+            built.MaterialIds = Geometry::DistinctMaterialIds( mesh );
+            // UE builds tangents when the source has none (FStaticMeshBuilder: ComputeTangents on a
+            // MeshDescription without them).
+            if ( auto r = Geometry::EnsureTangentSpace( mesh, "Mesh Deriver" ); !r.IsSuccess() )
+                return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: tangents: {}", asset.Name, lod,
+                                                               r.GetError() );
 
             auto transformed = Geometry::TransformMesh( mesh, SourceToEngine( asset.Import.Settings ) );
             if ( !transformed.IsSuccess() )
                 return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: import transform: {}", asset.Name, lod,
                                                                transformed.GetError() );
 
-            std::ranges::sort( built.MaterialIds );
-            built.MaterialIds.erase( std::unique( built.MaterialIds.begin(), built.MaterialIds.end() ),
-                                     built.MaterialIds.end() );
             std::vector<Common::Content::AssetGuid> slotMaterials;
             for ( const int id : built.MaterialIds )
             {
@@ -120,7 +115,7 @@ namespace Desert::Editor
                 slotMaterials.push_back( asset.Source.MaterialSlots[static_cast<size_t>( id )].Material );
             }
 
-            auto data = Geometry::Bridge::MeshAssetDataFromEditMesh( transformed.GetValue().Mesh, slotMaterials );
+            auto data = Geometry::DynamicMeshToMeshAssetData( transformed.GetValue().Mesh, slotMaterials );
             if ( !data.IsSuccess() )
                 return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: {}", asset.Name, lod,
                                                                data.GetError() );

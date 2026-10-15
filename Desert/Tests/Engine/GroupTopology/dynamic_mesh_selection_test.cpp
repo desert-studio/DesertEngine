@@ -1,13 +1,9 @@
-// P10: the element selection on the ported core (DynamicMesh3 + GroupTopology) selects EXACTLY what the
-// EditMesh path selects on the same mesh. Both meshes are built from the same vertex/triangle/group lists, so
-// vertex, triangle and group IDs must agree as numbers; edge IDs are each core's own and are compared as the
-// vertex pairs they name. Every seed element of every mode goes through Convert (to all four modes), Grow,
-// Shrink and SelectConnected, and a fan of rays through PickElement in all four modes.
+// P10: the element selection on DynamicMesh3 + GroupTopology: pruning, and the ported picks (UE's corner and
+// group-edge rules).
 
 #include <gtest/gtest.h>
 
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp>
 
@@ -82,13 +78,8 @@ namespace
 
     struct Pair
     {
-        EditMesh      Old;
         DynamicMesh3  New;
         GroupTopology Topology;
-        // Vertex / Edge picks against the EditMesh path's pixel-nearest rule (reported, not required equal).
-        int PickSame          = 0;
-        int PickOther         = 0;
-        int PickMissAgreement = 0;
     };
 
     std::unique_ptr<Pair> Build( const Source& s )
@@ -97,186 +88,19 @@ namespace
         p->New.EnableTriangleGroups();
         for ( const glm::vec3& v : s.Positions )
         {
-            EXPECT_EQ( p->Old.AppendVertex( v ), p->New.AppendVertex( glm::dvec3( v.x, v.y, v.z ) ) );
+            (void)p->New.AppendVertex( glm::dvec3( v.x, v.y, v.z ) );
         }
         for ( size_t t = 0; t < s.Triangles.size(); ++t )
         {
-            const auto& tri  = s.Triangles[t];
-            int         oldT = -1;
-            (void)p->Old.AppendTriangle( tri[0], tri[1], tri[2], oldT );
-            const int newT = p->New.AppendTriangle( Index3i( tri[0], tri[1], tri[2] ), s.Groups[t] );
-            EXPECT_EQ( oldT, newT );
-            p->Old.Attributes().SetPolyGroup( oldT, s.Groups[t] );
+            const auto& tri = s.Triangles[t];
+            EXPECT_GE( p->New.AppendTriangle( Index3i( tri[0], tri[1], tri[2] ), s.Groups[t] ), 0 );
         }
         p->Topology = GroupTopology( &p->New, true );
         return p;
     }
 
     // A selection as comparable values: IDs, except edges, which are their sorted vertex pairs.
-    std::set<std::pair<int, int>> OldValues( const EditMesh& m, const ElementSelection& s )
-    {
-        std::set<std::pair<int, int>> out;
-        for ( const int id : s.Ids() )
-        {
-            if ( s.Mode() != ElementMode::Edge )
-            {
-                out.insert( { id, -1 } );
-                continue;
-            }
-            const auto& ev = m.GetEdgeVertices( id );
-            out.insert( { std::min( ev[0], ev[1] ), std::max( ev[0], ev[1] ) } );
-        }
-        return out;
-    }
-
-    std::set<std::pair<int, int>> NewValues( const DynamicMesh3& m, const ElementSelection& s )
-    {
-        std::set<std::pair<int, int>> out;
-        for ( const int id : s.Ids() )
-        {
-            if ( s.Mode() != ElementMode::Edge )
-            {
-                out.insert( { id, -1 } );
-                continue;
-            }
-            const Index2i ev = m.GetEdgeV( id );
-            out.insert( { std::min( ev.A, ev.B ), std::max( ev.A, ev.B ) } );
-        }
-        return out;
-    }
-
-    constexpr ElementMode kModes[] = { ElementMode::Vertex, ElementMode::Edge, ElementMode::Triangle,
-                                       ElementMode::PolyGroup };
-
-    // Every single-element seed of every mode, both cores, through every operation. Returns the comparisons made.
-    int CompareOperations( Pair& p )
-    {
-        int compared = 0;
-        for ( const ElementMode mode : kModes )
-        {
-            std::vector<std::pair<int, int>> seeds; // (old id, new id)
-            if ( mode == ElementMode::Edge )
-                for ( const int e : p.Old.EdgeIds() )
-                {
-                    const auto& ev = p.Old.GetEdgeVertices( e );
-                    seeds.push_back( { e, p.New.FindEdge( ev[0], ev[1] ) } );
-                }
-            else if ( mode == ElementMode::Vertex )
-                for ( const int v : p.Old.VertexIds() )
-                    seeds.push_back( { v, v } );
-            else if ( mode == ElementMode::Triangle )
-                for ( const int t : p.Old.TriangleIds() )
-                    seeds.push_back( { t, t } );
-            else
-                for ( const auto& group : p.Topology.m_Groups )
-                    seeds.push_back( { group.GroupID, group.GroupID } );
-            for ( const auto& [oldId, newId] : seeds )
-            {
-                ElementSelection oldSel( mode );
-                ElementSelection newSel( mode );
-                EXPECT_TRUE( oldSel.Add( p.Old, oldId ).IsSuccess() );
-                EXPECT_TRUE( newSel.Add( p.New, newId ).IsSuccess() );
-                const auto check = [&]( const ElementSelection& o, const ElementSelection& n )
-                {
-                    EXPECT_EQ( o.Mode(), n.Mode() );
-                    EXPECT_EQ( OldValues( p.Old, o ), NewValues( p.New, n ) )
-                         << ToString( mode ) << " seed " << oldId << " -> " << ToString( o.Mode() );
-                    ++compared;
-                };
-                for ( const ElementMode target : kModes )
-                    check( ConvertSelection( p.Old, oldSel, target ),
-                           ConvertSelection( p.New, p.Topology, newSel, target ) );
-                check( GrowSelection( p.Old, oldSel ), GrowSelection( p.New, p.Topology, newSel ) );
-                check( ShrinkSelection( p.Old, GrowSelection( p.Old, oldSel ) ),
-                       ShrinkSelection( p.New, p.Topology, GrowSelection( p.New, p.Topology, newSel ) ) );
-                check( SelectConnected( p.Old, oldSel ), SelectConnected( p.New, p.Topology, newSel ) );
-            }
-        }
-        return compared;
-    }
-
-    // A fan of rays from outside the mesh at its centre region, in all four modes.
-    int ComparePicks( Pair& p, const glm::vec3& eye, const glm::vec3& centre )
-    {
-        const glm::mat4 viewProj = glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) *
-                                   glm::lookAt( eye, centre, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-        const glm::mat4 inverse = glm::inverse( viewProj );
-        int             hits    = 0;
-        for ( int y = 1; y < 16; ++y )
-            for ( int x = 1; x < 16; ++x )
-            {
-                PickView view;
-                view.ViewProj     = viewProj;
-                view.ViewportSize = { 512.0f, 512.0f };
-                view.Cursor       = { 32.0f * x, 32.0f * y };
-                const glm::vec2 ndc( view.Cursor.x / 256.0f - 1.0f, 1.0f - view.Cursor.y / 256.0f );
-                glm::vec4       far4 = inverse * glm::vec4( ndc, 1.0f, 1.0f );
-                view.RayOrigin       = eye;
-                view.RayDirection    = glm::normalize( glm::vec3( far4 ) / far4.w - eye );
-                for ( const ElementMode mode : kModes )
-                {
-                    const ElementHit o = PickElement( p.Old, mode, view );
-                    // The EditMesh path picks every mesh vertex and edge: compare it with the TriEdit level.
-                    const ElementHit n = PickElement( p.New, p.Topology, mode, view, TopologyLevel::Triangle );
-                    if ( mode == ElementMode::Vertex || mode == ElementMode::Edge )
-                    {
-                        // The ported pick (UE FindSelectedElement) chooses among the elements within tolerance
-                        // by ray parameter (vertices) or ray-area metric (edges), not by pixel distance, and
-                        // misses when that choice is occluded; what both rules share is the tolerance.
-                        if ( n.IsHit() )
-                        {
-                            ++hits;
-                            EXPECT_LE( n.PixelDistance, view.TolerancePixels ) << ToString( mode );
-                        }
-                        if ( n.IsHit() != o.IsHit() )
-                            ++p.PickMissAgreement;
-                        else if ( n.IsHit() )
-                        {
-                            ElementSelection os( mode );
-                            ElementSelection ns( mode );
-                            (void)os.Add( p.Old, o.Id );
-                            (void)ns.Add( p.New, n.Id );
-                            ( OldValues( p.Old, os ) == NewValues( p.New, ns ) ? p.PickSame : p.PickOther )++;
-                        }
-                        continue;
-                    }
-                    EXPECT_EQ( o.IsHit(), n.IsHit() ) << ToString( mode ) << " at " << x << "," << y;
-                    if ( !o.IsHit() || !n.IsHit() )
-                        continue;
-                    ++hits;
-                    ElementSelection os( mode );
-                    ElementSelection ns( mode );
-                    (void)os.Add( p.Old, o.Id );
-                    (void)ns.Add( p.New, n.Id );
-                    EXPECT_EQ( OldValues( p.Old, os ), NewValues( p.New, ns ) ) << ToString( mode );
-                    EXPECT_FLOAT_EQ( o.RayT, n.RayT );
-                }
-            }
-        return hits;
-    }
 } // namespace
-
-TEST( DynamicMeshSelection, CubeSelectsWhatTheEditMeshPathSelects )
-{
-    auto p = Build( Cube() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Groups.size() ), 6 );
-    EXPECT_EQ( CompareOperations( *p ), ( 8 + 18 + 12 + 6 ) * 7 );
-    EXPECT_GT( ComparePicks( *p, { 180.0f, 140.0f, 220.0f }, { 0.0f, 0.0f, 0.0f } ), 50 );
-    std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
-              << p->PickMissAgreement << "\n";
-    EXPECT_GT( p->PickSame, p->PickOther );
-}
-
-TEST( DynamicMeshSelection, CylinderSelectsWhatTheEditMeshPathSelects )
-{
-    auto p = Build( Cylinder() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Groups.size() ), 3 );
-    EXPECT_EQ( CompareOperations( *p ), ( 18 + 48 + 32 + 3 ) * 7 );
-    EXPECT_GT( ComparePicks( *p, { 150.0f, 220.0f, 180.0f }, { 0.0f, 50.0f, 0.0f } ), 50 );
-    std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
-              << p->PickMissAgreement << "\n";
-    EXPECT_GT( p->PickSame, p->PickOther );
-}
 
 TEST( DynamicMeshSelection, PruneDropsAGroupNoTriangleCarries )
 {
@@ -292,7 +116,7 @@ TEST( DynamicMeshSelection, PruneDropsAGroupNoTriangleCarries )
 }
 
 // The ported corner pick (UE DoCornerBasedSelection / FindNearestPointToRay) takes, of the vertices within
-// tolerance, the one nearest ALONG THE RAY, where the EditMesh path took the one nearest the cursor in pixels.
+// tolerance, the one nearest ALONG THE RAY, not the one nearest the cursor in pixels.
 TEST( DynamicMeshSelection, CornerPickPrefersNearerAlongTheRay )
 {
     auto p = Build( Cube() );

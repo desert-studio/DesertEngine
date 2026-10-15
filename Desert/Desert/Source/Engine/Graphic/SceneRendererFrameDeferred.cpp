@@ -70,6 +70,9 @@ namespace Desert::Graphic
             for ( uint32_t c = 0; c < cascades; ++c )
                 view.ShadowCascades[c] =
                      textures.Import( mesh->GetCascadeShadowImage( c ), std::format( "CSM.Cascade{}", c ) );
+            if ( mesh != nullptr )
+                if ( const auto atlas = mesh->GetLocalShadowAtlasImage() )
+                    view.LocalShadowAtlas = textures.Import( atlas, "LocalShadow.Atlas" );
         }
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
@@ -427,8 +430,10 @@ namespace Desert::Graphic
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
         // "Upload: Lights.Point" / "Upload: Lights.Spot", ordered before the Composite that reads them.
-        const System::DeferredCompositeLights lights =
-             System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights() );
+        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
+             graph, GetPointLights(), GetSpotLights(),
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows() );
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
 

@@ -41,6 +41,9 @@ namespace Desert::Graphic
         RDG::TextureRef SceneColor; // linear HDR, RenderExtent, jittered
         RDG::TextureRef SceneDepth; // reversed-Z DEPTH32F, RenderExtent, jittered (single-sample: resolved)
         RDG::TextureRef Velocity;   // kVelocityFormat, RenderExtent
+        // How much of each pixel responsive translucency covers (ViewTargetFormats::kResponsiveAA, RenderExtent):
+        // the current frame's weight rises to UE's 1/4 by it.
+        RDG::TextureRef ResponsiveAA;
         // Last frame's exposure (AutoExposure's 1x1 output, read in the shader): the resolve weights samples in a
         // tonemapped space (UE: HdrWeight), and the exposure must be the one the history was resolved under.
         RDG::TextureRef Exposure; // AutoExposureRenderer previous adapted luminance, 1x1 (AutoExposure.Previous)

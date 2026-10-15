@@ -9,6 +9,8 @@ Shader "ParticleSpriteAdditive"
     Domain Surface
     Usage ParticleSprites
     BlendMode Additive
+    // UE bResponsiveAA: a sprite writes no velocity of its own; its coverage tells TAA to trust the current frame.
+    ResponsiveAA
 
     Properties Binding(2)
     {

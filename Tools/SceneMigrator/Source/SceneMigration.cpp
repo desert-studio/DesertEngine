@@ -30,8 +30,6 @@
 #include <functional>
 #include "UILift.hpp"
 #include "ClipInterpShift.hpp"
-#include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
@@ -1001,7 +999,7 @@ namespace Desert::Migration
         return report;
     }
 
-    RenderMethodsReport MigrateRenderMethodsV51ToV52( std::vector<Assets::EntityData>& entities )
+    RenderMethodsReport MigrateRenderMethodsV52ToV53( std::vector<Assets::EntityData>& entities )
     {
         using Common::Scalability::GIMethod;
         using Common::Scalability::ReflectionMethod;
@@ -1633,11 +1631,9 @@ namespace Desert::Migration
                 minted.emplace( key, relative );
             }
 
-            rfl::Generic::Object ref;
-            ref["Guid"] = rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
-            ref["Path"] = rfl::Generic( relative );
+            // An asset slot states its file as a path under the assets root (the reader's form for AssetHandle).
             rfl::Generic::Object vfx;
-            vfx["System"]       = rfl::Generic( std::move( ref ) );
+            vfx["System"]       = rfl::Generic( relative );
             vfx["AutoActivate"] = rfl::Generic( true );
 
             Common::Json::KeyedValues kept;
@@ -3109,11 +3105,23 @@ namespace Desert::Migration
                 report.ShadowBiasesRestated        = MigrateShadowBiasCentimetresV48ToV49( entities );
             }
 
+            // The particle emitter is a VFX system (VFX-HOST): each block becomes a `.dfx` and a VFX block.
+            if ( statedSceneVersion < kSceneVersionParticleEmittersToVFX )
+            {
+                report.ParticleEmittersToVFXRaised = true;
+                report.ParticleEmittersToVFX       = MigrateParticleEmittersToVFX( entities, name, assetsRoot );
+                if ( !report.ParticleEmittersToVFX.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ParticleEmittersToVFX.Refused );
+                    return;
+                }
+            }
+
             // GIMode / EnableSSR are the render methods (RMODE-IFACE).
             if ( statedSceneVersion < kSceneVersionRenderMethods )
             {
                 report.RenderMethodsRaised = true;
-                report.RenderMethods       = MigrateRenderMethodsV51ToV52( entities );
+                report.RenderMethods       = MigrateRenderMethodsV52ToV53( entities );
                 if ( !report.RenderMethods.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.RenderMethods.Refused );
@@ -3461,7 +3469,7 @@ namespace Desert::Migration
         return true;
     }
 
-    SceneDependenciesReport MigrateSceneDependenciesV50ToV51( SceneSerialized&             scene,
+    SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
                                                               const std::filesystem::path& assetsRoot )
     {
         // The save's own rule (Core::GatherSceneDependencies), so a migrated scene and the same scene saved
@@ -3530,11 +3538,11 @@ namespace Desert::Migration
             // RunSteps' v49 step re-stated before it was there: re-state again (idempotent), the count is total.
             if ( report.ShadowBiasCentimetresRaised && report.SceneSettingsHomes.ShadowKeysFound > 0 )
                 report.ShadowBiasesRestated = MigrateShadowBiasCentimetresV48ToV49( scene.Entities );
-            // Likewise the volume it just made states the grade's pre-v52 GlobalIllumination / EnableSSR: re-state
+            // Likewise the volume it just made states the grade's pre-v53 GlobalIllumination / EnableSSR: re-state
             // them as methods (idempotent — a re-stated key is gone).
             if ( report.RenderMethodsRaised )
             {
-                const RenderMethodsReport lifted = MigrateRenderMethodsV51ToV52( scene.Entities );
+                const RenderMethodsReport lifted = MigrateRenderMethodsV52ToV53( scene.Entities );
                 report.RenderMethods.Rewritten += lifted.Rewritten;
                 if ( !lifted.Refused.empty() )
                 {
@@ -3583,7 +3591,7 @@ namespace Desert::Migration
         if ( statedSceneVersion < kSceneVersionSceneDependencies )
         {
             report.SceneDependenciesRaised = true;
-            report.SceneDependencies       = MigrateSceneDependenciesV50ToV51( scene, assetsRoot );
+            report.SceneDependencies       = MigrateSceneDependenciesV51ToV52( scene, assetsRoot );
             if ( !report.SceneDependencies.Refused.empty() )
             {
                 report.Refused = RefusedWhole( scene.SceneName, report.SceneDependencies.Refused );

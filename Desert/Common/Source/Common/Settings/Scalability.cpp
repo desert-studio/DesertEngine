@@ -61,6 +61,8 @@ namespace Common::Scalability
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)" },
              { P::DepthOfFieldQuality, G::PostProcess, "PostProcess.DepthOfFieldQuality", 0, 2, CL::None,
                "Graphic::DofRingsForQuality (SceneRenderer::BeginScene -> DepthOfField gather rings)" },
+             { P::ReflectionCaptureSize, G::Reflections, "Reflections.CaptureSize", 32, 1024, CL::None,
+               "Graphic::ReflectionCaptureFaceSize (ReflectionCaptureRenderer: the scene's capture cube face)" },
              { P::GlobalIlluminationMethod, G::GlobalIllumination, "GlobalIllumination.Method", 0,
                LastOf( kGIMethodNames.size() ), CL::None,
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the GI method ceiling" },

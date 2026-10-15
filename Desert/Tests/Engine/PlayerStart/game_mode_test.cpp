@@ -191,7 +191,7 @@ TEST( GameMode, HostsTickItAndItsEventsMoveInputAndReachLua )
     EXPECT_NE( ReadSource( "Desert/Desert/Source/Engine/ECS/System/GameModeSystem.hpp" )
                     .find( "Core::SpawnPawnPrefabAt(" ),
                std::string::npos );
-    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Scripting/ScriptEngine.cpp" );
+    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Scripting/Luau/LuauScriptEngine.cpp" );
     EXPECT_NE( engine.find( "PlayerInput.UnpossessPawn()" ), std::string::npos );
     EXPECT_NE( engine.find( "PlayerInput.PossessPawn( registry" ), std::string::npos );
     EXPECT_NE( engine.find( "\"OnPawnDied\" : \"OnPlayerRestarted\"" ), std::string::npos );

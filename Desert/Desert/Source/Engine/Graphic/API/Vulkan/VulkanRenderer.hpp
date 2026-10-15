@@ -53,8 +53,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                   RDG::ExternalBuffer&                 into ) override;
 
-        virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                  const MaterialExecutor* materialExecutor ) override;
+        virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                   const MaterialExecutor* materialExecutor ) override;
 
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,
@@ -88,6 +88,9 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
+        virtual void          SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
+        virtual void          ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                           uint32_t height, const glm::vec4& color, float depth ) override;
 
         virtual void ResizeWindowEvent( uint32_t width, uint32_t height ) override;
         virtual void WaitDeviceIdle() override;

@@ -491,6 +491,11 @@ namespace
                 << Desert::Migration::kSceneVersionFoliageTypes << " (" << report.FoliageTypes.Rewritten
                 << " Foliage block(s) now name a .defoliage; " << report.FoliageTypes.NewTypes.size()
                 << " type file(s) written)";
+        if ( report.ParticleEmittersToVFXRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionHLODLayers << "->v"
+                << Desert::Migration::kSceneVersionParticleEmittersToVFX << " ("
+                << report.ParticleEmittersToVFX.Emitters << " ParticleEmitter block(s) now play a .dfx; "
+                << report.ParticleEmittersToVFX.NewSystems.size() << " system file(s) written)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -504,6 +509,17 @@ namespace
             if ( !WriteText( file, text, err ) )
             {
                 err << "FAIL   " << file.string() << " — the foliage type could not be written\n";
+                return false;
+            }
+        }
+        // The `.dfx` systems the v44 step minted, for the same reason.
+        for ( const auto& [file, text] : report.ParticleEmittersToVFX.NewSystems )
+        {
+            std::error_code ec;
+            std::filesystem::create_directories( file.parent_path(), ec );
+            if ( !WriteText( file, text, err ) )
+            {
+                err << "FAIL   " << file.string() << " — the VFX system could not be written\n";
                 return false;
             }
         }

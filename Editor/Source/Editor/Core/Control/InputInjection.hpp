@@ -153,7 +153,10 @@ namespace Desert::Editor::Control
             drop.Paths     = paths;
             return Common::MakeSuccess( Frames{ { cursor }, { cursor, drop } } );
         }
-        if ( kind == "key" )
+        // key = press and release (a tap); keydown = press and HOLD until a keyup of the same chord — the same
+        // key events a keyboard sends, so they reach whatever holds keyboard focus (the played viewport's
+        // player, a text field) by the same route.
+        if ( kind == "key" || kind == "keydown" || kind == "keyup" )
         {
             const auto chord = ParseInputChord( key );
             if ( !chord.IsSuccess() )
@@ -172,10 +175,14 @@ namespace Desert::Editor::Control
                 mods &= ~modifier.ModBit;
                 up.push_back( MakeInputStep( InputAction::KeyUp, x, y, modifier.Code, mods ) );
             }
+            if ( kind == "keydown" )
+                return Common::MakeSuccess( Frames{ std::move( down ) } );
+            if ( kind == "keyup" )
+                return Common::MakeSuccess( Frames{ std::move( up ) } );
             return Common::MakeSuccess( Frames{ std::move( down ), std::move( up ) } );
         }
         return Common::MakeFormattedError<Frames>(
-             "'{}' is not an input kind: move, click, press, release, key, drop.", kind );
+             "'{}' is not an input kind: move, click, press, release, key, keydown, keyup, drop.", kind );
     }
 
     class InputInjection

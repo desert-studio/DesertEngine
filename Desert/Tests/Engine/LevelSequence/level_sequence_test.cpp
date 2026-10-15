@@ -1076,7 +1076,7 @@ TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTh
          { EventAt( 10, "Boom", T::EventAction{ T::EventActionKind::PlayAudio, "Assets/Audio/boom.wav" } ),
            EventAt( 20, "Sparks", T::EventAction{ T::EventActionKind::ActivateParticles, "" } ),
            EventAt( 30, "Open", T::EventAction{ T::EventActionKind::CallScript, "OnDoorOpen" } ) } );
-    world.registry.emplace<ECS::ParticleEmitterComponent>( world.door ).Data.Enabled = false;
+    world.registry.emplace<ECS::VFXComponent>( world.door ).Data.AutoActivate = false;
     world.registry.emplace<ECS::ScriptComponent>( world.door );
     const ECS::LevelSequenceComponent component;
     ECS::LevelSequencePlayback        playback( sequence );
@@ -1085,8 +1085,8 @@ TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTh
          ECS::StepLevelSequence( world.registry, component, playback, T::TimeStep{ At( 0 ), At( 35 ) } );
     EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
     EXPECT_EQ( step.Sounds, std::vector<std::string>{ "Assets/Audio/boom.wav" } );
-    const auto& emitter = world.registry.get<ECS::ParticleEmitterComponent>( world.door );
-    EXPECT_TRUE( emitter.Data.Enabled );
+    const auto& emitter = world.registry.get<ECS::VFXComponent>( world.door );
+    EXPECT_TRUE( emitter.Data.AutoActivate );
     EXPECT_TRUE( emitter.RequestRestart );
     const auto& calls = world.registry.get<ECS::ScriptComponent>( world.door ).PendingSequenceCalls;
     ASSERT_EQ( calls.size(), 1U );
@@ -1094,7 +1094,7 @@ TEST( LevelSequencePlayback, EventActionsPlayTheSoundRestartTheEmitterAndQueueTh
     EXPECT_EQ( calls[0].EventName, "Open" );
 
     // No emitter, no script: each refused by its key's name, never skipped in silence.
-    world.registry.remove<ECS::ParticleEmitterComponent>( world.door );
+    world.registry.remove<ECS::VFXComponent>( world.door );
     world.registry.remove<ECS::ScriptComponent>( world.door );
     ECS::LevelSequencePlayback bare( sequence );
     const auto                 refused =
