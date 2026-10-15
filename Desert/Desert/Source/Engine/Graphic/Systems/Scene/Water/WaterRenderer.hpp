@@ -26,9 +26,9 @@ namespace Desert::Graphic::System
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it
     // walks every submitted zone's quadtree from the main camera (Water::WaterQuadTree::Traverse: LOD by distance,
-    // frustum-culled), packs the selected tiles as rows of one storage buffer, and draws them in the "Scene: Water"
-    // node (Forward and Deferred alike) — after the scene-colour copy (the scene without water, which WATER-W7's
-    // refraction reads) and before the glass — as one vertexless instanced draw per grid density
+    // frustum-culled), packs the selected tiles as rows of one storage buffer, and draws them in the "Scene:
+    // Water" node (Forward and Deferred alike) — after the scene-colour copy (the scene without water, which
+    // WATER-W7's refraction reads) and before the glass — as one vertexless instanced draw per grid density
     // (WaterSurface.shader).
     class WaterRenderer final : public RenderSystem
     {
@@ -51,8 +51,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         // The viewport's debug views, pushed per view as the mesh renderer's are (SceneRenderer::OnUpdate): the
-        // wireframe view draws the water in line mode, the lighting view shows the sources landing on it - the water
-        // draws in them the way every mesh does. In a player's build the wireframe flag is accepted and dropped.
+        // wireframe view draws the water in line mode, the lighting view shows the sources landing on it - the
+        // water draws in them the way every mesh does. In a player's build the wireframe flag is accepted and
+        // dropped.
         void SetDebugView( [[maybe_unused]] bool wireframe, bool lightingDebug )
         {
 #if DESERT_DEV_INSTRUMENTS

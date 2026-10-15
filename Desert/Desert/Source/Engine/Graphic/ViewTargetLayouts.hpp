@@ -32,9 +32,10 @@ namespace Desert::Graphic
                                    1 };
     }
 
-    // The forward depth prepass (MeshPass::DepthPrepass, TerrainDepthPrepass.shader): the scene depth and ONE colour,
-    // the opaque scene's shading word carrying only the contact-shadow cast bit (Mesh/Surface/Pass_DepthPrepass.glslh),
-    // which the forward contact shadows read as the deferred composite reads the G-buffer's.
+    // The forward depth prepass (MeshPass::DepthPrepass, TerrainDepthPrepass.shader): the scene depth and ONE
+    // colour, the opaque scene's shading word carrying only the contact-shadow cast bit
+    // (Mesh/Surface/Pass_DepthPrepass.glslh), which the forward contact shadows read as the deferred composite
+    // reads the G-buffer's.
     inline RenderTargetLayout DepthPrepassLayout()
     {
         return RenderTargetLayout{ { ViewTargetFormats::kGBufferShadingWord }, ViewTargetFormats::kSceneDepth, 1 };

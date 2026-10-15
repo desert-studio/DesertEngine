@@ -40,7 +40,8 @@ namespace Desert::Graphic::Render
         // The owning StaticMeshComponent's MaxDrawDistance (cm, 0 = no limit), asked of the executing view.
         float MaxDrawDistance = 0.0f;
 
-        // The owning StaticMeshComponent's Cast Contact Shadow (UE bCastContactShadow), as its lit draw carries it.
+        // The owning StaticMeshComponent's Cast Contact Shadow (UE bCastContactShadow), as its lit draw carries
+        // it.
         bool CastContactShadow = true;
 
         DrawSlotMaterialMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,

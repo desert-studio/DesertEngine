@@ -482,10 +482,11 @@ namespace Desert::Graphic
         }
 
         // THE FORWARD DEPTH PREPASS (UE: the forward shading path renders a full opaque depth prepass,
-        // EDepthDrawingMode DDM_AllOpaque): every opaque surface's depth first ("Forward: DepthPrepass"), then the base
-        // pass tests EQUAL against it and writes none, and the forward contact shadows march that depth. The
-        // wireframe view is the one exception: lines tested EQUAL against a filled depth would drop, so it draws its
-        // own base pass with depth writes, as before the prepass. The ONE answer every system of the frame asks.
+        // EDepthDrawingMode DDM_AllOpaque): every opaque surface's depth first ("Forward: DepthPrepass"), then the
+        // base pass tests EQUAL against it and writes none, and the forward contact shadows march that depth. The
+        // wireframe view is the one exception: lines tested EQUAL against a filled depth would drop, so it draws
+        // its own base pass with depth writes, as before the prepass. The ONE answer every system of the frame
+        // asks.
         [[nodiscard]] bool UsesForwardDepthPrepass() const
         {
             return m_RenderPath == Core::RenderPath::Forward && !m_DebugView.WireframeMode;
@@ -689,9 +690,9 @@ namespace Desert::Graphic
         // @p prepassed: "Forward: DepthPrepass" filled the scene depth, so every node of the base pass LOADS it
         // read-only (the meshes and the terrain test EQUAL, the sky tests nothing).
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures, bool prepassed );
-        // The forward depth prepass (UsesForwardDepthPrepass): the meshes' then the terrain's depth and contact-shadow
-        // shading word, CLEARING the scene depth; then the word's and the depth's sample-0 resolves at MSAA. Sets
-        // the frame's SceneDepth / SceneShadingWord, which the forward contact shadows read.
+        // The forward depth prepass (UsesForwardDepthPrepass): the meshes' then the terrain's depth and
+        // contact-shadow shading word, CLEARING the scene depth; then the word's and the depth's sample-0 resolves
+        // at MSAA. Sets the frame's SceneDepth / SceneShadingWord, which the forward contact shadows read.
         void AddFrameDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -754,8 +755,9 @@ namespace Desert::Graphic
                           const glm::vec3& sunDir );
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
-        // The list MeshRenderer::BuildGlassDraws built this frame (called only when it built one). @p sceneCopy: this
-        // frame's scene snapshot (FrameTransients::SceneColorCopy); invalid (the copy refused) -> no glass node.
+        // The list MeshRenderer::BuildGlassDraws built this frame (called only when it built one). @p sceneCopy:
+        // this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid (the copy refused) -> no glass
+        // node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
@@ -774,8 +776,8 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
-        // The single-sample scene depth a sampler reads: the resolve node's target at MSAA, the scene depth itself at
-        // one sample; invalid when there is none (no depth attachment, the resolve system not ready).
+        // The single-sample scene depth a sampler reads: the resolve node's target at MSAA, the scene depth itself
+        // at one sample; invalid when there is none (no depth attachment, the resolve system not ready).
         RDG::TextureRef AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );

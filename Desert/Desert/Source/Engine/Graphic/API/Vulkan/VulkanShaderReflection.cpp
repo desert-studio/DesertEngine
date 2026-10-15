@@ -688,7 +688,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                              "'{}' program '{}': an opaque custom mesh shader reads {} in its {} stage; only a "
                              "translucent shader may read the scene depth (an opaque one writes it). Make it "
                              "blend with `ZWrite Off`, or drop the read",
-                             templateName, cellName, name, Graphic::Shader::GetStringShaderStage( stage.Stage ) ) );
+                             templateName, cellName, name,
+                             Graphic::Shader::GetStringShaderStage( stage.Stage ) ) );
         return out;
     }
 

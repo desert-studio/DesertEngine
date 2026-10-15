@@ -200,8 +200,7 @@ namespace Desert::Graphic
             return {};
         const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, samples, sceneDepth, resolved,
-             [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
+             graph, samples, sceneDepth, resolved, [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return resolve->Record( context ); } );
@@ -216,7 +215,8 @@ namespace Desert::Graphic
         AddFrameGraphColorResolvesOf( graph, *colors );
     }
 
-    void SceneRenderer::AddFrameGraphColorResolvesOf( RDG::Builder& graph, const std::span<const GraphColor> colors )
+    void SceneRenderer::AddFrameGraphColorResolvesOf( RDG::Builder&                     graph,
+                                                      const std::span<const GraphColor> colors )
     {
         const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
         System::GraphColorResolveRenderer* resolve = nullptr;

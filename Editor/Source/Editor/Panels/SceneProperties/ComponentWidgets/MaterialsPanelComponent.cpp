@@ -221,7 +221,8 @@ namespace Desert::Editor
                 Utils::ImGuiUtilities::BeginPropertyRow(
                      "Cast Contact Shadow",
                      "A light's contact-shadow ray that hits this mesh darkens with the light's Contact Shadow "
-                     "Casting Intensity; off = its Non Casting Intensity (0 by default: no contact shadow from this "
+                     "Casting Intensity; off = its Non Casting Intensity (0 by default: no contact shadow from "
+                     "this "
                      "mesh). Forward path (the depth prepass); a skinned mesh is outside the deferred G-buffer" );
                 ImGui::Checkbox( "##castcontactshadow", &skinnedComp.CastContactShadow );
                 Utils::ImGuiUtilities::EndPropertyRow();

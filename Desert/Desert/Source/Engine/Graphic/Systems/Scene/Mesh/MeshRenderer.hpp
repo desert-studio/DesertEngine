@@ -786,7 +786,7 @@ namespace Desert::Graphic::System
         };
         [[nodiscard]] std::optional<PrepassedGenericPipelines>
         PrepassedGenericPipelinesOf( const std::string& shaderName, const std::string& depthProgram,
-                                          const std::shared_ptr<Shader>& shader );
+                                     const std::shared_ptr<Shader>& shader );
         // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
         // its cache and its MOVABLE ones over the copied cache, every frame.
         enum class ShadowCasterLayer : uint8_t
@@ -885,7 +885,8 @@ namespace Desert::Graphic::System
 
         // THE FORWARD DEPTH PREPASS (SetupDepthPrepass). Per vertex path: the (path x DepthPrepass) pipeline (the
         // view's depth + the contact-shadow word, DepthPrepassLayout) and the base pass's twin of the forward
-        // pipeline that draws after it (DepthCompare::Equal, no depth write: UE's forward base pass at DepthEqual).
+        // pipeline that draws after it (DepthCompare::Equal, no depth write: UE's forward base pass at
+        // DepthEqual).
         std::shared_ptr<GraphicsPipeline> m_StaticPrepassPipeline;
         std::shared_ptr<GraphicsPipeline> m_InstancedPrepassPipeline;
         std::shared_ptr<GraphicsPipeline> m_SkinnedPrepassPipeline;
@@ -893,8 +894,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_InstancedPrepassedPipeline;
         std::shared_ptr<GraphicsPipeline> m_SkinnedPrepassedPipeline;
         // The prepass's spares, for the same reasons as the G-buffer's (m_GBufferUnownedMaterial,
-        // m_InstancedGBufferMaterial): a material is one shader's descriptor sets, so the pass binds sets allocated
-        // from its own cell's reflection.
+        // m_InstancedGBufferMaterial): a material is one shader's descriptor sets, so the pass binds sets
+        // allocated from its own cell's reflection.
         std::shared_ptr<DataDrivenMaterial>          m_PrepassUnownedMaterial;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedPrepassMaterial;
         MaterialInstancePtr                          m_InstancedPrepassInstance;
@@ -1370,7 +1371,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
                                                                   m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
-        std::vector<DataDrivenMaterial*>         m_ScratchSkinnedForwardMaterials; // BuildSkinnedDraws
+        std::vector<DataDrivenMaterial*> m_ScratchSkinnedForwardMaterials; // BuildSkinnedDraws
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
         double                                                    m_PrevWorldTimeSeconds = 0.0;

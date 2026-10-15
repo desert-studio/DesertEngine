@@ -65,8 +65,9 @@ namespace Desert::Graphic
                      for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
                          if ( targets.Colors[slot].IsValid() )
                              pass.ColorTarget( slot, targets.Colors[slot], colors[slot] );
-                     // A node that only tests the depth binds it read-only (RDG::Access::DepthRead), so it may also
-                     // sample that depth (the forward glass marching the prepass depth for its contact shadows).
+                     // A node that only tests the depth binds it read-only (RDG::Access::DepthRead), so it may
+                     // also sample that depth (the forward glass marching the prepass depth for its contact
+                     // shadows).
                      if ( targets.Depth.IsValid() )
                          pass.DepthTarget( targets.Depth, depth, depthWrite );
                      DeclareResolves( pass, targets.Resolves );
@@ -174,9 +175,9 @@ namespace Desert::Graphic
 
         // THE OPAQUE SCENE'S CONTACT-SHADOW CASTERS (UE bCastContactShadow, which the deferred path reads from the
         // G-buffer's shading word): the prepass writes the same word - only its NO_CONTACT_SHADOW bit meaningful,
-        // Mesh/Surface/Pass_DepthPrepass.glslh - so the forward contact shadows read the hit texel's caster through
-        // the one shader the deferred composite uses. Cleared to the contract's zero (every texel casts). At MSAA a
-        // multisampled twin, resolved by SAMPLE 0: an integer word is never averaged.
+        // Mesh/Surface/Pass_DepthPrepass.glslh - so the forward contact shadows read the hit texel's caster
+        // through the one shader the deferred composite uses. Cleared to the contract's zero (every texel casts).
+        // At MSAA a multisampled twin, resolved by SAMPLE 0: an integer word is never averaged.
         RDG::TextureDesc desc;
         desc.Size   = depthDesc.GetValue().Size;
         desc.Format = ViewTargetFormats::kGBufferShadingWord;
@@ -223,13 +224,14 @@ namespace Desert::Graphic
              } );
         if ( terrain != nullptr )
             AddRaster(
-                 graph, "Forward: TerrainDepthPrepass", targets, textures.ColorLoads( targets, RDG::LoadOp::Load() ),
-                 RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 graph, "Forward: TerrainDepthPrepass", targets,
+                 textures.ColorLoads( targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return terrain->RenderDepthPrepassManual( context ); },
                  [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthPrepassDraws( pass ); } );
 
-        // The contact shadows sample single-sample images: the word's and the depth's sample-0 resolves at MSAA (at
-        // one sample, the depth itself, bound read-only by every later node that samples it).
+        // The contact shadows sample single-sample images: the word's and the depth's sample-0 resolves at MSAA
+        // (at one sample, the depth itself, bound read-only by every later node that samples it).
         AddFrameGraphColorResolvesOf( graph, std::span<const GraphColor>( &word, 1 ) );
         textures.Transients.SceneDepth       = AddFrameSceneDepthResolve( graph, textures );
         textures.Transients.SceneShadingWord = word.Color;
@@ -467,10 +469,10 @@ namespace Desert::Graphic
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        // After the forward depth prepass this node holds only the custom shaders that are not opaque (ZWrite Off or
-        // blending; drawn writing no depth, as UE's translucency - the opaque ones drew in the prepass and the base
-        // pass): the depth read-only, so a shader sampling the scene depth reads the prepass's. On Deferred it holds every custom
-        // shader, the opaque ones writing depth.
+        // After the forward depth prepass this node holds only the custom shaders that are not opaque (ZWrite Off
+        // or blending; drawn writing no depth, as UE's translucency - the opaque ones drew in the prepass and the
+        // base pass): the depth read-only, so a shader sampling the scene depth reads the prepass's. On Deferred
+        // it holds every custom shader, the opaque ones writing depth.
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
@@ -512,7 +514,8 @@ namespace Desert::Graphic
              { return meshRenderer->RenderGlassManual( context ); },
              [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); },
-             // Glass never writes depth (ApplySurfaceBlendMode): read-only, so it may sample the scene depth it tests.
+             // Glass never writes depth (ApplySurfaceBlendMode): read-only, so it may sample the scene depth it
+             // tests.
              /*depthWrite*/ false );
     }
 

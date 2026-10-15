@@ -19,14 +19,13 @@ namespace Desert::Graphic::System
         constexpr std::string_view kGenericMeshPrepassNameFormat   = "GenericMeshDepthPrepass_{}";
         constexpr std::string_view kGenericMeshPrepassedNameFormat = "GenericMeshPrepassed_{}";
         // The program a generic draw of @p shaderName draws its depth with in the forward depth prepass: its
-        // (Static x DepthPrepass) cell by the one rule (TemplateCellShader) - a surface template's prepass cell, or
-        // the depth-prepass program the parser derived for an opaque custom shader (DShaderParser.hpp,
+        // (Static x DepthPrepass) cell by the one rule (TemplateCellShader) - a surface template's prepass cell,
+        // or the depth-prepass program the parser derived for an opaque custom shader (DShaderParser.hpp,
         // kCustomDepthPrepassPass). None: the shader writes no opaque depth (ZWrite Off, or translucent).
         [[nodiscard]] std::optional<std::string> GenericDepthProgramOf( const std::string& shaderName )
         {
             return TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::DepthPrepass,
-                                       []( std::string_view name )
-                                       {
+                                       []( std::string_view name ) {
                                            return Runtime::ResourceRegistry::GetShaderService()->GetByName(
                                                        std::string( name ) ) != nullptr;
                                        } );
@@ -297,7 +296,7 @@ namespace Desert::Graphic::System
                 // this set is only about the log line.
                 GraphicsPipelineSpecification spec =
                      GenericPipelineSpec( shader, /*depthReadOnly*/ set == GenericDrawSet::AfterOpaque );
-                spec.DebugName = std::format( kGenericMeshNameFormat, shader->GetName() );
+                spec.DebugName   = std::format( kGenericMeshNameFormat, shader->GetName() );
                 const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
                 if ( built )
                 {
@@ -919,13 +918,13 @@ namespace Desert::Graphic::System
         // line, in the render path most of this repository's scenes state. The G-buffer pass has its own
         // instanced cell now, so the gate asks whether THIS pass has one instead of asking which pass it
         // is.
-        auto* instancedPipeline = BuildPassPipeline( MeshVertexPath::Instanced );
-        auto* instancedMaterial = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferMaterial.get()
-                                  : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassMaterial.get()
-                                                                          : m_StaticInstancedMaterial.get();
-        auto* instancedInstance = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferInstance.get()
-                                  : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassInstance.get()
-                                                                          : m_StaticInstancedInstance.get();
+        auto*      instancedPipeline = BuildPassPipeline( MeshVertexPath::Instanced );
+        auto*      instancedMaterial = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferMaterial.get()
+                                       : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassMaterial.get()
+                                                                               : m_StaticInstancedMaterial.get();
+        auto*      instancedInstance = m_BuildPass == MeshPass::GBuffer        ? m_InstancedGBufferInstance.get()
+                                       : m_BuildPass == MeshPass::DepthPrepass ? m_InstancedPrepassInstance.get()
+                                                                               : m_StaticInstancedInstance.get();
         const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
                                   instancedInstance != nullptr && !WireframeView();
         const MeshPass instancedPass = m_BuildPass;
@@ -1034,25 +1033,26 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* const instancedStandIn =
              instancingOn ? CellPipeline( instancedPipeline, *instancedMaterial ) : nullptr;
 
-        // AFTER THE FORWARD DEPTH PREPASS, ONE ANSWER FOR BOTH PASSES (PrepassPairOf): the prepass and the base pass
-        // build these groups each through its own cells, and a material whose prepass cell is Ready while its base
-        // cell compiles (or the reverse) would draw its own depth under the stand-in's colour - a Masked material's
-        // clip under an opaque stand-in - so each build also asks the other pass's cells, and both stand in until
-        // all of them are Ready.
+        // AFTER THE FORWARD DEPTH PREPASS, ONE ANSWER FOR BOTH PASSES (PrepassPairOf): the prepass and the base
+        // pass build these groups each through its own cells, and a material whose prepass cell is Ready while its
+        // base cell compiles (or the reverse) would draw its own depth under the stand-in's colour - a Masked
+        // material's clip under an opaque stand-in - so each build also asks the other pass's cells, and both
+        // stand in until all of them are Ready.
         const std::optional<MeshPass> pairPass = PrepassPairOf( m_BuildPass );
         GraphicsPipeline* const       pairStaticState =
              pairPass ? PassPipeline( MeshVertexPath::Static, *pairPass ) : nullptr;
         StandInCell* const      pairStandIn = pairPass ? StandIn( MeshVertexPath::Static, *pairPass ) : nullptr;
         GraphicsPipeline* const pairStandInPipeline =
-             pairStandIn != nullptr && pairStaticState != nullptr ? CellPipeline( pairStaticState, *pairStandIn->Material )
-                                                                  : nullptr;
+             pairStandIn != nullptr && pairStaticState != nullptr
+                  ? CellPipeline( pairStaticState, *pairStandIn->Material )
+                  : nullptr;
         GraphicsPipeline* const pairInstancedPipeline =
              pairPass ? PassPipeline( MeshVertexPath::Instanced, *pairPass ) : nullptr;
-        DataDrivenMaterial* const pairInstancedMaterial =
-             !pairPass                                ? nullptr
-             : *pairPass == MeshPass::DepthPrepass ? m_InstancedPrepassMaterial.get()
-                                                      : m_StaticInstancedMaterial.get();
-        const bool pairInstancingOn =
+        DataDrivenMaterial* const pairInstancedMaterial = !pairPass ? nullptr
+                                                          : *pairPass == MeshPass::DepthPrepass
+                                                               ? m_InstancedPrepassMaterial.get()
+                                                               : m_StaticInstancedMaterial.get();
+        const bool                pairInstancingOn =
              pairInstancedPipeline != nullptr && pairInstancedMaterial != nullptr && !WireframeView();
         GraphicsPipeline* const pairInstancedStandIn =
              pairInstancingOn ? CellPipeline( pairInstancedPipeline, *pairInstancedMaterial ) : nullptr;
@@ -1093,10 +1093,12 @@ namespace Desert::Graphic::System
                 // The pair records per object where it has no instancing, whatever this pass does.
                 if ( perObject || !pairInstancingOn )
                 {
-                    DataDrivenMaterial* cell = *pairPass != MeshPass::Forward
-                                                    ? materials->GetVariant( mat, MeshVertexPath::Static, *pairPass )
-                                                    : mat;
-                    if ( cell != nullptr && pairStaticState != nullptr ) // no twin: refused by the pair's own build
+                    DataDrivenMaterial* cell =
+                         *pairPass != MeshPass::Forward
+                              ? materials->GetVariant( mat, MeshVertexPath::Static, *pairPass )
+                              : mat;
+                    if ( cell != nullptr &&
+                         pairStaticState != nullptr ) // no twin: refused by the pair's own build
                         fold( ChooseCellDraw( pairStaticState, *cell, twoSided, pairStandInPipeline ) );
                 }
                 if ( pairInstancingOn )
@@ -1321,9 +1323,10 @@ namespace Desert::Graphic::System
                     static std::array<std::unordered_set<const DataDrivenMaterial*>, kMeshPassCount>
                          s_WarnedNoPassVariant;
                     if ( s_WarnedNoPassVariant[static_cast<uint32_t>( m_BuildPass )].insert( mat ).second )
-                        LOG_ERROR( "[MeshRenderer] No (Static x {}) material for a mesh material; its {} object(s) "
-                                   "are NOT drawn in that pass. MaterialService logged which shader refused.",
-                                   MeshPassName( m_BuildPass ), singles.size() );
+                        LOG_ERROR(
+                             "[MeshRenderer] No (Static x {}) material for a mesh material; its {} object(s) "
+                             "are NOT drawn in that pass. MaterialService logged which shader refused.",
+                             MeshPassName( m_BuildPass ), singles.size() );
                     continue;
                 }
             }
@@ -1602,9 +1605,9 @@ namespace Desert::Graphic::System
             if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
                 groupFor( data.Material ).push_back( &data );
 
-        // THE DEPTH PREPASS DRAWS THE SAME GROUPS THROUGH THEIR (Skinned x DepthPrepass) CELLS: the same `.demat`'s
-        // twin, whose sets come from the cell about to be bound. A material no `.demat` built (MeshECSSystem's
-        // default) has no twin: it draws through the default surface's cell, which is what it is.
+        // THE DEPTH PREPASS DRAWS THE SAME GROUPS THROUGH THEIR (Skinned x DepthPrepass) CELLS: the same
+        // `.demat`'s twin, whose sets come from the cell about to be bound. A material no `.demat` built
+        // (MeshECSSystem's default) has no twin: it draws through the default surface's cell, which is what it is.
         StandInCell* const standIn = StandIn( MeshVertexPath::Skinned, m_BuildPass );
         // Each group's (Skinned x Forward) material, before this pass swaps in its twin: the other pass of a
         // prepassed draw asks its cells of it (below).
@@ -1644,13 +1647,15 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
         // After the forward depth prepass, one answer for both passes (as BuildStaticDraws, PrepassPairOf): the
-        // other pass's (Skinned x pass) cell of the group's material is asked too, and both stand in until both are
-        // Ready.
+        // other pass's (Skinned x pass) cell of the group's material is asked too, and both stand in until both
+        // are Ready.
         const std::optional<MeshPass> pairPass = PrepassPairOf( m_BuildPass );
-        GraphicsPipeline* const pairState = pairPass ? PassPipeline( MeshVertexPath::Skinned, *pairPass ) : nullptr;
-        StandInCell* const      pairStandIn = pairPass ? StandIn( MeshVertexPath::Skinned, *pairPass ) : nullptr;
+        GraphicsPipeline* const       pairState =
+             pairPass ? PassPipeline( MeshVertexPath::Skinned, *pairPass ) : nullptr;
+        StandInCell* const pairStandIn = pairPass ? StandIn( MeshVertexPath::Skinned, *pairPass ) : nullptr;
         const GraphicsPipeline* const pairStandInPipeline =
-             pairStandIn != nullptr && pairState != nullptr ? CellPipeline( pairState, *pairStandIn->Material ) : nullptr;
+             pairStandIn != nullptr && pairState != nullptr ? CellPipeline( pairState, *pairStandIn->Material )
+                                                            : nullptr;
         const auto pairCellOf = [&]( DataDrivenMaterial* forward ) -> DataDrivenMaterial*
         {
             if ( *pairPass == MeshPass::Forward )
@@ -1676,7 +1681,8 @@ namespace Desert::Graphic::System
                 if ( pairPass && pairState != nullptr )
                     if ( DataDrivenMaterial* pairCell = pairCellOf( forwardMaterials[g] ) )
                     {
-                        const CellDraw pairDraw = ChooseCellDraw( pairState, *pairCell, twoSided, pairStandInPipeline );
+                        const CellDraw pairDraw =
+                             ChooseCellDraw( pairState, *pairCell, twoSided, pairStandInPipeline );
                         if ( pairDraw == CellDraw::Nothing ||
                              ( pairDraw == CellDraw::DefaultSurface && draw == CellDraw::Own ) )
                             draw = pairDraw;
@@ -1736,8 +1742,8 @@ namespace Desert::Graphic::System
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );
                                 mat->SetMaterialIndex( i );
-                                // SkinnedMeshComponent::CastContactShadow (UE bCastContactShadow): the depth prepass's
-                                // word (Pass_DepthPrepass.glslh), as the static meshes'.
+                                // SkinnedMeshComponent::CastContactShadow (UE bCastContactShadow): the depth
+                                // prepass's word (Pass_DepthPrepass.glslh), as the static meshes'.
                                 mat->SetPrimitiveFlags( PrimitiveFlagsOf( castsContact ) );
                                 mat->Bind( inst );
                             } } );
@@ -1980,7 +1986,8 @@ namespace Desert::Graphic::System
     {
         // (path x DepthPrepass): the default surface's prepass cell, the view's depth and the contact-shadow word.
         // Cull and compare as the forward pipelines, so the two rasterise the same fragments.
-        const auto prepassOf = [this]( const MeshVertexPath path, const char* name ) -> std::shared_ptr<GraphicsPipeline>
+        const auto prepassOf = [this]( const MeshVertexPath path,
+                                       const char*          name ) -> std::shared_ptr<GraphicsPipeline>
         {
             GraphicsPipelineSpecification spec;
             spec.DebugName      = name;
@@ -2005,8 +2012,8 @@ namespace Desert::Graphic::System
             return pipeline.GetValue();
         };
         // The base pass after the prepass (UE: the forward base pass at DepthEqual, depth writes off): the forward
-        // pipeline's own spec, testing Same and writing nothing - the shading of a pixel runs once, for the surface
-        // the prepass kept.
+        // pipeline's own spec, testing Same and writing nothing - the shading of a pixel runs once, for the
+        // surface the prepass kept.
         const auto prepassedOf = [this]( const GraphicsPipeline& forward,
                                          const char*             twinName ) -> std::shared_ptr<GraphicsPipeline>
         {
@@ -2017,8 +2024,8 @@ namespace Desert::Graphic::System
             const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
             if ( !pipeline )
             {
-                LOG_ERROR( "[MeshRenderer] the forward base pass after the depth prepass has no '{}': {}", twinName,
-                           pipeline.GetError() );
+                LOG_ERROR( "[MeshRenderer] the forward base pass after the depth prepass has no '{}': {}",
+                           twinName, pipeline.GetError() );
                 return nullptr;
             }
             return pipeline.GetValue();
@@ -2041,14 +2048,17 @@ namespace Desert::Graphic::System
         // and a pass without its instanced pipeline draws the batches one object each - the same depth.
         if ( m_StaticInstancedPipeline )
         {
-            m_InstancedPrepassPipeline   = prepassOf( MeshVertexPath::Instanced, "StaticMeshDepthPrepassInstanced" );
-            m_InstancedPrepassedPipeline = prepassedOf( *m_StaticInstancedPipeline, "StaticMeshGeometryInstancedPrepassed" );
-            m_InstancedPrepassMaterial   = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::DepthPrepass );
+            m_InstancedPrepassPipeline = prepassOf( MeshVertexPath::Instanced, "StaticMeshDepthPrepassInstanced" );
+            m_InstancedPrepassedPipeline =
+                 prepassedOf( *m_StaticInstancedPipeline, "StaticMeshGeometryInstancedPrepassed" );
+            m_InstancedPrepassMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::DepthPrepass );
             if ( m_InstancedPrepassMaterial )
-                m_InstancedPrepassInstance = m_InstancedPrepassMaterial->CreateInstance( "StaticInstancedPrepassBatch" );
+                m_InstancedPrepassInstance =
+                     m_InstancedPrepassMaterial->CreateInstance( "StaticInstancedPrepassBatch" );
             if ( !m_InstancedPrepassPipeline || !m_InstancedPrepassedPipeline || !m_InstancedPrepassInstance )
-                LOG_ERROR( "[MeshRenderer] instanced drawing is off in the forward depth prepass: its batches draw one "
-                           "object each there." );
+                LOG_ERROR(
+                     "[MeshRenderer] instanced drawing is off in the forward depth prepass: its batches draw one "
+                     "object each there." );
         }
         return true;
     }

@@ -89,9 +89,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
         // Forward path with its depth prepass (SceneRenderer::UsesForwardDepthPrepass): the frame's terrain into
-        // "Forward: TerrainDepthPrepass" (TerrainDepthPrepass.shader: the depth and the contact-shadow word), a LOAD
-        // node after the meshes'. SETUP: one binding block per prepass material of the frame's groups (no scene/view
-        // input); the exec records through them. The base pass then draws Terrain.shader at EQUAL.
+        // "Forward: TerrainDepthPrepass" (TerrainDepthPrepass.shader: the depth and the contact-shadow word), a
+        // LOAD node after the meshes'. SETUP: one binding block per prepass material of the frame's groups (no
+        // scene/view input); the exec records through them. The base pass then draws Terrain.shader at EQUAL.
         void                                DeclareDepthPrepassDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderDepthPrepassManual( const RDG::PassContext& context );
 

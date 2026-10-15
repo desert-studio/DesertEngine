@@ -44,10 +44,10 @@ namespace Desert::Graphic::Render
             // skips !CastShadows on SkinnedMeshRenderData), and a default here would silently re-enable
             // the shadow for every skinned mesh whose component turned it off.
             renderer.SubmitMesh( Mesh, MaterialSlot, Transform,
-                                 { .Entity        = Entity,
-                                   .BoneMatrices  = BoneMatrices,
-                                   .MorphWeights  = MorphWeights,
-                                   .MorphRevision = MorphRevision,
+                                 { .Entity            = Entity,
+                                   .BoneMatrices      = BoneMatrices,
+                                   .MorphWeights      = MorphWeights,
+                                   .MorphRevision     = MorphRevision,
                                    .Outlined          = Outlined,
                                    .CastShadows       = CastShadows,
                                    .CastContactShadow = CastContactShadow } );

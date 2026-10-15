@@ -393,8 +393,9 @@ namespace Desert::Graphic::System
             // After the depth prepass only the OPAQUE custom-shader meshes, at EQUAL against the depth their own
             // depth-prepass program wrote; the rest (ZWrite Off) draw in their own node after this one
             // (SceneRenderer, "Deferred: Generic"), reading the prepass depth.
-            BuildGenericDraws( m_ForwardDraws, m_SceneRenderer->UsesForwardDepthPrepass() ? GenericDrawSet::OpaqueBase
-                                                                                         : GenericDrawSet::All );
+            BuildGenericDraws( m_ForwardDraws, m_SceneRenderer->UsesForwardDepthPrepass()
+                                                    ? GenericDrawSet::OpaqueBase
+                                                    : GenericDrawSet::All );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 
@@ -461,8 +462,8 @@ namespace Desert::Graphic::System
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
         // and the glass march the opaque scene depth (u_SceneDepth) and read the hit texel's caster from its
-        // shading word (u_SceneShadingWord): the deferred path has both in the G-buffer, finished before any of them
-        // draws; the forward path has them from its depth prepass ("Forward: DepthPrepass"), except in the
+        // shading word (u_SceneShadingWord): the deferred path has both in the G-buffer, finished before any of
+        // them draws; the forward path has them from its depth prepass ("Forward: DepthPrepass"), except in the
         // wireframe view, which draws no prepass and so marches nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(

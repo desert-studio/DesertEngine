@@ -1272,11 +1272,11 @@ namespace Desert::Graphic
         }
 
         // THE SCENE'S TRANSLUCENT SURFACES, ON EVERY SHADING PATH (UE: the translucency renders after the opaque
-        // scene whatever the path - FDeferredShadingSceneRenderer and FMobileSceneRenderer alike). The opaque scene
-        // is complete in the scene target here (Forward: the base pass; Deferred: the composite and its forward
-        // passes); each path hands the nodes what it has - the scene view inputs (cascades, captures, the light
-        // grid and the local shadow atlas, neutral where a path has no producer) and, on Deferred with SSR, the
-        // SSR history the copy refills.
+        // scene whatever the path - FDeferredShadingSceneRenderer and FMobileSceneRenderer alike). The opaque
+        // scene is complete in the scene target here (Forward: the base pass; Deferred: the composite and its
+        // forward passes); each path hands the nodes what it has - the scene view inputs (cascades, captures, the
+        // light grid and the local shadow atlas, neutral where a path has no producer) and, on Deferred with SSR,
+        // the SSR history the copy refills.
         {
             // The frame's visible glass, collected before the copy is asked for: it is the copy's reader.
             const bool glass = meshRenderer != nullptr && meshRenderer->BuildGlassDraws();
@@ -1286,9 +1286,9 @@ namespace Desert::Graphic
             std::function<void()> stampHistory;
             if ( ssrHistory )
                 stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
-            // THE COPY ONLY WHEN SOMETHING READS IT (UE: the scene colour copy of the translucency is made only when
-            // a primitive that samples it is drawn): this frame's glass, or next frame's SSR trace. The water reads
-            // no scene input (WaterSurface.shader); WATER-W7's refraction makes it a reader here.
+            // THE COPY ONLY WHEN SOMETHING READS IT (UE: the scene colour copy of the translucency is made only
+            // when a primitive that samples it is drawn): this frame's glass, or next frame's SSR trace. The water
+            // reads no scene input (WaterSurface.shader); WATER-W7's refraction makes it a reader here.
             RDG::TextureRef sceneCopy;
             if ( glass || ssrHistory )
             {

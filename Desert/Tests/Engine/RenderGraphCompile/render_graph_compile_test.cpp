@@ -3181,9 +3181,9 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     for ( const char c : frame )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
-    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Scene: Glass\"",
-                               "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
+    for ( const char* node :
+          { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"", "\"Deferred: Generic\"",
+            "\"Deferred: Skinned\"", "\"Scene: Glass\"", "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
         std::erase_if( call, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );

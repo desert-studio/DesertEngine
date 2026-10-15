@@ -25,7 +25,7 @@ namespace Desert::Graphic
     {
     public:
         explicit MaterialGraphColorResolve( const char* shaderName )
-            : Material( "MaterialGraphColorResolve", shaderName )
+             : Material( "MaterialGraphColorResolve", shaderName )
         {
         }
     };
@@ -64,20 +64,22 @@ namespace Desert::Graphic::System
             m_Programs.clear();
             for ( const FormatProgram& entry : kFormats )
             {
-                Program& program      = m_Programs[entry.Format];
-                program.ResolveShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( entry.ShaderName );
+                Program& program = m_Programs[entry.Format];
+                program.ResolveShader =
+                     Runtime::ResourceRegistry::GetShaderService()->GetByName( entry.ShaderName );
                 if ( !program.ResolveShader )
                     return Common::MakeError( std::format( "{} shader not found", entry.ShaderName ) );
                 GraphicsPipelineSpecification pipelineSpec;
-                pipelineSpec.DebugName = entry.ShaderName;
-                pipelineSpec.TargetLayout =
-                     RenderTargetLayout{ .ColorFormats = { entry.Format }, .DepthFormat = std::nullopt, .Samples = 1 };
+                pipelineSpec.DebugName    = entry.ShaderName;
+                pipelineSpec.TargetLayout = RenderTargetLayout{
+                     .ColorFormats = { entry.Format }, .DepthFormat = std::nullopt, .Samples = 1 };
                 pipelineSpec.Shader            = program.ResolveShader;
                 pipelineSpec.DepthTestEnabled  = false;
                 pipelineSpec.DepthWriteEnabled = false;
                 const auto pipeline            = Graphic::GraphicsPipeline::Create( pipelineSpec );
                 if ( !pipeline )
-                    return Common::MakeError( std::format( "{} pipeline: {}", entry.ShaderName, pipeline.GetError() ) );
+                    return Common::MakeError(
+                         std::format( "{} pipeline: {}", entry.ShaderName, pipeline.GetError() ) );
                 program.Pipeline = pipeline.GetValue();
                 program.Material = std::make_unique<MaterialGraphColorResolve>( entry.ShaderName );
             }
@@ -114,10 +116,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "GraphColorResolve recorded without its pipelines" );
             const auto found = m_Programs.find( format );
             if ( found == m_Programs.end() )
-                return Common::MakeError(
-                     std::format( "GraphColorResolve has no program for format {} (add it to "
-                                  "GraphColorResolveRenderer::kFormats)",
-                                  static_cast<int>( format ) ) );
+                return Common::MakeError( std::format( "GraphColorResolve has no program for format {} (add it to "
+                                                       "GraphColorResolveRenderer::kFormats)",
+                                                       static_cast<int>( format ) ) );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *found->second.Pipeline,
                                                            found->second.Material->GetMaterialExecutor() );

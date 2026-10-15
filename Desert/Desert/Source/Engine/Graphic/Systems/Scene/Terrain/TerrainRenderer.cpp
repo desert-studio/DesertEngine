@@ -189,8 +189,8 @@ namespace Desert::Graphic::System
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
 
         // The forward depth prepass and the base pass after it, both required on the Forward path.
-        m_PrepassPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainDepthPrepass", "TerrainDepthPrepassPipeline",
-                                                   DepthPrepassLayout(), error );
+        m_PrepassPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainDepthPrepass",
+                                                   "TerrainDepthPrepassPipeline", DepthPrepassLayout(), error );
         if ( !m_PrepassPipeline )
             return Common::MakeError( "TerrainRenderer: the depth prepass pipeline: " + error );
         GraphicsPipelineSpecification prepassed = m_Pipeline->GetSpecification();
@@ -329,7 +329,8 @@ namespace Desert::Graphic::System
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
-                    // The caster reads the visibility channel too: a hole must not cast a shadow. Nor hold a depth.
+                    // The caster reads the visibility channel too: a hole must not cast a shadow. Nor hold a
+                    // depth.
                     materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap );
                     materials.Prepass->SetTexture( "u_Weightmap", t.Weights.Weightmap );
                 }

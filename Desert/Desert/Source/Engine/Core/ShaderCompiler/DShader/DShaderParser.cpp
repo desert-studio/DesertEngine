@@ -1468,27 +1468,29 @@ namespace Desert::Core::Preprocess
         }
 
         // The vertex stages of an opaque custom mesh shader's two programs (default, kCustomDepthPrepassPass): the
-        // same author's text, rasterised by two programs whose depths the base pass compares EQUAL - GLSL guarantees
-        // the same gl_Position across programs only for an invariant one. Not added twice if the author wrote it.
+        // same author's text, rasterised by two programs whose depths the base pass compares EQUAL - GLSL
+        // guarantees the same gl_Position across programs only for an invariant one. Not added twice if the author
+        // wrote it.
         std::string CustomVertexPreamble( const RawBlock& vertex )
         {
             static const std::regex kInvariantPosition( R"(\binvariant\s+gl_Position\b)" );
-            return std::regex_search( vertex.Content, kInvariantPosition ) ? std::string()
-                                                                           : std::string( "invariant gl_Position;\n" );
+            return std::regex_search( vertex.Content, kInvariantPosition )
+                        ? std::string()
+                        : std::string( "invariant gl_Position;\n" );
         }
 
         // The fragment stage of an opaque custom mesh shader's depth-prepass program (DShaderParser.hpp,
         // kCustomDepthPrepassPass): the author's stage as assembled, its colour outputs made private globals (the
         // prepass has one target, the contact-shadow word, which the author's outputs would not match) and its
-        // main() renamed, then the engine tail whose main() runs it and writes the word. A `discard` in the author's
-        // code still clips; the colour it computes is dead code.
+        // main() renamed, then the engine tail whose main() runs it and writes the word. A `discard` in the
+        // author's code still clips; the colour it computes is dead code.
         std::string AssembleCustomDepthPrepassFragment( const RawBlock& fragment, const RawBlock& include,
                                                         const std::string& autoDecls )
         {
             static const std::regex kColourOutput( R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*out\s+)" );
             static const std::regex kAuthorMain( R"(\bvoid\s+main\s*\(\s*(void\s*)?\))" );
-            std::string text = AssembleStage( ShaderStage::Fragment, fragment, include, autoDecls );
-            text             = std::regex_replace( text, kColourOutput, "" );
+            std::string             text = AssembleStage( ShaderStage::Fragment, fragment, include, autoDecls );
+            text                         = std::regex_replace( text, kColourOutput, "" );
             text = std::regex_replace( text, kAuthorMain, std::format( "void {}()", kCustomSurfaceMainName ) );
             return std::format( "{}\n#include <{}>\n", text, kCustomDepthPrepassInclude );
         }
@@ -2084,7 +2086,8 @@ namespace Desert::Core::Preprocess
              std::none_of( namedPasses.begin(), namedPasses.end(),
                            []( const PendingPass& pass ) { return pass.Name == kCustomDepthPrepassPass; } );
         const std::string customVertexPreamble =
-             customDepthPrepass ? CustomVertexPreamble( defaultPass.Blocks.at( ShaderStage::Vertex ) ) : std::string();
+             customDepthPrepass ? CustomVertexPreamble( defaultPass.Blocks.at( ShaderStage::Vertex ) )
+                                : std::string();
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state,
                                        const std::string_view vertexPreamble = {} )
@@ -2093,9 +2096,9 @@ namespace Desert::Core::Preprocess
             out.Name  = pending.Name;
             out.State = state;
             for ( const auto& [stage, block] : pending.Blocks )
-                out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls,
-                                                          stage == ShaderStage::Vertex ? vertexPreamble
-                                                                                       : std::string_view() ) );
+                out.Stages.emplace(
+                     stage, AssembleStage( stage, block, includeBlock, autoDecls,
+                                           stage == ShaderStage::Vertex ? vertexPreamble : std::string_view() ) );
             return out;
         };
 
@@ -2219,18 +2222,20 @@ namespace Desert::Core::Preprocess
             result.Meta.PassNames.push_back( pass.Name );
         }
 
-        // The opaque custom mesh shader's depth-prepass program, after every authored pass (their order unchanged).
+        // The opaque custom mesh shader's depth-prepass program, after every authored pass (their order
+        // unchanged).
         if ( customDepthPrepass )
         {
             DShaderPass prepass;
             prepass.Name  = std::string( kCustomDepthPrepassPass );
             prepass.State = defaultPass.State;
             prepass.Stages.emplace( ShaderStage::Vertex,
-                                    AssembleStage( ShaderStage::Vertex, defaultPass.Blocks.at( ShaderStage::Vertex ),
-                                                   includeBlock, autoDecls, customVertexPreamble ) );
-            prepass.Stages.emplace( ShaderStage::Fragment,
-                                    AssembleCustomDepthPrepassFragment( defaultPass.Blocks.at( ShaderStage::Fragment ),
-                                                                        includeBlock, autoDecls ) );
+                                    AssembleStage( ShaderStage::Vertex,
+                                                   defaultPass.Blocks.at( ShaderStage::Vertex ), includeBlock,
+                                                   autoDecls, customVertexPreamble ) );
+            prepass.Stages.emplace( ShaderStage::Fragment, AssembleCustomDepthPrepassFragment(
+                                                                defaultPass.Blocks.at( ShaderStage::Fragment ),
+                                                                includeBlock, autoDecls ) );
             result.Meta.PassNames.push_back( prepass.Name );
             result.Passes.push_back( std::move( prepass ) );
         }
