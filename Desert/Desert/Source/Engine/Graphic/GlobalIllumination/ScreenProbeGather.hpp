@@ -89,7 +89,7 @@ namespace Desert::Graphic::GlobalIllumination
         }
     };
 
-    [[nodiscard]] constexpr ScreenProbeLayout MakeScreenProbeLayout( const glm::uvec2 extent )
+    [[nodiscard]] inline ScreenProbeLayout MakeScreenProbeLayout( const glm::uvec2 extent )
     {
         ScreenProbeLayout layout;
         const auto        grid = [extent]( const uint32_t spacing )
