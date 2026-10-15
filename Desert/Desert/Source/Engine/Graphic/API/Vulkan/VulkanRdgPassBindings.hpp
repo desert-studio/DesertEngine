@@ -30,7 +30,7 @@ namespace Desert::Graphic::API::Vulkan
     struct RdgResolvedEntry
     {
         RdgSlotKey               Slot;
-        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::SampledTexture;
+        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::Texture;
         const RDG::BoundTexture* Texture = nullptr; // set for the texture kinds
         const RDG::BoundBuffer*  Buffer  = nullptr; // set for the buffer kinds
     };

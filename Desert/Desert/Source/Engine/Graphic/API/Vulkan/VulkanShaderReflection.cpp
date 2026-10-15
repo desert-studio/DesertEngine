@@ -25,6 +25,27 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
     } // namespace
 
+    namespace
+    {
+    ShaderResources::ShaderLayout::SampledImageDimension SampledDimensionOf( ImageKind kind, bool arrayed )
+    {
+        using Dimension = ShaderResources::ShaderLayout::SampledImageDimension;
+        switch ( kind )
+        {
+            case ImageKind::Image2DMultisample:
+                return Dimension::Texture2DMultisample;
+            case ImageKind::Image3D:
+                return Dimension::Texture3D;
+            case ImageKind::ImageCube:
+                return arrayed ? Dimension::CubeArray : Dimension::Cube;
+            case ImageKind::Image2D:
+            case ImageKind::Unsupported:
+                break;
+        }
+        return Dimension::Texture2D;
+    }
+    } // namespace
+
     ImageKind ClassifyImage( const spirv_cross::SPIRType& type )
     {
         const auto& image = type.image;
@@ -148,9 +169,6 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                     claimed.emplace( std::pair{ set, binding }, resource.Name );
             };
             remember( descriptorSet.UniformBuffers );
-            remember( descriptorSet.Image2DSamplers );
-            remember( descriptorSet.Image3DSamplers );
-            remember( descriptorSet.ImageCubeSamplers );
             remember( descriptorSet.StorageBuffers );
             remember( descriptorSet.StorageImage2DSamplers );
             remember( descriptorSet.StorageImage3DSamplers );
@@ -226,47 +244,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
         }
 
-        // Sampled images — one bucket per view type, decided by the DECLARED type. The name is never
-        // consulted: `u_EnvNoise` may well be a sampler2D and `u_Radiance` a samplerCube.
+        // Combined image samplers are refused: every texture is a separate texture read through a separate sampler
+        // state (a pass's shared states, a material property's own `<name>Sampler`, the bindless table's array).
         for ( const auto& resource : resources.sampled_images )
         {
-            uint32_t    set       = compiler.get_decoration( resource.id, spv::DecorationDescriptorSet );
-            uint32_t    binding   = compiler.get_decoration( resource.id, spv::DecorationBinding );
-            const auto& imageType = compiler.get_type( resource.base_type_id );
-
-            // An ARRAY of samplers (`sampler2D u_Foo[4]`) is a different thing from an arrayed image:
-            // it needs descriptorCount > 1, and every layout this engine builds hardcodes 1.
-            if ( !compiler.get_type( resource.type_id ).array.empty() )
-            {
-                diagnostics.push_back( std::format(
-                     "resource '{}' (set {}, binding {}) is an array of {}; arrays of descriptors are "
-                     "not supported — declare separate bindings",
-                     resource.name, set, binding, DescribeImageType( imageType ) ) );
-                continue;
-            }
-
-            switch ( ClassifyImage( imageType ) )
-            {
-                case ImageKind::Image2D:
-                case ImageKind::Image2DMultisample:
-                    FillResource( data.ShaderDescriptorSets[set].Image2DSamplers[binding], binding, resource.name,
-                                  stage );
-                    break;
-                case ImageKind::Image3D:
-                    FillResource( data.ShaderDescriptorSets[set].Image3DSamplers[binding], binding, resource.name,
-                                  stage );
-                    break;
-                case ImageKind::ImageCube:
-                    FillResource( data.ShaderDescriptorSets[set].ImageCubeSamplers[binding], binding,
-                                  resource.name, stage );
-                    break;
-                case ImageKind::Unsupported:
-                    diagnostics.push_back(
-                         std::format( "sampled image '{}' (set {}, binding {}) is a {}, which the engine "
-                                      "cannot bind",
-                                      resource.name, set, binding, DescribeImageType( imageType ) ) );
-                    break;
-            }
+            diagnostics.push_back( std::format(
+                 "resource '{}' (set {}, binding {}) is a combined image sampler ({}); declare a separate texture "
+                 "(texture2D / textureCube / texture3D) and read it through a `sampler` state",
+                 resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
+                 compiler.get_decoration( resource.id, spv::DecorationBinding ),
+                 DescribeImageType( compiler.get_type( resource.base_type_id ) ) ) );
         }
 
         // Storage Buffers
@@ -431,6 +418,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 auto& image         = data.ShaderDescriptorSets[set].SampledImages[binding];
                 image.DescriptorSet = set;
                 image.ArraySize     = fixedArray ? type.array[0] : 1u;
+                image.Dimension     = SampledDimensionOf( kind, type.image.arrayed );
                 FillResource( image, binding, resource.name, stage );
                 continue;
             }
@@ -675,12 +663,6 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
 
         for ( const auto& [binding, resource] : set.UniformBuffers )
             add( binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, resource.ShaderStage );
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            add( binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, resource.ShaderStage );
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
-            add( binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, resource.ShaderStage );
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            add( binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, resource.ShaderStage );
         for ( const auto& [binding, resource] : set.StorageBuffers )
             add( binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, resource.ShaderStage );
         for ( const auto& [binding, resource] : set.StorageImage2DSamplers )
@@ -759,10 +741,6 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             StageTallies tallies;
             for ( const auto& [setIndex, set] : data.ShaderDescriptorSets )
             {
-                // A combined image sampler is one sampler AND one sampled image (VkPhysicalDeviceLimits).
-                TallyBucket( set.Image2DSamplers, stage, tallies.Samplers, &tallies.SampledImages );
-                TallyBucket( set.Image3DSamplers, stage, tallies.Samplers, &tallies.SampledImages );
-                TallyBucket( set.ImageCubeSamplers, stage, tallies.Samplers, &tallies.SampledImages );
                 TallyBucket( set.UniformBuffers, stage, tallies.UniformBuffers, nullptr );
                 TallyBucket( set.StorageBuffers, stage, tallies.StorageBuffers, nullptr );
                 TallyBucket( set.StorageImage2DSamplers, stage, tallies.StorageImages, nullptr );
@@ -901,12 +879,15 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 out.RowMembers = membersOf( row, rowId );
         }
 
-        for ( const auto& resource : resources.sampled_images )
-            out.Samplers.push_back(
-                 { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
+        // The stage's bound textures (separate textures outside the bindless table's set): where a generated texture
+        // property landed, held against the template's layout by ReconcileMaterialLayout.
+        for ( const auto& resource : resources.separate_images )
+            if ( compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ) != kBindlessSetIndex )
+                out.Samplers.push_back(
+                     { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
 
         for ( const auto* list :
-              { &resources.uniform_buffers, &resources.storage_buffers, &resources.sampled_images } )
+              { &resources.uniform_buffers, &resources.storage_buffers, &resources.separate_images } )
             for ( const auto& resource : *list )
                 out.ResourceNames.push_back( resource.name );
 

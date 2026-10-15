@@ -32,15 +32,15 @@ namespace Desert::Graphic::API::Vulkan
         // blocks of this size instead of any one pool guessing the total; a set is a handful of descriptors,
         // so a block is a few tens of kilobytes of driver memory.
         constexpr uint32_t                            kSetsPerBlock = 128;
-        // SAMPLED_IMAGE / SAMPLER: the separate textures and shared sampler states of a screen pass's layout
-        // (ShaderDescriptorSet::SampledImages / Samplers), allocated with the material's set like any other slot.
-        constexpr std::array<VkDescriptorPoolSize, 6> kBlockSizes{ {
+        // SAMPLED_IMAGE / SAMPLER: every texture slot (a pass's separate textures, a material property's texture)
+        // and every sampler state (a pass's shared states, a property's own `<name>Sampler`). The combined
+        // sampler's former 1024 moved to both, since each property texture is now one of each.
+        constexpr std::array<VkDescriptorPoolSize, 5> kBlockSizes{ {
              { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256 },
-             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024 },
              { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 64 },
              { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256 },
-             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 256 },
-             { VK_DESCRIPTOR_TYPE_SAMPLER, 64 },
+             { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1280 },
+             { VK_DESCRIPTOR_TYPE_SAMPLER, 1088 },
         } };
 
         class ViewPoolChain final : public IViewResourceCopy

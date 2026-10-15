@@ -506,13 +506,6 @@ namespace Desert::Graphic::API::Vulkan
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    // A pass binds no combined sampler: an input is a separate texture read through a Sampler
-                    // slot of the same pass (UE's shared sampler states).
-                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                        return Common::MakeFormattedError<Sets>(
-                             "{}: '{}' is a combined sampler slot; a pass binds a separate texture (texture2D) and "
-                             "a Sampler slot",
-                             pass, name );
                     if ( texture.Sampler )
                         return Common::MakeFormattedError<Sets>(
                              "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "

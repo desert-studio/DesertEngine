@@ -86,9 +86,6 @@ namespace Desert::Graphic::RDG
     // What the shader slot is. Checked against the reflected descriptor type by the consumer.
     enum class ShaderResourceKind : uint8_t
     {
-        // A combined sampler2D slot. Reflected for the engine programs whose texture still comes through a
-        // material property (the other route); a pass never binds one - its inputs are Texture + Sampler.
-        SampledTexture,
         // A separate texture2D / textureCube(Array) (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE), read through a Sampler
         // slot the same pass fills. An element of an arrayed slot is named "<name>[<element>]".
         Texture,
@@ -108,7 +105,7 @@ namespace Desert::Graphic::RDG
     struct ShaderSlot
     {
         std::string        Name;
-        ShaderResourceKind Kind = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind Kind = ShaderResourceKind::Texture;
     };
 
     struct ShaderBindingLayout
@@ -130,12 +127,12 @@ namespace Desert::Graphic::RDG
     struct DeclaredBindingEntry
     {
         std::string                ShaderName;
-        ShaderResourceKind         Kind     = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind         Kind     = ShaderResourceKind::Texture;
         ResourceKind               Resource = ResourceKind::Texture;
         uint32_t                   Index    = kInvalidResource;
         Access                     Declared = Access::None;
         SubresourceRange           Range    = SubresourceRange::All();
-        std::optional<SamplerDesc> Sampler; // SampledTexture and Sampler only
+        std::optional<SamplerDesc> Sampler; // Sampler only
     };
 
     struct DeclaredBindingBlock

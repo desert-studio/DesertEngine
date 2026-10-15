@@ -40,7 +40,11 @@ Shader "UI2D"
         In(0) vec2 v_TexCoord;
         In(1) vec4 v_Color;
 
-        Uniform(0) sampler2D u_Texture;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(0) texture2D u_Texture;
+        Uniform(1) sampler u_TextureSampler;
+        #define u_Texture sampler2D(u_Texture, u_TextureSampler)
 
         Out(0) vec4 o_Color;
 

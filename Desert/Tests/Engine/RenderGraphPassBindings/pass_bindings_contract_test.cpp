@@ -167,7 +167,7 @@ namespace
     ShaderBindingLayout BloomLayout()
     {
         return ShaderBindingLayout{ .ShaderName        = "BloomUpsample",
-                                    .Slots             = { { "u_Source", ShaderResourceKind::SampledTexture },
+                                    .Slots             = { { "u_Source", ShaderResourceKind::Texture },
                                                            { "u_Output", ShaderResourceKind::StorageTexture } },
                                     .PushConstantBytes = 12 };
     }
@@ -250,7 +250,7 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
              const BoundTexture& source = bindings.GetTextures()[0];
              const BoundTexture& output = bindings.GetTextures()[1];
              EXPECT_EQ( source.ShaderName, "u_Source" );
-             EXPECT_EQ( source.Kind, ShaderResourceKind::SampledTexture );
+             EXPECT_EQ( source.Kind, ShaderResourceKind::Texture );
              EXPECT_EQ( source.Texture.Resource, chain.Index );
              EXPECT_EQ( source.Range, SubresourceRange::Mip( 1 ) );
              EXPECT_EQ( source.Declared, Access::SampledCompute );
@@ -408,7 +408,7 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
          [&]( PassBuilder& pass )
          {
              pass.Bindings( ShaderBindingLayout{ .ShaderName = "ReadsBlack",
-                                                 .Slots = { { "u_Source", ShaderResourceKind::SampledTexture } } },
+                                                 .Slots = { { "u_Source", ShaderResourceKind::Texture } } },
                             OtherRouteFill{} )
                   .Texture( "u_Source", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
                   .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );

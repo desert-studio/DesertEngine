@@ -817,7 +817,7 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     Desert::Graphic::RenderPassDeclaration reader;
     reader
          .Bindings(
-              ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::SampledTexture } } },
+              ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::Texture } } },
               {} )
          .Texture( "u_TransmittanceLut", lut, Access::SampledGraphics,
                    "Sky.TransmittanceLut" )
@@ -865,8 +865,8 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
     Desert::Graphic::RenderPassDeclaration resolve;
     resolve
          .Bindings( ShaderBindingLayout{ "CloudResolve",
-                                         { { "u_CloudHistory", ShaderResourceKind::SampledTexture },
-                                           { "u_CloudHistoryGuide", ShaderResourceKind::SampledTexture } } },
+                                         { { "u_CloudHistory", ShaderResourceKind::Texture },
+                                           { "u_CloudHistoryGuide", ShaderResourceKind::Texture } } },
                     {} )
          .Texture( "u_CloudHistory", fallback, Access::SampledCompute,
                    "Clouds.HistoryFallback" )
@@ -937,7 +937,7 @@ TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
 TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefFaultsThePass )
 {
     const ShaderBindingLayout layout{
-         "DeferredLighting", { { "u_SSAO", ShaderResourceKind::SampledTexture } }, 0 };
+         "DeferredLighting", { { "u_SSAO", ShaderResourceKind::Texture } }, 0 };
 
     // SSAO did not run this frame: the composite reads System.White, compiled with no fault and not culled.
     {
@@ -4738,11 +4738,11 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
     block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
-    block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 0,
+    block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::Texture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
 
-    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 1,
+    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::Texture, ResourceKind::Texture, 1,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     const Common::BoolResultStr refused = ValidatePassBindings( block );
     ASSERT_FALSE( refused.IsSuccess() );
@@ -4842,9 +4842,9 @@ TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
     const TextureRef    black = graph.RegisterExternal( blackImport, "System.Black" );
     const TextureRef    back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
     ShaderBindingLayout layout{ "SceneComposite",
-                                { { "u_BloomTexture", ShaderResourceKind::SampledTexture },
-                                  { "u_LightShaftTexture", ShaderResourceKind::SampledTexture },
-                                  { "u_LensFlareTexture", ShaderResourceKind::SampledTexture } },
+                                { { "u_BloomTexture", ShaderResourceKind::Texture },
+                                  { "u_LightShaftTexture", ShaderResourceKind::Texture },
+                                  { "u_LensFlareTexture", ShaderResourceKind::Texture } },
                                 0 };
     graph.AddPass(
          "PostFX: Tonemap", PassFlags::Raster,

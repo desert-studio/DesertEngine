@@ -224,8 +224,6 @@ namespace Desert::Graphic::RDG
         {
             switch ( kind )
             {
-                case ShaderResourceKind::SampledTexture:
-                    return "sampled texture";
                 case ShaderResourceKind::StorageTexture:
                     return "storage texture";
                 case ShaderResourceKind::Texture:
@@ -392,18 +390,20 @@ namespace Desert::Graphic::RDG
         {
             switch ( entry.Kind )
             {
-                case ShaderResourceKind::SampledTexture:
-                    // No builder makes one (BindingBlockBuilder has Texture + Sampler only): a hand-built entry.
-                    if ( m_FirstError.empty() )
-                        KeepFirstError( m_FirstError, context.GetPassName(), entry.ShaderName, "texture",
-                                        "a pass binds no combined sampler; declare a Texture and a Sampler" );
-                    break;
                 case ShaderResourceKind::Texture:
                     ResolveSampled( entry.ShaderName, entry.Kind, TextureRef{ entry.Index }, entry.Declared,
                                     entry.Range, std::nullopt );
                     break;
                 case ShaderResourceKind::Sampler:
-                    ResolveSampler( entry.ShaderName, entry.Sampler.value_or( SamplerDesc::LinearClamp() ) );
+                    // BindingBlockBuilder::Sampler always carries the state; an entry without one is hand-built.
+                    if ( !entry.Sampler )
+                    {
+                        if ( m_FirstError.empty() )
+                            KeepFirstError( m_FirstError, context.GetPassName(), entry.ShaderName, "sampler",
+                                            "a Sampler entry carries no sampler state" );
+                        break;
+                    }
+                    ResolveSampler( entry.ShaderName, *entry.Sampler );
                     break;
                 case ShaderResourceKind::StorageTexture:
                     ResolveStorageImage( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared,

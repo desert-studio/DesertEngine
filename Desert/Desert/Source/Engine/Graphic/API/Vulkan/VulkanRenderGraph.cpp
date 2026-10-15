@@ -811,10 +811,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
         constexpr uint32_t                        kSets = 256;
-        const std::array<VkDescriptorPoolSize, 6> sizes = {
+        const std::array<VkDescriptorPoolSize, 5> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kSets * 4 },
-             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };

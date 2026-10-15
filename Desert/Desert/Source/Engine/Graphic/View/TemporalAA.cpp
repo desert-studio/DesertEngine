@@ -44,15 +44,17 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>(
                   RDG::ShaderBindingLayout{ .ShaderName        = kShaderName,
-                                            .Slots             = { { "u_SceneColor", Kind::SampledTexture },
-                                                                   { "u_SceneDepth", Kind::SampledTexture },
-                                                                   { "u_Velocity", Kind::SampledTexture },
-                                                                   { "u_Exposure", Kind::SampledTexture },
-                                                                   { "u_History", Kind::SampledTexture },
+                                            .Slots             = { { "u_SceneColor", Kind::Texture },
+                                                                   { "u_SceneDepth", Kind::Texture },
+                                                                   { "u_Velocity", Kind::Texture },
+                                                                   { "u_Exposure", Kind::Texture },
+                                                                   { "u_History", Kind::Texture },
+                                                                   { "u_LinearClampSampler", Kind::Sampler },
+                                                                   { "u_PointClampSampler", Kind::Sampler },
                                                                    { "u_HistoryOut", Kind::StorageTexture },
                                                                    { "u_Output", Kind::StorageTexture },
                                                                    { "TemporalAABuffer", Kind::StorageBuffer },
-                                                                   { "u_ResponsiveAA", Kind::SampledTexture } },
+                                                                   { "u_ResponsiveAA", Kind::Texture } },
                                             .PushConstantBytes = 0 } );
         return layout;
     }

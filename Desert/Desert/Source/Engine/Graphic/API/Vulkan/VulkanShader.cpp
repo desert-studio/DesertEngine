@@ -2,6 +2,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 
 #include <algorithm>
+#include <format>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -289,20 +290,47 @@ namespace Desert::Graphic::API::Vulkan
         return res;
     }
 
-    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> VulkanShader::GetUniformImageCubeModels() const 
-    { 
-        std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> res;
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
-            for ( const auto& [b, sc] : dSet.ImageCubeSamplers ) res.push_back( sc );
-        return res;
+    namespace
+    {
+        // The material-route texture models: every single separate texture of @p dimension, each paired with its
+        // own sampler state `<name>Sampler` in the same set when the shader declares one. A pass's inputs are among
+        // them too; MaterialExecutor makes a property only for the ones the template's Properties block names.
+        template <typename Model>
+        std::vector<Model> TextureModels( const ShaderResource::ReflectionData&               data,
+                                          ShaderResources::ShaderLayout::SampledImageDimension dimension )
+        {
+            std::vector<Model> models;
+            for ( const auto& [set, dSet] : data.ShaderDescriptorSets )
+                for ( const auto& [binding, image] : dSet.SampledImages )
+                {
+                    if ( image.Dimension != dimension || image.ArraySize != 1 )
+                        continue;
+                    Model model;
+                    model.BindingPoint  = binding;
+                    model.DescriptorSet = image.DescriptorSet;
+                    model.Name          = image.Name;
+                    model.ShaderStage   = image.ShaderStage;
+                    const std::string samplerName =
+                         std::format( "{}{}", image.Name, Core::Formats::kMaterialTextureSamplerSuffix );
+                    for ( const auto& [samplerBinding, sampler] : dSet.Samplers )
+                        if ( sampler.Name == samplerName )
+                            model.SamplerBindingPoint = samplerBinding;
+                    models.push_back( std::move( model ) );
+                }
+            return models;
+        }
+    } // namespace
+
+    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> VulkanShader::GetUniformImageCubeModels() const
+    {
+        return TextureModels<ShaderResources::ShaderLayout::ImageCubeSampler>(
+             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Cube );
     }
 
-    const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const 
-    { 
-        std::vector<ShaderResources::ShaderLayout::Image2DSampler> res;
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
-            for ( const auto& [b, s2] : dSet.Image2DSamplers ) res.push_back( s2 );
-        return res;
+    const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const
+    {
+        return TextureModels<ShaderResources::ShaderLayout::Image2DSampler>(
+             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Texture2D );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

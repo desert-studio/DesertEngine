@@ -160,10 +160,10 @@ namespace
     {
         ShaderResource::ReflectionData       reflection;
         ShaderResource::ShaderDescriptorSet& set = reflection.ShaderDescriptorSets[0];
-        Layout::Image2DSampler               source;
+        Layout::SampledImage                 source;
         source.BindingPoint = 0;
         source.Name         = "u_Source";
-        set.Image2DSamplers.emplace( 0, source );
+        set.SampledImages.emplace( 0, source );
         Layout::Image2DSampler output;
         output.BindingPoint = 1;
         output.Name         = "u_Output";
@@ -212,7 +212,7 @@ namespace
 
     ShaderBindingLayout BelievedComplete()
     {
-        return Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+        return Believed( { { "u_Source", ShaderResourceKind::Texture },
                            { "u_Output", ShaderResourceKind::StorageTexture } },
                          12 );
     }
@@ -269,7 +269,7 @@ TEST( RenderGraphVulkanPassBindings, ACompleteBlockResolvesEveryNameToItsReflect
     const std::vector<RdgResolvedEntry>& entries = resolved.GetValue();
     ASSERT_EQ( entries.size(), 2u );
     EXPECT_EQ( entries[0].Slot, ( RdgSlotKey{ 0, 0 } ) );
-    EXPECT_EQ( entries[0].Kind, ShaderResourceKind::SampledTexture );
+    EXPECT_EQ( entries[0].Kind, ShaderResourceKind::Texture );
     EXPECT_EQ( entries[1].Slot, ( RdgSlotKey{ 0, 1 } ) );
     EXPECT_EQ( entries[1].Kind, ShaderResourceKind::StorageTexture );
 }
@@ -279,9 +279,9 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 {
     const Verdict resolved =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                        Believed( { { "u_Source", ShaderResourceKind::Texture },
                                     { "u_Output", ShaderResourceKind::StorageTexture },
-                                    { "u_Sorce", ShaderResourceKind::SampledTexture } },
+                                    { "u_Sorce", ShaderResourceKind::Texture } },
                                   12 ),
                         []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
@@ -300,7 +300,7 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 {
     const Verdict resolved =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Output", ShaderResourceKind::SampledTexture },
+                        Believed( { { "u_Output", ShaderResourceKind::Texture },
                                     { "u_Source", ShaderResourceKind::StorageTexture } },
                                   12 ),
                         []( BindingBlockBuilder& bindings, TextureRef chain )
@@ -322,7 +322,7 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
 {
     const Verdict noOutput =
          ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture } }, 12 ),
+                        Believed( { { "u_Source", ShaderResourceKind::Texture } }, 12 ),
                         []( BindingBlockBuilder& bindings, TextureRef chain )
                         {
                             bindings.Texture( "u_Source", chain, Access::SampledCompute,
@@ -339,7 +339,7 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
     EXPECT_NE( noMaterial.GetError().find( "'u_Params'" ), std::string::npos ) << noMaterial.GetError();
 
     const Verdict noPush = ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                                          Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                                          Believed( { { "u_Source", ShaderResourceKind::Texture },
                                                       { "u_Output", ShaderResourceKind::StorageTexture } },
                                                     0 ),
                                           FillComplete );

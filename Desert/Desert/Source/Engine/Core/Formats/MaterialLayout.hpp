@@ -49,13 +49,21 @@ namespace Desert::Core::Formats
     // The GLSL type of a texture slot in the row (Common/BindlessTextures.glslh): exactly one 16-byte slot.
     inline constexpr std::string_view kMaterialTextureGlslType = "BindlessTexture";
 
+    // A bound texture property: a SEPARATE texture at Binding read through its own sampler state at SamplerBinding
+    // (`<Name>Sampler`, kMaterialTextureSamplerSuffix), which the material writes from the property's state.
     struct MaterialLayoutTexture
     {
         std::string        Name;
         uint32_t           Binding = 0;
         bool               IsCube  = false;
         DefaultTextureKind Default = DefaultTextureKind::White;
+        uint32_t           SamplerBinding = 0;
     };
+
+    // The name of a bound texture property's own sampler state: `<texture>Sampler`. Reflection pairs the two by it
+    // (VulkanShader::GetUniformImage2DModels), the generator emits it (DShaderParser BuildAutoDeclarations), and a
+    // hand-declared property texture follows it.
+    inline constexpr std::string_view kMaterialTextureSamplerSuffix = "Sampler";
 
     struct MaterialLayoutPushField
     {
@@ -219,10 +227,13 @@ namespace Desert::Core::Formats
         }
         if ( bindings.FirstTexture )
         {
+            // The textures from FirstTexture upward, then each one's sampler state in the same order right after.
             uint32_t binding = *bindings.FirstTexture;
             for ( const auto& p : meta.Params )
                 if ( p.IsTexture )
                     layout.Textures.push_back( { p.Name, binding++, p.IsCubeTexture, p.DefaultTexture } );
+            for ( auto& texture : layout.Textures )
+                texture.SamplerBinding = binding++;
         }
         return layout;
     }

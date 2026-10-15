@@ -1045,9 +1045,18 @@ namespace Desert::Core::Preprocess
                 out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
             }
 
+            // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
+            // the template's source spelled `texture( <Name>, uv )`.
             for ( const auto& t : layout.Textures )
-                out << "layout( binding = " << t.Binding << " ) uniform "
-                    << ( t.IsCube ? "samplerCube" : "sampler2D" ) << " " << t.Name << ";\n";
+            {
+                const std::string_view textureType  = t.IsCube ? "textureCube" : "texture2D";
+                const std::string_view combinedType = t.IsCube ? "samplerCube" : "sampler2D";
+                out << std::format( "layout( binding = {0} ) uniform {1} {2};\n"
+                                    "layout( binding = {3} ) uniform sampler {2}{4};\n"
+                                    "#define {2} {5}({2}, {2}{4})\n",
+                                    t.Binding, textureType, t.Name, t.SamplerBinding, kMaterialTextureSamplerSuffix,
+                                    combinedType );
+            }
 
             return out.str();
         }
@@ -2037,16 +2046,17 @@ namespace Desert::Core::Preprocess
             return fail();
         }
         for ( const auto& texture : result.Layout.Textures )
-            if ( Core::IsSceneReadBinding( texture.Binding ) )
-            {
-                err = { c.Line,
-                        std::format( "texture property '{}' lands on binding {}, inside the reserved scene-read "
-                                     "range [{}, {}) (ObjectMotions / ObjectBones); move TextureBinding() so the "
-                                     "run of texture properties stays clear of it",
-                                     texture.Name, texture.Binding, Core::kSceneReadBindingFirst,
-                                     Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
-                return fail();
-            }
+            for ( const uint32_t binding : { texture.Binding, texture.SamplerBinding } )
+                if ( Core::IsSceneReadBinding( binding ) )
+                {
+                    err = { c.Line,
+                            std::format( "texture property '{}' (or its sampler state) lands on binding {}, inside "
+                                         "the reserved scene-read range [{}, {}) (ObjectMotions / ObjectBones); move "
+                                         "TextureBinding() so the run of textures and their samplers stays clear of it",
+                                         texture.Name, binding, Core::kSceneReadBindingFirst,
+                                         Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
+                    return fail();
+                }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )

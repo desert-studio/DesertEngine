@@ -58,96 +58,43 @@ namespace Desert::Graphic::API::Vulkan
         return writeDescriptor;
     }
 
-    namespace Detail
+    namespace
     {
-        template <typename TextureType, typename GetFallbackFunc>
-        VkWriteDescriptorSet GetSamplerWDSImpl( VulkanMaterialBackend* materialBackend, const uint32_t frame,
-                                                const uint32_t set, const uint32_t dstBinding,
-                                                const uint32_t               descriptorCount,
-                                                const VkDescriptorImageInfo* pImageInfo,
-                                                VkDescriptorType descriptorType, GetFallbackFunc getFallback )
+        VkWriteDescriptorSet ImageInfoWDS( VulkanMaterialBackend* materialBackend, const uint32_t frame,
+                                           const uint32_t set, const uint32_t dstBinding,
+                                           const VkDescriptorImageInfo* pImageInfo, VkDescriptorType type )
         {
-            VkDescriptorSet descriptorSet = materialBackend->GetDescriptorSet( frame, set );
+            VkWriteDescriptorSet writeDescriptor = {};
+            writeDescriptor.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            VkDescriptorSet descriptorSet        = materialBackend->GetDescriptorSet( frame, set );
             if ( descriptorSet == VK_NULL_HANDLE )
             {
-                VkWriteDescriptorSet writeDescriptor = {};
-                writeDescriptor.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writeDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+                writeDescriptor.descriptorType = VK_DESCRIPTOR_TYPE_MAX_ENUM;
                 return writeDescriptor;
             }
-
-            const VkDescriptorImageInfo* outputImageInfo = pImageInfo;
-            if ( pImageInfo == nullptr || pImageInfo->imageView == VK_NULL_HANDLE || 
-                 pImageInfo->sampler == VK_NULL_HANDLE || pImageInfo->imageLayout == VK_IMAGE_LAYOUT_UNDEFINED )
-            {
-                // NOTE: This still uses a static for fallback, which is okay as fallback texture info is constant
-                static VkDescriptorImageInfo fallbackInfo;
-                fallbackInfo = sp_cast<TextureType>( getFallback() )->GetResource().GetDescriptorInfo();
-                outputImageInfo = &fallbackInfo;
-            }
-
-            VkWriteDescriptorSet writeDescriptor = {};
-            writeDescriptor.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writeDescriptor.descriptorType       = descriptorType;
-            writeDescriptor.dstSet               = descriptorSet;
-            writeDescriptor.dstBinding           = dstBinding;
-            writeDescriptor.descriptorCount      = descriptorCount;
-            writeDescriptor.pImageInfo           = outputImageInfo;
+            writeDescriptor.descriptorType  = type;
+            writeDescriptor.dstSet          = descriptorSet;
+            writeDescriptor.dstBinding      = dstBinding;
+            writeDescriptor.descriptorCount = 1;
+            writeDescriptor.pImageInfo      = pImageInfo;
             return writeDescriptor;
         }
-    } // namespace Detail
+    } // namespace
 
-    VkWriteDescriptorSet DescriptorSetBuilder::GetSampler2DWDS( VulkanMaterialBackend* materialBackend,
-                                                                const uint32_t frame, const uint32_t set,
-                                                                const uint32_t               dstBinding,
-                                                                const uint32_t               descriptorCount,
-                                                                const VkDescriptorImageInfo* pImageInfo )
+    VkWriteDescriptorSet DescriptorSetBuilder::GetSampledImageWDS( VulkanMaterialBackend* materialBackend,
+                                                                   const uint32_t frame, const uint32_t set,
+                                                                   const uint32_t               dstBinding,
+                                                                   const VkDescriptorImageInfo* pImageInfo )
     {
-        auto getFallback = []()
-        { return FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ); };
-
-        return Detail::GetSamplerWDSImpl<API::Vulkan::VulkanImage2D>(
-             materialBackend, frame, set, dstBinding, descriptorCount, pImageInfo,
-             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, getFallback );
+        return ImageInfoWDS( materialBackend, frame, set, dstBinding, pImageInfo, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
     }
 
-    VkWriteDescriptorSet DescriptorSetBuilder::GetSamplerCubeWDS( VulkanMaterialBackend* materialBackend,
-                                                                  const uint32_t frame, const uint32_t set,
-                                                                  const uint32_t               dstBinding,
-                                                                  const uint32_t               descriptorCount,
-                                                                  const VkDescriptorImageInfo* pImageInfo )
+    VkWriteDescriptorSet DescriptorSetBuilder::GetSamplerStateWDS( VulkanMaterialBackend* materialBackend,
+                                                                   const uint32_t frame, const uint32_t set,
+                                                                   const uint32_t               dstBinding,
+                                                                   const VkDescriptorImageInfo* pImageInfo )
     {
-        auto getFallback = []()
-        { return FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F ); };
-
-        return Detail::GetSamplerWDSImpl<API::Vulkan::VulkanImageCube>(
-             materialBackend, frame, set, dstBinding, descriptorCount, pImageInfo,
-             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, getFallback );
-    }
-
-    VkWriteDescriptorSet DescriptorSetBuilder::GetSampler3DWDS( VulkanMaterialBackend* materialBackend,
-                                                                const uint32_t frame, const uint32_t set,
-                                                                const uint32_t               dstBinding,
-                                                                const uint32_t               descriptorCount,
-                                                                const VkDescriptorImageInfo* pImageInfo )
-    {
-        VkDescriptorSet descriptorSet = materialBackend->GetDescriptorSet( frame, set );
-        if ( descriptorSet == VK_NULL_HANDLE )
-        {
-            VkWriteDescriptorSet writeDescriptor = {};
-            writeDescriptor.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writeDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_MAX_ENUM;
-            return writeDescriptor;
-        }
-
-        VkWriteDescriptorSet writeDescriptor = {};
-        writeDescriptor.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writeDescriptor.descriptorType       = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writeDescriptor.dstSet               = descriptorSet;
-        writeDescriptor.dstBinding           = dstBinding;
-        writeDescriptor.descriptorCount      = descriptorCount;
-        writeDescriptor.pImageInfo           = pImageInfo;
-        return writeDescriptor;
+        return ImageInfoWDS( materialBackend, frame, set, dstBinding, pImageInfo, VK_DESCRIPTOR_TYPE_SAMPLER );
     }
 
     VkWriteDescriptorSet DescriptorSetBuilder::GetStorageWDS( VulkanMaterialBackend* materialBackend,

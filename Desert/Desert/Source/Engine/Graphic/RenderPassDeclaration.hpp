@@ -395,15 +395,14 @@ namespace Desert::Graphic
                     texture = nextImage < blockImages.size() ? blockImages[nextImage++] : RDG::TextureRef{};
                 switch ( entry.Kind )
                 {
-                    // No BlockDeclaration makes a combined entry; one built by hand is declared as the texture it
-                    // names, and ValidatePassBindings refuses it against the shader's slot kind.
-                    case RDG::ShaderResourceKind::SampledTexture:
                     case RDG::ShaderResourceKind::Texture:
                         bindings.Texture( entry.ShaderName, texture, entry.Access, entry.Range );
                         break;
                     case RDG::ShaderResourceKind::Sampler:
-                        bindings.Sampler( entry.ShaderName,
-                                          entry.Sampler.value_or( RDG::SamplerDesc::LinearClamp() ) );
+                        // BlockDeclaration::Sampler always carries the state. An entry without one is not replayed,
+                        // and ValidatePassBindings names its slot as filled by neither route.
+                        if ( entry.Sampler )
+                            bindings.Sampler( entry.ShaderName, *entry.Sampler );
                         break;
                     case RDG::ShaderResourceKind::StorageTexture:
                         bindings.Storage( entry.ShaderName, texture, entry.Access, entry.Range.BaseMip );

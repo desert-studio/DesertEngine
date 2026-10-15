@@ -138,8 +138,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
-                                                      { "u_SceneDepth", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::Texture },
+                                                      { "u_SceneDepth", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_Flat", Kind::StorageTexture } } );
         return layout;
     }
@@ -149,7 +150,7 @@ namespace Desert::Graphic
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
              MakeBlurLayout( kBlurKernelShaders[1],
-                             { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
+                             { { "u_Flat", Kind::Texture }, { "u_PointClampSampler", Kind::Sampler }, { "u_TileMax", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -157,7 +158,8 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_NeighborMax", Kind::StorageTexture } } );
         return layout;
     }
@@ -166,9 +168,11 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
-                                                      { "u_Flat", Kind::SampledTexture },
-                                                      { "u_NeighborMax", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::Texture },
+                                                      { "u_Flat", Kind::Texture },
+                                                      { "u_NeighborMax", Kind::Texture },
+                                                      { "u_LinearClampSampler", Kind::Sampler },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_Output", Kind::StorageTexture } } );
         return layout;
     }

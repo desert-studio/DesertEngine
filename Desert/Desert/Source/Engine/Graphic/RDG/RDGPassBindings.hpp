@@ -51,11 +51,11 @@ namespace Desert::Graphic::RDG
     struct BoundTexture
     {
         std::string        ShaderName;
-        ShaderResourceKind Kind = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind Kind = ShaderResourceKind::Texture;
         TextureBinding     Texture;
         SubresourceRange   Range    = SubresourceRange::All();
         Access             Declared = Access::None;
-        // Set for SampledTexture (the entry's sampler), empty for StorageTexture.
+        // Set for Sampler (the shared state), empty for the texture kinds.
         std::optional<SamplerDesc> Sampler;
     };
 

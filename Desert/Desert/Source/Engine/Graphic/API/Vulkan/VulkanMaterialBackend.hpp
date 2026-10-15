@@ -106,6 +106,12 @@ namespace Desert::Graphic::API::Vulkan
 
         // Success path: remember what @p binding was just given in these sets this frame.
         static void NoteDescriptorWrite( IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle );
+        // Writes a bound texture property (separate texture + its own sampler state); false when the shader declares
+        // no `<name>Sampler` for it.
+        bool WriteTextureWithSampler( IViewDescriptorSetCopy& sets, uint32_t frameIndex, uint32_t binding,
+                                      std::optional<uint32_t> samplerBinding, const VkDescriptorImageInfo& info,
+                                      uint64_t handle, uint64_t version );
+        void ReportMissingSamplerState( uint32_t binding );
         // Early-return path: if @p binding was written this frame with a DIFFERENT resource, say so
         // (once), naming the shader and both handles. @p what names the descriptor kind for the log.
         void ReportSwallowedRebind( const IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle,

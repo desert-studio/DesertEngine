@@ -24,7 +24,11 @@
         // A landscape tile's heights: the R16_UNORM copy of its uint16 samples (LandscapeECSSystem). Read
         // ONLY by texelFetch — a filtered read would blend samples the CPU never blends, and the decode
         // recovers the exact integer each texel was uploaded from.
-        Uniform(9) sampler2D u_Heightmap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(9) texture2D u_Heightmap;
+        Uniform(11) sampler u_HeightmapSampler;
+        #define u_Heightmap sampler2D(u_Heightmap, u_HeightmapSampler)
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>

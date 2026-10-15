@@ -10,6 +10,7 @@
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
 
 #include <cstring>
+#include <format>
 
 namespace Desert::Graphic
 {
@@ -159,11 +160,19 @@ namespace Desert::Graphic
         for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
             if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
                 fill.Slots.push_back( name );
-        // A row texture fills no slot of the pass: it is a row value read through the bindless table.
+        // A row texture fills no slot of the pass: it is a row value read through the bindless table. A bound
+        // texture fills its separate texture and its own sampler state (`<name>Sampler`).
+        const auto addTexture = [&fill]( const std::string& name, const auto& uniform )
+        {
+            fill.Slots.push_back( name );
+            if ( uniform && uniform->GetSamplerBinding() )
+                fill.Slots.push_back( std::format( "{}{}", name, Core::Formats::kMaterialTextureSamplerSuffix ) );
+        };
         for ( const auto& [name, index] : m_Texture2DPropertiesLookup )
             if ( !m_Texture2DPropertiesStorage[index]->IsRowTexture() )
-                fill.Slots.push_back( name );
-        add( m_TextureCubePropertiesLookup );
+                addTexture( name, m_Texture2DPropertiesStorage[index]->GetUniform() );
+        for ( const auto& [name, index] : m_TextureCubePropertiesLookup )
+            addTexture( name, m_TextureCubePropertiesStorage[index]->GetUniform() );
         // Deterministic, so a validation message does not depend on hash-map order.
         std::sort( fill.Slots.begin(), fill.Slots.end() );
         return fill;

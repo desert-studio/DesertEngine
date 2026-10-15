@@ -36,25 +36,22 @@ namespace Desert::Graphic::API::Vulkan
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::Image2DSampler>;
             using ImageSampler3DMap =
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::Image3DSampler>;
-            using ImageSamplerCubeMap =
-                 std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::ImageCubeSampler>;
             using StorageBufferMap =
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::StorageBuffer>;
             using AccelerationStructureMap =
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::AccelerationStructure>;
 
             UniformBufferMap    UniformBuffers;
-            ImageSampler2DMap   Image2DSamplers;
-            ImageSampler3DMap   Image3DSamplers;
-            ImageSamplerCubeMap ImageCubeSamplers;
             StorageBufferMap    StorageBuffers;
             ImageSampler2DMap   StorageImage2DSamplers; // storage image2D AND imageCube
             ImageSampler3DMap   StorageImage3DSamplers;
             // Nothing is seeded into these: a fallback acceleration structure would be a traced scene the
             // author never asked for, so the pass that declares one writes it before it dispatches.
             AccelerationStructureMap AccelerationStructures;
-            // Separate textures and sampler states outside the bindless set: filled only by a pass's RDG bindings
-            // (RDG::ShaderResourceKind::Texture / Sampler), never by the material route or a fallback image.
+            // Separate textures and sampler states outside the bindless set (no combined image sampler exists): a
+            // pass's RDG bindings (RDG::ShaderResourceKind::Texture / Sampler) fill them, and a material texture
+            // property fills its own texture and `<name>Sampler` state (VulkanMaterialBackend::ApplyTexture2D /
+            // ApplyTextureCube). Never a fallback image.
             std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::SampledImage>    SampledImages;
             std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::SeparateSampler> Samplers;
 
@@ -67,9 +64,6 @@ namespace Desert::Graphic::API::Vulkan
         // Which fallback descriptor a declared image binding needs before anything real is bound to it.
         enum class FallbackImageKind
         {
-            Sampled2D,
-            Sampled3D,
-            SampledCube,
             Storage2D, // storage image2D AND imageCube — see the note on StorageImage2DSamplers
             Storage3D
         };
@@ -93,16 +87,8 @@ namespace Desert::Graphic::API::Vulkan
         inline std::vector<FallbackImageBinding> CollectImageBindings( const ShaderDescriptorSet& set )
         {
             std::vector<FallbackImageBinding> bindings;
-            bindings.reserve( set.Image2DSamplers.size() + set.Image3DSamplers.size() +
-                              set.ImageCubeSamplers.size() + set.StorageImage2DSamplers.size() +
-                              set.StorageImage3DSamplers.size() );
+            bindings.reserve( set.StorageImage2DSamplers.size() + set.StorageImage3DSamplers.size() );
 
-            for ( const auto& [binding, resource] : set.Image2DSamplers )
-                bindings.push_back( { binding, FallbackImageKind::Sampled2D } );
-            for ( const auto& [binding, resource] : set.Image3DSamplers )
-                bindings.push_back( { binding, FallbackImageKind::Sampled3D } );
-            for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-                bindings.push_back( { binding, FallbackImageKind::SampledCube } );
             for ( const auto& [binding, resource] : set.StorageImage2DSamplers )
                 bindings.push_back( { binding, FallbackImageKind::Storage2D } );
             for ( const auto& [binding, resource] : set.StorageImage3DSamplers )

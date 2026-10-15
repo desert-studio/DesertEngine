@@ -54,9 +54,6 @@ namespace Desert::Graphic::API::Vulkan
             {
                 Collect( slots, set, descriptors.UniformBuffers, "uniform buffer", Kind::UniformBuffer );
                 Collect( slots, set, descriptors.StorageBuffers, "storage buffer", Kind::StorageBuffer );
-                Collect( slots, set, descriptors.Image2DSamplers, "sampled 2D image", Kind::SampledTexture );
-                Collect( slots, set, descriptors.Image3DSamplers, "sampled 3D image", Kind::SampledTexture );
-                Collect( slots, set, descriptors.ImageCubeSamplers, "sampled cube image", Kind::SampledTexture );
                 Collect( slots, set, descriptors.StorageImage2DSamplers, "storage image", Kind::StorageTexture );
                 Collect( slots, set, descriptors.StorageImage3DSamplers, "storage 3D image",
                          Kind::StorageTexture );
@@ -78,8 +75,6 @@ namespace Desert::Graphic::API::Vulkan
         {
             switch ( kind )
             {
-                case RDG::ShaderResourceKind::SampledTexture:
-                    return "Sampled texture";
                 case RDG::ShaderResourceKind::StorageTexture:
                     return "Storage texture";
                 case RDG::ShaderResourceKind::Texture:
