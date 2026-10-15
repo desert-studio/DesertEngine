@@ -39,6 +39,8 @@ namespace Desert::Graphic::System
         {
             float MinLogLum;
             float InvLogLumRange;
+            float WeightScale;          // AutoExposureWeightScale of this frame's texel count
+            float BlackBucketInfluence; // kEyeAdaptationBlackHistogramBucketInfluence
         };
 
         // AEAverage's push block, in its declaration order: UE's EyeAdaptation_* parameters it reads.
@@ -159,7 +161,11 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
+        const HistogramPush hp{ .MinLogLum      = kWindow.MinLogLum,
+                                .InvLogLumRange = 1.0f / kWindow.Range(),
+                                .WeightScale    = static_cast<float>( AutoExposureWeightScale(
+                                     static_cast<uint64_t>( width ) * static_cast<uint64_t>( height ) ) ),
+                                .BlackBucketInfluence = kEyeAdaptationBlackHistogramBucketInfluence };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &hp, sizeof( hp ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
@@ -192,7 +198,7 @@ namespace Desert::Graphic::System
                                              m_Settings.AutoExposureLowPercent, m_Settings.AutoExposureHighPercent,
                                              m_Settings.AutoExposureSpeedUp, m_Settings.AutoExposureSpeedDown );
 
-        const float forceTarget = m_SnapNextAdaptation ? 1.0f : 0.0f;
+        const float forceTarget = ( m_SnapNextAdaptation || eye.ForceTarget ) ? 1.0f : 0.0f;
         m_SnapNextAdaptation    = false;
 
         const AveragePush ap{ .Dt                  = m_DeltaSeconds,

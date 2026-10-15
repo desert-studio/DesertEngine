@@ -3,14 +3,18 @@ Shader "AEHistogram"
 {
     Compute
     {
-        // Auto-exposure histogram build: one thread per scene texel computes log2 luminance, maps it into one of
-        // 256 bins over [u_MinLogLum, u_MinLogLum + 1/u_InvLogLumRange], and increments that bin. The full-frame
-        // histogram lets AEAverage meter with percentile clipping (robust to bright/dark outliers).
+        // Auto-exposure histogram build, ported from UE 5.8 Engine/Shaders/Private/PostProcessHistogram.usf:66-187
+        // (MainCS) and PostProcessHistogramCommon.ush:56-65: one thread per scene texel takes the metered luminance
+        // (UE's uniform 1/3 weights, floored at the histogram bottom), maps log2 of it into [0, 1] over the window,
+        // and splits it LINEARLY between the two buckets that straddle that position. Bucket 0's lower share is
+        // scaled by the black-bucket influence (UE default 0), so black never meters. UE's metering mask is its
+        // default white texture: every texel weighs 1 (PostProcessEyeAdaptation.cpp:792).
+        // Adapted: 256 buckets (UE 64), the weights in uint fixed point x u_WeightScale (AutoExposureWeightScale)
+        // because float atomics are not portable, and one texel per thread (UE gathers 2x2; the same texels).
         //
-        // TWO-LEVEL accumulation (the classic exposure-histogram pattern): threads first accumulate into a
-        // SHARED per-workgroup histogram, then each of the 256 threads (16x16 = one thread per bin) flushes one
-        // bin to the global buffer. That is ~256x fewer global atomics than the naive per-texel atomicAdd —
-        // per-texel atomics into the storage buffer made this dispatch cost SECONDS per frame on MoltenVK.
+        // TWO-LEVEL accumulation: threads accumulate into a SHARED per-workgroup histogram, then each of the 256
+        // threads (16x16 = one thread per bucket) flushes one bucket to the global buffer. Per-texel atomics into
+        // the storage buffer cost SECONDS per frame on MoltenVK.
 
         LocalSize(16, 16, 1);
 
@@ -22,20 +26,24 @@ Shader "AEHistogram"
 
         PushConstant PushConstants
         {
-            float u_MinLogLum;      // log2 of the darkest metered luminance
-            float u_InvLogLumRange; // 1 / (log2 range)
+            float u_MinLogLum;      // log2 of the darkest metered luminance (UE HistogramLogMin)
+            float u_InvLogLumRange; // 1 / (log2 range) (UE HistogramScale)
+            float u_WeightScale;    // fixed-point scale of one texel's weight (AutoExposureWeightScale)
+            float u_BlackBucketInfluence; // UE r.EyeAdaptation.BlackHistogramBucketInfluence
         };
 
         shared uint s_Bins[256];
 
-        float Luminance( vec3 c )
+        // UE CalculateEyeAdaptationLuminance with r.AutoExposure.LuminanceMethod 0 (AutoExposureRules.hpp
+        // AutoExposureSplit) and LuminanceMin = exp2(HistogramLogMin).
+        float MeteredLuminance( vec3 c )
         {
-            return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+            return max( dot( c, vec3( 1.0 / 3.0 ) ), exp2( u_MinLogLum ) );
         }
 
         void main()
         {
-            const uint local = gl_LocalInvocationIndex; // 0..255 — exactly one thread per bin
+            const uint local = gl_LocalInvocationIndex; // 0..255: exactly one thread per bucket
             s_Bins[local]    = 0u;
             barrier();
 
@@ -43,24 +51,24 @@ Shader "AEHistogram"
             ivec2 coord = ivec2( gl_GlobalInvocationID.xy );
             if ( coord.x < size.x && coord.y < size.y )
             {
-                float l = Luminance( texelFetch( u_Scene, coord, 0 ).rgb );
+                float logLuminance = log2( MeteredLuminance( texelFetch( u_Scene, coord, 0 ).rgb ) );
+                // NaN fails every comparison: it meters as the bottom, as UE's max() floor does.
+                float position = ( logLuminance - u_MinLogLum ) * u_InvLogLumRange;
+                float fBucket  = ( position > 0.0 ) ? min( position, 1.0 ) * 255.0 : 0.0;
 
-                uint bin;
-                if ( l < 1e-5 )
-                {
-                    bin = 0u; // treat near-black as the bottom bin (avoids log2 of ~0)
-                }
-                else
-                {
-                    float t = clamp( ( log2( l ) - u_MinLogLum ) * u_InvLogLumRange, 0.0, 1.0 );
-                    bin     = uint( t * 255.0 + 0.5 );
-                }
+                uint  bucket0 = min( uint( fBucket ), 255u );
+                uint  bucket1 = min( bucket0 + 1u, 255u );
+                float weight1 = fract( fBucket );
+                float weight0 = 1.0 - weight1;
+                if ( bucket0 == 0u )
+                    weight0 *= u_BlackBucketInfluence;
 
-                // UE's r.EyeAdaptation.BlackHistogramBucketInfluence, default 0 (PostProcessHistogram.usf:172-177):
-                // the bottom bucket carries no weight, so black pixels (the editor's empty background, the void
-                // under a floor, an unlit interior) do not drag the metered average toward -10 EV.
-                if ( bin != 0u )
-                    atomicAdd( s_Bins[bin], 1u );
+                uint weight0Int = uint( weight0 * u_WeightScale );
+                uint weight1Int = uint( weight1 * u_WeightScale );
+                if ( weight0Int > 0u )
+                    atomicAdd( s_Bins[bucket0], weight0Int );
+                if ( weight1Int > 0u )
+                    atomicAdd( s_Bins[bucket1], weight1Int );
             }
             barrier();
 

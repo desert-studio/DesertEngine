@@ -1292,6 +1292,12 @@ namespace Desert::Graphic
         const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+        // THE METER READS THE SCENE, NOT WHAT IS DRAWN OVER IT. Passes run in the order they are added
+        // (RDGCompile.cpp: never reordered), so the histogram is added here, before the dev views, the debug
+        // lines, the editor's Overlay passes (colliders, tool preview, cubemap preview) and the UI canvas draw into
+        // the same image: as UE meters scene colour before editor primitives and UI are composited. Added after
+        // them, those overlays fed the exposure, and how much of the screen they cover changes with the view.
+        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
 #if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
         AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
@@ -1320,7 +1326,6 @@ namespace Desert::Graphic
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
         AddFrameJumpFlood( graph, textures );
-        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
         if ( m_BloomEnabled )
         {
             AddFrameBloom( graph, textures, postInput );

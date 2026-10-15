@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Common/Core/Math/Rounding.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -102,18 +101,53 @@ namespace Desert::Graphic
                          kSkyLuminanceCeilingMax );
     }
 
-    // Which bin a luminance lands in — the histogram shader's mapping, so the tests can ask what the
-    // meter actually sees rather than what it was meant to.
-    inline uint32_t AutoExposureBin( const AutoExposureWindow& window, float luminance, uint32_t bins )
+    // The luminance that reaches the split below is AEHistogram.shader's MeteredLuminance: UE's
+    // r.AutoExposure.LuminanceMethod default 0, UNIFORM 1/3 weights (UE 5.8 PostProcessEyeAdaptation.cpp:150-152
+    // default, :738-741), floored at the histogram bottom (LuminanceMin = exp2(HistogramLogMin), :693), which
+    // the split repeats so black lands in bucket 0 and log2 never sees 0.
+    // Where a luminance lands in the histogram: AEHistogram's mapping, ported from UE 5.8
+    // PostProcessHistogram.usf:146-165. The continuous position is split LINEARLY between the two buckets that
+    // straddle it (Weight1 = frac, Weight0 = 1 - frac), so the metered average moves continuously with the scene
+    // instead of stepping a whole bucket. Bucket 0 is black: its Weight0 is scaled by
+    // kEyeAdaptationBlackHistogramBucketInfluence (UE's r.EyeAdaptation.BlackHistogramBucketInfluence default 0,
+    // PostProcessEyeAdaptation.cpp:110-112), so the editor's empty background does not meter.
+    struct AutoExposureBucketSplit
+    {
+        uint32_t Bucket0;
+        uint32_t Bucket1;
+        float    Weight1; // Bucket1's share; Bucket0 takes 1 - Weight1
+    };
+    inline constexpr float         kEyeAdaptationBlackHistogramBucketInfluence = 0.0f;
+    inline AutoExposureBucketSplit AutoExposureSplit( const AutoExposureWindow& window, float luminance,
+                                                      uint32_t bins )
     {
         if ( bins == 0 )
-            return 0;
-        if ( !( luminance >= 1e-5f ) )
-            return 0; // near-black (and NaN) go in the bottom bin, as the shader does
+            return { 0, 0, 0.0f };
+        const float floorLum = std::exp2( window.MinLogLum );
+        const float metered  = ( luminance >= floorLum ) ? luminance : floorLum; // NaN -> the floor
+        const uint32_t last  = bins - 1;
+        const float    fBucket =
+             std::clamp( ( std::log2( metered ) - window.MinLogLum ) / window.Range(), 0.0f, 1.0f ) *
+             static_cast<float>( last );
+        const uint32_t bucket0 = std::min( static_cast<uint32_t>( fBucket ), last );
+        return { bucket0, std::min( bucket0 + 1, last ), fBucket - std::floor( fBucket ) };
+    }
 
-        const float last = static_cast<float>( bins - 1 );
-        const float t    = ( std::log2( luminance ) - window.MinLogLum ) / window.Range();
-        return static_cast<uint32_t>( Common::Math::RoundToNearest( std::clamp( t, 0.0f, 1.0f ) * last ) );
+    // The bucket carrying the larger share of a luminance: what the tests ask "where does this land".
+    inline uint32_t AutoExposureBin( const AutoExposureWindow& window, float luminance, uint32_t bins )
+    {
+        const AutoExposureBucketSplit split = AutoExposureSplit( window, luminance, bins );
+        return ( split.Weight1 >= 0.5f ) ? split.Bucket1 : split.Bucket0;
+    }
+
+    // The histogram counts in uint (portable atomics; UE packs weight x 2^19 into thread-local histograms,
+    // PostProcessHistogram.usf:15-18). Each texel adds at most 1 x scale, so the scale is the largest that keeps a
+    // whole frame of texels inside a uint, capped at 2^16 (finer than any percentile needs).
+    inline uint32_t AutoExposureWeightScale( uint64_t texels )
+    {
+        constexpr uint64_t kCap = 1ull << 16;
+        return static_cast<uint32_t>(
+             std::clamp<uint64_t>( 0xFFFFFFFFull / std::max<uint64_t>( texels, 1 ), 1, kCap ) );
     }
 
     // What AEAverage adapts with, derived from a view's auto-exposure settings the way UE derives its eye
@@ -135,6 +169,9 @@ namespace Desert::Graphic
         float ExponentialUpM;
         float ExponentialDownM;
         float StartDistance; // EV: further than this from the target the adaptation is linear, nearer exponential
+        // UE's ForceTarget conditions that come from the settings (PostProcessEyeAdaptation.cpp:717-723): an
+        // empty EV100 range (Min >= Max) or a negative speed lands on the target, as Manual does.
+        bool ForceTarget;
     };
 
     // r.EyeAdaptation.ExponentialTransitionDistance's default.
@@ -158,7 +195,18 @@ namespace Desert::Graphic
         const float     upM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedUp ) ) * startTimeUp );
         const float downM = kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speedDown ) ) * startTimeDown );
 
-        return { minAverage, maxAverage, low, high, speedUp, speedDown, upM, downM, kEyeAdaptationStartDistance };
+        const bool validRange  = minEV100 < maxEV100;
+        const bool validSpeeds = speedDown >= 0.0f && speedUp >= 0.0f;
+        return { minAverage,
+                 maxAverage,
+                 low,
+                 high,
+                 speedUp,
+                 speedDown,
+                 upM,
+                 downM,
+                 kEyeAdaptationStartDistance,
+                 !validRange || !validSpeeds };
     }
 
     // The luminance a bin index stands for when the average is reconstructed — AEAverage's own formula.

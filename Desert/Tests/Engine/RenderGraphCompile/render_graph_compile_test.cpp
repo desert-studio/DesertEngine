@@ -2413,6 +2413,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // TAA1-B 6: the output-extent overlay depth, filled from the render-extent scene depth, before the
          // overlays that test against it.
          "Scene: PopulateSceneDepth",
+         // AE-METER: the meter reads the resolved scene before anything is drawn over it (dev views, debug
+         // lines, the editor's overlays, the UI canvas).
+         "PostFX: AutoExposureClear",
+         "PostFX: AutoExposureHistogram",
+         "PostFX: AutoExposureAverage",
          "Debug: Velocity",
          // The engine's debug lines (bounding boxes), the first overlay, below the editor's.
          "system[mesh->DebugLinesPass()]",
@@ -2422,9 +2427,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: JumpFloodInit",
          "PostFX: JumpFloodStep{}",
          "PostFX: JumpFloodFinal",
-         "PostFX: AutoExposureClear",
-         "PostFX: AutoExposureHistogram",
-         "PostFX: AutoExposureAverage",
          "PostFX: BloomDownsample{}",
          "PostFX: BloomUpsample{}",
          "PostFX: LightShaftMask",
