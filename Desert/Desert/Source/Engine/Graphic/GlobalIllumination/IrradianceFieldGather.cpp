@@ -16,8 +16,8 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 2> kShaderNames{ "IrradianceFieldGather",
-                                                                "IrradianceFieldUpsample" };
+        constexpr std::array<std::string_view, 2> kIrradianceFieldShaderNames{ "IrradianceFieldGather",
+                                                                               "IrradianceFieldUpsample" };
 
         std::shared_ptr<Image2D> CreateTarget( const std::string_view tag, const glm::uvec2 extent )
         {
@@ -43,7 +43,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
-            const std::string name( kShaderNames[program] );
+            const std::string name( kIrradianceFieldShaderNames[program] );
             m_Shaders[program] = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !m_Shaders[program] )
                 return Common::MakeFormattedError<bool>( "irradiance field: shader {} not found", name );

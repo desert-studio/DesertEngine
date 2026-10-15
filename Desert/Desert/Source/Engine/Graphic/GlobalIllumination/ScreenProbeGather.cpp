@@ -10,6 +10,8 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
+
 #include <format>
 #include <span>
 #include <string>
@@ -18,16 +20,13 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 4> kShaderNames{ "ScreenProbePlace", "ScreenProbeTrace",
-                                                                "ScreenProbeFilter", "ScreenProbeIntegrate" };
+        using Common::Math::DivideRoundUp;
+
+        constexpr std::array<std::string_view, 4> kScreenProbeShaderNames{
+             "ScreenProbePlace", "ScreenProbeTrace", "ScreenProbeFilter", "ScreenProbeIntegrate" };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kLevels> kPlaceNames{
              "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 8", "ScreenProbes: Place Adaptive 4" };
-
-        uint32_t DivideUp( const uint32_t value, const uint32_t by )
-        {
-            return ( value + by - 1u ) / by;
-        }
 
         std::shared_ptr<Image2D>
         CreateTarget( const std::string_view tag, const uint32_t width, const uint32_t height,
@@ -58,14 +57,14 @@ namespace Desert::Graphic::GlobalIllumination
         {
             if ( program == Trace )
                 continue; // a tracer permutation, EnsureTraceProgram
-            m_Shaders[program] = shaders->GetByName( std::string( kShaderNames[program] ) );
+            m_Shaders[program] = shaders->GetByName( std::string( kScreenProbeShaderNames[program] ) );
             if ( !m_Shaders[program] )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} not found",
-                                                         kShaderNames[program] );
+                                                         kScreenProbeShaderNames[program] );
             auto pipeline = ComputePipeline::Create(
-                 { .Shader = m_Shaders[program], .DebugName = std::string( kShaderNames[program] ) } );
+                 { .Shader = m_Shaders[program], .DebugName = std::string( kScreenProbeShaderNames[program] ) } );
             if ( !pipeline )
-                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", kShaderNames[program],
+                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", kScreenProbeShaderNames[program],
                                                          pipeline.GetError() );
             m_Pipelines[program] = pipeline.GetValue();
         }
@@ -76,7 +75,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
-        const std::string name( kShaderNames[Trace] );
+        const std::string name( kScreenProbeShaderNames[Trace] );
         auto              shader =
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
         if ( !shader )
@@ -185,8 +184,8 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[Place].get();
             const uint32_t         spacing  = ScreenProbeLayout::kDownsample >> level;
-            const glm::uvec2       groups( DivideUp( DivideUp( inputs.Extent.x, spacing ), 8u ),
-                                           DivideUp( DivideUp( inputs.Extent.y, spacing ), 8u ) );
+            const glm::uvec2       groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, spacing ), 8u ),
+                                           DivideRoundUp( DivideRoundUp( inputs.Extent.y, spacing ), 8u ) );
             graph.AddPass(
                  kPlaceNames[level], RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
@@ -276,7 +275,7 @@ namespace Desert::Graphic::GlobalIllumination
         }
         {
             ComputePipeline* const pipeline = m_Pipelines[Integrate].get();
-            const glm::uvec2       groups( DivideUp( inputs.Extent.x, 8u ), DivideUp( inputs.Extent.y, 8u ) );
+            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
             graph.AddPass(
                  "ScreenProbes: Integrate", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
