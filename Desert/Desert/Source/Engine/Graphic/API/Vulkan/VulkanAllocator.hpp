@@ -54,6 +54,14 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t    FrameIndex;
     };
 
+    // An object some other runtime owns on this device (a vendor upscaler SDK's context and the images, views and
+    // pipelines inside it), destroyed by its own call once the frame that last recorded with it has finished.
+    struct HostObjectDeletionEntry
+    {
+        std::function<void()> Destroy;
+        uint32_t              FrameIndex;
+    };
+
     struct DescriptorPoolDeletionEntry
     {
         VkDescriptorPool DescriptorPool;
@@ -117,6 +125,10 @@ namespace Desert::Graphic::API::Vulkan
         // Frees @p sets back into @p pool once the frame that may still bind them has finished. The pool
         // must have been created with VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
         void RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets );
+        // Runs @p destroy once the frame current now has come back round, like every queued destruction: for
+        // GPU objects created and destroyed through a third-party runtime's own API (the FidelityFX context of a
+        // view whose extent changed), which the typed queues above cannot name.
+        void RT_DestroyLater( std::function<void()> destroy );
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
@@ -180,6 +192,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
+        std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
 
         AllocationLedger m_Ledger;
         std::chrono::steady_clock::time_point m_LastCensus{};

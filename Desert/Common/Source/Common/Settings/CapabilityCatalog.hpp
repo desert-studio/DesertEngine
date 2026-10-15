@@ -139,8 +139,8 @@ namespace Common::Scalability
     // The render-scale axis' legal range, in percent of output size. Reader: the ResolutionScale group.
     struct RenderScaleRange
     {
-        int MinPercent = 50;  // below it every upscaler's quality collapses (DLSS Ultra Performance is 33 %; we
-                              // do not offer it until something renders it acceptably)
+        int MinPercent = 33;  // the vendors' Ultra Performance mode (1/3.0 per axis: FSR 3.1, DLSS); below it
+                              // no upscaler has a mode
         int MaxPercent = 200; // SSAA ceiling: 4x the pixels; bounded further by MaxTexture2DSize at output size
 
         bool operator==( const RenderScaleRange& ) const = default;
@@ -159,6 +159,22 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( Upscaler::Spatial ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
+
+    // WHICH DLSS NETWORK A DLSS MODE RUNS (UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ... PerformancePreset /
+    // UltraPerformancePreset), one Parameter per mode (Parameter::DlssPresetDLAA ..). Default is NVIDIA's choice
+    // for the mode, which a driver-side DLSS update may move. Only the presets the Streamline SDK still recommends
+    // are offered (sl_dlss.h: A-D were removed, E-F are deprecated, G-I and N-O revert to the default). Stored by
+    // name; the Streamline runtime maps a value to its sl::DLSSPreset (StreamlineRuntime.cpp).
+    enum class DlssPreset : int
+    {
+        Default = 0,
+        J, // transformer; slightly less ghosting than K, more flicker
+        K, // transformer; NVIDIA's default for DLAA / Quality / Balanced
+        L, // NVIDIA's default for Ultra Performance
+        M, // NVIDIA's default for Performance
+    };
+    inline constexpr std::array<std::string_view, 5> kDlssPresetNames{ "Default", "J", "K", "L", "M" };
+    static_assert( static_cast<std::size_t>( DlssPreset::M ) + 1 == kDlssPresetNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order

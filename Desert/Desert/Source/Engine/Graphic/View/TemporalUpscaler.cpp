@@ -5,12 +5,16 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
-#if defined( DESERT_WITH_STREAMLINE )
-#include <Engine/Graphic/View/Streamline/DLSSUpscaler.hpp>
+#if defined( DESERT_UPSCALER_DLSS )
+#include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
+#endif
+#if defined( DESERT_UPSCALER_FSR )
+#include <Engine/Graphic/Upscalers/FSR/Fsr3Upscaler.hpp>
 #endif
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
+#include <cmath>
 #include <format>
 #include <mutex>
 
@@ -36,16 +40,42 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
             case TemporalMethod::TAAU:
                 return std::make_unique<TemporalAA>( method );
+            // A vendor method outside its SDK's build is never selected (SelectTemporalMethod reads UpscalerBuild.hpp);
+            // null is "no implementation", which SceneViewState::BeginFrame names.
             case TemporalMethod::DLSS:
-#if defined( DESERT_WITH_STREAMLINE )
+#if defined( DESERT_UPSCALER_DLSS )
                 return std::make_unique<DLSSUpscaler>();
 #else
-                // Not in this build (no Streamline: every platform but Windows): SelectTemporalMethod never selects
-                // DLSS here, and null is "no implementation", which SceneViewState::BeginFrame names.
+                return nullptr;
+#endif
+            case TemporalMethod::FSR:
+#if defined( DESERT_UPSCALER_FSR )
+                return std::make_unique<Fsr3Upscaler>();
+#else
                 return nullptr;
 #endif
         }
         return nullptr;
+    }
+
+    uint32_t ITemporalUpscaler::JitterSequenceLength( const ResolutionSplit& split ) const
+    {
+        return TemporalJitterSequenceLength( Method(), split );
+    }
+
+    glm::vec2 ITemporalUpscaler::JitterPixels( const uint32_t index, const uint32_t length ) const
+    {
+        return TemporalJitterPixels( index, length );
+    }
+
+    float ITemporalUpscaler::MaterialMipBias( const ResolutionSplit& split ) const
+    {
+        // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples (UE applies the
+        // screen-percentage mip bias under temporal upsampling only); the method None never reaches here.
+        if ( split.Mode != Common::Scalability::ScaleMode::Upscale || split.Render.Width == 0 ||
+             split.Output.Width == 0 )
+            return 0.0f;
+        return std::log2( static_cast<float>( split.Render.Width ) / static_cast<float>( split.Output.Width ) );
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& SupersampleResolveLayout()

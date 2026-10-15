@@ -1,6 +1,9 @@
-#include <Engine/Graphic/View/Streamline/DLSSUpscaler.hpp>
+#include <Engine/Graphic/Upscalers/DLSS/DLSSUpscaler.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -56,7 +59,94 @@ namespace Desert::Graphic
             return render.Width >= range.MinWidth && render.Width <= range.MaxWidth &&
                    render.Height >= range.MinHeight && render.Height <= range.MaxHeight;
         }
+
+        // The Scalability row that holds @p mode's preset.
+        Common::Scalability::Parameter PresetParameter( const Streamline::DlssMode mode )
+        {
+            using Common::Scalability::Parameter;
+            switch ( mode )
+            {
+                case Streamline::DlssMode::UltraPerformance:
+                    return Parameter::DlssPresetUltraPerformance;
+                case Streamline::DlssMode::Performance:
+                    return Parameter::DlssPresetPerformance;
+                case Streamline::DlssMode::Balanced:
+                    return Parameter::DlssPresetBalanced;
+                case Streamline::DlssMode::Quality:
+                    return Parameter::DlssPresetQuality;
+                case Streamline::DlssMode::UltraQuality:
+                    return Parameter::DlssPresetUltraQuality;
+                case Streamline::DlssMode::DLAA:
+                    return Parameter::DlssPresetDLAA;
+            }
+            return Parameter::DlssPresetDLAA;
+        }
+
+        // One view's DLSS feature: its Streamline viewport and the options it was last given. Released with the
+        // view's history, after the frames that recorded with it (the frame ring drains RT_DestroyLater).
+        class DlssHistory final : public ITemporalUpscalerHistory
+        {
+        public:
+            DlssHistory() : m_Viewport( Streamline::Runtime::Get().AcquireViewport() )
+            {
+            }
+
+            ~DlssHistory() override
+            {
+                const auto ctx = EngineContext::GetInstance().GetRendererContext();
+                auto*      allocator =
+                     ctx ? SP_CAST( API::Vulkan::VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+                const uint32_t viewport = m_Viewport;
+                if ( allocator != nullptr )
+                    allocator->RT_DestroyLater( [viewport]()
+                                                { Streamline::Runtime::Get().ReleaseViewport( viewport ); } );
+                else
+                    Streamline::Runtime::Get().ReleaseViewport( viewport ); // no renderer: no frame in flight
+            }
+
+            DlssHistory( const DlssHistory& )            = delete;
+            DlssHistory& operator=( const DlssHistory& ) = delete;
+
+            [[nodiscard]] std::string_view DebugName() const override
+            {
+                return "DLSS";
+            }
+            [[nodiscard]] uint64_t HeldBytes() const override
+            {
+                return m_HeldBytes;
+            }
+
+            [[nodiscard]] uint32_t Viewport() const
+            {
+                return m_Viewport;
+            }
+
+            // Re-options the feature when @p options differ from the last ones (first use, a mode, output size or
+            // preset change).
+            [[nodiscard]] Common::BoolResultStr Apply( const Streamline::DlssOptions& options )
+            {
+                if ( m_Options && *m_Options == options )
+                    return Common::MakeSuccess( true );
+                const auto bytes = Streamline::Runtime::Get().SetOptions( m_Viewport, options );
+                if ( !bytes )
+                {
+                    m_Options.reset(); // the feature's options are unknown now: set them again next frame
+                    return Common::MakeError( bytes.GetError() );
+                }
+                m_Options   = options;
+                m_HeldBytes = bytes.GetValue();
+                return Common::MakeSuccess( true );
+            }
+
+        private:
+            const uint32_t                         m_Viewport;
+            std::optional<Streamline::DlssOptions> m_Options;
+            uint64_t                               m_HeldBytes = 0;
+        };
     } // namespace
+
+    DLSSUpscaler::DLSSUpscaler()  = default;
+    DLSSUpscaler::~DLSSUpscaler() = default;
 
     std::string_view DLSSUpscaler::DebugName() const
     {
@@ -133,6 +223,14 @@ namespace Desert::Graphic
         return {}; // the DLSS feature keeps its own history
     }
 
+    float DLSSUpscaler::MaterialMipBias( const ResolutionSplit& split ) const
+    {
+        if ( split.Render.Width == 0 || split.Output.Width == 0 )
+            return 0.0f;
+        return std::log2( static_cast<float>( split.Render.Width ) / static_cast<float>( split.Output.Width ) ) -
+               1.0f;
+    }
+
     Common::ResultStr<TemporalUpscalerOutputs>
     DLSSUpscaler::AddPasses( RDG::Builder& graph, const ViewFrame& frame,
                              const TemporalUpscalerInputs& inputs ) const
@@ -151,12 +249,32 @@ namespace Desert::Graphic
         if ( !inputs.History.empty() )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
                  "{}: {} histories given, HistoryDescs declares none", DebugName(), inputs.History.size() );
-        if ( frame.ViewKey == 0 )
+        if ( !inputs.Exposure.IsValid() )
+            return missing( "Exposure" );
+        if ( inputs.Quality == nullptr )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>(
-                 "{}: the frame has no view key (made without a SceneViewState)", DebugName() );
+                 "{}: no resolved quality was given (the preset of each DLSS mode is a Scalability row)", DebugName() );
         const auto mode = ModeFor( frame.Split );
         if ( !mode )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), mode.GetError() );
+
+        // The view's feature: its own from last frame, or a new one (first DLSS frame, after a reset or another
+        // method's history).
+        std::shared_ptr<ITemporalUpscalerHistory> history = inputs.PrevHistory;
+        if ( dynamic_cast<DlssHistory*>( history.get() ) == nullptr )
+            history = std::make_shared<DlssHistory>();
+        auto& feature = static_cast<DlssHistory&>( *history );
+        const Streamline::DlssOptions options{
+             .Mode         = mode.GetValue(),
+             .OutputWidth  = frame.Split.Output.Width,
+             .OutputHeight = frame.Split.Output.Height,
+             .Preset = inputs.Quality->As<Common::Scalability::DlssPreset>( PresetParameter( mode.GetValue() ) ) };
+        if ( const auto applied = feature.Apply( options ); !applied )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), applied.GetError() );
+
+        const Common::ResultStr<RDG::TextureRef> exposure = m_Exposure.AddPass( graph, inputs.Exposure );
+        if ( !exposure )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), exposure.GetError() );
 
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
@@ -164,10 +282,8 @@ namespace Desert::Graphic
         const RDG::TextureRef output = graph.CreateTexture( outputDesc, kOutputName );
 
         Streamline::DlssEvaluation evaluation;
-        evaluation.ViewKey        = frame.ViewKey;
+        evaluation.Viewport       = feature.Viewport();
         evaluation.Mode           = mode.GetValue();
-        evaluation.OutputWidth    = frame.Split.Output.Width;
-        evaluation.OutputHeight   = frame.Split.Output.Height;
         evaluation.ViewToClip     = frame.Projection;
         evaluation.ClipToView     = frame.InvProjection;
         evaluation.ClipToPrevClip = frame.PrevViewProjection * frame.InvViewProjection;
@@ -193,6 +309,7 @@ namespace Desert::Graphic
         const RDG::TextureRef color    = inputs.SceneColor;
         const RDG::TextureRef depth    = inputs.SceneDepth;
         const RDG::TextureRef velocity = inputs.Velocity;
+        const RDG::TextureRef exposureRef = exposure.GetValue();
         graph.AddPass(
              kPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -200,18 +317,20 @@ namespace Desert::Graphic
                  pass.Read( color, RDG::Access::SampledCompute );
                  pass.Read( depth, RDG::Access::SampledCompute );
                  pass.Read( velocity, RDG::Access::SampledCompute );
+                 pass.Read( exposureRef, RDG::Access::SampledCompute );
                  pass.Write( output, RDG::Access::StorageWrite );
              },
-             [evaluation, color, depth, velocity,
+             [evaluation, color, depth, velocity, exposureRef,
               output]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
              {
                  const auto commandBuffer = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
                      return Common::MakeError( commandBuffer.GetError() );
-                 const std::array<std::pair<Streamline::DlssImage*, std::pair<RDG::TextureRef, RDG::Access>>, 4>
+                 const std::array<std::pair<Streamline::DlssImage*, std::pair<RDG::TextureRef, RDG::Access>>, 5>
                       images{ { { &evaluation.Color, { color, RDG::Access::SampledCompute } },
                                 { &evaluation.Depth, { depth, RDG::Access::SampledCompute } },
                                 { &evaluation.MotionVectors, { velocity, RDG::Access::SampledCompute } },
+                                { &evaluation.Exposure, { exposureRef, RDG::Access::SampledCompute } },
                                 { &evaluation.Output, { output, RDG::Access::StorageWrite } } } };
                  for ( const auto& [target, source] : images )
                  {
@@ -220,12 +339,11 @@ namespace Desert::Graphic
                          return Common::MakeError( image.GetError() );
                      *target = image.GetValue();
                  }
-                 const Engine::FrameManager& frames = Engine::FrameManager::GetInstance();
-                 evaluation.EngineFrame             = frames.GetAbsoluteFrameCount();
-                 evaluation.FramesToKeep            = frames.GetMaxFramesInFlight() + 1;
+                 evaluation.EngineFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
                  return Streamline::Runtime::Get().Evaluate( commandBuffer.GetValue(), evaluation );
              } );
 
-        return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = output } );
+        return Common::MakeSuccess(
+             TemporalUpscalerOutputs{ .SceneColor = output, .NewHistory = std::move( history ) } );
     }
 } // namespace Desert::Graphic

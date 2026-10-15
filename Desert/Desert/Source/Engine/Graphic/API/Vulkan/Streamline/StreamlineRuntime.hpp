@@ -1,13 +1,14 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
-#include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -15,20 +16,21 @@
 #include <vector>
 
 // NVIDIA STREAMLINE, MANUALLY HOOKED (Windows only: premake compiles every Streamline/ directory on Windows alone
-// and defines DESERT_WITH_STREAMLINE there).
+// and defines DESERT_UPSCALER_DLSS there).
 //
 // UE's DLSS plugin owns the SDK in one module and hands the renderer an upscaler; this is that module's runtime
 // half. It loads sl.interposer.dll from the executable's directory at run time (never linked: a missing or
 // unsigned DLL is a named refusal, not a process that cannot start), initialises Streamline in manual-hooking mode
 // (the engine keeps its own loader and creates the instance and device itself, adding what
 // slGetFeatureRequirements asks for), and gives the device to Streamline with slSetVulkanInfo. Nothing else in the
-// engine includes a Streamline header: the upscaler (Graphic/View/Streamline/DLSSUpscaler) talks to this class in
+// engine includes a Streamline header: the upscaler (Graphic/Upscalers/DLSS/DLSSUpscaler) talks to this class in
 // engine types.
 //
-// The per-view DLSS feature (Streamline's ViewportHandle, NGX's feature handle) lives here, keyed by the view's
-// SceneViewState::ViewKey: created by the first evaluation of a view, re-optioned when its mode or output size
-// changes, freed when the view has not evaluated for more frames than are in flight (UE: the NGX feature cache's
-// frame-age release), and every remaining one at device destruction.
+// The per-view DLSS feature (Streamline's ViewportHandle, NGX's feature handle) is OWNED BY THE VIEW: the
+// upscaler's ITemporalUpscalerHistory (DLSSUpscaler.cpp: DlssHistory, the same per-view object FSR keeps its
+// context in) acquires a viewport here, sets its options when they change, and releases it when the view drops
+// its history (reset, another method, the view's end) — through VulkanAllocator::RT_DestroyLater, after the
+// frames that recorded with it. Every viewport still held at device destruction is freed before slShutdown.
 namespace Desert::Graphic::Streamline
 {
     // The DLSS quality modes, by render-to-output ratio (the network is trained per mode). DLAA is the 100 % mode.
@@ -71,15 +73,14 @@ namespace Desert::Graphic::Streamline
     // row-major M^T a row-vector convention multiplies by).
     struct DlssEvaluation
     {
-        uint32_t ViewKey      = 0; // SceneViewState::ViewKey, never 0
-        DlssMode Mode         = DlssMode::DLAA;
-        uint32_t OutputWidth  = 0;
-        uint32_t OutputHeight = 0;
+        uint32_t Viewport = 0;              // Runtime::AcquireViewport, options set by SetOptions
+        DlssMode Mode     = DlssMode::DLAA; // the mode SetOptions last set (named in errors)
 
         DlssImage Color;         // linear HDR, render extent, jittered
         DlssImage Depth;         // reversed-Z hardware depth, render extent
         DlssImage MotionVectors; // render extent
         DlssImage Output;        // output extent, storage
+        DlssImage Exposure;      // 1x1 R32F, the exposure multiplier (UpscalerExposure)
 
         glm::mat4 ViewToClip{ 1.0f }; // unjittered projection
         glm::mat4 ClipToView{ 1.0f };
@@ -96,8 +97,19 @@ namespace Desert::Graphic::Streamline
         float     VerticalFov  = 0.0f; // radians
         float     AspectRatio  = 0.0f;
         bool      Reset        = false; // the view's history is invalid (camera cut, resize, first frame)
-        uint64_t  EngineFrame  = 0;     // FrameManager absolute frame count: the frame token and the feature's age
-        uint32_t  FramesToKeep = 0;     // frames in flight + 1: an idle feature older than this is freed
+        uint64_t  EngineFrame  = 0;     // FrameManager absolute frame count: the frame token
+    };
+
+    // What one view's DLSS feature is created with. A change re-options the feature (slDLSSSetOptions), which
+    // Streamline answers by recreating the NGX feature when the mode, the output size or the preset differ.
+    struct DlssOptions
+    {
+        DlssMode   Mode         = DlssMode::DLAA;
+        uint32_t   OutputWidth  = 0;
+        uint32_t   OutputHeight = 0;
+        Common::Scalability::DlssPreset Preset = Common::Scalability::DlssPreset::Default; // for Mode
+
+        [[nodiscard]] bool operator==( const DlssOptions& ) const = default;
     };
 
     class Runtime final : public API::Vulkan::IVulkanDeviceExtension
@@ -120,8 +132,18 @@ namespace Desert::Graphic::Streamline
         [[nodiscard]] Common::ResultStr<DlssRenderRange> RenderRange( DlssMode mode, uint32_t outputWidth,
                                                                       uint32_t outputHeight ) const;
 
-        // Records one DLSS evaluation into @p commandBuffer (tags, constants, options when they changed,
-        // evaluate).
+        // A new per-view viewport, unique for the runtime's life and never 0. The caller owns it until
+        // ReleaseViewport.
+        [[nodiscard]] uint32_t AcquireViewport();
+        // Frees the viewport's DLSS feature (slFreeResources) once no frame in flight uses it — the caller
+        // retires it through the frame ring. A no-op after device destruction (everything was freed there).
+        void ReleaseViewport( uint32_t viewport );
+        // Sets @p viewport's options (slDLSSSetOptions); returns the feature's estimated GPU bytes
+        // (slDLSSGetState), which the view counts as held by its history.
+        [[nodiscard]] Common::ResultStr<uint64_t> SetOptions( uint32_t viewport, const DlssOptions& options );
+
+        // Records one DLSS evaluation of a viewport whose options are set into @p commandBuffer (constants, the
+        // five tagged images, evaluate).
         [[nodiscard]] Common::BoolResultStr Evaluate( VkCommandBuffer commandBuffer, const DlssEvaluation& input );
 
         // IVulkanDeviceExtension
@@ -134,16 +156,7 @@ namespace Desert::Graphic::Streamline
 
     private:
         struct Library; // the loaded interposer and its function table (StreamlineRuntime.cpp)
-        struct ViewFeature
-        {
-            DlssMode Mode         = DlssMode::DLAA;
-            uint32_t OutputWidth  = 0;
-            uint32_t OutputHeight = 0;
-            uint64_t LastFrame    = 0;
-        };
-
         void Refuse( std::string reason );
-        void FreeIdleFeatures( uint64_t engineFrame, uint32_t framesToKeep );
 
         mutable std::mutex              m_Mutex;
         std::unique_ptr<Library>        m_Library;
@@ -152,7 +165,8 @@ namespace Desert::Graphic::Streamline
         bool                            m_DlssReady     = false; // slSetVulkanInfo accepted
         std::string                     m_Refusal;
         std::vector<std::string>        m_InstanceExtensionNames; // storage for InstanceExtensions()'s pointers
-        std::map<uint32_t, ViewFeature> m_Features;               // by ViewKey
+        std::set<uint32_t>              m_Viewports;              // acquired and not yet released
+        uint32_t                        m_NextViewport = 1;
         uint64_t                        m_TokenFrame = UINT64_MAX;
         void*                           m_Token      = nullptr; // sl::FrameToken* of m_TokenFrame
     };

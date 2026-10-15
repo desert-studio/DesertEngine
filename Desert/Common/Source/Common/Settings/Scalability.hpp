@@ -129,6 +129,14 @@ namespace Common::Scalability
         LightGridPixelSize,        // tile edge in render pixels. 16..256
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
+        // The DLSS preset of each DLSS mode (DLSSUpscaler: the mode its split selects reads its row). Values:
+        // DlssPreset (CapabilityCatalog.hpp). Read only while DLSS runs.
+        DlssPresetDLAA,
+        DlssPresetUltraQuality,
+        DlssPresetQuality,
+        DlssPresetBalanced,
+        DlssPresetPerformance,
+        DlssPresetUltraPerformance,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

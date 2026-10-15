@@ -68,6 +68,52 @@ namespace Desert::Graphic::Streamline
             return sl::DLSSMode::eOff;
         }
 
+        sl::DLSSPreset ToSl( const Common::Scalability::DlssPreset preset )
+        {
+            using Common::Scalability::DlssPreset;
+            switch ( preset )
+            {
+                case DlssPreset::Default:
+                    return sl::DLSSPreset::eDefault;
+                case DlssPreset::J:
+                    return sl::DLSSPreset::ePresetJ;
+                case DlssPreset::K:
+                    return sl::DLSSPreset::ePresetK;
+                case DlssPreset::L:
+                    return sl::DLSSPreset::ePresetL;
+                case DlssPreset::M:
+                    return sl::DLSSPreset::ePresetM;
+            }
+            return sl::DLSSPreset::eDefault;
+        }
+
+        // sl::DLSSOptions carries one preset per mode; only the running mode's is read, so the view's preset is
+        // written into that mode's slot and the rest stay Default.
+        void SetPreset( sl::DLSSOptions& options, const DlssMode mode, const sl::DLSSPreset preset )
+        {
+            switch ( mode )
+            {
+                case DlssMode::UltraPerformance:
+                    options.ultraPerformancePreset = preset;
+                    return;
+                case DlssMode::Performance:
+                    options.performancePreset = preset;
+                    return;
+                case DlssMode::Balanced:
+                    options.balancedPreset = preset;
+                    return;
+                case DlssMode::Quality:
+                    options.qualityPreset = preset;
+                    return;
+                case DlssMode::UltraQuality:
+                    options.ultraQualityPreset = preset;
+                    return;
+                case DlssMode::DLAA:
+                    options.dlaaPreset = preset;
+                    return;
+            }
+        }
+
         sl::float4x4 ToSl( const glm::mat4& m )
         {
             // glm stores M column-major, which is the row-major storage of M^T: exactly the matrix Streamline's
@@ -208,6 +254,7 @@ namespace Desert::Graphic::Streamline
         // DLSS's own entry points, from slGetFeatureFunction once the device is set.
         PFun_slDLSSGetOptimalSettings* GetOptimalSettings = nullptr;
         PFun_slDLSSSetOptions*         SetOptions         = nullptr;
+        PFun_slDLSSGetState*           GetState           = nullptr;
 
         ~Library()
         {
@@ -489,19 +536,23 @@ namespace Desert::Graphic::Streamline
         }
         void*            getOptimal = nullptr;
         void*            setOptions = nullptr;
+        void*            getState   = nullptr;
         const sl::Result optimalResult =
              m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetOptimalSettings", getOptimal );
         const sl::Result optionsResult =
              m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSSetOptions", setOptions );
-        if ( optimalResult != sl::Result::eOk || optionsResult != sl::Result::eOk )
+        const sl::Result stateResult = m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetState", getState );
+        if ( optimalResult != sl::Result::eOk || optionsResult != sl::Result::eOk || stateResult != sl::Result::eOk )
         {
-            Refuse(
-                 std::format( "the DLSS plugin's entry points: slDLSSGetOptimalSettings {}, slDLSSSetOptions {}",
-                              ResultName( optimalResult ), ResultName( optionsResult ) ) );
+            Refuse( std::format( "the DLSS plugin's entry points: slDLSSGetOptimalSettings {}, slDLSSSetOptions {}, "
+                                 "slDLSSGetState {}",
+                                 ResultName( optimalResult ), ResultName( optionsResult ),
+                                 ResultName( stateResult ) ) );
             return;
         }
         m_Library->GetOptimalSettings = reinterpret_cast<PFun_slDLSSGetOptimalSettings*>( getOptimal );
         m_Library->SetOptions         = reinterpret_cast<PFun_slDLSSSetOptions*>( setOptions );
+        m_Library->GetState           = reinterpret_cast<PFun_slDLSSGetState*>( getState );
         m_DlssReady                   = true;
         m_Refusal.clear();
         LOG_INFO( "[Streamline] DLSS Super Resolution ready" );
@@ -512,12 +563,15 @@ namespace Desert::Graphic::Streamline
         const std::scoped_lock lock( m_Mutex );
         if ( !m_Initialized )
             return;
-        for ( const auto& [key, feature] : m_Features )
-            if ( const sl::Result result = m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( key ) );
+        // Views still holding a viewport (their histories are dropped after the device): free them here, before
+        // slShutdown; their later ReleaseViewport finds the viewport gone and does nothing.
+        for ( const uint32_t viewport : m_Viewports )
+            if ( const sl::Result result =
+                      m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
                  result != sl::Result::eOk )
-                LOG_ERROR( "[Streamline] slFreeResources(DLSS, view {}) at device destruction: {}", key,
+                LOG_ERROR( "[Streamline] slFreeResources(DLSS, viewport {}) at device destruction: {}", viewport,
                            ResultName( result ) );
-        m_Features.clear();
+        m_Viewports.clear();
         if ( const sl::Result result = m_Library->Shutdown(); result != sl::Result::eOk )
             LOG_ERROR( "[Streamline] slShutdown: {}", ResultName( result ) );
         m_Library.reset();
@@ -552,23 +606,57 @@ namespace Desert::Graphic::Streamline
                                                      .MaxHeight     = settings.renderHeightMax } );
     }
 
-    void Runtime::FreeIdleFeatures( const uint64_t engineFrame, const uint32_t framesToKeep )
+    uint32_t Runtime::AcquireViewport()
     {
-        for ( auto it = m_Features.begin(); it != m_Features.end(); )
-        {
-            // Older than every frame still in flight: the GPU has finished every command that used it.
-            if ( engineFrame > it->second.LastFrame + framesToKeep )
-            {
-                if ( const sl::Result result =
-                          m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( it->first ) );
-                     result != sl::Result::eOk )
-                    LOG_ERROR( "[Streamline] slFreeResources(DLSS, view {}): {}", it->first,
-                               ResultName( result ) );
-                it = m_Features.erase( it );
-            }
-            else
-                ++it;
-        }
+        const std::scoped_lock lock( m_Mutex );
+        // 0 is skipped on wrap: no viewport is 0. Viewports are released with their views, so a wrap never meets
+        // a live one in practice; one still held is skipped all the same.
+        uint32_t viewport = 0;
+        while ( viewport == 0 || m_Viewports.contains( viewport ) )
+            viewport = m_NextViewport++;
+        m_Viewports.insert( viewport );
+        return viewport;
+    }
+
+    void Runtime::ReleaseViewport( const uint32_t viewport )
+    {
+        const std::scoped_lock lock( m_Mutex );
+        if ( m_Viewports.erase( viewport ) == 0 || !m_Initialized )
+            return; // freed at device destruction already
+        // eErrorInvalidParameter only means the viewport never evaluated: there was no feature to free.
+        if ( const sl::Result result = m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
+             result != sl::Result::eOk && result != sl::Result::eErrorInvalidParameter )
+            LOG_ERROR( "[Streamline] slFreeResources(DLSS, viewport {}): {}", viewport, ResultName( result ) );
+    }
+
+    Common::ResultStr<uint64_t> Runtime::SetOptions( const uint32_t viewport, const DlssOptions& input )
+    {
+        const std::scoped_lock lock( m_Mutex );
+        if ( !m_DlssReady )
+            return Common::MakeFormattedError<uint64_t>( "DLSS options: DLSS is not ready: {}", m_Refusal );
+        if ( !m_Viewports.contains( viewport ) )
+            return Common::MakeFormattedError<uint64_t>( "DLSS options: viewport {} was not acquired", viewport );
+
+        sl::DLSSOptions options;
+        options.mode            = ToSl( input.Mode );
+        options.outputWidth     = input.OutputWidth;
+        options.outputHeight    = input.OutputHeight;
+        options.colorBuffersHDR = sl::Boolean::eTrue;
+        // The engine hands its own exposure (the tagged kBufferTypeExposure image, UpscalerExposure: the same
+        // multiplier FSR and the engine's TAA use), as UE hands DLSS its eye-adaptation exposure.
+        options.useAutoExposure = sl::Boolean::eFalse;
+        SetPreset( options, input.Mode, ToSl( input.Preset ) );
+        const sl::ViewportHandle handle( viewport );
+        if ( const sl::Result result = m_Library->SetOptions( handle, options ); result != sl::Result::eOk )
+            return Common::MakeFormattedError<uint64_t>(
+                 "slDLSSSetOptions(viewport {}, {}, preset {}, {}x{}): {}", viewport, DlssModeName( input.Mode ),
+                 Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )], input.OutputWidth,
+                 input.OutputHeight, ResultName( result ) );
+        sl::DLSSState state;
+        if ( const sl::Result result = m_Library->GetState( handle, state ); result != sl::Result::eOk )
+            return Common::MakeFormattedError<uint64_t>( "slDLSSGetState(viewport {}): {}", viewport,
+                                                         ResultName( result ) );
+        return Common::MakeSuccess( state.estimatedVRAMUsageInBytes );
     }
 
     Common::BoolResultStr Runtime::Evaluate( VkCommandBuffer commandBuffer, const DlssEvaluation& input )
@@ -576,8 +664,8 @@ namespace Desert::Graphic::Streamline
         const std::scoped_lock lock( m_Mutex );
         if ( !m_DlssReady )
             return Common::MakeFormattedError( "DLSS evaluate: DLSS is not ready: {}", m_Refusal );
-        if ( input.ViewKey == 0 )
-            return Common::MakeError( "DLSS evaluate: view key 0 (a view without a SceneViewState)" );
+        if ( !m_Viewports.contains( input.Viewport ) )
+            return Common::MakeFormattedError( "DLSS evaluate: viewport {} was not acquired", input.Viewport );
 
         if ( m_TokenFrame != input.EngineFrame )
         {
@@ -591,35 +679,7 @@ namespace Desert::Graphic::Streamline
             m_TokenFrame = input.EngineFrame;
         }
         const sl::FrameToken& token = *static_cast<sl::FrameToken*>( m_Token );
-        FreeIdleFeatures( input.EngineFrame, input.FramesToKeep );
-
-        const sl::ViewportHandle viewport( input.ViewKey );
-        const auto [entry, created] = m_Features.try_emplace( input.ViewKey );
-        ViewFeature& feature        = entry->second;
-        if ( created || feature.Mode != input.Mode || feature.OutputWidth != input.OutputWidth ||
-             feature.OutputHeight != input.OutputHeight )
-        {
-            sl::DLSSOptions options;
-            options.mode            = ToSl( input.Mode );
-            options.outputWidth     = input.OutputWidth;
-            options.outputHeight    = input.OutputHeight;
-            options.colorBuffersHDR = sl::Boolean::eTrue;
-            // The engine's exposure texture holds the adapted LUMINANCE, and the key that turns it into an
-            // exposure lives in the tonemapper's settings (and auto exposure may be off): DLSS measures its own
-            // exposure instead of being handed a value that is not one.
-            options.useAutoExposure = sl::Boolean::eTrue;
-            if ( const sl::Result result = m_Library->SetOptions( viewport, options ); result != sl::Result::eOk )
-            {
-                m_Features.erase( entry );
-                return Common::MakeFormattedError( "slDLSSSetOptions(view {}, {}, {}x{}): {}", input.ViewKey,
-                                                   DlssModeName( input.Mode ), input.OutputWidth,
-                                                   input.OutputHeight, ResultName( result ) );
-            }
-            feature.Mode         = input.Mode;
-            feature.OutputWidth  = input.OutputWidth;
-            feature.OutputHeight = input.OutputHeight;
-        }
-        feature.LastFrame = input.EngineFrame;
+        const sl::ViewportHandle viewport( input.Viewport );
 
         sl::Constants constants;
         constants.cameraViewToClip       = ToSl( input.ViewToClip );
@@ -647,7 +707,7 @@ namespace Desert::Graphic::Streamline
         constants.motionVectorsJittered  = sl::Boolean::eFalse; // velocity never carries the jitter
         if ( const sl::Result result = m_Library->SetConstants( constants, token, viewport );
              result != sl::Result::eOk )
-            return Common::MakeFormattedError( "slSetConstants(view {}): {}", input.ViewKey,
+            return Common::MakeFormattedError( "slSetConstants(viewport {}): {}", input.Viewport,
                                                ResultName( result ) );
 
         // Tagged locally, for this evaluation only: the images are graph resources valid for this pass, so nothing
@@ -655,10 +715,12 @@ namespace Desert::Graphic::Streamline
         sl::Resource                   color  = ToSl( input.Color );
         sl::Resource                   depth  = ToSl( input.Depth );
         sl::Resource                   motion = ToSl( input.MotionVectors );
-        sl::Resource                   output = ToSl( input.Output );
+        sl::Resource                   output   = ToSl( input.Output );
+        sl::Resource                   exposure = ToSl( input.Exposure );
         const sl::Extent               render{ 0, 0, input.Color.Width, input.Color.Height };
         const sl::Extent               full{ 0, 0, input.Output.Width, input.Output.Height };
-        std::array<sl::ResourceTag, 4> tags{
+        const sl::Extent               texel{ 0, 0, 1, 1 };
+        std::array<sl::ResourceTag, 5> tags{
              sl::ResourceTag( &color, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
                               &render ),
              sl::ResourceTag( &depth, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent, &render ),
@@ -666,14 +728,16 @@ namespace Desert::Graphic::Streamline
                               &render ),
              sl::ResourceTag( &output, sl::kBufferTypeScalingOutputColor,
                               sl::ResourceLifecycle::eValidUntilPresent, &full ),
+             sl::ResourceTag( &exposure, sl::kBufferTypeExposure, sl::ResourceLifecycle::eValidUntilPresent, &texel ),
         };
-        const std::array<const sl::BaseStructure*, 5> inputs{ &viewport, &tags[0], &tags[1], &tags[2], &tags[3] };
+        const std::array<const sl::BaseStructure*, 6> inputs{ &viewport, &tags[0], &tags[1], &tags[2], &tags[3],
+                                                              &tags[4] };
         if ( const sl::Result result = m_Library->EvaluateFeature(
                   sl::kFeatureDLSS, token, const_cast<const sl::BaseStructure**>( inputs.data() ),
                   static_cast<uint32_t>( inputs.size() ), commandBuffer );
              result != sl::Result::eOk )
-            return Common::MakeFormattedError( "slEvaluateFeature(DLSS, view {}, {} {}x{} -> {}x{}): {}",
-                                               input.ViewKey, DlssModeName( input.Mode ), input.Color.Width,
+            return Common::MakeFormattedError( "slEvaluateFeature(DLSS, viewport {}, {} {}x{} -> {}x{}): {}",
+                                               input.Viewport, DlssModeName( input.Mode ), input.Color.Width,
                                                input.Color.Height, input.Output.Width, input.Output.Height,
                                                ResultName( result ) );
         return Common::MakeSuccess( true );

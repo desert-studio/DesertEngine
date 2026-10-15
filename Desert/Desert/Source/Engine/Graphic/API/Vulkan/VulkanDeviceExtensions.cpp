@@ -2,7 +2,7 @@
 
 #include <array>
 
-#if defined( DESERT_WITH_STREAMLINE )
+#if defined( DESERT_UPSCALER_DLSS )
 #include <Engine/Graphic/API/Vulkan/Streamline/StreamlineRuntime.hpp>
 #endif
 
@@ -10,8 +10,8 @@ namespace Desert::Graphic::API::Vulkan
 {
     std::span<IVulkanDeviceExtension* const> VulkanDeviceExtensions()
     {
-#if defined( DESERT_WITH_STREAMLINE )
-        // NVIDIA Streamline (DLSS Super Resolution): Windows builds only (premake defines DESERT_WITH_STREAMLINE and
+#if defined( DESERT_UPSCALER_DLSS )
+        // NVIDIA Streamline (DLSS Super Resolution): Windows builds only (premake defines DESERT_UPSCALER_DLSS and
         // compiles the Streamline/ directories there alone).
         static const std::array<IVulkanDeviceExtension*, 1> kExtensions{ &Streamline::Runtime::Get() };
         return kExtensions;

@@ -1,5 +1,7 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -17,13 +19,6 @@ namespace Desert::Graphic
         // UE caps the TAAU sequence: beyond 64 positions the sequence is longer than the history's effective
         // memory (the blend forgets a sample before the sequence comes back to it).
         constexpr uint32_t kMaxJitterSequenceLength = 64;
-
-        // DLSS has an implementation only where Streamline is built (Windows: premake defines DESERT_WITH_STREAMLINE).
-#if defined( DESERT_WITH_STREAMLINE )
-        constexpr bool kDlssInThisBuild = true;
-#else
-        constexpr bool kDlssInThisBuild = false;
-#endif
 
         [[nodiscard]] std::string_view UpscalerName( const Scal::Upscaler upscaler )
         {
@@ -128,8 +123,10 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
-            if ( upscaler == Scal::Upscaler::DLSS && kDlssInThisBuild )
+            if ( upscaler == Scal::Upscaler::DLSS && kDlssBuilt )
                 return Common::MakeSuccess( TemporalMethod::DLSS );
+            if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
+                return Common::MakeSuccess( TemporalMethod::FSR );
             // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
             // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
             if ( upscaler == Scal::Upscaler::Spatial )
@@ -168,13 +165,15 @@ namespace Desert::Graphic
             case Scal::AntiAliasingMethod::SMAA:
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
-            // DLSS's network at output size; never on a supersampled split (Scalability Resolve demotes it there,
-            // and the DLSS implementation's Supports refuses one).
+            // A vendor's native AA ("DLAA", "FSR Native AA"). Above 100 % the vendor method is selected too, and its
+            // Supports refuses the supersample split, so ResolveViewResolution clamps the view to 100 % and says why.
             case Scal::AntiAliasingMethod::DLAA:
-                if ( kDlssInThisBuild )
+                if ( kDlssBuilt )
                     return Common::MakeSuccess( TemporalMethod::DLSS );
                 break;
             case Scal::AntiAliasingMethod::FSRNative:
+                if ( kFsrBuilt )
+                    return Common::MakeSuccess( TemporalMethod::FSR );
                 break;
         }
         return Common::MakeFormattedError<TemporalMethod>(
@@ -193,9 +192,12 @@ namespace Desert::Graphic
             case TemporalMethod::TAA:
                 return kJitterSamplesPerOutputPixel;
             // DLSS: NVIDIA's rule is UE's TAAU rule (8 phases per output pixel, the render/output pixel ratio
-            // times it), so it shares TAAU's sequence length below.
+            // times it), so it shares TAAU's sequence length below. FSR has its own phase count
+            // (Fsr3Upscaler::JitterSequenceLength overrides the ITemporalUpscaler default); it is listed so this
+            // free function stays total.
             case TemporalMethod::TAAU:
             case TemporalMethod::DLSS:
+            case TemporalMethod::FSR:
                 break;
         }
 

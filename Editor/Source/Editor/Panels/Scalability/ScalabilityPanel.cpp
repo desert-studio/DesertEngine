@@ -169,15 +169,11 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's, minus FSRNative: no pass runs it in this build, so offering it would be
-            // a dead setting. DLAA runs where the catalog offers it (Windows, NVIDIA RTX, Streamline's DLSS ready).
-            // TAA runs (TAA1-B) and is the method that lets Resolution.Percent go below 100 %.
-            std::vector<SC::AntiAliasingMethod> methods;
-            for ( const SC::AntiAliasingMethod method : catalog.AntiAliasingMethods )
-                if ( method == SC::AntiAliasingMethod::None || method == SC::AntiAliasingMethod::FXAA ||
-                     method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA ||
-                     method == SC::AntiAliasingMethod::TAA || method == SC::AntiAliasingMethod::DLAA )
-                    methods.push_back( method );
+            // MSAA. The list is the catalog's: every method it offers runs here - FSRNative and DLAA only where the
+            // device and the build have the vendor upscaler (Graphic/API/UpscalerBuild.hpp). TAA (TAA1-B) and the
+            // vendor methods are the ones that let Resolution.Percent go below 100 %.
+            const std::vector<SC::AntiAliasingMethod> methods( catalog.AntiAliasingMethods.begin(),
+                                                               catalog.AntiAliasingMethods.end() );
 
             const auto requestedMethod =
                  static_cast<SC::AntiAliasingMethod>( Requested( SC::Parameter::AntiAliasingMethod ) );
@@ -234,6 +230,38 @@ namespace Desert::Editor
                                       [&counts]( std::size_t i ) { return std::format( "{}x", counts[i] ); } ) )
                     SC::QualityState::SetOverride( SC::Parameter::AntiAliasingSamples, counts[*picked] );
                 ShowFallback( resolved, SC::Parameter::AntiAliasingSamples );
+            }
+
+            // UE's r.NGX.DLSS.<Mode>Preset: which DLSS network each DLSS mode runs. Shown where this device offers
+            // DLSS (DLAA at 100 %, the DLSS upscaler below it) - elsewhere the rows have no reader.
+            if ( std::find( catalog.Upscalers.begin(), catalog.Upscalers.end(), SC::Upscaler::DLSS ) !=
+                 catalog.Upscalers.end() )
+            {
+                static constexpr std::array<std::pair<SC::Parameter, const char*>, 6> kPresetRows{ {
+                     { SC::Parameter::DlssPresetDLAA, "DLSS Preset: DLAA" },
+                     { SC::Parameter::DlssPresetUltraQuality, "DLSS Preset: Ultra Quality" },
+                     { SC::Parameter::DlssPresetQuality, "DLSS Preset: Quality" },
+                     { SC::Parameter::DlssPresetBalanced, "DLSS Preset: Balanced" },
+                     { SC::Parameter::DlssPresetPerformance, "DLSS Preset: Performance" },
+                     { SC::Parameter::DlssPresetUltraPerformance, "DLSS Preset: Ultra Performance" },
+                } };
+                for ( const auto& [parameter, label] : kPresetRows )
+                {
+                    const int requested = Requested( parameter );
+                    if ( const auto picked = ValueCombo(
+                              label,
+                              requested >= 0 && requested < static_cast<int>( SC::kDlssPresetNames.size() )
+                                   ? static_cast<std::size_t>( requested )
+                                   : SC::kDlssPresetNames.size(),
+                              SC::kDlssPresetNames.size(),
+                              []( std::size_t i ) { return std::string( SC::kDlssPresetNames[i] ); } ) )
+                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
+                    ShowFallback( resolved, parameter );
+                }
+                Utils::ImGuiUtilities::Tooltip( "Default is NVIDIA's network for the mode. K: transformer, best "
+                                                "quality (default for DLAA, Quality, Balanced); M: default for "
+                                                "Performance; L: default for Ultra Performance; J: like K with "
+                                                "less ghosting and more flicker. Applies on the next frame." );
             }
         }
 

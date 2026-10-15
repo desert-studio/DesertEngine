@@ -274,6 +274,7 @@ namespace Desert::Graphic
     };
 
     class ITemporalUpscaler;
+    class ITemporalUpscalerHistory;
 
     // ---- THE VIEW STATE ------------------------------------------------------------------------------------
     class SceneViewState
@@ -297,6 +298,17 @@ namespace Desert::Graphic
         [[nodiscard]] TemporalHistory& History();
         [[nodiscard]] MotionHistory&   Motion();
 
+        // The vendor upscaler state the last frame returned (TemporalUpscalerOutputs::NewHistory), handed back as
+        // TemporalUpscalerInputs::PrevHistory. Dropped by Reset and by a BeginFrame whose method is None.
+        [[nodiscard]] const std::shared_ptr<ITemporalUpscalerHistory>& UpscalerHistory() const
+        {
+            return m_UpscalerHistory;
+        }
+        void SetUpscalerHistory( std::shared_ptr<ITemporalUpscalerHistory> history )
+        {
+            m_UpscalerHistory = std::move( history );
+        }
+
         // After Builder::Execute succeeded. Commits the frame BeginFrame returned as the previous one, advances
         // the jitter index modulo its length, swaps the history pairs, ends the motion frame. If @p report lists a
         // Current history as lost, the next BeginFrame resets with PassFault (logged once per view by the
@@ -310,9 +322,6 @@ namespace Desert::Graphic
         [[nodiscard]] uint64_t HeldBytes() const;
 
     private:
-        // A process-unique, never-zero key per SceneViewState (ViewFrame::ViewKey).
-        [[nodiscard]] static uint32_t NextViewKey();
-
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;                     // returned by the last BeginFrame, committed by EndFrame
         ViewFrame       m_Committed;                   // the previous frame
@@ -322,8 +331,8 @@ namespace Desert::Graphic
         uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;
-        const uint32_t  m_ViewKey                 = NextViewKey(); // ViewFrame::ViewKey
         TemporalHistory m_History;
         MotionHistory   m_Motion;
+        std::shared_ptr<ITemporalUpscalerHistory> m_UpscalerHistory;
     };
 } // namespace Desert::Graphic

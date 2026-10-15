@@ -85,6 +85,22 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)" },
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)" },
+             { P::DlssPresetDLAA, G::AntiAliasing, "AntiAliasing.DLSSPreset.DLAA", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None, "DLSSUpscaler (DLSS options of the view's DLAA mode)" },
+             { P::DlssPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraQuality", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Ultra Quality mode)" },
+             { P::DlssPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.Quality", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None, "DLSSUpscaler (DLSS options of the view's Quality mode)" },
+             { P::DlssPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSPreset.Balanced", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Balanced mode)" },
+             { P::DlssPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.Performance", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Performance mode)" },
+             { P::DlssPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraPerformance", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -108,6 +124,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter >= Parameter::DlssPresetDLAA && parameter <= Parameter::DlssPresetUltraPerformance )
+                return kDlssPresetNames;
             switch ( SpecOf( parameter ).NarrowedBy )
             {
                 case CatalogList::AntiAliasingMethods:
@@ -815,7 +833,8 @@ namespace Common::Scalability
     {
         using M = AntiAliasingMethod;
         using U = Upscaler;
-        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2).
+        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2,
+        // Ultra Performance 1/3).
         static constexpr AntiAliasingPreset kPresets[] = {
              { "Native.TAA", M::TAA, 1, 100, U::None },
              { "Native.SMAA", M::SMAA, 1, 100, U::None },
@@ -833,10 +852,12 @@ namespace Common::Scalability
              { "FSR.Quality", M::FSRNative, 1, 67, U::FSR },
              { "FSR.Balanced", M::FSRNative, 1, 58, U::FSR },
              { "FSR.Performance", M::FSRNative, 1, 50, U::FSR },
+             { "FSR.UltraPerformance", M::FSRNative, 1, 33, U::FSR },
              { "DLSS.DLAA", M::DLAA, 1, 100, U::None },
              { "DLSS.Quality", M::DLAA, 1, 67, U::DLSS },
              { "DLSS.Balanced", M::DLAA, 1, 58, U::DLSS },
              { "DLSS.Performance", M::DLAA, 1, 50, U::DLSS },
+             { "DLSS.UltraPerformance", M::DLAA, 1, 33, U::DLSS },
              { "XeSS.Quality", M::TAA, 1, 67, U::XeSS },
              { "XeSS.Balanced", M::TAA, 1, 58, U::XeSS },
              { "XeSS.Performance", M::TAA, 1, 50, U::XeSS },

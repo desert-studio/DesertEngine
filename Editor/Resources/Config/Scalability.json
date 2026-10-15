@@ -5,27 +5,57 @@
             "Low": {
                 "AntiAliasing.Method": "FXAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 0
+                "AntiAliasing.TemporalQuality": 0,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
             },
             "Medium": {
                 "AntiAliasing.Method": "FXAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 1
+                "AntiAliasing.TemporalQuality": 1,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
             },
             "High": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
             },
             "Epic": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
             },
             "Cinematic": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
             }
         },
         "ResolutionScale": {

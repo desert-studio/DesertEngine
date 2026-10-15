@@ -37,6 +37,7 @@
 #include <bit>
 #include <cctype>
 #include <cstdint>
+#include <format>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -809,6 +810,7 @@ namespace Desert::Editor
         // package without them is one that does not start, and a Debug Runtime (debug CRT, not
         // redistributable) is refused here by name.
         std::vector<fs::path> appLocalRuntime;
+        std::vector<fs::path> vendorRuntime;
         if ( host.Platform == TargetPlatform::Windows )
         {
             auto crtDir = FindVcCrtRedistDir();
@@ -822,6 +824,32 @@ namespace Desert::Editor
             if ( !closure )
                 return { false, "Cannot decide the app-local C++ runtime: " + closure.GetError(), "" };
             appLocalRuntime = closure.ExtractValue();
+
+            // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
+            // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
+            // StreamlineRuntime), so without these files the packaged game silently has no DLSS. The vendored
+            // directory IS the list — the build copies the same directory beside every executable
+            // (Desert/Dependencies.lua: DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution
+            // licence, which must ship with nvngx_dlss.dll. FSR needs nothing here: the FidelityFX SDK is a
+            // static library with its shaders compiled in.
+            const fs::path streamline =
+                 Common::Constants::Path::EngineDir().parent_path() / "ThirdParty" / "Streamline" / "bin" / "x64";
+            std::error_code dirEc;
+            for ( fs::directory_iterator it( streamline, dirEc ), end; !dirEc && it != end; it.increment( dirEc ) )
+                if ( it->is_regular_file( dirEc ) )
+                    vendorRuntime.push_back( it->path() );
+            if ( dirEc )
+                return { false,
+                         std::format( "The DLSS runtime (NVIDIA Streamline) the game loads could not be listed from "
+                                      "{}: {}",
+                                      streamline.string(), dirEc.message() ),
+                         "" };
+            if ( std::ranges::none_of( vendorRuntime, []( const fs::path& file )
+                                       { return file.filename() == "sl.interposer.dll"; } ) )
+                return { false,
+                         std::format( "{} has no sl.interposer.dll, the DLSS runtime the game loads",
+                                      streamline.string() ),
+                         "" };
         }
 
         // Layout: a macOS .app bundle (default there) or a plain folder. Same content either way — the
@@ -890,6 +918,19 @@ namespace Desert::Editor
             LOG_INFO( "[Package] app-local C++ runtime from {}: {}",
                       appLocalRuntime.front().parent_path().string(), names );
         }
+
+        // 2c) Windows: the vendor upscaler runtimes, beside the binary, where StreamlineRuntime loads them from.
+        for ( const fs::path& file : vendorRuntime )
+        {
+            fs::copy_file( file, gameDir / file.filename(), fs::copy_options::overwrite_existing, ec );
+            if ( ec )
+                return { false, std::format( "Cannot copy the DLSS runtime file {}: {}", file.string(), ec.message() ),
+                         "" };
+            ++stats.Files;
+        }
+        if ( !vendorRuntime.empty() )
+            LOG_INFO( "[Package] DLSS runtime (NVIDIA Streamline) from {}: {} file(s)",
+                      vendorRuntime.front().parent_path().string(), vendorRuntime.size() );
 
         // 3) The cook ran first, above the registry check — see there.
 

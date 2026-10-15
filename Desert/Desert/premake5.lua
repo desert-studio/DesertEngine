@@ -68,12 +68,14 @@ local function EngineModuleLibrary(module, legacyFiles)
         DesertModuleLibs.DependOnCodegen()
     end
 
-    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only. So do the vendor
+    -- upscalers (Engine/Graphic/Upscalers/) and every Streamline/ directory (the NVIDIA Streamline device
+    -- integration DLSS runs on): their SDKs are built or shipped for Windows only (BuildScripts/ThirdParty/
+    -- FidelityFX.lua, ThirdParty/Streamline).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
     for _, file in ipairs(legacyFiles) do
         local target = commonFiles
-        -- Every Streamline/ directory is the NVIDIA Streamline integration (DLSS), Windows only.
-        if file:find("^Platform/Windows/") or file:find("/Streamline/") then
+        if file:find("^Platform/Windows/") or file:find("^Engine/Graphic/Upscalers/") or file:find("/Streamline/") then
             target = windowsFiles
         elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
             target = macFiles
@@ -158,15 +160,20 @@ end
 
     filter { "system:windows" }
         defines { "DESERT_PLATFORM_WINDOWS" }
-        -- NVIDIA Streamline (DLSS): the Streamline/ sources above and the code that registers them
-        -- (Graphic/API/Vulkan/VulkanDeviceExtensions.cpp, Graphic/View/TemporalUpscaler.cpp, ViewFrame.cpp).
-        defines { "DESERT_WITH_STREAMLINE" }
-        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/include" }
         -- /bigobj: MSVC caps an object file at 65279 sections, and the generated reflection +
         -- component-registry translation units (one template instantiation per reflected type) blow
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
         files(windowsFiles)
+        -- The vendor upscalers (Engine/Graphic/API/UpscalerBuild.hpp reads the defines; the windowsFiles above
+        -- hold their sources). FSR 3.1: Upscalers/FSR on the FidelityFX SDK. DLSS: Upscalers/DLSS on NVIDIA
+        -- Streamline, whose device integration is API/Vulkan/Streamline (registered by VulkanDeviceExtensions.cpp).
+        defines { "DESERT_UPSCALER_FSR", "DESERT_UPSCALER_DLSS" }
+        externalincludedirs {
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/FidelityFX-SDK/sdk/include",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/include",
+        }
+        links { "FidelityFX" }
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }

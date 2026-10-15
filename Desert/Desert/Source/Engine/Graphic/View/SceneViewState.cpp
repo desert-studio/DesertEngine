@@ -4,7 +4,6 @@
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <string_view>
 
@@ -56,6 +55,8 @@ namespace Desert::Graphic
                     return "TAAU";
                 case TemporalMethod::DLSS:
                     return "DLSS";
+                case TemporalMethod::FSR:
+                    return "FSR";
             }
             return "<unknown TemporalMethod>";
         }
@@ -259,7 +260,6 @@ namespace Desert::Graphic
 
         ViewFrame f;
         f.FrameIndex = m_HasCommitted ? m_Committed.FrameIndex + 1 : 0;
-        f.ViewKey    = m_ViewKey;
         f.Split      = split.GetValue();
         f.Method     = method.GetValue();
         f.Quality    = inputs.Quality;
@@ -272,9 +272,13 @@ namespace Desert::Graphic
         f.NearPlane      = inputs.NearPlane;
         f.FarPlane       = inputs.FarPlane;
 
-        f.JitterSequenceLength = TemporalJitterSequenceLength( f.Method, f.Split );
+        // The method's own sample pattern (ITemporalUpscaler::JitterSequenceLength / JitterPixels; the engine's
+        // Halton sequence unless a vendor SDK prescribes another). No upscaler = method None = no jitter.
+        f.JitterSequenceLength = upscaler != nullptr ? upscaler->JitterSequenceLength( f.Split ) : 0;
         f.JitterIndex  = ( isReset || f.JitterSequenceLength == 0 ) ? 0 : m_JitterIndex % f.JitterSequenceLength;
-        f.JitterPixels = TemporalJitterPixels( f.JitterIndex, f.JitterSequenceLength );
+        f.JitterPixels         = f.JitterSequenceLength == 0
+                                      ? glm::vec2( 0.0f )
+                                      : upscaler->JitterPixels( f.JitterIndex, f.JitterSequenceLength );
         f.JitterNdc    = JitterPixelsToNdc( f.JitterPixels, f.Split.Render );
 
         // Method None: no jitter at all, so the jittered matrices are bit-identical to the unjittered ones.
@@ -298,14 +302,13 @@ namespace Desert::Graphic
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
 
-        // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples; the spatial
-        // upscale has one sample per render pixel, and a negative bias there only aliases (UE applies the
-        // screen-percentage mip bias under temporal upsampling only).
-        f.MaterialMipBias = 0.0f;
-        if ( f.Split.Mode == Common::Scalability::ScaleMode::Upscale && f.Method != TemporalMethod::None &&
-             f.Split.Render.Width != 0 && f.Split.Output.Width != 0 )
-            f.MaterialMipBias = std::log2( static_cast<float>( f.Split.Render.Width ) /
-                                           static_cast<float>( f.Split.Output.Width ) );
+        // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
+        // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the
+        // method's (ITemporalUpscaler::MaterialMipBias): UE's screen-percentage bias, or the vendor SDK's own.
+        f.MaterialMipBias = upscaler != nullptr ? upscaler->MaterialMipBias( f.Split ) : 0.0f;
+        // A method without one keeps no vendor state (UE drops the third-party history with the method).
+        if ( upscaler == nullptr )
+            m_UpscalerHistory.reset();
 
         f.HistoryReset = reset;
 
@@ -342,6 +345,7 @@ namespace Desert::Graphic
     void SceneViewState::Reset()
     {
         m_History.Release();
+        m_UpscalerHistory.reset();
         m_Motion.Clear();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};
@@ -355,17 +359,6 @@ namespace Desert::Graphic
 
     uint64_t SceneViewState::HeldBytes() const
     {
-        return m_History.HeldBytes();
-    }
-
-    uint32_t SceneViewState::NextViewKey()
-    {
-        // 0 is "no view state", skipped when the counter wraps. A key is only compared among views alive together,
-        // and an SDK feature of a long-dead view is freed by age long before 2^32 more views exist.
-        static std::atomic<uint32_t> s_Next{ 1 };
-        uint32_t                     key = 0;
-        while ( key == 0 )
-            key = s_Next.fetch_add( 1, std::memory_order_relaxed );
-        return key;
+        return m_History.HeldBytes() + ( m_UpscalerHistory ? m_UpscalerHistory->HeldBytes() : 0 );
     }
 } // namespace Desert::Graphic

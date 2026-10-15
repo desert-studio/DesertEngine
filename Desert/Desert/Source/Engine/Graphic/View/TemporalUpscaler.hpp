@@ -5,6 +5,8 @@
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
+#include <glm/glm.hpp>
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -36,6 +38,22 @@ namespace Desert::Graphic::RDG
 // (SupersampleResolve) follows it at the same point; without a temporal method the downsample runs alone.
 namespace Desert::Graphic
 {
+    // What an implementation carries between frames that is NOT a texture the engine allocates (UE:
+    // ITemporalUpscaler::IHistory, held by FSceneViewState): a vendor SDK's context and the resources it owns.
+    // Opaque to the engine. The view (SceneViewState::UpscalerHistory) keeps the one the last frame returned and
+    // hands it back as TemporalUpscalerInputs::PrevHistory; the implementation keeps it, or replaces it when it is
+    // not its own or no longer fits (extent, quality). Destruction may not free a GPU object a frame in flight
+    // still records with: the implementation defers that (VulkanAllocator::RT_DestroyLater).
+    class ITemporalUpscalerHistory
+    {
+    public:
+        virtual ~ITemporalUpscalerHistory() = default;
+
+        [[nodiscard]] virtual std::string_view DebugName() const = 0;
+        // Device memory the history holds, counted in the view's budget (SceneViewState::HeldBytes).
+        [[nodiscard]] virtual uint64_t HeldBytes() const = 0;
+    };
+
     struct TemporalUpscalerInputs
     {
         RDG::TextureRef SceneColor; // linear HDR, RenderExtent, jittered
@@ -48,11 +66,22 @@ namespace Desert::Graphic
         // tonemapped space (UE: HdrWeight), and the exposure must be the one the history was resolved under.
         RDG::TextureRef Exposure; // AutoExposureRenderer previous adapted luminance, 1x1 (AutoExposure.Previous)
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
+        // The NewHistory this view's last frame returned; null on the view's first frame, after
+        // SceneViewState::Reset and while the method is None. May be another implementation's (a method change):
+        // an implementation uses only its own.
+        std::shared_ptr<ITemporalUpscalerHistory> PrevHistory;
+        // The renderer's resolved quality this frame (SceneRenderer: m_Quality). An implementation reads its own
+        // parameters from it (DLSS: its preset per mode), as UE's upscaler plugins read their own console
+        // variables; the interface names none of them.
+        const Common::Scalability::ResolvedQuality* Quality = nullptr;
     };
 
     struct TemporalUpscalerOutputs
     {
         RDG::TextureRef SceneColor; // linear HDR, OutputExtent (Native/Upscale) or RenderExtent (Supersample)
+        // What the view keeps for the next frame (SceneViewState::SetUpscalerHistory); null for an implementation
+        // whose state is all in HistoryDescs.
+        std::shared_ptr<ITemporalUpscalerHistory> NewHistory;
     };
 
     class ITemporalUpscaler
@@ -72,6 +101,19 @@ namespace Desert::Graphic
         [[nodiscard]] virtual std::vector<HistoryTextureDesc>
         HistoryDescs( const ResolutionSplit& split ) const = 0;
 
+        // THE SUB-PIXEL JITTER this method resolves (UE: the upscaler's own sample pattern), read by
+        // SceneViewState::BeginFrame into ViewFrame::JitterSequenceLength / JitterPixels. Default: the engine's
+        // Halton(2,3) sequence (TemporalJitterSequenceLength / TemporalJitterPixels). An implementation whose SDK
+        // prescribes its own pattern overrides both. Pixels as ViewFrame::JitterPixels: render pixels, in the
+        // frame's NDC orientation (JitterPixelsToNdc is 2 * pixels / RenderExtent).
+        [[nodiscard]] virtual uint32_t  JitterSequenceLength( const ResolutionSplit& split ) const;
+        [[nodiscard]] virtual glm::vec2 JitterPixels( uint32_t index, uint32_t length ) const;
+
+        // ViewFrame::MaterialMipBias under this method. Default: log2( Render.Width / Output.Width ) at Upscale,
+        // 0 at Native and Supersample (UE's screen-percentage mip bias under temporal upsampling). An
+        // implementation whose SDK states its own rule overrides it.
+        [[nodiscard]] virtual float MaterialMipBias( const ResolutionSplit& split ) const;
+
         // Adds the method's passes. The written history (HistoryRefs::Current) must be written by these passes
         // only; the output may alias it (TAA's output IS its new history) — the implementation says so by
         // returning the same ref. Errors are a malformed call (a missing input, a history count different from
@@ -81,8 +123,10 @@ namespace Desert::Graphic
         AddPasses( RDG::Builder& graph, const ViewFrame& frame, const TemporalUpscalerInputs& inputs ) const = 0;
     };
 
-    // The implementations this build has, one per TemporalMethod other than None. Null for None. The objects are
-    // stateless (all state is in SceneViewState), so one instance per SceneRenderer is enough.
+    // The implementations this build has, one per TemporalMethod other than None. Null for None, and for FSR in a
+    // build without it (kFsrBuilt false: SelectTemporalMethod never selects it there). The objects are stateless
+    // (all state is in SceneViewState, an SDK's context in its ITemporalUpscalerHistory), so one instance per
+    // SceneRenderer is enough.
     [[nodiscard]] std::unique_ptr<ITemporalUpscaler> CreateTemporalUpscaler( TemporalMethod method );
 
     // TWO EXTENTS PER VIEW (TAA1-B step 6). Every view target follows one of them: the RENDER set is what the

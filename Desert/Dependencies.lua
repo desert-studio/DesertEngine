@@ -169,23 +169,22 @@ end
 -- NVIDIA STREAMLINE (DLSS Super Resolution), Windows only: the SDK release vendored under ThirdParty/Streamline
 -- (VERSION names it). The engine compiles against its headers (Desert/Desert/premake5.lua) and LOADS
 -- sl.interposer.dll at run time from the executable's directory (Graphic/API/Vulkan/Streamline/StreamlineRuntime):
--- nothing links it, so a machine without it starts and simply has no DLSS. These are the files that run, next
--- to every executable that renders, plus NVIDIA's redistribution licence the DLSS runtime requires shipped with it.
-DesertStreamlineRedistributables = {
-    "sl.interposer.dll",
-    "sl.common.dll",
-    "sl.dlss.dll",
-    "nvngx_dlss.dll",
-    "nvngx_dlss.license.txt",
-}
+-- nothing links it, so a machine without it starts and simply has no DLSS. ThirdParty/Streamline/bin/x64 IS the
+-- list of files that run, plus NVIDIA's redistribution licence the DLSS runtime requires shipped with it: this
+-- copies all of it next to every executable that renders, and the game packager ships the same directory beside
+-- the packaged game (Editor/Source/Editor/Packaging/GamePackager.cpp), so the two can never disagree.
+DesertStreamlineRuntimeDir = "ThirdParty/Streamline/bin/x64"
 
--- Called inside an executable's project: copies DesertStreamlineRedistributables into its target directory
--- after the link (Windows only).
+-- Called inside an executable's project: copies DesertStreamlineRuntimeDir into its target directory after the
+-- link (Windows only).
 function DesertCopyStreamlineRuntime()
     filter "system:windows"
-        for _, file in ipairs(DesertStreamlineRedistributables) do
+        -- Sorted: the directory's own order varies by file system, and the project files must not.
+        local files = os.matchfiles(path.join(_MAIN_SCRIPT_DIR, DesertStreamlineRuntimeDir, "*"))
+        table.sort(files)
+        for _, file in ipairs(files) do
             postbuildcommands {
-                '{COPYFILE} "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/bin/x64/' .. file .. '" "%{cfg.targetdir}"',
+                '{COPYFILE} "%{_MAIN_SCRIPT_DIR}/' .. DesertStreamlineRuntimeDir .. '/' .. path.getname(file) .. '" "%{cfg.targetdir}"',
             }
         end
     filter {}

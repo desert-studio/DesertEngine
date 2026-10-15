@@ -4,6 +4,7 @@
 // headers only; it does not link until TAA1's implementation step lands, and that step is done when this suite
 // passes unchanged. No GPU: the graph is a bare RDG::Builder that is never executed, and the upscaler is a fixture
 // that declares the same history TAA does.
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
@@ -180,13 +181,17 @@ TEST( TemporalViewContract, MethodRefusesWhatScalabilityNeverProduces )
     // Below 100 % with no upscaler, and an upscaler at native scale: SCAL1's Resolve rule 5 removes both.
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::None ).IsSuccess() );
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::TAAU ).IsSuccess() );
-    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. (DLSS has one
-    // where Streamline is built - Windows, ViewFrame.cpp kDlssInThisBuild - so it is not in this platform-free list.)
-    for ( const Scal::Upscaler vendor : { Scal::Upscaler::FSR, Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
+    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. FSR and DLSS
+    // have one exactly where their SDK is built (API/UpscalerBuild.hpp), XeSS and MetalFX nowhere yet.
+    for ( const Scal::Upscaler vendor : { Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
     {
         const auto chosen = SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), vendor );
         EXPECT_FALSE( chosen.IsSuccess() );
     }
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::FSR ).IsSuccess(),
+               kFsrBuilt );
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::DLSS ).IsSuccess(),
+               kDlssBuilt );
 }
 
 // ---- Jitter -------------------------------------------------------------------------------------------------
