@@ -84,11 +84,11 @@ namespace
       "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.ContactShadowSteps": 24, "Shadows.Method": "Stochastic", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64 }
     },
     "GlobalIllumination": {
-      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.Method": "ScreenSpace" },
-      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.Method": "ReflectiveShadowMaps" },
-      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.Method": "HardwareTraced" },
-      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.Method": "HardwareTraced" },
-      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.Method": "PathTraced" }
+      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.DistanceFieldPoolMiB": 64, "GlobalIllumination.Method": "ScreenSpace" },
+      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ReflectiveShadowMaps" },
+      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
+      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
+      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced" }
     },
     "Reflections": {
       "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },

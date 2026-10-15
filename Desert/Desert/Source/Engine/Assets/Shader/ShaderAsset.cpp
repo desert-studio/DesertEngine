@@ -62,6 +62,7 @@ namespace Desert::Assets
             return Common::MakeError( std::format( "shader '{}': {}", path, manifest.GetError() ) );
         m_Role           = manifest.GetValue().Role;
         m_DefaultSurface = manifest.GetValue().DefaultSurface;
+        m_TwoSided       = manifest.GetValue().TwoSided;
 
         const auto declared = Common::Content::ReadShaderDeclaredName( m_ShaderContent );
         if ( !declared )
@@ -89,6 +90,7 @@ namespace Desert::Assets
         m_ShaderContent.shrink_to_fit();
         m_Role.clear();
         m_DefaultSurface = false;
+        m_TwoSided       = false;
         m_ReadyForUse = false;
         return BOOLSUCCESS;
     }
