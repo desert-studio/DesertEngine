@@ -280,6 +280,9 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
          "Mesh/Surface/Pass_Forward_Translucent.glslh",
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
          "Programs/Skybox/Skybox.shader",         // the backdrop
+         // the Forward path's ground: the same ambient as a forward mesh (AmbientIBL), the look from
+         // SceneFrameBinding::ApplyTo -> SceneEnvironmentBind (TerrainRenderer::PrepareFrame)
+         "Programs/Terrain/Terrain.shader",
     };
 
     // The names the engine binds environment cubes under: the IBL pair, the skybox pass's cube, and

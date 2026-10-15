@@ -16,8 +16,6 @@
         {
             mat4 View;
             mat4 Projection;
-            vec4 SunDir;     // xyz = normalized light direction (scene directional light)
-            vec4 SunColor;   // rgb = color, a = intensity
             // TAA1: the view's UNJITTERED matrices of this frame and the previous one (Graphic::ViewFrame
             // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
             mat4 ViewProjection;

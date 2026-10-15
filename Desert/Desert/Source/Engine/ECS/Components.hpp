@@ -1083,7 +1083,7 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
                   Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
@@ -1176,7 +1176,7 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
                   Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),

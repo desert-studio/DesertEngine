@@ -34,8 +34,6 @@ namespace Desert::Graphic::System
         {
             glm::mat4 View;
             glm::mat4 Projection;
-            glm::vec4 SunDir;   // xyz = normalized light direction (scene directional light)
-            glm::vec4 SunColor; // rgb = color, a = intensity
             // TAA1: the view's unjittered matrices of this frame and the previous one (ViewFrame), for the
             // velocity the terrain writes (TerrainSurface.glslh TerrainVelocity).
             glm::mat4 ViewProjection;
@@ -44,24 +42,6 @@ namespace Desert::Graphic::System
             // (Common/ContactShadow.glslh, its point and spot lights).
             glm::mat4 JitteredViewProjection;
         };
-
-        // Resolve the scene's main directional light (or a sensible default sun if none exists).
-        void GetSun( const SceneRenderer* sr, glm::vec4& outDir, glm::vec4& outColor )
-        {
-            // No directional light in the scene: no sun (intensity 0), as the deferred composite and the forward
-            // meshes light the same scene. The direction is only kept unit length.
-            outDir   = glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
-            outColor = glm::vec4( 0.0f );
-            if ( sr )
-            {
-                const auto& dl = sr->GetDirectionLights().DirectionLights;
-                if ( !dl.empty() )
-                {
-                    outDir   = dl[0].Direction;
-                    outColor = dl[0].ColorIntensity;
-                }
-            }
-        }
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
@@ -412,7 +392,6 @@ namespace Desert::Graphic::System
         TerrainUB ub{};
         ub.View       = frame.View;
         ub.Projection = frame.Projection;
-        GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
         ub.ViewProjection         = frame.ViewProjection;
         ub.PrevViewProjection     = frame.PrevViewProjection;
         ub.JitteredViewProjection = frame.JitteredViewProjection;
@@ -445,10 +424,12 @@ namespace Desert::Graphic::System
             // The scene's part of the forward program, by the ONE applier every lit material gets it from
             // (SceneFrameBinding::ApplyTo, the groups its layout declares): the cloud layer's shadow on the sun
             // — a terrain is drawn by neither render path's mesh shaders, so while the map's only reader was the
-            // deferred composite a terrain never darkened under a cloud at all — and the point and spot lights
-            // with the ShadowUB their contact shadows read (Mesh/ForwardLocalLights.glslh). Forward only: in
-            // Deferred the composite lights the terrain's G-buffer texels with all of it, like every other
-            // surface. The maps and the light grid are pass parameters of the "TerrainPass" node
+            // deferred composite a terrain never darkened under a cloud at all — the sun (DirectionLightsUB, the
+            // one statement of it the forward meshes read; TerrainUB no longer carries a copy), the point and spot
+            // lights, the cascades' ShadowUB and the sky look the ambient reads (Mesh/AmbientIBL.glslh). Forward
+            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every other
+            // surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection captures,
+            // the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
             // (SceneViewInputs); the material carries the blocks.
             if ( !deferred )
                 scene.ApplyTo( surface );

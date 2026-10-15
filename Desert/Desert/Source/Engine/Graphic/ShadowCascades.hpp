@@ -198,7 +198,10 @@ namespace Desert::Graphic
         float Distribution = 1.0f;
     };
 
-    // UE's r.Shadow.ShadowMaxSlopeScaleDepthBias: the slope term stops growing at 45 degrees (tan = 1).
+    // THE slope clamp of every shadow caster - the cascades (ComputeCascadeCasterBias) and the point/spot views
+    // (LocalShadows.hpp LocalCasterBias) alike: UE's r.Shadow.ShadowMaxSlopeScaleDepthBias (default 1), which
+    // FProjectedShadowInfo::UpdateShaderDepthBias hands every projected shadow, whole-scene and per-light. The
+    // slope term stops growing at 45 degrees (tan = 1).
     inline constexpr float kShadowMaxSlope = 1.0f;
 
     // One cascade's bias as the CASTER applies it (the receiver applies none; its normal offset is separate).
@@ -207,7 +210,7 @@ namespace Desert::Graphic
     //                caster's VERTEX stage adds SlopeBias * min(tan, SlopeClamp) to its clip depth
     //                (Common/ShadowCasterBias.glslh, as UE's ShadowDepthVertexShader.usf), so the slope term is
     //                slope centimetres * tan(angle) in that depth's units and no fragment writes a depth.
-    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope.
+    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope, for every caster.
     struct CascadeCasterBias
     {
         float DepthBias  = 0.0f;

@@ -46,10 +46,6 @@ namespace Desert::Graphic
     // receiver at a face's edge reads texels of its own view, never the neighbouring tile.
     inline constexpr float kLocalShadowGuardTexels = 2.0f;
 
-    // Where a local view's slope bias stops growing (tan = 4, 76 degrees): the clamp the light's Shadow Slope Bias
-    // tooltip states, kept from when the receiver applied the term (LocalCasterBias).
-    inline constexpr float kLocalShadowMaxSlope = 4.0f;
-
     // The atlas side for a renderer's shadow budget: twice the cascade side (UE scales its local-light pool with
     // the same r.Shadow quality as the cascades). 0 = the renderer holds no shadow at all (kNoShadowQuality).
     [[nodiscard]] inline constexpr uint32_t LocalShadowAtlasSize( const uint32_t cascadeMapSize )
@@ -302,6 +298,6 @@ namespace Desert::Graphic
         const float clipPerTexel = texelAtUnit * nearPlane * farPlane / ( farPlane - nearPlane );
         return { .DepthBias  = settings.DepthBias * clipPerTexel,
                  .SlopeBias  = settings.SlopeBias * clipPerTexel,
-                 .SlopeClamp = kLocalShadowMaxSlope };
+                 .SlopeClamp = kShadowMaxSlope };
     }
 } // namespace Desert::Graphic
