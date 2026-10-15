@@ -91,6 +91,23 @@ namespace Desert::Graphic
     struct FrameValues;
     class ReflectionCaptureRenderer;
 
+    /**
+     * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
+     * view's rows (every device object opened under its instance: targets, history, per-view copies, its TLAS
+     * and landscape tiles) and the scene's rows (its RayTracingSceneCache: BLAS variants, skin cache,
+     * procedural BLASes). The ONE source of the view's budget entry (SceneRenderer::HeldBytes), of its
+     * [ViewMemory] log lines and of the viewport's memory overlay rows, so the three cannot disagree.
+     */
+    struct ViewLedgerMemory
+    {
+        ResourceInstanceCensus View;
+        ResourceInstanceCensus Scene; // Instance None until the view's first BeginScene
+    };
+
+    /// "view #3 41 rows 182.40 MiB (the view's budget); scene #1 12 rows 9.10 MiB (scene-shared, the
+    /// scene's own budget entry)" — the [ViewMemory] line.
+    [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
+
     class SceneRenderer final
     {
     public:
@@ -412,16 +429,22 @@ namespace Desert::Graphic
         // is readable as a count that only goes up.
         static std::string DescribeLiveViews();
 
-        // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
-        // the same table the view's build is checked against) plus every per-view copy its ViewResources
-        // keeps (uniform/storage buffer copies, ...), plus the view's ray-tracing rows in the resource ledger
-        // (its TLAS, its landscape tiles' buffers and BLASes; ResourceLedger::TakeFor the view's instance — the
-        // scene-shared RT rows are the scene's and are NOT here). What the view-budget rule counts as "open views
-        // hold" (Engine/Core/ViewBudget.hpp).
+        // Device memory this view holds, MEASURED (RT-LEDGER-3): the bytes of the ledger rows that carry this
+        // view's instance — its targets, its temporal history, its per-view buffer copies, its TLAS and its
+        // landscape tiles. Not a forecast: ViewTargetCensus only answers "may a view of this size be CREATED"
+        // (ViewBudgetGate), before any row exists. The scene-shared rows are the scene's and are NOT here
+        // (SceneHoldings). What the view-budget rule counts as "open views hold" (Engine/Core/ViewBudget.hpp).
         [[nodiscard]] uint64_t HeldBytes() const;
+
+        // This view's and its scene's ledger rows, taken now (ViewLedgerMemory).
+        [[nodiscard]] ViewLedgerMemory TakeLedgerMemory() const;
 
         // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
         [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> LiveHoldings();
+
+        // Every live scene instance in the ledger and what its shared rows hold — each scene ONCE, however many
+        // views draw it, and never inside a view's entry. The budget's scene entries (ViewBudgetGate).
+        [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> SceneHoldings();
 
         const auto& GetMainCamera() const
         {
@@ -546,6 +569,16 @@ namespace Desert::Graphic
             LedgerView& operator=( LedgerView&& )      = delete;
         };
         LedgerView m_LedgerView;
+        // The ledger instance of the scene this view last began (its RayTracingSceneCache's). A value, not the
+        // cache pointer: the overlay reads it after EndScene cleared m_FrameRayTracingCache.
+        ResourceOwnerInstance m_SceneLedgerInstance;
+
+        // Rows opened while the returned scope lives are this view's (owner SceneRenderer, the view's instance).
+        // Opened by every entry point that can allocate; C++17 guaranteed elision returns the pinned scope.
+        [[nodiscard]] ResourceAttributionScope OpenViewLedgerScope() const
+        {
+            return ResourceAttributionScope( ResourceOwner::SceneRenderer, m_LedgerView.Instance );
+        }
 
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
         // the view's name in every log line. Made the target of per-frame writes by an ActiveViewScope at the

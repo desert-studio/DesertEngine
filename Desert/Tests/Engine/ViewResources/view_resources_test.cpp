@@ -37,11 +37,6 @@ namespace
             --g_LiveCopies;
         }
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return Bytes;
-        }
-
         uint64_t Bytes = 0;
     };
 
@@ -211,9 +206,9 @@ TEST_F( ViewResourcesTest, AcquireRefusesAnUnassignedKeyAndANullCopy )
     EXPECT_EQ( view.CopyCount(), 0u );
 }
 
-// The view budget counts a view's holding as its targets PLUS these copies (SceneRenderer::HeldBytes); a
-// per-view uniform buffer a view never gives back must show up in the number the refusal prints.
-TEST_F( ViewResourcesTest, HeldBytesSumsEveryCopyOverEveryFrameAndDropsWithIt )
+// Every copy of a view, over every frame in flight, is the view's and drops with it. (Its BYTES are the copy's
+// resource-ledger row under the view's instance, RT-LEDGER-3; this suite is device-free and counts copies.)
+TEST_F( ViewResourcesTest, CopyCountCountsEveryCopyOverEveryFrameAndDropsWithIt )
 {
     ViewResources         view( "scene" );
     ViewResources         other( "other" );
@@ -224,16 +219,16 @@ TEST_F( ViewResourcesTest, HeldBytesSumsEveryCopyOverEveryFrameAndDropsWithIt )
     CountingFactory large;
     large.CopyBytes = 4096;
 
-    EXPECT_EQ( view.HeldBytes(), 0u );
+    EXPECT_EQ( view.CopyCount(), 0u );
     (void)view.Acquire( uniforms, 0, smallOne );
     (void)view.Acquire( uniforms, 1, smallOne );
     (void)view.Acquire( storage, 1, large );
     (void)other.Acquire( uniforms, 0, large );
-    EXPECT_EQ( view.HeldBytes(), 256u + 256u + 4096u ) << "a frame in flight or a second resource went uncounted";
-    EXPECT_EQ( other.HeldBytes(), 4096u ) << "one view's copies were counted as another's";
+    EXPECT_EQ( view.CopyCount(), 3u ) << "a frame in flight or a second resource went uncounted";
+    EXPECT_EQ( other.CopyCount(), 1u ) << "one view's copies were counted as another's";
 
     EXPECT_EQ( view.Forget( storage ), 1u );
-    EXPECT_EQ( view.HeldBytes(), 512u ) << "a dropped copy is still counted as held";
+    EXPECT_EQ( view.CopyCount(), 2u ) << "a dropped copy is still counted as held";
     view.Clear();
-    EXPECT_EQ( view.HeldBytes(), 0u );
+    EXPECT_EQ( view.CopyCount(), 0u );
 }

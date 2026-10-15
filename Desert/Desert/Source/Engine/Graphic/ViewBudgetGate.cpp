@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <format>
+#include <iterator>
 
 namespace Desert::Graphic
 {
@@ -34,8 +35,8 @@ namespace Desert::Graphic
                 heapSize += heap.Size;
 
         uint64_t held = 0;
-        for ( const Engine::ViewBudget::HeldView& view : SceneRenderer::LiveHoldings() )
-            held += view.Bytes;
+        for ( const Engine::ViewBudget::HeldView& entry : ReadBudgetHoldings() )
+            held += entry.Bytes;
 
         const Engine::ViewBudget::Reading reading = Engine::ViewBudget::ReadCeiling(
              report.BudgetKnown, report.DeviceLocalBudget(), report.DeviceLocalUsage(), heapSize,
@@ -43,6 +44,14 @@ namespace Desert::Graphic
         if ( !g_CeilingLogged.exchange( true ) )
             LOG_INFO( "[ViewBudget] {}.", Engine::ViewBudget::DescribeCeiling( reading ) );
         return reading;
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> ReadBudgetHoldings()
+    {
+        std::vector<Engine::ViewBudget::HeldView> held   = SceneRenderer::LiveHoldings();
+        std::vector<Engine::ViewBudget::HeldView> scenes = SceneRenderer::SceneHoldings();
+        held.insert( held.end(), std::make_move_iterator( scenes.begin() ), std::make_move_iterator( scenes.end() ) );
+        return held;
     }
 
     Common::BoolResultStr MayCreateView( const Engine::ViewBudget::Demand who, const std::string_view viewName,
@@ -77,7 +86,7 @@ namespace Desert::Graphic
         if ( verdict.Ok )
             return Common::MakeSuccess( true );
         return Common::MakeError<bool>(
-             Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, SceneRenderer::LiveHoldings() ) );
+             Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, ReadBudgetHoldings() ) );
     }
 
     std::optional<std::string> DescribeResizeOverrun( const std::string_view viewName, const ViewProfile& profile,
@@ -89,7 +98,7 @@ namespace Desert::Graphic
         const uint64_t overrun = Engine::ViewBudget::ResizeOverrunBytes( current, resized, reading );
         if ( overrun == 0 )
             return std::nullopt;
-        const std::vector<Engine::ViewBudget::HeldView> held      = SceneRenderer::LiveHoldings();
+        const std::vector<Engine::ViewBudget::HeldView> held      = ReadBudgetHoldings();
         uint64_t                                        heldTotal = 0;
         std::string                                     views;
         for ( const Engine::ViewBudget::HeldView& view : held )

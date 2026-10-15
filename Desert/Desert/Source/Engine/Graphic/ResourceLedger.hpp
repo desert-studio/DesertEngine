@@ -478,6 +478,11 @@ namespace Desert::Graphic
         /// than summed: "every row nobody gave an instance to" is not one holder's footprint.
         [[nodiscard]] static ResourceInstanceCensus TakeFor( ResourceOwnerInstance instance );
 
+        /// Every live instance of @p kind and what each holds, in one pass under one lock (RT-LEDGER-3: the
+        /// view budget's scene entries — each scene's shared rows once, never inside a view's entry). Ordered
+        /// by instance id. `None` is refused with an empty answer, as in `TakeFor`.
+        [[nodiscard]] static std::vector<ResourceInstanceCensus> TakeInstances( ResourceInstanceKind kind );
+
         /// The census as lines a person reads, owners first and then the kinds under each. Written for the
         /// log and for the control channel; the numbers are the same object as `Take()`.
         [[nodiscard]] static std::string Report();
@@ -783,6 +788,22 @@ namespace Desert::Graphic
             }
         }
         return census;
+    }
+
+    inline std::vector<ResourceInstanceCensus> ResourceLedger::TakeInstances( const ResourceInstanceKind kind )
+    {
+        std::vector<ResourceInstanceCensus> instances;
+        if ( kind == ResourceInstanceKind::None )
+            return instances;
+        {
+            std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+            (void)TakeLocked( &instances );
+        }
+        std::erase_if( instances, [kind]( const ResourceInstanceCensus& item ) { return item.Instance.Kind != kind; } );
+        std::sort( instances.begin(), instances.end(),
+                   []( const ResourceInstanceCensus& a, const ResourceInstanceCensus& b )
+                   { return a.Instance.Id < b.Instance.Id; } );
+        return instances;
     }
 
     inline ResourceCensus ResourceLedger::TakeLocked( std::vector<ResourceInstanceCensus>* const perInstance )

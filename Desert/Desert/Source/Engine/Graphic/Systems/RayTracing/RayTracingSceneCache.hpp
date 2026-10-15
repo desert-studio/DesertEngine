@@ -69,7 +69,8 @@ namespace Desert::Graphic::RayTracing
         // THE SCENE in the resource ledger (RT-LEDGER-2): every device object this cache's members create — BLAS
         // variants, skin-cache BLASes and positions, procedural BLASes — is a row of ResourceOwner::SceneRenderer
         // AND of this instance, opened under OpenLedgerScope(). A view's own RT rows carry the view's instance
-        // instead, so the two are told apart and the scene's are never counted in any one view's budget.
+        // instead, so the two are told apart: the scene's rows are its own budget entry (SceneRenderer::SceneHoldings),
+        // never counted in any one view's.
         [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const
         {
             return m_LedgerInstance;
@@ -79,12 +80,6 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] ResourceAttributionScope OpenLedgerScope() const
         {
             return ResourceAttributionScope( ResourceOwner::SceneRenderer, m_LedgerInstance );
-        }
-        // What the scene's shared RT state holds on the device, read from its ledger rows (the one statement of
-        // those bytes). Reported on the scene ([ViewMemory] "scene-shared"), never added to a view's HeldBytes.
-        [[nodiscard]] ResourceInstanceCensus TakeLedgerCensus() const
-        {
-            return ResourceLedger::TakeFor( m_LedgerInstance );
         }
 
     private:

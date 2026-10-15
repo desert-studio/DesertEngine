@@ -25,10 +25,6 @@ namespace
     {
         std::map<uint32_t, uint64_t> Descriptors; // binding -> what the set points at
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return 0;
-        }
     };
 
     // One material: two buffer bindings (0, 1) and one image binding (2).

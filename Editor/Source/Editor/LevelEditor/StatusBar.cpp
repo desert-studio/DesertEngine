@@ -163,8 +163,8 @@ namespace Desert::Editor
         ImGui::SameLine( 0.0f, 16.0f );
         {
             uint64_t held = 0;
-            for ( const Engine::ViewBudget::HeldView& view : Graphic::SceneRenderer::LiveHoldings() )
-                held += view.Bytes;
+            for ( const Engine::ViewBudget::HeldView& entry : Graphic::ReadBudgetHoldings() ) // views + scenes
+                held += entry.Bytes;
             const uint64_t                    pending = PendingViewBytes( m_Documents.Documents().Documents() );
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
 

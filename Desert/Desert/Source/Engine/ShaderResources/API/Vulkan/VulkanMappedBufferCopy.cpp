@@ -17,8 +17,11 @@ namespace Desert::ShaderResources::API::Vulkan
         }
     } // namespace
 
-    MappedBufferCopy::MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size )
-         : m_Buffer( buffer ), m_Allocation( allocation ), m_Size( size )
+    MappedBufferCopy::MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size,
+                                        const Desert::Graphic::ResourceKind kind )
+         : m_Buffer( buffer ), m_Allocation( allocation ), m_Size( size ),
+           m_Ledger( Desert::Graphic::ResourceOwnership::Take(
+                kind, Desert::Graphic::API::Vulkan::VulkanAllocator::AllocationSize( allocation ) ) )
     {
     }
 
@@ -46,7 +49,10 @@ namespace Desert::ShaderResources::API::Vulkan
             return Common::MakeFormattedError<bool>( "{} byte(s) could not be allocated: {}", size,
                                                      allocated.GetError() );
 
-        auto copy       = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size );
+        const Desert::Graphic::ResourceKind kind = ( usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT ) != 0
+                                                        ? Desert::Graphic::ResourceKind::StorageBuffer
+                                                        : Desert::Graphic::ResourceKind::UniformBuffer;
+        auto copy = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size, kind );
         copy->m_Mapping = allocator->MapMemory( copy->m_Allocation );
 
         // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it would

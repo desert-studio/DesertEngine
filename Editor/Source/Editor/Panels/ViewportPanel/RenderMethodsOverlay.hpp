@@ -5,6 +5,7 @@
 namespace Desert::Graphic
 {
     struct RenderMethods;
+    struct ViewLedgerMemory;
 }
 
 namespace Desert::Graphic::RayTracing
@@ -26,7 +27,10 @@ namespace Desert::Editor
     // reason (amber when non-zero), and the bytes of the BLASes the TLAS traces, the scene's variant / procedural
     // / skin-cache BLASes with the cache's entry count and positions, the landscape tiles (count, built / refit
     // this frame, vertex + index buffers, BLASes), the TLAS, its instance rows and its per-row instance ranges.
-    // Every number is the view's RayTracingSceneStats, the source the [ViewMemory] log lines read too.
+    // Every number is the view's RayTracingSceneStats, the source the [ViewMemory] log lines read too. Last, the
+    // view's and its scene's BUDGET ENTRIES: their ledger rows (SceneRenderer::TakeLedgerMemory), the same rows
+    // the view budget and the [ViewMemory] "ledger:" lines read (RT-LEDGER-3).
     void DrawRayTracingSceneOverlay( const Graphic::RayTracing::RayTracingSceneStats& stats,
-                                     const ImVec2& viewportMin, const ImVec2& viewportMax );
+                                     const Graphic::ViewLedgerMemory& memory, const ImVec2& viewportMin,
+                                     const ImVec2& viewportMax );
 } // namespace Desert::Editor

@@ -48,6 +48,7 @@ namespace Desert::Graphic
 {
     void SceneRenderer::Init()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
         // this splits into and the rule that separates them. The timings are logged because the cost of
         // this call is what Г11 was about and a claim about it should be readable from any run's log
@@ -104,8 +105,9 @@ namespace Desert::Graphic
         {
             const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
             const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
-            LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
-                      FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
+            // MEASURED: the view's ledger rows and its scene's, not the ViewTargetCensus forecast (RT-LEDGER-3).
+            LOG_INFO( "[ViewMemory] view '{}' {}x{} ledger: {}", m_ViewResources.GetName(), viewW, viewH,
+                      FormatViewLedgerMemory( TakeLedgerMemory() ) );
         }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
@@ -200,7 +202,9 @@ namespace Desert::Graphic
         //
         // A texture or mesh lazily built INSIDE this window is still the asset's: the services claim
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
-        const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
+        // AND TO THIS VIEW (RT-LEDGER-3): the rows carry the view's instance, and the view's budget
+        // (HeldBytes) is those rows measured, not the ViewTargetCensus forecast of them.
+        const ResourceAttributionScope owned = OpenViewLedgerScope();
 
         // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
         // framebuffers the earlier stages made, so a later stage reads its predecessors from m_RenderSystems.
@@ -632,16 +636,40 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory )
+    {
+        constexpr double kMiB = 1024.0 * 1024.0;
+        return std::format( "{} {} rows {:.2f} MiB (the view's budget); {} {} rows {:.2f} MiB (scene-shared, the "
+                            "scene's own budget entry)",
+                            ResourceOwnerInstanceName( memory.View.Instance ), memory.View.Live,
+                            static_cast<double>( memory.View.Bytes ) / kMiB,
+                            ResourceOwnerInstanceName( memory.Scene.Instance ), memory.Scene.Live,
+                            static_cast<double>( memory.Scene.Bytes ) / kMiB );
+    }
+
     uint64_t SceneRenderer::HeldBytes() const
     {
-        // The RT term is READ FROM THE ROWS (RT-LEDGER-2): the ledger is the one statement of those bytes, so
-        // the budget and the [Resources] census cannot disagree. Only the RT block opens rows under the view's
-        // instance (the staged init's targets are counted by the census forecast above, not by instance), so
-        // nothing here is counted twice; the scene cache's rows carry the scene's instance and are not here.
-        return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
-                    .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes() +
-               ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
+        // READ FROM THE ROWS (RT-LEDGER-3), and only from them: every entry point that can allocate opens the
+        // view's ledger scope, so the targets, the history, the per-view copies and the RT rows all carry the
+        // view's instance. The ledger is the one statement of those bytes; the budget, the [ViewMemory] lines,
+        // the overlay and the [Resources] census cannot disagree. The scene cache's rows carry the scene's
+        // instance and are its own entry (SceneHoldings), never here.
+        return ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
+    }
+
+    ViewLedgerMemory SceneRenderer::TakeLedgerMemory() const
+    {
+        return ViewLedgerMemory{ .View  = ResourceLedger::TakeFor( m_LedgerView.Instance ),
+                                 .Scene = ResourceLedger::TakeFor( m_SceneLedgerInstance ) };
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> SceneRenderer::SceneHoldings()
+    {
+        std::vector<Engine::ViewBudget::HeldView> held;
+        for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
+            held.push_back( { std::format( "{} (shared by its views)", ResourceOwnerInstanceName( scene.Instance ) ),
+                              scene.Bytes } );
+        return held;
     }
 
     SceneRenderer::LedgerView::~LedgerView()
@@ -673,14 +701,22 @@ namespace Desert::Graphic
         uint64_t held = 0;
         for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
             held += view.Bytes;
-        return std::format( "{} live, {:.1f} MiB", ViewResourceRegistry::LiveCount(),
-                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ) );
+        uint64_t shared = 0;
+        for ( const Engine::ViewBudget::HeldView& scene : SceneHoldings() )
+            shared += scene.Bytes;
+        return std::format( "{} live, {:.1f} MiB; scenes {:.1f} MiB shared", ViewResourceRegistry::LiveCount(),
+                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ),
+                            static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
          : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
            m_RenderExtent( extent )
     {
+        // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
+        // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger instance:
+        // the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             LiveRenderers().push_back( this );
@@ -719,6 +755,7 @@ namespace Desert::Graphic
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
         // last view of a frame lands in this view's copies.
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
@@ -740,6 +777,7 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        m_SceneLedgerInstance  = m_FrameRayTracingCache->GetLedgerInstance();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -965,6 +1003,7 @@ namespace Desert::Graphic
         // Without this line a second view writes its per-frame GPU state into the frame context instead of
         // its own copies, a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1211,8 +1250,7 @@ namespace Desert::Graphic
             // budget. A mesh BLAS built here by a lazy upload is claimed by the mesh service for its asset (an
             // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
             // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
-            // Device.
-            const ResourceAttributionScope owned( ResourceOwner::SceneRenderer, m_LedgerView.Instance );
+            // Device. The view's scope is OnUpdate's (RT-LEDGER-3), not a second one here.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const auto*     camera     = GetMainCamera();
@@ -1299,18 +1337,9 @@ namespace Desert::Graphic
                 m_LoggedRayTracingTlasBytes = rtStats.TlasBytes;
                 LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
                           RayTracing::FormatRayTracingSceneMemory( rtStats ) );
-                // The two ledger instances side by side (RT-LEDGER-2): what this view's budget counts, and what
-                // the scene shares across its views and no view's budget counts.
-                const ResourceInstanceCensus viewRows  = ResourceLedger::TakeFor( m_LedgerView.Instance );
-                const ResourceInstanceCensus sceneRows = m_FrameRayTracingCache != nullptr
-                                                              ? m_FrameRayTracingCache->TakeLedgerCensus()
-                                                              : ResourceInstanceCensus{};
-                LOG_INFO( "[ViewMemory] view '{}' ray-tracing ledger rows: {} {} rows {:.2f} MiB (in the view's "
-                          "budget); {} {} rows {:.2f} MiB (scene-shared, in no view's budget)",
-                          m_ViewResources.GetName(), ResourceOwnerInstanceName( viewRows.Instance ), viewRows.Live,
-                          static_cast<double>( viewRows.Bytes ) / ( 1024.0 * 1024.0 ),
-                          ResourceOwnerInstanceName( sceneRows.Instance ), sceneRows.Live,
-                          static_cast<double>( sceneRows.Bytes ) / ( 1024.0 * 1024.0 ) );
+                // The view's and the scene's budget entries, from the same rows the budget and the overlay read.
+                LOG_INFO( "[ViewMemory] view '{}' ledger: {}", m_ViewResources.GetName(),
+                          FormatViewLedgerMemory( TakeLedgerMemory() ) );
             }
 #endif
         }
@@ -1480,6 +1509,7 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
@@ -1535,6 +1565,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsureGIResources()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_GIResourcesReady )
             return true;
         // A preview profile never builds GI targets; the scene's GI mode stays on the screen-space path.
@@ -1584,6 +1615,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsureSSRResources()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_SSRResourcesReady )
             return true;
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
@@ -1616,6 +1648,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
         // test. It let through exactly the sizes the UI actually produces: a collapsed dock panel is 0 on ONE
         // side, and a panel dragged shut hands out a negative ImGui float that becomes ~4.29e9 on the cast to
@@ -1669,6 +1702,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
             return;
         m_RenderExtent        = render;
@@ -1928,6 +1962,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
         if ( held != method )
             m_TemporalUpscaler = CreateTemporalUpscaler( method );
