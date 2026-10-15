@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cstddef>
 
 namespace Desert::Graphic::System
 {
@@ -20,7 +21,10 @@ namespace Desert::Graphic::System
             glm::vec2 SrcTexelSize;
             int32_t   FirstPass;
             float     Threshold;
+            glm::vec4 Exposure;
         };
+        static_assert( offsetof( DownsamplePush, Exposure ) == 16,
+                       "BloomDownsample's u_Exposure is at offset 16" );
 
         struct UpsamplePush
         {
@@ -88,7 +92,8 @@ namespace Desert::Graphic::System
     }
 
     void BloomRenderer::DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
-                                                   RDG::TextureRef chain, uint32_t mip ) const
+                                                   RDG::TextureRef adaptedLuminance, RDG::TextureRef chain,
+                                                   uint32_t mip ) const
     {
         if ( !m_DownsamplePipeline )
             return;
@@ -100,6 +105,8 @@ namespace Desert::Graphic::System
         else
             block.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
                            RDG::SamplerDesc::LinearClamp() );
+        block.Sampled( "u_AvgLuminance", adaptedLuminance, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
         block.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
     }
@@ -131,7 +138,7 @@ namespace Desert::Graphic::System
 
         const DownsamplePush push{
              glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), first ? 1 : 0,
-             m_Threshold };
+             m_Threshold, m_Exposure };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, sizeof( push ) );

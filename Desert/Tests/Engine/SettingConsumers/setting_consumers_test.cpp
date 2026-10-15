@@ -537,10 +537,10 @@ namespace
          { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
     };
 
-    constexpr const char* kTonemapMaterial =
-         "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.cpp";
-    constexpr const char* kTonemapMaterialHeader =
-         "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp";
+    // The exposure is packed where every pass on the exposed image takes it from; the rest of the grade where the
+    // colour-grading table's parameters are packed (CombineLUTs, SCNE 62 POST-LOOK).
+    constexpr const char* kViewExposure = "Desert/Desert/Source/Engine/Graphic/PostProcessing/ViewExposure.hpp";
+    constexpr const char* kFilmGrade    = "Desert/Desert/Source/Engine/Graphic/PostProcessing/FilmGrade.hpp";
     constexpr const char* kAutoExposureRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp";
 
@@ -556,22 +556,45 @@ namespace
          { "DistanceFieldShadows", kRenderMethods },
          // The tonemap's grade is handed over whole (TonemapRenderer::SetGrade) and read where the uniform block
          // is filled; the eye adaptation's where its dispatch's parameters are derived (SCNE 62, POST-LOOK).
-         { "Tonemapper", kTonemapMaterial },
-         { "Exposure", kTonemapMaterial },
-         { "Gamma", kTonemapMaterial },
-         { "WhitePoint", kTonemapMaterial },
-         { "AutoExposure", kTonemapMaterial },
-         { "AutoExposureBias", kTonemapMaterial },
-         { "FilmSlope", kTonemapMaterialHeader },
-         { "FilmToe", kTonemapMaterialHeader },
-         { "FilmShoulder", kTonemapMaterialHeader },
-         { "FilmBlackClip", kTonemapMaterialHeader },
-         { "FilmWhiteClip", kTonemapMaterialHeader },
-         { "BlueCorrection", kTonemapMaterialHeader },
-         { "ExpandGamut", kTonemapMaterialHeader },
-         { "ToneCurveAmount", kTonemapMaterialHeader },
-         { "WhiteTemp", kTonemapMaterialHeader },
-         { "WhiteTint", kTonemapMaterialHeader },
+         { "Tonemapper", kFilmGrade },
+         { "Exposure", kViewExposure },
+         { "Gamma", kFilmGrade },
+         { "WhitePoint", kFilmGrade },
+         { "AutoExposure", kViewExposure },
+         { "AutoExposureBias", kViewExposure },
+         { "FilmSlope", kFilmGrade },
+         { "FilmToe", kFilmGrade },
+         { "FilmShoulder", kFilmGrade },
+         { "FilmBlackClip", kFilmGrade },
+         { "FilmWhiteClip", kFilmGrade },
+         { "BlueCorrection", kFilmGrade },
+         { "ExpandGamut", kFilmGrade },
+         { "ToneCurveAmount", kFilmGrade },
+         { "WhiteTemp", kFilmGrade },
+         { "WhiteTint", kFilmGrade },
+         { "ColorSaturation", kFilmGrade },
+         { "ColorContrast", kFilmGrade },
+         { "ColorGamma", kFilmGrade },
+         { "ColorGain", kFilmGrade },
+         { "ColorOffset", kFilmGrade },
+         { "ColorSaturationShadows", kFilmGrade },
+         { "ColorContrastShadows", kFilmGrade },
+         { "ColorGammaShadows", kFilmGrade },
+         { "ColorGainShadows", kFilmGrade },
+         { "ColorOffsetShadows", kFilmGrade },
+         { "ColorSaturationMidtones", kFilmGrade },
+         { "ColorContrastMidtones", kFilmGrade },
+         { "ColorGammaMidtones", kFilmGrade },
+         { "ColorGainMidtones", kFilmGrade },
+         { "ColorOffsetMidtones", kFilmGrade },
+         { "ColorSaturationHighlights", kFilmGrade },
+         { "ColorContrastHighlights", kFilmGrade },
+         { "ColorGammaHighlights", kFilmGrade },
+         { "ColorGainHighlights", kFilmGrade },
+         { "ColorOffsetHighlights", kFilmGrade },
+         { "ColorCorrectionShadowsMax", kFilmGrade },
+         { "ColorCorrectionHighlightsMin", kFilmGrade },
+         { "ColorCorrectionHighlightsMax", kFilmGrade },
          { "AutoExposureLowPercent", kAutoExposureRenderer },
          { "AutoExposureHighPercent", kAutoExposureRenderer },
          { "AutoExposureMinBrightness", kAutoExposureRenderer },

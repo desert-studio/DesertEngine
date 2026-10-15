@@ -121,6 +121,67 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Tint" ), Category( "White Balance" ), Range( -1.0f, 1.0f ) )
         float WhiteTint = 0.0f;
 
+        // UE's colour grading (FColorGradingSettings, Engine/Classes/Engine/Scene.h; defaults Scene.cpp
+        // FPostProcessSettings ctor), applied in AP1 before the tone curve (Common/FilmToneMap.glslh
+        // FilmColorCorrectAll) and baked with the rest of the grade into the 32^3 table the tonemap samples. Each
+        // control is UE's FVector4: rgb per channel, w a multiplier of all three (Offset: an added constant). A
+        // range's control is combined with the global one (multiplied; Offset added); the shadow weight falls to 0
+        // at ShadowsMax, the highlight weight rises from HighlightsMin to HighlightsMax, midtones take the rest.
+        // All defaults are the identity.
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Global" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturation = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrast = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGamma = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGain = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffset = glm::vec4( 0.0f );
+
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Shadows" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainShadows = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetShadows = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Shadows Max" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        float ColorCorrectionShadowsMax = 0.09f;
+
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Midtones" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainMidtones = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetMidtones = glm::vec4( 0.0f );
+
+        PROPERTY( DisplayName( "Saturation" ), Category( "Color Grading" ), Header( "Highlights" ),
+                  Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorSaturationHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Contrast" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorContrastHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gamma" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGammaHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Gain" ), Category( "Color Grading" ), Range( 0.0f, 2.0f ) )
+        glm::vec4 ColorGainHighlights = glm::vec4( 1.0f );
+        PROPERTY( DisplayName( "Offset" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        glm::vec4 ColorOffsetHighlights = glm::vec4( 0.0f );
+        PROPERTY( DisplayName( "Highlights Min" ), Category( "Color Grading" ), Range( -1.0f, 1.0f ) )
+        float ColorCorrectionHighlightsMin = 0.5f;
+        PROPERTY( DisplayName( "Highlights Max" ), Category( "Color Grading" ), Range( 1.0f, 10.0f ) )
+        float ColorCorrectionHighlightsMax = 1.0f;
+
         PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
         float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
 

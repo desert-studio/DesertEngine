@@ -302,8 +302,12 @@ namespace Desert::Migration
     //       equivalent: UE adapts in EV, ours adapted luminance linearly). In the record only: a stated
     //       AutoExposure false is the old default, not a choice, and becomes true - UNLESS the volume states a
     //       manual Exposure other than the old default 1, which IS a choice of manual exposure and keeps false.
-    //       The film curve, white balance, blue correction and gamut expansion are new keys with UE's defaults.
-    //       Scenes and prefabs alike.
+    //       The film curve, white balance, blue correction, gamut expansion and UE's colour grading
+    //       (ColorSaturation / Contrast / Gamma / Gain / Offset, global and per Shadows / Midtones / Highlights,
+    //       and ColorCorrectionShadowsMax / HighlightsMin / HighlightsMax) are new keys with UE's defaults, every
+    //       one the identity of the grade, so no stated key changes meaning. BloomThreshold keeps its stated
+    //       values and is now UE's: compared with the EXPOSED luminance (auto-exposure included), the bloom
+    //       ramping in over 2 units. Scenes and prefabs alike.
     inline constexpr int kSceneVersionUEGrade = 62;
 
     static_assert( kSceneVersionUEGrade == kSceneVersion,

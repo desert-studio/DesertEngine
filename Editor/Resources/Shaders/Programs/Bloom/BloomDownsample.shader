@@ -5,25 +5,42 @@ Shader "BloomDownsample"
     {
         // Progressive bloom downsample (Call of Duty: Advanced Warfare / Jimenez 2014). Each dispatch reads one
         // source mip and writes the next-smaller mip with a 13-tap filter. On the very first pass (scene HDR ->
-        // bloom mip 0) a per-group Karis average is used to suppress fireflies, and the bright-pass threshold is
-        // folded in here (so no separate bright-pass is needed). u_Source is bound as a single-mip view of the
+        // bloom mip 0) every tap goes through UE's bloom setup threshold first (PostProcessBloom.usf:37-66, on the
+        // EXPOSED luminance) and a per-group Karis average then suppresses fireflies (so no separate bright-pass). u_Source is bound as a single-mip view of the
         // source mip, so the whole bloom mip-chain can live in one image while each mip keeps its own layout.
 
         Uniform(0) sampler2D u_Source;
         layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
+        // This frame's adapted luminance - the image the tonemap reads its exposure from (System.White without eye
+        // adaptation, when u_Exposure says manual). Read on the first pass only.
+        Uniform(2) sampler2D u_AvgLuminance;
 
         PushConstant PushConstants
         {
             vec2  u_SrcTexelSize; // 1 / size(source mip)
             int   u_FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
-            float u_Threshold;    // bright-pass cutoff (first pass only)
+            float u_Threshold;    // bloom threshold on the EXPOSED luminance (first pass only), UE's BloomThreshold
+            vec4  u_Exposure;     // Graphic::ViewExposureOf - the tonemap's exposure, from the same settings
         };
+
+        #include <Common/ViewExposure.glslh>
 
         LocalSize(16, 16, 1);
 
         float Luminance( vec3 c )
         {
             return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+        }
+
+        // UE's BloomSetupCommon (PostProcessBloom.usf:37-66) without local exposure: the amount of a colour that
+        // blooms ramps from 0 at the threshold to 1 two units of EXPOSED luminance above it, and the colour keeps its
+        // scene-linear scale (the tonemap exposes bloom with the scene). With auto-exposure the exposure is the
+        // adapted one, so the same picture blooms the same whether it is exposed by hand or by the eye.
+        vec3 BloomSetup( vec3 linearColor, float exposureScale )
+        {
+            float totalLuminance = Luminance( linearColor ) * exposureScale;
+            float bloomAmount    = clamp( ( totalLuminance - u_Threshold ) * 0.5, 0.0, 1.0 );
+            return bloomAmount * linearColor;
         }
 
         void main()
@@ -61,8 +78,24 @@ Shader "BloomDownsample"
             vec3 color;
             if ( u_FirstPass == 1 )
             {
-                // Five 4-tap boxes, each weighted by a Karis average (1 / (1 + luma)) to kill fireflies before
-                // they smear across the whole bloom.
+                // Threshold every tap on the exposed luminance (UE thresholds each scene pixel), then five 4-tap
+                // boxes, each weighted by a Karis average (1 / (1 + luma)) to kill fireflies before they smear
+                // across the whole bloom.
+                float exposureScale = ViewExposureScale( u_Exposure, texture( u_AvgLuminance, vec2( 0.5 ) ).r );
+                a = BloomSetup( a, exposureScale );
+                b = BloomSetup( b, exposureScale );
+                c = BloomSetup( c, exposureScale );
+                d = BloomSetup( d, exposureScale );
+                e = BloomSetup( e, exposureScale );
+                f = BloomSetup( f, exposureScale );
+                g = BloomSetup( g, exposureScale );
+                h = BloomSetup( h, exposureScale );
+                i = BloomSetup( i, exposureScale );
+                j = BloomSetup( j, exposureScale );
+                k = BloomSetup( k, exposureScale );
+                m = BloomSetup( m, exposureScale );
+                n = BloomSetup( n, exposureScale );
+
                 vec3  b0 = ( a + b + d + e ) * 0.25;
                 vec3  b1 = ( b + c + e + f ) * 0.25;
                 vec3  b2 = ( d + e + g + h ) * 0.25;
@@ -74,11 +107,6 @@ Shader "BloomDownsample"
                 float w3 = 1.0 / ( 1.0 + Luminance( b3 ) );
                 float w4 = 1.0 / ( 1.0 + Luminance( b4 ) );
                 color    = ( b0 * w0 + b1 * w1 + b2 * w2 + b3 * w3 + b4 * w4 ) / ( w0 + w1 + w2 + w3 + w4 );
-
-                // Bright-pass: keep only the energy above the threshold (preserves hue).
-                float brightness   = max( color.r, max( color.g, color.b ) );
-                float contribution = max( brightness - u_Threshold, 0.0 ) / max( brightness, 1e-4 );
-                color *= contribution;
             }
             else
             {

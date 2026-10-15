@@ -222,11 +222,11 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     auto scene        = Parse( kSceneV32 );
     const auto all          = Reflection::SerializeReflected( *type, &stated );
     // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods, the SCNE 62 UE
-    // film, white balance and eye adaptation): no Settings block ever stated them, so the step has no key for them
-    // (the methods replace GlobalIllumination/EnableSSR, which the step moves and SCNE 53 converts; SCNE 62
-    // re-states AutoExposureKey and drops Speed/Min/Max). A field added to the grade must be added to the step or
-    // named here.
-    constexpr std::array<std::string_view, 29> kBornAfterTheStep = { "DepthOfFieldFocalDistance",
+    // film, white balance, colour grading and eye adaptation): no Settings block ever stated them, so the step has
+    // no key for them (the methods replace GlobalIllumination/EnableSSR, which the step moves and SCNE 53
+    // converts; SCNE 62 re-states AutoExposureKey and drops Speed/Min/Max). A field added to the grade must be
+    // added to the step or named here.
+    constexpr std::array<std::string_view, 52> kBornAfterTheStep = { "DepthOfFieldFocalDistance",
                                                                      "DepthOfFieldFstop",
                                                                      "DepthOfFieldSensorWidth",
                                                                      "DepthOfFieldMaxBokehSize",
@@ -254,7 +254,30 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
                                                                      "AutoExposureMinBrightness",
                                                                      "AutoExposureMaxBrightness",
                                                                      "AutoExposureSpeedUp",
-                                                                     "AutoExposureSpeedDown" };
+                                                                     "AutoExposureSpeedDown",
+                                                                     "ColorSaturation",
+                                                                     "ColorContrast",
+                                                                     "ColorGamma",
+                                                                     "ColorGain",
+                                                                     "ColorOffset",
+                                                                     "ColorSaturationShadows",
+                                                                     "ColorContrastShadows",
+                                                                     "ColorGammaShadows",
+                                                                     "ColorGainShadows",
+                                                                     "ColorOffsetShadows",
+                                                                     "ColorSaturationMidtones",
+                                                                     "ColorContrastMidtones",
+                                                                     "ColorGammaMidtones",
+                                                                     "ColorGainMidtones",
+                                                                     "ColorOffsetMidtones",
+                                                                     "ColorSaturationHighlights",
+                                                                     "ColorContrastHighlights",
+                                                                     "ColorGammaHighlights",
+                                                                     "ColorGainHighlights",
+                                                                     "ColorOffsetHighlights",
+                                                                     "ColorCorrectionShadowsMax",
+                                                                     "ColorCorrectionHighlightsMin",
+                                                                     "ColorCorrectionHighlightsMax" };
     for ( const std::string_view key : kBornAfterTheStep )
         ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
     rfl::Generic::Object block;

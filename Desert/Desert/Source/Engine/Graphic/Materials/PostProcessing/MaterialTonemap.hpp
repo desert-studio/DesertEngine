@@ -1,7 +1,8 @@
 #pragma once
 
-#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+
+#include <glm/glm.hpp>
 
 namespace Desert::Graphic
 {
@@ -12,11 +13,11 @@ namespace Desert::Graphic
 
         struct Params
         {
-            // The view's grade: operator, film curve, white balance, gamma, manual exposure and the auto-exposure
-            // switch and bias are read from it in BindValues and nowhere else, so the uniform block and the
-            // settings cannot name a value two ways.
-            const Core::PostProcessSettings& Grade;
-            float                            BloomIntensity;
+            // The view's exposure (Graphic::ViewExposureOf) - the bloom setup thresholds under the same one. The
+            // rest of the grade is not a uniform here: it is baked into the colour-grading table the shader
+            // samples (CombineLUTsRenderer).
+            glm::vec4 Exposure;
+            float     BloomIntensity;
             float     ChromaticBloom;      // lens dispersion strength on the bloom halo (0 = off)
             float     LightShaftIntensity; // Bloom Scale x screen fade of the sun light's shafts (0 = off)
             glm::vec3 LightShaftTint;      // the sun light's Bloom Tint
@@ -25,40 +26,14 @@ namespace Desert::Graphic
         };
 
         // Uniform values only: every texture the shader samples (u_GeometryTexture, u_AvgLuminance,
-        // u_BloomTexture, u_LightShaftTexture, u_LensFlareTexture) is a graph resource the tonemap exec binds
-        // through RDG::PassBindings, never here.
+        // u_BloomTexture, u_LightShaftTexture, u_LensFlareTexture, u_ColorGradingLUT) is a graph resource the
+        // tonemap exec binds through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
-        // The three packed vec4s of TonemapUB, from a grade. Static so the MPROPERTY defaults below use them too.
-        static glm::vec4 FilmCurveOf( const Core::PostProcessSettings& grade )
-        {
-            return { grade.FilmSlope, grade.FilmToe, grade.FilmShoulder, grade.FilmBlackClip };
-        }
-        static glm::vec4 FilmLookOf( const Core::PostProcessSettings& grade )
-        {
-            return { grade.FilmWhiteClip, grade.BlueCorrection, grade.ExpandGamut, grade.ToneCurveAmount };
-        }
-        static glm::vec4 WhiteBalanceOf( const Core::PostProcessSettings& grade )
-        {
-            const bool identity = Core::IsIdentityWhiteBalance( grade.WhiteTemp, grade.WhiteTint );
-            return { grade.WhiteTemp, grade.WhiteTint, identity ? 0.0f : 1.0f, 0.0f };
-        }
-
-        MPROPERTY( float, Exposure,            "u_Exposure",            1.0f )
-        MPROPERTY( float, Gamma,               "u_Gamma",               2.2f )
-        MPROPERTY( float, BloomIntensity,      "u_BloomIntensity",      0.0f )
-        MPROPERTY( float, AutoExposureCompensation, "u_AutoExposureCompensation", 1.0f )
-        MPROPERTY( float, AutoExposureEnabled, "u_AutoExposureEnabled", 0.0f )
-        MPROPERTY( float, ChromaticBloom,      "u_ChromaticBloom",      0.0f )
-        MPROPERTY( float, WhitePoint, "u_WhitePoint", 8.0f )
-        // 0 = Filmic, 1 = extended Reinhard — Core::TonemapOperator's own numbering, converted in BindValues().
-        MPROPERTY( float, TonemapOperator, "u_TonemapOperator", 0.0f )
-        // UE's film curve and look, packed as SceneComposite's TonemapUB declares them. The starting values are
-        // the settings' own defaults (Core::PostProcessSettings), never a second copy of UE's numbers.
-        MPROPERTY( glm::vec4, FilmCurve, "u_FilmCurve", ( FilmCurveOf( Core::PostProcessSettings{} ) ) )
-        MPROPERTY( glm::vec4, FilmLook, "u_FilmLook", ( FilmLookOf( Core::PostProcessSettings{} ) ) )
-        // x = WhiteTemp, y = WhiteTint, z = 1 when they are not UE's identity (6500 K, 0).
-        MPROPERTY( glm::vec4, WhiteBalance, "u_WhiteBalance", ( WhiteBalanceOf( Core::PostProcessSettings{} ) ) )
+        // x = manual exposure, y = 1 when auto-exposure is on, z = 2^AutoExposureBias (ViewExposure.glslh).
+        MPROPERTY( glm::vec4, ExposureParams, "u_ExposureParams", ( glm::vec4( 1.0f, 0.0f, 1.0f, 0.0f ) ) )
+        MPROPERTY( float, BloomIntensity, "u_BloomIntensity", 0.0f )
+        MPROPERTY( float, ChromaticBloom, "u_ChromaticBloom", 0.0f )
         // rgb = tint, a = intensity: one vec4 slot, and the two cannot disagree about being on.
         MPROPERTY( glm::vec4, LightShaftTintIntensity, "u_LightShaftTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )

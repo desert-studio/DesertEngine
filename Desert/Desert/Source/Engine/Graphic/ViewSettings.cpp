@@ -24,6 +24,11 @@ namespace Desert::Graphic
         {
             return a * ( 1.0f - w ) + b * w;
         }
+
+        glm::vec4 Lerp( const glm::vec4& a, const glm::vec4& b, float w )
+        {
+            return a * ( 1.0f - w ) + b * w;
+        }
     } // namespace
 
     float PostProcessVolumeWeight( const ECS::PostProcessVolumeData& volume, const glm::vec3& volumePosition,
@@ -77,6 +82,36 @@ namespace Desert::Graphic
         target.BlueCorrection        = Lerp( target.BlueCorrection, volume.BlueCorrection, weight );
         target.ExpandGamut           = Lerp( target.ExpandGamut, volume.ExpandGamut, weight );
         target.ToneCurveAmount       = Lerp( target.ToneCurveAmount, volume.ToneCurveAmount, weight );
+        target.ColorSaturation       = Lerp( target.ColorSaturation, volume.ColorSaturation, weight );
+        target.ColorContrast         = Lerp( target.ColorContrast, volume.ColorContrast, weight );
+        target.ColorGamma            = Lerp( target.ColorGamma, volume.ColorGamma, weight );
+        target.ColorGain             = Lerp( target.ColorGain, volume.ColorGain, weight );
+        target.ColorOffset           = Lerp( target.ColorOffset, volume.ColorOffset, weight );
+        target.ColorSaturationShadows =
+             Lerp( target.ColorSaturationShadows, volume.ColorSaturationShadows, weight );
+        target.ColorContrastShadows = Lerp( target.ColorContrastShadows, volume.ColorContrastShadows, weight );
+        target.ColorGammaShadows    = Lerp( target.ColorGammaShadows, volume.ColorGammaShadows, weight );
+        target.ColorGainShadows     = Lerp( target.ColorGainShadows, volume.ColorGainShadows, weight );
+        target.ColorOffsetShadows   = Lerp( target.ColorOffsetShadows, volume.ColorOffsetShadows, weight );
+        target.ColorSaturationMidtones =
+             Lerp( target.ColorSaturationMidtones, volume.ColorSaturationMidtones, weight );
+        target.ColorContrastMidtones = Lerp( target.ColorContrastMidtones, volume.ColorContrastMidtones, weight );
+        target.ColorGammaMidtones    = Lerp( target.ColorGammaMidtones, volume.ColorGammaMidtones, weight );
+        target.ColorGainMidtones     = Lerp( target.ColorGainMidtones, volume.ColorGainMidtones, weight );
+        target.ColorOffsetMidtones   = Lerp( target.ColorOffsetMidtones, volume.ColorOffsetMidtones, weight );
+        target.ColorSaturationHighlights =
+             Lerp( target.ColorSaturationHighlights, volume.ColorSaturationHighlights, weight );
+        target.ColorContrastHighlights =
+             Lerp( target.ColorContrastHighlights, volume.ColorContrastHighlights, weight );
+        target.ColorGammaHighlights  = Lerp( target.ColorGammaHighlights, volume.ColorGammaHighlights, weight );
+        target.ColorGainHighlights   = Lerp( target.ColorGainHighlights, volume.ColorGainHighlights, weight );
+        target.ColorOffsetHighlights = Lerp( target.ColorOffsetHighlights, volume.ColorOffsetHighlights, weight );
+        target.ColorCorrectionShadowsMax =
+             Lerp( target.ColorCorrectionShadowsMax, volume.ColorCorrectionShadowsMax, weight );
+        target.ColorCorrectionHighlightsMin =
+             Lerp( target.ColorCorrectionHighlightsMin, volume.ColorCorrectionHighlightsMin, weight );
+        target.ColorCorrectionHighlightsMax =
+             Lerp( target.ColorCorrectionHighlightsMax, volume.ColorCorrectionHighlightsMax, weight );
         target.AutoExposureBias      = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
         target.AutoExposureSpeedUp   = Lerp( target.AutoExposureSpeedUp, volume.AutoExposureSpeedUp, weight );
         target.AutoExposureSpeedDown = Lerp( target.AutoExposureSpeedDown, volume.AutoExposureSpeedDown, weight );

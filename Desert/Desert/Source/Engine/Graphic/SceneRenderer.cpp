@@ -17,6 +17,7 @@
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
+#include <Engine/Graphic/PostProcessing/ViewExposure.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -353,6 +354,17 @@ namespace Desert::Graphic
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the tonemap system did not initialise; the viewport stays black." );
+                // The grade the tonemap samples, baked into a table (UE's CombineLUTs). Without it the tonemap is
+                // not recorded (AddFrameTonemap names the missing input).
+                RegisterSystem<System::CombineLUTsRenderer>( "CombineLUTsSystem", this, m_TargetFramebuffer );
+                if ( const Common::BoolResultStr luts =
+                          SP_CAST( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] )
+                               ->Initialize();
+                     !luts )
+                    LOG_ERROR(
+                         "[SceneRenderer] the colour-grading table did not initialise ({}); the viewport stays "
+                         "black.",
+                         luts.GetError() );
                 return "Tonemap";
             }
             case 6:
@@ -836,6 +848,8 @@ namespace Desert::Graphic
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetGrade( post );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] )->SetGrade( post );
 
         // The systems map is keyed by the name each system was registered under, so the downcast is to the type
         // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
@@ -855,36 +869,23 @@ namespace Desert::Graphic
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
 
-        // THE TWO BRIGHT-PASS THRESHOLDS ARE AUTHORED IN THE EXPOSED IMAGE AND COMPARED IN THE RAW ONE,
-        // and until this line they were simply handed across that boundary unchanged.
+        // THE BLOOM THRESHOLD IS COMPARED IN THE EXPOSED IMAGE, AS UE'S BLOOM SETUP DOES. BloomDownsample's first
+        // pass multiplies each tap's luminance by the view's exposure - ViewExposure.glslh over the same 1x1
+        // adapted luminance the tonemap reads - before it subtracts the threshold, so an authored 2.0 means "2.0
+        // of the exposed image" under a manual Exposure 0.22 and under eye adaptation alike. (Measured before,
+        // Clouds_Demo at Exposure 0.22: an unexposed comparison made ordinary daylight sky a bloom source and
+        // doubled the sun's highlight.)
         //
-        // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, so `exposure` is the only
-        // thing standing between scene radiance and what the tonemapper sees. Both bright passes run
-        // UPSTREAM of it and threshold the raw HDR: BloomDownsample takes `max(brightness - threshold, 0)`
-        // on the scene image, LensFlareBrightPass does the same. An authored 2.5 therefore means "2.5" in
-        // a scene at Exposure 1.0 and "0.55" in one at Exposure 0.22 — one knob with two meanings, decided
-        // by an unrelated field, which is the disagreement §2.3.1 of the contract is about.
-        //
-        // Measured, Clouds_Demo (Exposure 0.22), zenith looking into the sun, with the shadow ray
-        // converged: bloom and the flare added 1.389 of linear scene radiance on top of 0.989 — they MORE
-        // THAN DOUBLED the highlight, and took a frame that landed on the UE reference's p95 (0.802
-        // against 0.800) up to 0.922. At the authored 2.5 the effective cutoff was 0.55 of a normalised
-        // unit, so ordinary daylight sky was a bloom source. Dividing here puts the comparison back in the
-        // space the number was written in; neither authored number was retuned.
-        //
-        // AUTO-EXPOSURE IS NOT FIXED BY THIS AND IS NOT PRETENDED TO BE. There the exposure is
-        // `2^Bias x 0.18 / adaptedLuminance` evaluated in the composite from a 1x1 image the CPU never reads,
-        // so this function has nothing to divide by and leaves the threshold in raw radiance — the behaviour
-        // it has always had. Auto-exposure is the default since SCNE 62 (UE's), so this is now the common
-        // path for a view with bloom on. Closing it means giving the bloom pass the adapted-luminance image
-        // and doing the comparison on the GPU (UE thresholds the exposed colour), which is a binding this
-        // pass does not have; it is written down in Docs/Clouds/CALIBRATION.md rather than left to be
-        // rediscovered.
-        const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
+        // The lens flare's bright pass is still compared in the raw image: under a manual exposure the authored
+        // threshold is divided by it here, under auto-exposure it is not (no CPU-side exposure exists). Closing it
+        // is binding the adapted luminance to LensFlareBrightPass as above (REMAINDER POST-LOOK).
+        const float flareExposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
 
         m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetThreshold( post.BloomThreshold / exposureNormalisation );
+             ->SetThreshold( post.BloomThreshold );
+        UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
+             ->SetExposure( ViewExposureOf( post ) );
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
              ->SetMaxMips(
@@ -902,7 +903,7 @@ namespace Desert::Graphic
         // Normalised for the reason given at the bloom threshold above, and by the same number: this pass
         // thresholds the same raw HDR image, so leaving one of the two in raw radiance would only move the
         // defect from one bright pass to the other.
-        m_LensFlare.Threshold       = post.LensFlareThreshold / exposureNormalisation;
+        m_LensFlare.Threshold       = post.LensFlareThreshold / flareExposureNormalisation;
         m_LensFlare.GhostCount      = post.LensFlareGhostCount;
         m_LensFlare.GhostSpacing    = post.LensFlareGhostSpacing;
         m_LensFlare.GhostSizeNear   = post.LensFlareGhostSizeNear;

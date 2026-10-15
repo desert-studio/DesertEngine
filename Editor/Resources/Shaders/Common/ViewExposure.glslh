@@ -1,0 +1,14 @@
+// #pragma once
+
+// THE EXPOSURE SCALE OF A VIEW (UE's EyeAdaptationLookup): what multiplies scene radiance into the exposed image the
+// tonemap grades and the bloom setup thresholds. exposure = Graphic::ViewExposureOf (Engine/Graphic/PostProcessing/
+// ViewExposure.hpp): x = manual Exposure, y > 0.5 = auto-exposure on, z = 2^AutoExposureBias. adaptedLuminance is this
+// frame's AutoExposure.Adapted texel (System.White when no eye adaptation ran, and then y is 0). Under auto-exposure
+// the adapted average luminance is placed on middle grey and moved by the compensation, UE's
+// ExposureScale = 2^Bias x 0.18 / AverageLuminance.
+float ViewExposureScale(vec4 exposure, float adaptedLuminance)
+{
+    if (exposure.y > 0.5)
+        return exposure.z * 0.18 / max(adaptedLuminance, 1e-4);
+    return exposure.x;
+}

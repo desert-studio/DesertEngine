@@ -1,5 +1,6 @@
 #include "TonemapRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/PostProcessing/ViewExposure.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -70,7 +71,11 @@ namespace Desert::Graphic::System
              .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
+             // Trilinear and clamped, as UE samples its table: the encoding puts black and the brightest code on
+             // the outer texel centres.
+             .Sampled( "u_ColorGradingLUT", inputs.ColorGradingLUT, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
     }
 
     void TonemapRenderer::FillMaterial( const GraphInputs& inputs )
@@ -82,7 +87,7 @@ namespace Desert::Graphic::System
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
-        const MaterialTonemap::Params params{ .Grade               = m_Grade,
+        const MaterialTonemap::Params params{ .Exposure            = ViewExposureOf( m_Grade ),
                                               .BloomIntensity      = bloomIntensity,
                                               .ChromaticBloom      = m_ChromaticBloom,
                                               .LightShaftIntensity = lightShaftIntensity,

@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/Camera.hpp>
 
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
 
 namespace Desert::Graphic::System
@@ -48,6 +49,7 @@ namespace Desert::Graphic::System
         {
             RDG::TextureRef Source;       // the scene colour (u_GeometryTexture), imported
             RDG::TextureRef AvgLuminance; // the adapted luminance (u_AvgLuminance); System.White without one
+            RDG::TextureRef ColorGradingLUT; // the baked grade (u_ColorGradingLUT), CombineLUTsRenderer's table
             RDG::TextureRef Bloom;
             bool            BloomProduced = false;
             RDG::TextureRef LightShafts;
@@ -67,9 +69,9 @@ namespace Desert::Graphic::System
 
         void Resize( uint32_t width, uint32_t height );
 
-        // The view's grade (Graphic::ResolveViewSettings), refreshed each frame by SceneRenderer::BeginScene: the
-        // operator and its film curve, white balance, display gamma, manual exposure and the auto-exposure
-        // compensation all come from this one copy, so no field can be set from two places.
+        // The view's grade (Graphic::ResolveViewSettings), refreshed each frame by SceneRenderer::BeginScene. The
+        // tonemap reads only its exposure (Graphic::ViewExposureOf); the rest of the grade reaches the pixel
+        // through the colour-grading table CombineLUTsRenderer bakes from the same settings.
         void SetGrade( const Core::PostProcessSettings& grade )
         {
             m_Grade = grade;

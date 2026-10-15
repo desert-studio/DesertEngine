@@ -4,7 +4,7 @@
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Engine/Core/PostProcessSettings.hpp>
-#include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
+#include <Engine/Graphic/PostProcessing/FilmGrade.hpp>
 
 // STB_IMAGE_IMPLEMENTATION is compiled once, in ThirdParty/stb/stb_image.cpp; this only declares.
 #include <stb_image/stb_image.h>
@@ -20,16 +20,18 @@ namespace Desert::Editor::HdrSphereThumbnail
         // THE SHADER'S OWN TEXT, NOT A PARAPHRASE OF IT. `PanoramaSampleUV` is the one mapping the
         // PanoramaToCubemap and DiffuseIrradiance bakes read an equirectangular file with; compiling the
         // same file here means a change to the convention moves the ball and the skybox together, instead
-        // of leaving a C++ copy that reads correct alone. `FilmGrade` / `FilmEncodeDisplay` are likewise the
-        // viewport's own film curve and display transform (SceneComposite includes the same file), so the ball is
-        // graded as the frame is. Included by a path
-        // relative to this file rather than through an include directory, because the Editor project does not put
-        // the shader tree on its include path and one producer is not a reason to make every Editor TU see it. The
-        // anonymous namespace and the glm spellings are the house arrangement for shader maths compiled as C++
-        // (Desert/Tests/Engine/SkyPanorama/SkyPanoramaReference.hpp).
+        // of leaving a C++ copy that reads correct alone. `FilmCombine` is likewise the viewport's own grade - the
+        // function the CombineLUTs bake evaluates into the table SceneComposite samples - so the ball is graded as
+        // the frame is, fed by the engine's FilmGradeParams (the GLSL struct is declared for GLSL only). Included
+        // by a path relative to this file rather than through an include directory, because the Editor project
+        // does not put the shader tree on its include path and one producer is not a reason to make every Editor
+        // TU see it. The anonymous namespace and the glm spellings are the house arrangement for shader maths
+        // compiled as C++ (Desert/Tests/Engine/SkyPanorama/SkyPanoramaReference.hpp).
         using vec2 = glm::vec2;
         using vec3 = glm::vec3;
-        using mat3 = glm::mat3;
+        using vec4            = glm::vec4;
+        using mat3            = glm::mat3;
+        using FilmGradeParams = Graphic::FilmGradeParams;
         using glm::abs;
         using glm::acos;
         using glm::atan;
@@ -94,16 +96,11 @@ namespace Desert::Editor::HdrSphereThumbnail
 
     std::array<unsigned char, 3> ToDisplay( const glm::vec3& linear )
     {
-        // A view no volume touches, graded through the frame's own steps: white balance, the Filmic grade, the
-        // display transform. The exposure is the manual default - a tile has no scene to meter.
+        // A view no volume touches, graded through the frame's own grade (FilmCombine: white balance, colour
+        // correction, the Filmic curve, the display transform), per pixel here instead of through the baked table.
+        // The exposure is the manual default - a tile has no scene to meter.
         const Core::PostProcessSettings grade{};
-        glm::vec3                       balanced = linear * grade.Exposure;
-        if ( !Core::IsIdentityWhiteBalance( grade.WhiteTemp, grade.WhiteTint ) )
-            balanced = FilmWhiteBalance( balanced, grade.WhiteTemp, grade.WhiteTint );
-        const glm::vec3 display =
-             FilmEncodeDisplay( FilmGrade( balanced, Graphic::MaterialTonemap::FilmCurveOf( grade ),
-                                           Graphic::MaterialTonemap::FilmLookOf( grade ) ),
-                                grade.Gamma );
+        const glm::vec3 display = FilmCombine( linear * grade.Exposure, Graphic::FilmGradeOf( grade ) );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
             out[static_cast<size_t>( c )] = static_cast<unsigned char>( std::lround( 255.0f * display[c] ) );

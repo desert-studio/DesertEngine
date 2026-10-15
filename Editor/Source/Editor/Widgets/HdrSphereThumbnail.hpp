@@ -75,8 +75,8 @@ namespace Desert::Editor::HdrSphereThumbnail
     /// Bilinear lookup of @p map in @p direction, wrapping around the seam in u and clamping at the poles.
     [[nodiscard]] glm::vec3 Sample( const EquirectMap& map, const glm::vec3& direction );
 
-    /// Linear HDR radiance -> display byte: exposure 1, the ACES fit SceneComposite applies by
-    /// default (decision D-10), then the sRGB encode the swapchain would apply.
+    /// Linear HDR radiance -> display byte: exposure 1, then the default view's grade (FilmCombine, the function
+    /// the viewport's colour-grading table is baked from: UE's Filmic curve and the sRGB output device).
     [[nodiscard]] std::array<unsigned char, 3> ToDisplay( const glm::vec3& linear );
 
     /// The picture: RGBA8, `side * side * 4`, top row first, opaque everywhere (the grid composites over

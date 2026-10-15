@@ -54,6 +54,7 @@
 #include "Systems/Scene/PostProcessing/SMAARenderer.hpp"
 #include "Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp"
 #include "Systems/Scene/PostProcessing/BloomRenderer.hpp"
+#include "Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp"
 #include "Systems/Scene/PostProcessing/LensFlareRenderer.hpp"
 #include "Systems/Scene/PostProcessing/LightShaftRenderer.hpp"
 #include "Systems/Scene/PostProcessing/AutoExposureRenderer.hpp"
@@ -809,8 +810,14 @@ namespace Desert::Graphic
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
-        void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
-                            const std::vector<RDG::TextureRef>& sceneColor );
+        // The 1x1 adapted luminance every pass on the exposed image reads its exposure from (ViewExposure.glslh):
+        // AutoExposure.Adapted, or System.White when no eye-adaptation image exists (the exposure is manual then).
+        RDG::TextureRef FrameAdaptedLuminance( FrameTextures& textures );
+        void            AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
+                                       const std::vector<RDG::TextureRef>& sceneColor );
+        // The colour-grading table the tonemap samples (CombineLUTsRenderer), with its bake node when this frame's
+        // grade differs from the one it holds. Invalid when the table does not exist.
+        RDG::TextureRef AddFrameColorGrading( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
                                   const std::vector<RDG::TextureRef>& sceneColor,
                                   const std::shared_ptr<FrameValues>& values );

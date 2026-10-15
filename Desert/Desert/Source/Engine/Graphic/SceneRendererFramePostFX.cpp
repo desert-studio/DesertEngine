@@ -22,6 +22,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cstddef>
+#include <span>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -179,6 +181,43 @@ namespace Desert::Graphic
              { return autoExp->RecordAverage( context ); } );
     }
 
+    RDG::TextureRef SceneRenderer::FrameAdaptedLuminance( FrameTextures& textures )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( tonemap == nullptr )
+            return textures.System.White;
+        // Without an auto-exposure node the shaders read System.White; the manual exposure is used then (the auto
+        // flag of ViewExposureOf is off), so the value is never read as a measurement.
+        const RDG::TextureRef adapted =
+             textures.Import( tonemap->GetInputs().AutoExposure, "AutoExposure.Adapted" );
+        return adapted.IsValid() ? adapted : textures.System.White;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameColorGrading( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* luts = UNIQUE_GET_AS( System::CombineLUTsRenderer, m_RenderSystems["CombineLUTsSystem"] );
+        if ( luts == nullptr )
+            return {};
+        const RDG::TextureRef lut = textures.Import( luts->GetLUTImage(), "ColorGrading.LUT" );
+        if ( !lut.IsValid() || !luts->NeedsBake() )
+            return lut;
+        // The table outlives the frame like a history: if a fault removes this bake, what it holds is unknown and
+        // the next frame bakes again.
+        textures.MarkHistory( lut, [luts]() { luts->OnBakeLost(); } );
+        const Graphic::FilmGradeParams grade = luts->GetGrade();
+        const RDG::BufferRef           params =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( Graphic::FilmGradeParams ) }, "ColorGrading.Params" );
+        graph.QueueBufferUpload( params, std::as_bytes( std::span( &grade, 1 ) ) );
+        graph.AddPass(
+             "PostFX: CombineLUTs", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass ) { luts->DeclareBindings( pass, lut, params ); },
+             [luts, grade]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return luts->Record( context, grade ); } );
+        return lut;
+    }
+
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
@@ -194,13 +233,17 @@ namespace Desert::Graphic
         graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
+        // The threshold is compared with the EXPOSED luminance (UE's bloom setup): the exposure is the tonemap's,
+        // from the same adapted-luminance image.
+        const RDG::TextureRef adapted = FrameAdaptedLuminance( textures );
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareDownsampleBindings( pass, scene, chain, mip ); },
+                 [&]( RDG::PassBuilder& pass )
+                 { bloom->DeclareDownsampleBindings( pass, scene, adapted, chain, mip ); },
                  [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
@@ -339,11 +382,8 @@ namespace Desert::Graphic
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( tonemap == nullptr )
             return;
-        const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
-        // Without an auto-exposure node the shader's u_AvgLuminance reads System.White; the manual exposure is
-        // used then (the auto flag is off), so the value is never read as a measurement.
-        const RDG::TextureRef adapted      = textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" );
-        const RDG::TextureRef avgLuminance = adapted.IsValid() ? adapted : textures.System.White;
+        const RDG::TextureRef avgLuminance = FrameAdaptedLuminance( textures );
+        const RDG::TextureRef colorGrading = AddFrameColorGrading( graph, textures );
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
         // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
         const bool bloomProduced = textures.Transients.Bloom.IsValid();
@@ -353,6 +393,7 @@ namespace Desert::Graphic
         System::TonemapRenderer::GraphInputs graphInputs{
              .Source              = source,
              .AvgLuminance        = avgLuminance,
+             .ColorGradingLUT     = colorGrading,
              .Bloom               = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
              .BloomProduced       = bloomProduced,
              .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
@@ -360,11 +401,12 @@ namespace Desert::Graphic
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
              .LensFlareProduced   = flareProduced };
         if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
-             !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
-             !graphInputs.LensFlare.IsValid() )
+             !graphInputs.ColorGradingLUT.IsValid() || !graphInputs.Bloom.IsValid() ||
+             !graphInputs.LightShafts.IsValid() || !graphInputs.LensFlare.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
-                       "System.White is not in this graph); the tonemap pass is not recorded this frame" );
+            LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, no colour-grading "
+                       "table, or System.Black / System.White is not in this graph); the tonemap pass is not "
+                       "recorded this frame" );
             return;
         }
         const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );

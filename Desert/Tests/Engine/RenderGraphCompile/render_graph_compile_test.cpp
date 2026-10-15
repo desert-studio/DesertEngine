@@ -2433,6 +2433,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: LightShaftBlur{}",
          "PostFX: LensFlareBright{}",
          "PostFX: LensFlareFeatures",
+         // POST-LOOK: the colour-grading table, baked when the grade changed, before the tonemap samples it.
+         "PostFX: CombineLUTs",
          "PostFX: Tonemap",
          "PostFX: FXAA",
          "PostFX: SMAAEdges",

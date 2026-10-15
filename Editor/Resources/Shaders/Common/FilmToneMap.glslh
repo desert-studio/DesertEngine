@@ -2,15 +2,22 @@
 
 // Ported from UE 5.8 Engine/Shaders/Private/TonemapCommon.ush:110-225 (FilmToneMap), :535-617 (WhiteBalance and its
 // chromaticity helpers); ACES/ACESCommon.ush:17-125 (matrices), :140-300 (rgb_2_saturation, rgb_2_hue, center_hue,
-// xyY_2_XYZ, ChromaticAdaptation, glow_fwd, rgb_2_yc, sigmoid_shaper); PostProcessCombineLUTs.usf:160-192 and
-// :344-403 (the Filmic order: white balance, gamut expansion, blue correction, film curve);
-// GammaCorrectionCommon.ush:16-21 (LinearToSrgbBranchless). Adapted: GLSL that also compiles as C++ through glm;
-// evaluated per pixel instead of baked into UE's 32^3 LUT; sRGB working colour space (UE's default); only the
-// temperature white-balance mode; no ColorCorrectAll grading wheels; two black guards (FilmToneMap, FilmExpandGamut).
+// xyY_2_XYZ, ChromaticAdaptation, glow_fwd, rgb_2_yc, sigmoid_shaper); PostProcessCombineLUTs.usf:88-138
+// (ColorCorrect, ColorCorrectAll), :160-192 (ComputeFilmColorNoGamma), :344-420 (CombineLUTsCommon: white
+// balance, gamut expansion, colour correction, film curve, sRGB output device); GammaCorrectionCommon.ush:16-21
+// (LinearToSrgbBranchless), :88-115 (LogToLin, LinToLog). Adapted: GLSL that also compiles as C++ through glm;
+// sRGB working colour space (UE's default); only the temperature white-balance mode; the legacy LDR LUT blend,
+// MappingPolynomial and ColorScale/Overlay (identity at UE's defaults) are not carried; two black guards
+// (FilmToneMap, FilmExpandGamut); extended Reinhard kept as a second operator inside the same combine.
 //
-// THE ONE PLACE THE FILM CURVE IS WRITTEN. SceneComposite grades every frame through it, and the editor's HDR
-// thumbnail (Editor/Widgets/HdrSphereThumbnail.cpp) includes this same text compiled as C++, so the ball in the
-// Content Browser is graded by the operator the viewport uses rather than by a transcription that drifts.
+// BAKED, NOT PER PIXEL. As UE (CombineLUTs), the whole grade of a view - white balance, gamut expansion, the colour
+// correction wheels, the tone curve and the output device - is FilmCombine below, evaluated once per change of the
+// grade into a 32^3 table (Programs/Composite/CombineLUTs.shader) that SceneComposite samples with FilmLinToLog.
+//
+// THE ONE PLACE THE GRADE IS WRITTEN. The CombineLUTs bake evaluates FilmCombine for every texel of the table the
+// frame is graded through, and the editor's HDR thumbnail (Editor/Widgets/HdrSphereThumbnail.cpp) includes this same
+// text compiled as C++ and calls the same FilmCombine, so the ball in the Content Browser is graded by the operator
+// the viewport uses rather than by a transcription that drifts.
 //
 // WHY UE'S FILMIC AND NOT AN ACES FIT. This file used to hold Stephen Hill's fit of the ACES RRT+ODT. Unreal does
 // not grade through that: its default (ETonemappingMethod::Filmic) is the parametric film curve below with
@@ -367,17 +374,15 @@ vec3 FilmToneMap(vec3 colorAP1, vec4 curve, float whiteClip)
     return max(ToneColor, vec3(0.0f));
 }
 
-// UE's Filmic grade of a white-balanced, scene-linear sRGB colour (CombineLUTsCommon up to ColorCorrectAll, then
-// ComputeFilmColorNoGamma): gamut expansion, blue correction around the film curve, back to sRGB with the
-// out-of-gamut clipped. curve = (Slope, Toe, Shoulder, BlackClip); look = (WhiteClip, BlueCorrection,
-// ExpandGamut, ToneCurveAmount). Returns DISPLAY-linear sRGB; FilmEncodeDisplay is the transfer function.
-vec3 FilmGrade(vec3 balancedColor, vec4 curve, vec4 look)
+// UE's ComputeFilmColorNoGamma (PostProcessCombineLUTs.usf:160-192) without the legacy LDR LUT blend: blue
+// correction around the film curve, back to the sRGB working space with the out-of-gamut clipped. curve = (Slope,
+// Toe, Shoulder, BlackClip); look = (WhiteClip, BlueCorrection, ExpandGamut, ToneCurveAmount). Returns DISPLAY-linear
+// sRGB; FilmEncodeDisplay is the transfer function.
+vec3 FilmColorNoGamma(vec3 colorAP1, vec4 curve, vec4 look)
 {
     float BlueCorrection  = look.y;
-    float ExpandGamut     = look.z;
     float ToneCurveAmount = look.w;
-
-    vec3 ColorAP1 = FilmExpandGamut(FilmSRGB_2_AP1() * balancedColor, ExpandGamut);
+    vec3  ColorAP1        = colorAP1;
 
     mat3 AP0_2_AP1 = XYZ_2_AP1_MAT() * AP0_2_XYZ_MAT();
     mat3 AP1_2_AP0 = XYZ_2_AP0_MAT() * AP1_2_XYZ_MAT();
@@ -402,6 +407,94 @@ vec3 FilmGrade(vec3 balancedColor, vec4 curve, vec4 look)
     return max(FilmAP1_2_SRGB() * ColorAP1, vec3(0.0f));
 }
 
+// UE's Nuke-style ColorCorrect (PostProcessCombineLUTs.usf:88-100) of one range, on an AP1 colour. Each control is
+// a vec4 as UE's FVector4: rgb per channel, w a multiplier of all three (an added constant for Offset).
+vec3 FilmColorCorrect(vec3 workingColor, vec4 saturation, vec4 contrast, vec4 gamma, vec4 gain, vec4 offset)
+{
+    float Luma         = dot(workingColor, AP1_RGB2Y());
+    vec3  WorkingColor = max(vec3(0.0f), mix(vec3(Luma), workingColor, vec3(saturation) * saturation.w));
+    WorkingColor = pow(WorkingColor * (1.0f / 0.18f), vec3(contrast) * contrast.w) * 0.18f;
+    WorkingColor = pow(WorkingColor, vec3(1.0f) / (vec3(gamma) * gamma.w));
+    WorkingColor = WorkingColor * (vec3(gain) * gain.w) + (vec3(offset) + vec3(offset.w));
+    return WorkingColor;
+}
+
+// THE WHOLE GRADE OF A VIEW, as FilmCombine reads it: UE's colour grading per range (FColorGradePerRangeSettings)
+// and everything else CombineLUTs is parameterised by. The C++ side is Graphic::FilmGradeParams
+// (Engine/Graphic/PostProcessing/FilmGrade.hpp): the bake uploads that struct as this one (std430, vec4 members
+// only, so both are 25 packed vec4s), and the thumbnail compiles this file against it by name - hence declared here
+// for GLSL only.
+#ifndef __cplusplus
+struct FilmColorRange
+{
+    vec4 Saturation;
+    vec4 Contrast;
+    vec4 Gamma;
+    vec4 Gain;
+    vec4 Offset;
+};
+
+struct FilmGradeParams
+{
+    vec4           Curve;        // FilmSlope, FilmToe, FilmShoulder, FilmBlackClip
+    vec4           Look;         // FilmWhiteClip, BlueCorrection, ExpandGamut, ToneCurveAmount
+    vec4           WhiteBalance; // WhiteTemp, WhiteTint, z > 0.5 = not the identity (6500 / 0), so it applies
+    vec4           Output;       // DisplayGamma, operator (< 0.5 Filmic, otherwise extended Reinhard), WhitePoint
+    vec4           Ranges;       // ColorCorrectionShadowsMax, HighlightsMin, HighlightsMax
+    FilmColorRange Global;
+    FilmColorRange Shadows;
+    FilmColorRange Midtones;
+    FilmColorRange Highlights;
+};
+#endif
+
+// UE's ColorCorrectAll (PostProcessCombineLUTs.usf:105-138): the shadow, midtone and highlight corrections, each
+// the range's control combined with the global one, blended by the colour's luma.
+vec3 FilmColorCorrectAll(vec3 workingColor, FilmGradeParams grade)
+{
+    float Luma = dot(workingColor, AP1_RGB2Y());
+
+    vec3 CCColorShadows = FilmColorCorrect(workingColor,
+                                           grade.Shadows.Saturation * grade.Global.Saturation,
+                                           grade.Shadows.Contrast * grade.Global.Contrast,
+                                           grade.Shadows.Gamma * grade.Global.Gamma,
+                                           grade.Shadows.Gain * grade.Global.Gain,
+                                           grade.Shadows.Offset + grade.Global.Offset);
+    float CCWeightShadows = 1.0f - smoothstep(0.0f, grade.Ranges.x, Luma);
+
+    vec3 CCColorHighlights = FilmColorCorrect(workingColor,
+                                              grade.Highlights.Saturation * grade.Global.Saturation,
+                                              grade.Highlights.Contrast * grade.Global.Contrast,
+                                              grade.Highlights.Gamma * grade.Global.Gamma,
+                                              grade.Highlights.Gain * grade.Global.Gain,
+                                              grade.Highlights.Offset + grade.Global.Offset);
+    float CCWeightHighlights = smoothstep(grade.Ranges.y, grade.Ranges.z, Luma);
+
+    vec3 CCColorMidtones = FilmColorCorrect(workingColor,
+                                            grade.Midtones.Saturation * grade.Global.Saturation,
+                                            grade.Midtones.Contrast * grade.Global.Contrast,
+                                            grade.Midtones.Gamma * grade.Global.Gamma,
+                                            grade.Midtones.Gain * grade.Global.Gain,
+                                            grade.Midtones.Offset + grade.Global.Offset);
+    float CCWeightMidtones = 1.0f - CCWeightShadows - CCWeightHighlights;
+
+    return CCColorShadows * CCWeightShadows + CCColorMidtones * CCWeightMidtones +
+           CCColorHighlights * CCWeightHighlights;
+}
+
+// Extended Reinhard, on luminance, preserving the colour's ratio to it ("Photographic Tone Reproduction for Digital
+// Images", eq. 4). The white point is a parameter and not a constant, and that is the whole point of it:
+//     L' = L * (1 + L / W^2) / (1 + L)
+// at W = 1 reduces ALGEBRAICALLY to L' = L. The operator was once hard-coded to W = 1, so it tonemapped nothing -
+// every luminance above 1 was clipped by the 8-bit store, flattening bright content into paper silhouettes.
+vec3 FilmReinhard(vec3 color, float whitePoint)
+{
+    float pureWhite       = max(whitePoint, 1.0f);
+    float luminance       = dot(color, vec3(0.2126f, 0.7152f, 0.0722f));
+    float mappedLuminance = (luminance * (1.0f + luminance / (pureWhite * pureWhite))) / (1.0f + luminance);
+    return (mappedLuminance / (luminance + 0.0001f)) * color;
+}
+
 // UE's sRGB output device: the "gamma" adjustment pow(c, InverseGamma.y) with InverseGamma.y = 2.2 / DisplayGamma
 // (the identity at UE's default 2.2), then the sRGB inverse EOTF - NOT a pure power. A pure 1/2.2 power lifts
 // everything under linear 0.0031 off the floor (linear 0.002 -> 15/255 against sRGB's 6.6/255), which is the
@@ -410,4 +503,49 @@ vec3 FilmEncodeDisplay(vec3 displayLinear, float displayGamma)
 {
     vec3 lin = clamp(pow(max(displayLinear, vec3(0.0f)), vec3(2.2f / displayGamma)), 0.0f, 1.0f);
     return min(lin * 12.92f, pow(max(lin, vec3(0.00313067f)), vec3(1.0f / 2.4f)) * 1.055f - vec3(0.055f));
+}
+
+// UE's generic log encoding of the colour-grading table (GammaCorrectionCommon.ush:88-115): 14 stops, scene 0.18 at
+// code 444 / 1023. The table covers LogToLin(0) .. LogToLin(1) = 0.0027 .. 43.5 of exposed scene-linear colour;
+// brighter clamps to the last texel, as in UE.
+vec3 FilmLogToLin(vec3 logColor)
+{
+    float LinearRange  = 14.0f;
+    float LinearGrey   = 0.18f;
+    float ExposureGrey = 444.0f;
+    return exp2((logColor - vec3(ExposureGrey / 1023.0f)) * LinearRange) * LinearGrey;
+}
+
+vec3 FilmLinToLog(vec3 linearColor)
+{
+    float LinearRange  = 14.0f;
+    float LinearGrey   = 0.18f;
+    float ExposureGrey = 444.0f;
+    vec3  LogColor = log2(linearColor) / LinearRange - vec3(log2(LinearGrey) / LinearRange - ExposureGrey / 1023.0f);
+    return clamp(LogColor, vec3(0.0f), vec3(1.0f));
+}
+
+// UE's CombineLUTsCommon for the sRGB output device: exposed scene-linear sRGB in, the DEVICE colour (sRGB-encoded,
+// 0..1) out. White balance, then in AP1: gamut expansion (Filmic), the colour correction of every range, the tone
+// curve (Filmic, or extended Reinhard on the corrected colour), and the display transfer. The bake stores exactly
+// this per texel of the table; the thumbnail calls it per pixel.
+vec3 FilmCombine(vec3 linearColor, FilmGradeParams grade)
+{
+    vec3 BalancedColor = linearColor;
+    if (grade.WhiteBalance.z > 0.5f)
+        BalancedColor = FilmWhiteBalance(linearColor, grade.WhiteBalance.x, grade.WhiteBalance.y);
+
+    bool filmic   = grade.Output.y < 0.5f;
+    vec3 ColorAP1 = FilmSRGB_2_AP1() * BalancedColor;
+    if (filmic)
+        ColorAP1 = FilmExpandGamut(ColorAP1, grade.Look.z);
+
+    ColorAP1 = FilmColorCorrectAll(ColorAP1, grade);
+
+    vec3 displayLinear = vec3(0.0f);
+    if (filmic)
+        displayLinear = FilmColorNoGamma(ColorAP1, grade.Curve, grade.Look);
+    else
+        displayLinear = FilmReinhard(max(FilmAP1_2_SRGB() * ColorAP1, vec3(0.0f)), grade.Output.z);
+    return FilmEncodeDisplay(displayLinear, grade.Output.x);
 }
