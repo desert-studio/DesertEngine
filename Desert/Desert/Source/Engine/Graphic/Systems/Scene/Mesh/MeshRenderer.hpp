@@ -183,7 +183,7 @@ namespace Desert::Graphic::System
             MaterialSlotBindingPtr MaterialSlots;
             // The slot every drawn submesh shades with, in every pass (SectionSurface); HiddenSubmeshes masks the
             // sections of the entity's other slots, which arrive as their own entries.
-            uint32_t               SectionSlot     = 0;
+            uint32_t               SectionSlot              = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -200,8 +200,8 @@ namespace Desert::Graphic::System
             // `.demat`, which is why nothing per-object may be stored on it: the pose is packed into a
             // per-frame buffer and named by a push constant instead.
             class Graphic::DataDrivenMaterial* Material = nullptr;
-            MaterialInstance* Instance = nullptr; // applied during Bind; owned by the entry's MaterialSlots
-            uint64_t          HiddenSubmeshes = 0; // every submesh of the other sections
+            MaterialInstance* Instance        = nullptr; // applied during Bind; owned by the entry's MaterialSlots
+            uint64_t          HiddenSubmeshes = 0;       // every submesh of the other sections
         };
 
         struct SkinnedMeshRenderData
@@ -237,7 +237,7 @@ namespace Desert::Graphic::System
             // The entity that owns the field: each instance's GPU-scene row is keyed {Entity, instance}.
             uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh   = nullptr;
-            MaterialInstancePtr                           Material;            // the section group's slot (a mesh cell)
+            MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
@@ -245,9 +245,9 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions): instance
-            // i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and its GI
-            // card-table row (one row per instance, 1:1 with the TLAS instance).
+            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions):
+            // instance i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and
+            // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
             uint32_t FirstMotionRow = 0;
         };
 

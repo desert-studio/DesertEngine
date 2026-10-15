@@ -185,7 +185,8 @@ namespace Desert::ECS
                              draw.CastShadows, /*maxDrawDistance*/ 0.0f, draw.MotionPart );
                     else
                         commands.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                             static_cast<uint32_t>( entity ), mesh, binding, static_cast<uint32_t>( draw.Slot ), draw.Transform, outlined, draw.Mask,
+                             static_cast<uint32_t>( entity ), mesh, binding, static_cast<uint32_t>( draw.Slot ),
+                             draw.Transform, outlined, draw.Mask,
                              /*forcedLOD*/ -1, /*lodBias*/ 0, draw.CastShadows, /*receiveShadows*/ true,
                              /*sortPriority*/ 0, /*maxDrawDistance*/ 0.0f, draw.MotionPart );
                 }

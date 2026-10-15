@@ -61,18 +61,18 @@ TEST( RayTracingScene, EachHardwareTracedMethodAsksForTheTlas )
 TEST( RayTracingScene, InstanceListKeepsTracablePrimitivesAndCountsTheRest )
 {
     std::vector<RayTracingPrimitive> primitives( 6 );
-    primitives[0].Geometry        = &kRock;
-    primitives[0].GpuSceneRow     = 4;
-    primitives[1].Geometry        = nullptr; // not resident
-    primitives[2].Geometry        = nullptr; // skinned, no dynamic BLAS built this frame
-    primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
-    primitives[3].Geometry        = &kCrate;
-    primitives[3].GpuSceneRow     = 9;
-    primitives[3].CastShadows     = false;
-    primitives[4].Geometry        = &kRock;
+    primitives[0].Geometry         = &kRock;
+    primitives[0].GpuSceneRow      = 4;
+    primitives[1].Geometry         = nullptr; // not resident
+    primitives[2].Geometry         = nullptr; // skinned, no dynamic BLAS built this frame
+    primitives[2].Kind             = RayTracingPrimitiveKind::Skinned;
+    primitives[3].Geometry         = &kCrate;
+    primitives[3].GpuSceneRow      = 9;
+    primitives[3].CastShadows      = false;
+    primitives[4].Geometry         = &kRock;
     primitives[4].Submeshes.Hidden = 0b10;
-    primitives[5].Geometry        = &kRock;
-    primitives[5].GpuSceneRow     = kMaxGpuSceneRow + 1;
+    primitives[5].Geometry         = &kRock;
+    primitives[5].GpuSceneRow      = kMaxGpuSceneRow + 1;
 
     const RayTracingInstanceList list = BuildRayTracingInstances( primitives );
 
@@ -103,18 +103,18 @@ TEST( RayTracingScene, DeformedPrimitivesGetAPerFrameBlasAndEnterTheTlasThroughI
     int kGuard    = 5;
 
     std::vector<RayTracingPrimitive> primitives( 5 );
-    primitives[0].Geometry        = &kRock; // static: never a dynamic build
-    primitives[1].Kind            = RayTracingPrimitiveKind::Skinned;   // skinned with no mesh
-    primitives[2].Kind            = RayTracingPrimitiveKind::Skinned;
-    primitives[2].DeformedMesh    = &kHero;
+    primitives[0].Geometry         = &kRock;                           // static: never a dynamic build
+    primitives[1].Kind             = RayTracingPrimitiveKind::Skinned; // skinned with no mesh
+    primitives[2].Kind             = RayTracingPrimitiveKind::Skinned;
+    primitives[2].DeformedMesh     = &kHero;
     primitives[2].Submeshes.Hidden = 0b100;
-    primitives[2].GpuSceneRow     = 7;
-    primitives[3].Kind            = RayTracingPrimitiveKind::Skinned;
-    primitives[3].DeformedMesh    = &kGuard;
-    primitives[3].GpuSceneRow     = kMaxGpuSceneRow + 1;
-    primitives[4].Kind            = RayTracingPrimitiveKind::Skinned;
-    primitives[4].DeformedMesh    = &kGuard;
-    primitives[4].GpuSceneRow     = 8;
+    primitives[2].GpuSceneRow      = 7;
+    primitives[3].Kind             = RayTracingPrimitiveKind::Skinned;
+    primitives[3].DeformedMesh     = &kGuard;
+    primitives[3].GpuSceneRow      = kMaxGpuSceneRow + 1;
+    primitives[4].Kind             = RayTracingPrimitiveKind::Skinned;
+    primitives[4].DeformedMesh     = &kGuard;
+    primitives[4].GpuSceneRow      = 8;
 
     const std::vector<RayTracingDynamicGeometryRequest> requests = SelectDynamicGeometry( primitives );
     ASSERT_EQ( requests.size(), 2u );

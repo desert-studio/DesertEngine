@@ -459,7 +459,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory&                motion,
-                                                           std::span<const MotionRecord> otherRigid )
+                                                            std::span<const MotionRecord> otherRigid )
     {
         // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
         // records of one object share it, slots stable per submission); this function only gathers the queued
@@ -559,7 +559,7 @@ namespace Desert::Graphic::System
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
-                staticData.SectionSlot     = data.SectionSlot;
+                staticData.SectionSlot              = data.SectionSlot;
                 staticData.Outlined        = data.Outlined;
                 staticData.HiddenSubmeshes = data.HiddenSubmeshes;
                 staticData.ForcedLOD       = data.ForcedLOD;
@@ -589,8 +589,8 @@ namespace Desert::Graphic::System
                     // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
                     // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
                     using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
-                    const auto&               slots = data.MaterialSlots->Slots;
-                    const size_t              count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
+                    const auto&  slots = data.MaterialSlots->Slots;
+                    const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
                     std::vector<SlotSections> visibleBySlot;
                     for ( size_t si = 0; si < count; ++si )
                     {
@@ -609,7 +609,8 @@ namespace Desert::Graphic::System
                         DataDrivenMaterial* surface = nullptr;
                         if ( inst != nullptr )
                             surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
-                        if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Skinned )
+                        if ( surface != nullptr &&
+                             MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Skinned )
                         {
                             skinnedData.Sections.push_back(
                                  { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
@@ -624,10 +625,11 @@ namespace Desert::Graphic::System
                         static bool s_WarnedNoSkinnedSlot = false;
                         if ( !s_WarnedNoSkinnedSlot )
                         {
-                            LOG_WARN( "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
-                                      "vertex path; its sections are dropped. MeshECSSystem is expected to have "
-                                      "substituted its default skinned material, so this means the two disagree.",
-                                      slot );
+                            LOG_WARN(
+                                 "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
+                                 "vertex path; its sections are dropped. MeshECSSystem is expected to have "
+                                 "substituted its default skinned material, so this means the two disagree.",
+                                 slot );
                             s_WarnedNoSkinnedSlot = true;
                         }
                     }

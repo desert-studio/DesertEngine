@@ -110,7 +110,7 @@ namespace Desert::Graphic
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
-            uint32_t               SectionSlot = 0;  // static: the slot this draw's submeshes shade with
+            uint32_t               SectionSlot = 0;   // static: the slot this draw's submeshes shade with
             std::vector<glm::mat4> BoneMatrices; // optional
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;
@@ -256,8 +256,7 @@ namespace Desert::Graphic
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
-                                  const MaterialOverrides&           overrides,
-                                  const System::LandscapeWeightDraw& weights );
+                                  const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
@@ -293,7 +292,7 @@ namespace Desert::Graphic
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
-                                  uint64_t hiddenSubmeshes,
+                                  uint64_t                                             hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, const InstanceCullDistance& cullDistance,
                                   const InstanceWind& wind );

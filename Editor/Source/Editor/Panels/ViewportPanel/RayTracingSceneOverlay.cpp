@@ -31,23 +31,22 @@ namespace Desert::Editor
             return;
 
         using Graphic::RayTracing::RayTracingPrimitiveKind;
-        using Graphic::RayTracing::RayTracingSkip;
         using Graphic::RayTracing::RayTracingPrimitiveKindName;
+        using Graphic::RayTracing::RayTracingSkip;
         using Graphic::RayTracing::RayTracingSkipName;
         const Localization::LocaleRow& locale = Localization::Localization::Get().Language();
 
         std::vector<std::string> rows;
         rows.emplace_back( "Ray tracing scene" );
         for ( std::size_t k = 0; k < stats.InstancesByKind.size(); ++k )
-            rows.push_back(
-                std::format( "  {}: {}", RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
-                             Localization::FormatInteger( locale, stats.InstancesByKind[k] ) ) );
+            rows.push_back( std::format( "  {}: {}",
+                                         RayTracingPrimitiveKindName( static_cast<RayTracingPrimitiveKind>( k ) ),
+                                         Localization::FormatInteger( locale, stats.InstancesByKind[k] ) ) );
         const std::size_t firstSkip = rows.size();
         for ( std::size_t r = 0; r < stats.SkippedByReason.size(); ++r )
-            rows.push_back(
-                std::format( "  Skipped, {}: {}",
-                             RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
-                             Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
+            rows.push_back( std::format( "  Skipped, {}: {}",
+                                         RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
+                                         Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
         const std::size_t endSkip = rows.size();
         rows.push_back( std::format( "  Traced BLAS: {}", FormatMiB( locale, stats.TracedBlasBytes ) ) );
         rows.push_back( std::format( "  Variant BLAS: {}", FormatMiB( locale, stats.VariantBlasBytes ) ) );
@@ -55,13 +54,12 @@ namespace Desert::Editor
         rows.push_back( std::format( "  Skin cache BLAS: {}, positions: {}",
                                      FormatMiB( locale, stats.SkinCacheBlasBytes ),
                                      FormatMiB( locale, stats.SkinCachePositionsBytes ) ) );
-        rows.push_back( std::format( "  Landscape tiles: {} (built {}, refit {}), vertices: {}, BLAS: {}",
-                                     Localization::FormatInteger(
-                                          locale, static_cast<int64_t>( landscape.Primitives.size() ) ),
-                                     Localization::FormatInteger( locale, landscape.Built ),
-                                     Localization::FormatInteger( locale, landscape.Refit ),
-                                     FormatMiB( locale, landscape.VertexBytes ),
-                                     FormatMiB( locale, landscape.BlasBytes ) ) );
+        rows.push_back( std::format(
+             "  Landscape tiles: {} (built {}, refit {}), vertices: {}, BLAS: {}",
+             Localization::FormatInteger( locale, static_cast<int64_t>( landscape.Primitives.size() ) ),
+             Localization::FormatInteger( locale, landscape.Built ),
+             Localization::FormatInteger( locale, landscape.Refit ), FormatMiB( locale, landscape.VertexBytes ),
+             FormatMiB( locale, landscape.BlasBytes ) ) );
         rows.push_back( std::format( "  TLAS: {}, instances: {}", FormatMiB( locale, stats.TlasBytes ),
                                      FormatMiB( locale, stats.TlasInstanceBytes ) ) );
 

@@ -25,12 +25,9 @@ namespace Desert::Graphic::RayTracing
         };
     }
 
-    Common::BoolResultStr RayTracingSceneRenderer::AddPasses( RDG::Builder& graph, bool required,
-                                                              const System::MeshRenderer& meshes,
-                                                              RayTracingSceneCache&       cache,
-                                                              const glm::vec3&            viewOrigin,
-                                                              const float                 drawDistanceScale,
-                                                              const RayTracingExternalPrimitives& external )
+    Common::BoolResultStr RayTracingSceneRenderer::AddPasses(
+         RDG::Builder& graph, bool required, const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
+         const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external )
     {
         m_Frame     = {};
         m_Instances = {};
@@ -38,7 +35,8 @@ namespace Desert::Graphic::RayTracing
         if ( !required )
             return BOOLSUCCESS;
 
-        // The scene's shared geometry ends its previous frame on the first view of this one (RayTracingSceneCache).
+        // The scene's shared geometry ends its previous frame on the first view of this one
+        // (RayTracingSceneCache).
         cache.BeginViewFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
 
         // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
@@ -50,8 +48,9 @@ namespace Desert::Graphic::RayTracing
                                       .ViewOrigin          = viewOrigin,
                                       .DrawDistanceScale   = drawDistanceScale },
                                     cache.GetVariants(), m_Gather );
-        // Skinned primitives trace their per-frame BLAS: the scene's skin cache skins and builds each once per frame
-        // (an earlier view's build is reused). The gather appends one skinned primitive per skinned record, last.
+        // Skinned primitives trace their per-frame BLAS: the scene's skin cache skins and builds each once per
+        // frame (an earlier view's build is reused). The gather appends one skinned primitive per skinned record,
+        // last.
         m_DynamicBlas.clear();
         m_DynamicBuilds.clear();
         const auto firstSkinned =
@@ -67,9 +66,9 @@ namespace Desert::Graphic::RayTracing
              !procedural )
             return procedural;
         // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
-        // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are read
-        // by the TLAS like every other dynamic BLAS.
-        const std::size_t firstExternal     = m_Gather.Primitives.size();
+        // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are
+        // read by the TLAS like every other dynamic BLAS.
+        const std::size_t firstExternal      = m_Gather.Primitives.size();
         const auto        externalRecordBase = static_cast<uint32_t>( m_Gather.SegmentRecords.size() );
         m_Gather.Primitives.insert( m_Gather.Primitives.end(), external.Primitives.begin(),
                                     external.Primitives.end() );
@@ -104,14 +103,15 @@ namespace Desert::Graphic::RayTracing
             if ( traced.insert( instance.Geometry ).second )
                 m_Stats.TracedBlasBytes +=
                      static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetMemoryBytes();
-        m_Stats.VariantBlasBytes                   = cache.GetVariants().GetMemoryBytes();
-        m_Stats.ProceduralBlasBytes                = cache.GetProcedural().GetMemoryBytes();
+        m_Stats.VariantBlasBytes                    = cache.GetVariants().GetMemoryBytes();
+        m_Stats.ProceduralBlasBytes                 = cache.GetProcedural().GetMemoryBytes();
         const RayTracingSkinCache::MemoryBytes skin = cache.GetSkinCache().GetMemoryBytes();
-        m_Stats.SkinCacheBlasBytes                 = skin.Blas;
-        m_Stats.SkinCachePositionsBytes            = skin.Positions;
-        m_Stats.TlasBytes                          = m_Target->GetStorage().Desc.Bytes;
+        m_Stats.SkinCacheBlasBytes                  = skin.Blas;
+        m_Stats.SkinCachePositionsBytes             = skin.Positions;
+        m_Stats.TlasBytes                           = m_Target->GetStorage().Desc.Bytes;
         m_Stats.TlasInstanceBytes =
-             static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Instances.size(), 1u ) ) * kInstanceRowBytes;
+             static_cast<uint64_t>( std::max<std::size_t>( m_Instances.Instances.size(), 1u ) ) *
+             kInstanceRowBytes;
         return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::RayTracing

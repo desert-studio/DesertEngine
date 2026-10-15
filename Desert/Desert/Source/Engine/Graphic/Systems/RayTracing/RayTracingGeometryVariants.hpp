@@ -21,8 +21,9 @@ namespace Desert
 // way), and the uploader builds the mesh's own BLAS all opaque, so a row whose section material is Masked traces a
 // variant too. One variant per (mesh, RayTracingSubmeshMasks), built on the first frame a row asks for it and
 // shared by every row with those masks: a section whose material changes blend mode changes the key and so gets
-// its own build. A variant no row asked for this frame is dropped at EndFrame. Dropping is safe while a frame in flight still traces it: the API
-// object releases its acceleration structure and storage on the frame-retire ring (~VulkanRayTracingGeometry).
+// its own build. A variant no row asked for this frame is dropped at EndFrame. Dropping is safe while a frame in
+// flight still traces it: the API object releases its acceleration structure and storage on the frame-retire ring
+// (~VulkanRayTracingGeometry).
 //
 // A variant exists only for a mesh that has its own BLAS (Mesh::GetRayTracingGeometry): a mesh with none (not
 // resident, no ray-tracing device, a kind the uploader builds none for) traces nothing, hidden or not.

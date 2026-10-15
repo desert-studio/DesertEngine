@@ -48,7 +48,8 @@ namespace Desert::Graphic::RayTracing
             {
                 if ( !entry.RefusalLogged )
                 {
-                    LOG_ERROR( "[RayTracing] a procedural mesh (hidden mask {:#x}, non-opaque {:#x}) is not in the TLAS: {}",
+                    LOG_ERROR( "[RayTracing] a procedural mesh (hidden mask {:#x}, non-opaque {:#x}) is not in "
+                               "the TLAS: {}",
                                primitive.Submeshes.Hidden, primitive.Submeshes.NonOpaque, prepared.GetError() );
                 }
                 entry.RefusalLogged = true;

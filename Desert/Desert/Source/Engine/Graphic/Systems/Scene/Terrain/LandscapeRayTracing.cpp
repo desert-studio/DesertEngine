@@ -25,13 +25,13 @@ namespace Desert::Graphic::RayTracing
             LandscapeRayTracingGrid              Grid;
             RayTracingDynamicGeometryPlan        Plan;
             uint32_t                             Row = 0; // in this frame's row buffer
-            RDG::BufferRef                     Vertices;
-            RDG::BufferRef                     Indices;
-            RDG::BufferRef                     Storage;
-            std::shared_ptr<Image>             Heightmap;
-            std::shared_ptr<Image>             Weightmap; // the fallback when the tile has none
-            bool                               HasWeightmap = false;
-            uint32_t                           Entity       = 0;
+            RDG::BufferRef                       Vertices;
+            RDG::BufferRef                       Indices;
+            RDG::BufferRef                       Storage;
+            std::shared_ptr<Image>               Heightmap;
+            std::shared_ptr<Image>               Weightmap; // the fallback when the tile has none
+            bool                                 HasWeightmap = false;
+            uint32_t                             Entity       = 0;
         };
     } // namespace
 
@@ -133,8 +133,8 @@ namespace Desert::Graphic::RayTracing
             if ( !sameRow )
             {
                 TileWork job;
-                job.Target                                      = state.Target.get();
-                job.Grid                                        = LandscapeRayTracingGridAt( quads, gridLod );
+                job.Target = state.Target.get();
+                job.Grid   = LandscapeRayTracingGridAt( quads, gridLod );
                 const Common::ResultStr<RayTracingDynamicGeometryPlan> plan =
                      state.Target->Prepare( LandscapeRayTracingLayout( job.Grid ), sameBuild );
                 if ( !plan )
@@ -249,7 +249,8 @@ namespace Desert::Graphic::RayTracing
             return Common::MakeFormattedError<bool>( "{}: the node could not be declared",
                                                      kLandscapeRayTracingVerticesPass );
 
-        // Each changed tile's BLAS: a request of the RT scene's one dynamic-geometry pass, declared after this node.
+        // Each changed tile's BLAS: a request of the RT scene's one dynamic-geometry pass, declared after this
+        // node.
         m_Frame.Builds.reserve( work.size() );
         for ( const TileWork& job : work )
             m_Frame.Builds.push_back( { .Target       = job.Target,

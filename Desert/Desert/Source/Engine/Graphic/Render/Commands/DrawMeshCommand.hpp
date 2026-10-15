@@ -38,14 +38,15 @@ namespace Desert::Graphic::Render
         float MaxDrawDistance = 0.0f; // StaticMeshComponent::MaxDrawDistance (cm, 0 = no limit)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
-                               uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
-                               int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
-                               bool receiveShadows = true, int translucencySortPriority = 0,
-                               float maxDrawDistance = 0.0f, uint32_t motionPart = 0 )
+                               uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false,
+                               uint64_t hiddenSubmeshes = 0, int forcedLOD = -1, int lodBias = 0,
+                               bool castShadows = true, bool receiveShadows = true,
+                               int translucencySortPriority = 0, float maxDrawDistance = 0.0f,
+                               uint32_t motionPart = 0 )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ),
-               MaterialSlots( std::move( materialSlots ) ), SectionSlot( sectionSlot ), Transform( transform ), Outlined( outlined ),
-               HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ), LODBias( lodBias ),
-               CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
+               MaterialSlots( std::move( materialSlots ) ), SectionSlot( sectionSlot ), Transform( transform ),
+               Outlined( outlined ), HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ),
+               LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
                TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance )
         {
         }
@@ -83,11 +84,11 @@ namespace Desert::Graphic::Render
         InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
         DrawInstancedStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
-                                        uint64_t hiddenSubmeshes,
+                                        uint64_t                                      hiddenSubmeshes,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         const InstanceCullDistance& cullDistance, const InstanceWind& wind )
-             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ), HiddenSubmeshes( hiddenSubmeshes ),
-               Transforms( std::move( transforms ) ),
+             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ),
+               HiddenSubmeshes( hiddenSubmeshes ), Transforms( std::move( transforms ) ),
                CastShadows( castShadows ), CullDistance( cullDistance ), Wind( wind )
         {
         }

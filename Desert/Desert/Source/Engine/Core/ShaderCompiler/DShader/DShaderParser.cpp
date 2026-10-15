@@ -1417,7 +1417,7 @@ namespace Desert::Core::Preprocess
         // Every name an `OpacityMask` line states must be a parameter of the right kind: a 2D texture, a Float
         // channel, Vec2 tiling and offset, a Float rotation. Empty = sound.
         std::string OpacityMaskParamError( const Formats::SurfaceOpacityMask& mask,
-                                           const std::vector<ShaderParam>&     params )
+                                           const std::vector<ShaderParam>&    params )
         {
             const auto find = [&]( const std::string& name ) -> const ShaderParam*
             {
@@ -1471,8 +1471,9 @@ namespace Desert::Core::Preprocess
                                          mask.OffsetParam, mask.RotationParam );
             }
             const std::string channel =
-                 mask.ChannelParam.empty() ? std::to_string( mask.Channel )
-                                           : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
+                 mask.ChannelParam.empty()
+                      ? std::to_string( mask.Channel )
+                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
             return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
                                 "    return SurfaceSampleMaterial( {}, {} )[{}];\n}}\n",
                                 transform, mask.Texture, uv, channel );
@@ -1952,7 +1953,8 @@ namespace Desert::Core::Preprocess
             //               [Transform(<Tiling>, <Offset>, <Rotation>)]
             // The parser generates DesertSurfaceOpacityMask() from it and every cell clips with that, so the
             // shape the raster passes cut and the one a ray-traced reader evaluates from
-            // ShaderProgramMeta::OpacityMask are one definition. Checked against the Properties once the file is read.
+            // ShaderProgramMeta::OpacityMask are one definition. Checked against the Properties once the file is
+            // read.
             else if ( lower == "opacitymask" )
             {
                 if ( opacityMaskLine != 0 )
@@ -2037,7 +2039,8 @@ namespace Desert::Core::Preprocess
                 }
                 if ( !sawChannel )
                 {
-                    err = { line, "OpacityMask must state its Channel(R | G | B | A | FloatParam) - never guessed" };
+                    err = { line,
+                            "OpacityMask must state its Channel(R | G | B | A | FloatParam) - never guessed" };
                     return fail();
                 }
                 result.Meta.OpacityMask = std::move( mask );
@@ -2143,11 +2146,10 @@ namespace Desert::Core::Preprocess
         }
         else if ( surfaceSettingLine != 0 )
         {
-            err = {
-                 surfaceSettingLine,
-                 "TwoSided, BlendMode, OpacityMask, ShadingModel, Usage and ResponsiveAA shape a Surface block, and this "
-                 "shader "
-                 "has none" };
+            err = { surfaceSettingLine, "TwoSided, BlendMode, OpacityMask, ShadingModel, Usage and ResponsiveAA "
+                                        "shape a Surface block, and this "
+                                        "shader "
+                                        "has none" };
             return fail();
         }
 
@@ -2284,9 +2286,10 @@ namespace Desert::Core::Preprocess
                 }
                 if ( !result.Meta.OpacityMask )
                 {
-                    err = { surfaceSettingLine,
-                            "BlendMode Masked needs an `OpacityMask <Texture2D> Channel(...)` line - the mask the "
-                            "cells clip with and ray tracing reads is stated, not written in the surface function" };
+                    err = {
+                         surfaceSettingLine,
+                         "BlendMode Masked needs an `OpacityMask <Texture2D> Channel(...)` line - the mask the "
+                         "cells clip with and ray tracing reads is stated, not written in the surface function" };
                     return fail();
                 }
                 if ( const std::string bad = OpacityMaskParamError( *result.Meta.OpacityMask, result.Meta.Params );
@@ -2298,7 +2301,8 @@ namespace Desert::Core::Preprocess
             }
             else if ( result.Meta.OpacityMask )
             {
-                err = { opacityMaskLine, "OpacityMask is the input of BlendMode Masked; this template is not Masked" };
+                err = { opacityMaskLine,
+                        "OpacityMask is the input of BlendMode Masked; this template is not Masked" };
                 return fail();
             }
 
@@ -2319,10 +2323,10 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
-                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
-                                                         result.Surface.Blend, shadingModelDefine,
-                                                         result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
+                                                              autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                              result.Surface.ResponsiveAA, opacityMaskFunction ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );

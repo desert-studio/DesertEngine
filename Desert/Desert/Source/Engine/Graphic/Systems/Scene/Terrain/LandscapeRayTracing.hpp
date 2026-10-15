@@ -68,10 +68,10 @@ namespace Desert::Graphic::RayTracing
     // grid + the NaN vertex; geometry 0 OPAQUE over indices [0, 3T), geometry 1 alpha-tested over [3T, 6T).
     [[nodiscard]] RayTracingDynamicMeshLayout LandscapeRayTracingLayout( const LandscapeRayTracingGrid& grid );
 
-    // A tile's two segments: geometry 0 holds the quads with no hole corner (opaque), geometry 1 the quads that touch
-    // a hole (non-opaque: their candidate hits go to the alpha test). The layout and the segment records both read
-    // this, so a hit's geometry index and its record agree.
-    inline constexpr uint32_t kLandscapeRayTracingSegments = 2;
+    // A tile's two segments: geometry 0 holds the quads with no hole corner (opaque), geometry 1 the quads that
+    // touch a hole (non-opaque: their candidate hits go to the alpha test). The layout and the segment records
+    // both read this, so a hit's geometry index and its record agree.
+    inline constexpr uint32_t    kLandscapeRayTracingSegments = 2;
     [[nodiscard]] constexpr bool IsLandscapeSegmentOpaque( const uint32_t geometry )
     {
         return geometry == 0;
@@ -105,19 +105,19 @@ namespace Desert::Graphic::RayTracing
     // This frame's landscape for the view's TLAS. Refs are valid only for the graph they were declared in.
     struct LandscapeRayTracingFrame
     {
-        std::vector<RayTracingPrimitive>         Primitives; // Kind = Landscape, one per tile
+        std::vector<RayTracingPrimitive> Primitives; // Kind = Landscape, one per tile
         // The BLAS builds and refits this frame, for RayTracingScene.DynamicGeometry (after the vertex compute).
         std::vector<RayTracingDynamicGeometryBuild> Builds;
         // The storage of the tiles' BLASes built in an earlier frame and unchanged: the TLAS pass reads them.
         std::vector<RDG::BufferRef>              Resident;
         std::vector<LandscapeRayTracingMaterial> Materials; // by tile, in Primitives order
-        // The one segment-record run every tile shares (RayTracingSegmentRecord, no material: the tile's surface is
-        // its Materials row); each primitive's FirstSegmentRecord indexes this list.
+        // The one segment-record run every tile shares (RayTracingSegmentRecord, no material: the tile's surface
+        // is its Materials row); each primitive's FirstSegmentRecord indexes this list.
         std::vector<RayTracingSegmentRecord> SegmentRecords;
-        uint32_t                                 Built       = 0;
-        uint32_t                                 Refit       = 0;
-        uint64_t                                 VertexBytes = 0; // vertex + index buffers of every tile
-        uint64_t                                 BlasBytes   = 0; // BLAS storage of every tile
+        uint32_t                             Built       = 0;
+        uint32_t                             Refit       = 0;
+        uint64_t                             VertexBytes = 0; // vertex + index buffers of every tile
+        uint64_t                             BlasBytes   = 0; // BLAS storage of every tile
     };
 
     // One view's landscape ray-tracing state (SceneRenderer owns one per view, like RayTracingSceneRenderer).

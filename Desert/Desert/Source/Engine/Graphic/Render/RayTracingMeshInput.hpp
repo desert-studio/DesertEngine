@@ -12,9 +12,10 @@
 namespace Desert::Graphic::RayTracing
 {
     // A static or procedural mesh's BLAS input: its own vertex and index buffers, one segment per visible LOD-0
-    // submesh (DescribeStaticMeshGeometry), each opaque unless @p masks says its section is masked. A skinned mesh has no static BLAS (its triangles move every frame; the
-    // skin cache builds its BLAS from DescribeDeformedMeshBlas), so its input has no segment. VertexCount stays 0:
-    // a static build addresses vertices through the segments' ranges only.
+    // submesh (DescribeStaticMeshGeometry), each opaque unless @p masks says its section is masked. A skinned mesh
+    // has no static BLAS (its triangles move every frame; the skin cache builds its BLAS from
+    // DescribeDeformedMeshBlas), so its input has no segment. VertexCount stays 0: a static build addresses
+    // vertices through the segments' ranges only.
     [[nodiscard]] inline RayTracingMeshInput DescribeStaticMeshBlas( const Mesh&                   mesh,
                                                                      const RayTracingSubmeshMasks& masks )
     {

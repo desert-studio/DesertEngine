@@ -279,9 +279,9 @@ namespace Desert::Editor
                 {
                     const auto masked =
                          Assets::FindTemplateByRole( mgr, Common::Content::kStandardSurfaceMaskedRole );
-                    if ( const auto stated = masked ? Assets::SurfaceMaterialAsset::StateShader( data, mgr,
-                                                                                                 masked.GetValue() )
-                                                    : Common::MakeError( masked.GetError() );
+                    if ( const auto stated =
+                              masked ? Assets::SurfaceMaterialAsset::StateShader( data, mgr, masked.GetValue() )
+                                     : Common::MakeError( masked.GetError() );
                          !stated )
                     {
                         LOG_ERROR( "[Collections] material '{}' cuts out but was not cooked: {}", key,

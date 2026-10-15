@@ -317,13 +317,13 @@ namespace Desert::Core::Formats
         return blend == SurfaceBlendMode::Translucent || blend == SurfaceBlendMode::Additive;
     }
 
-    // UE's OpacityMask input of a `BlendMode Masked` template, as its `OpacityMask` line states it (DShaderParser):
-    // WHICH texture parameter is the mask, which channel of it, read at which UV set through which UV transform,
-    // and which Float parameter is the clip threshold (UE's OpacityMaskClipValue). It is the one definition of the
-    // mask: the parser GENERATES the surface cells' DesertSurfaceOpacityMask() from it (every pass clips with that
-    // function, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP), and a reader outside the raster cells (ray-
-    // traced shadows' any-hit / alpha test) evaluates the same five values from the material's own parameters, so
-    // the two cannot cut a different shape. Present exactly when Blend == Masked.
+    // UE's OpacityMask input of a `BlendMode Masked` template, as its `OpacityMask` line states it
+    // (DShaderParser): WHICH texture parameter is the mask, which channel of it, read at which UV set through
+    // which UV transform, and which Float parameter is the clip threshold (UE's OpacityMaskClipValue). It is the
+    // one definition of the mask: the parser GENERATES the surface cells' DesertSurfaceOpacityMask() from it
+    // (every pass clips with that function, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP), and a reader
+    // outside the raster cells (ray- traced shadows' any-hit / alpha test) evaluates the same five values from the
+    // material's own parameters, so the two cannot cut a different shape. Present exactly when Blend == Masked.
     struct SurfaceOpacityMask
     {
         std::string Texture;      // a Texture2D parameter of the template's Properties

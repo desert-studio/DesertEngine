@@ -51,7 +51,7 @@ namespace Desert::Graphic::RayTracing
         uint64_t                               VertexBytes = 0;
         uint64_t                               IndexBytes  = 0;
         std::vector<RayTracingGeometrySegment> Segments;
-        bool operator==( const RayTracingDynamicMeshLayout& ) const = default;
+        bool                                   operator==( const RayTracingDynamicMeshLayout& ) const = default;
     };
 
     // A dynamic BLAS that owns its build inputs: a persistent vertex buffer and index buffer (written by a
@@ -64,8 +64,8 @@ namespace Desert::Graphic::RayTracing
         // frame's build. @p update asks for a refit; it is granted only when nothing was recreated.
         [[nodiscard]] virtual Common::ResultStr<RayTracingDynamicGeometryPlan>
         Prepare( const RayTracingDynamicMeshLayout& layout, bool update ) = 0;
-        [[nodiscard]] virtual RDG::ExternalBuffer& GetVertices() = 0;
-        [[nodiscard]] virtual RDG::ExternalBuffer& GetIndices()  = 0;
+        [[nodiscard]] virtual RDG::ExternalBuffer& GetVertices()          = 0;
+        [[nodiscard]] virtual RDG::ExternalBuffer& GetIndices()           = 0;
         // Bytes of the vertex and index buffers (GetMemoryBytes is the BLAS storage alone).
         [[nodiscard]] virtual uint64_t GetBuildInputBytes() const = 0;
     };

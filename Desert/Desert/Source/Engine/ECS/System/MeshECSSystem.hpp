@@ -280,11 +280,11 @@ namespace Desert::ECS
                          }
 
                          // ── Per-section draws (UE: each mesh section draws with its own material slot) ──
-                         // Section i takes slot SectionMaterialSlot( i, slots ). A section whose slot material is a
-                         // custom-shader material (DataDrivenMaterial without a mesh cell) leaves the batched passes
-                         // for a per-slot generic draw; every other section is drawn by the batched passes with ITS
-                         // slot, one draw per slot (Rules::SplitMeshSlotDraws, the rule fracture pieces split by
-                         // too). Each draw masks out every submesh it does not draw.
+                         // Section i takes slot SectionMaterialSlot( i, slots ). A section whose slot material is
+                         // a custom-shader material (DataDrivenMaterial without a mesh cell) leaves the batched
+                         // passes for a per-slot generic draw; every other section is drawn by the batched passes
+                         // with ITS slot, one draw per slot (Rules::SplitMeshSlotDraws, the rule fracture pieces
+                         // split by too). Each draw masks out every submesh it does not draw.
                          const size_t submeshCount =
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 );
                          const auto split = Rules::SplitMeshSlotDraws<Graphic::Material*>(
@@ -360,11 +360,11 @@ namespace Desert::ECS
 
                          // Per section, as a static mesh splits (Rules::SplitMeshSlotDraws): one instanced draw
                          // per surface slot, each masking the sections of the others. A custom-shader slot cannot
-                         // drive the batched instancing path, and per-instance generic draws would defeat the point
-                         // of an ISM: its sections are not drawn, said once.
-                         // CO-OWNED instances, for the same reason the static path's slots are: they are owned by
-                         // THIS component's RuntimeMaterialInstances, and the entity can be destroyed by Lua between
-                         // recording the draw and executing it.
+                         // drive the batched instancing path, and per-instance generic draws would defeat the
+                         // point of an ISM: its sections are not drawn, said once. CO-OWNED instances, for the
+                         // same reason the static path's slots are: they are owned by THIS component's
+                         // RuntimeMaterialInstances, and the entity can be destroyed by Lua between recording the
+                         // draw and executing it.
                          const auto ismSplit = Rules::SplitMeshSlotDraws<Graphic::Material*>(
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 ),
                               ism.RuntimeMaterialInstances.size(), /*hidden*/ 0ull, ism.CastShadows,
@@ -416,8 +416,9 @@ namespace Desert::ECS
                              }
                          for ( const auto& d : ismSplit.SectionDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                                  static_cast<uint32_t>( entity ), targetMesh, ism.RuntimeMaterialInstances[d.Slot],
-                                  d.HiddenMask, ism.RuntimeInstanceSnapshot, d.CastShadows,
+                                  static_cast<uint32_t>( entity ), targetMesh,
+                                  ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
+                                  d.CastShadows,
                                   Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }

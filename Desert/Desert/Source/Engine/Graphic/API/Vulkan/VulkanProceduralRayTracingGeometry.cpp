@@ -37,10 +37,10 @@ namespace Desert::Graphic::API::Vulkan
                  "procedural BLAS: the device has no acceleration-structure functions, but a resolved method "
                  "traces rays" );
 
-        const auto& vertices    = input.Vertices;
-        const auto& indices     = input.Indices;
-        const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
-        const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
+        const auto& vertices     = input.Vertices;
+        const auto& indices      = input.Indices;
+        const auto  vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
+        const auto  indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no resident vertex/index buffer" );
@@ -110,8 +110,8 @@ namespace Desert::Graphic::API::Vulkan
                  "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a procedural BLAS" );
         }
 
-        m_SourceVertices  = vertices;
-        m_Indices         = indices;
+        m_SourceVertices = vertices;
+        m_Indices        = indices;
 
         m_StorageExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
         m_StorageExternal.Physical =
@@ -180,9 +180,9 @@ namespace Desert::Graphic::API::Vulkan
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();
-        m_IndexAddress    = 0;
-        m_BuildScratch    = 0;
-        m_Built           = false;
+        m_IndexAddress = 0;
+        m_BuildScratch = 0;
+        m_Built        = false;
     }
 
     VulkanProceduralRayTracingGeometry::~VulkanProceduralRayTracingGeometry()

@@ -1185,14 +1185,14 @@ namespace Desert::Graphic
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            const auto* camera = GetMainCamera();
+            auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
-            const float     lensScale =
-                 camera != nullptr
-                          ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } )
-                          : 1.0f;
-            const bool required = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+            const float     lensScale  = camera != nullptr
+                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
+                                                                                 camera->GetProjectionMatrix() } )
+                                              : 1.0f;
+            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
@@ -1206,9 +1206,10 @@ namespace Desert::Graphic
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
             if ( instances.size() != queue.size() || rows.size() != queue.size() )
             {
-                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows and {} GPU-scene rows; "
-                           "the landscape is not in this frame's TLAS",
-                           m_ViewResources.GetName(), queue.size(), instances.size(), rows.size() );
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows and {} GPU-scene rows; "
+                     "the landscape is not in this frame's TLAS",
+                     m_ViewResources.GetName(), queue.size(), instances.size(), rows.size() );
                 queue = {};
             }
             tiles.reserve( queue.size() );
@@ -1250,8 +1251,8 @@ namespace Desert::Graphic
                                                     lensScale, external );
             for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
             {
-                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}", m_ViewResources.GetName(),
-                           error );
+                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}",
+                           m_ViewResources.GetName(), error );
             }
             if ( !tlas )
                 LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
@@ -1744,16 +1745,16 @@ namespace Desert::Graphic
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Entity             = entity,
-                                    .MotionPart         = motionPart,
-                                    .Mesh               = mesh,
-                                    .Transform          = transform,
-                                    .Outlined           = outlined,
-                                    .CastShadows        = castShadows,
+             ->SubmitGenericMesh( { .Entity      = entity,
+                                    .MotionPart  = motionPart,
+                                    .Mesh        = mesh,
+                                    .Transform   = transform,
+                                    .Outlined    = outlined,
+                                    .CastShadows = castShadows,
                                     // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
                                     .VisibleInRayTracing = true,
-                                    .SlotMaterial       = material,
-                                    .VisibleSubmeshMask = visibleSubmeshMask } );
+                                    .SlotMaterial        = material,
+                                    .VisibleSubmeshMask  = visibleSubmeshMask } );
     }
 
     uint32_t SceneRenderer::GetIsmInstancesDrawn() const
@@ -1779,14 +1780,14 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Entity       = entity,
-                                      .Mesh         = mesh,
-                                      .Material     = material,
+             ->SubmitInstancedMesh( { .Entity          = entity,
+                                      .Mesh            = mesh,
+                                      .Material        = material,
                                       .HiddenSubmeshes = hiddenSubmeshes,
-                                      .Transforms   = transforms,
-                                      .CastShadows  = castShadows,
-                                      .CullDistance = cullDistance,
-                                      .Wind         = wind } );
+                                      .Transforms      = transforms,
+                                      .CastShadows     = castShadows,
+                                      .CullDistance    = cullDistance,
+                                      .Wind            = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

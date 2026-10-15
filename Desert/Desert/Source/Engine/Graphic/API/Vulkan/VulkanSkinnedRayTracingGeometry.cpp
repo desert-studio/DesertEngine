@@ -39,10 +39,10 @@ namespace Desert::Graphic::API::Vulkan
                  "SkinCache: the device has no acceleration-structure functions, but "
                  "a resolved method traces rays" );
 
-        const auto& vertices    = input.Vertices;
-        const auto& indices     = input.Indices;
-        const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
-        const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
+        const auto& vertices     = input.Vertices;
+        const auto& indices      = input.Indices;
+        const auto  vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
+        const auto  indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeError<Prepared>(
@@ -137,9 +137,9 @@ namespace Desert::Graphic::API::Vulkan
                                                 "skinned BLAS" );
         }
 
-        m_SourceVertices  = vertices;
-        m_Indices         = indices;
-        m_VertexCount     = vertexCount;
+        m_SourceVertices = vertices;
+        m_Indices        = indices;
+        m_VertexCount    = vertexCount;
 
         // Both start untouched; each graph hands back the state it leaves them in.
         m_PositionsExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_PositionsBytes }, RDG::Access::None );
@@ -229,11 +229,11 @@ namespace Desert::Graphic::API::Vulkan
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();
-        m_VertexCount     = 0;
-        m_IndexAddress    = 0;
-        m_BuildScratch    = 0;
-        m_UpdateScratch   = 0;
-        m_Built           = false;
+        m_VertexCount   = 0;
+        m_IndexAddress  = 0;
+        m_BuildScratch  = 0;
+        m_UpdateScratch = 0;
+        m_Built         = false;
     }
 
     VulkanSkinnedRayTracingGeometry::~VulkanSkinnedRayTracingGeometry()

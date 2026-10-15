@@ -260,7 +260,8 @@ namespace Desert::Graphic::System
         for ( const auto& t : m_Queue )
         {
             const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ), m_FrameGroups.size() );
+                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ),
+                 m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
             if ( inserted )
             {

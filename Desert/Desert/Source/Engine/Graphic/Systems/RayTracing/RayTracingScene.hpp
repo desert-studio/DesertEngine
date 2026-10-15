@@ -46,9 +46,9 @@ namespace Desert::Graphic::RayTracing
     // VkAccelerationStructureInstanceKHR::instanceShaderBindingTableRecordOffset is 24 bits too.
     inline constexpr uint32_t kMaxSegmentRecord = ( 1u << 24 ) - 1u;
 
-    // THE MATERIAL OF ONE BLAS SEGMENT (UE: the FRayTracingMeshCommand of a segment, the record its hit group runs,
-    // found at the instance's InstanceContributionToHitGroupIndex + the segment's geometry index). The frame's
-    // records lie end to end in RayTracingGatherResult::SegmentRecords; a primitive's run starts at its
+    // THE MATERIAL OF ONE BLAS SEGMENT (UE: the FRayTracingMeshCommand of a segment, the record its hit group
+    // runs, found at the instance's InstanceContributionToHitGroupIndex + the segment's geometry index). The
+    // frame's records lie end to end in RayTracingGatherResult::SegmentRecords; a primitive's run starts at its
     // FirstSegmentRecord and holds one record per segment of its BLAS, in segment order. Its TLAS instance carries
     // that start as the instance's SBT record offset, so an inline ray query names the record of a hit as
     //   rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT + rayQueryGetIntersectionGeometryIndexEXT
@@ -56,7 +56,8 @@ namespace Desert::Graphic::RayTracing
     struct RayTracingSegmentRecord
     {
         // The section's slot instance (static, ISM, skinned: the instance the raster binds for that section).
-        // Null for a generic record (a per-slot data-driven material, bound with no instance) and a landscape tile.
+        // Null for a generic record (a per-slot data-driven material, bound with no instance) and a landscape
+        // tile.
         const MaterialInstance* Instance = nullptr;
         // The material the raster shades the section with: the slot's surface template (SectionSurface), or a
         // generic record's SlotMaterial. Null: a whole-entity shader override (its material is keyed by shader
@@ -71,8 +72,9 @@ namespace Desert::Graphic::RayTracing
         bool operator==( const RayTracingSegmentRecord& ) const = default;
     };
 
-    // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the overlay
-    // says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero here.
+    // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the
+    // overlay says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero
+    // here.
     enum class RayTracingPrimitiveKind : uint8_t
     {
         Static = 0, // an asset mesh on the lit queue
@@ -93,18 +95,18 @@ namespace Desert::Graphic::RayTracing
     // per-frame dynamic BLAS (null until one is built for this frame) and DeformedMesh the mesh it skins.
     struct RayTracingPrimitive
     {
-        const void*             Geometry        = nullptr;
-        glm::mat4               World           = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t                GpuSceneRow     = 0;                 // the primitive's ObjectMotions row (MotionRow)
-        bool                    CastShadows     = true;
-        // Hidden: bit i = submesh i hidden, Geometry already leaves it out. NonOpaque: submesh i's section material
-        // is Masked, Geometry's segment is not opaque. Both are the BLAS key (RayTracingSubmeshMasks).
+        const void* Geometry    = nullptr;
+        glm::mat4   World       = glm::mat4( 1.0f ); // centimetres, like every world transform
+        uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        bool        CastShadows = true;
+        // Hidden: bit i = submesh i hidden, Geometry already leaves it out. NonOpaque: submesh i's section
+        // material is Masked, Geometry's segment is not opaque. Both are the BLAS key (RayTracingSubmeshMasks).
         RayTracingSubmeshMasks Submeshes;
         // This primitive's run in RayTracingGatherResult::SegmentRecords: one record per segment of Geometry.
-        uint32_t FirstSegmentRecord = 0;
-        uint32_t SegmentRecordCount = 0;
-        RayTracingPrimitiveKind Kind            = RayTracingPrimitiveKind::Static;
-        const void*             DeformedMesh    = nullptr; // skinned only: the SkinnedMesh it skins
+        uint32_t                FirstSegmentRecord = 0;
+        uint32_t                SegmentRecordCount = 0;
+        RayTracingPrimitiveKind Kind               = RayTracingPrimitiveKind::Static;
+        const void*             DeformedMesh       = nullptr; // skinned only: the SkinnedMesh it skins
         // A mesh with no uploader BLAS (Mesh::GetRayTracingGeometry null, e.g. a DynamicMesh): the RT scene's
         // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
         // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
@@ -137,8 +139,8 @@ namespace Desert::Graphic::RayTracing
     {
         NoGeometry = 0, // no resident BLAS for the mesh
         Skinned, // a deformed mesh whose skin-cache entry was refused this frame (logged, RayTracingSkinCache)
-        NothingVisible, // every submesh of the row is hidden: there is no triangle to trace
-        RowOutOfRange,  // the GPU-scene row does not fit the 24-bit custom index
+        NothingVisible,          // every submesh of the row is hidden: there is no triangle to trace
+        RowOutOfRange,           // the GPU-scene row does not fit the 24-bit custom index
         SegmentRecordOutOfRange, // the first segment record does not fit the 24-bit SBT record offset
         Count
     };
@@ -148,13 +150,20 @@ namespace Desert::Graphic::RayTracing
     {
         switch ( kind )
         {
-            case RayTracingPrimitiveKind::Static: return "Static";
-            case RayTracingPrimitiveKind::Generic: return "Generic";
-            case RayTracingPrimitiveKind::Instanced: return "Instanced";
-            case RayTracingPrimitiveKind::Landscape: return "Landscape";
-            case RayTracingPrimitiveKind::Skinned: return "Skinned";
-            case RayTracingPrimitiveKind::Procedural: return "Procedural";
-            case RayTracingPrimitiveKind::Count: break;
+            case RayTracingPrimitiveKind::Static:
+                return "Static";
+            case RayTracingPrimitiveKind::Generic:
+                return "Generic";
+            case RayTracingPrimitiveKind::Instanced:
+                return "Instanced";
+            case RayTracingPrimitiveKind::Landscape:
+                return "Landscape";
+            case RayTracingPrimitiveKind::Skinned:
+                return "Skinned";
+            case RayTracingPrimitiveKind::Procedural:
+                return "Procedural";
+            case RayTracingPrimitiveKind::Count:
+                break;
         }
         return "?";
     }
@@ -162,20 +171,26 @@ namespace Desert::Graphic::RayTracing
     {
         switch ( reason )
         {
-            case RayTracingSkip::NoGeometry: return "No geometry";
-            case RayTracingSkip::Skinned: return "Skin cache refused";
-            case RayTracingSkip::NothingVisible: return "Nothing visible";
-            case RayTracingSkip::RowOutOfRange: return "Row out of range";
-            case RayTracingSkip::SegmentRecordOutOfRange: return "Segment record out of range";
-            case RayTracingSkip::Count: break;
+            case RayTracingSkip::NoGeometry:
+                return "No geometry";
+            case RayTracingSkip::Skinned:
+                return "Skin cache refused";
+            case RayTracingSkip::NothingVisible:
+                return "Nothing visible";
+            case RayTracingSkip::RowOutOfRange:
+                return "Row out of range";
+            case RayTracingSkip::SegmentRecordOutOfRange:
+                return "Segment record out of range";
+            case RayTracingSkip::Count:
+                break;
         }
         return "?";
     }
 
     struct RayTracingInstanceList
     {
-        std::vector<RayTracingInstance>                                         Instances;
-        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{};
+        std::vector<RayTracingInstance>                                                  Instances;
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          Skipped{};
         std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> InstancesByKind{};
 
         [[nodiscard]] uint32_t SkippedFor( RayTracingSkip reason ) const

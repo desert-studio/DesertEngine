@@ -7,8 +7,8 @@
 #include <memory>
 
 // THE DEVICE-FACING SIDE OF ONE PROCEDURAL BLAS (RenderCore): the interface the API implements
-// (VulkanProceduralRayTracingGeometry) and the procedural cache (RayTracingProceduralGeometry.hpp, Renderer) drives.
-// Kept apart from the cache so the API layer never includes the renderer.
+// (VulkanProceduralRayTracingGeometry) and the procedural cache (RayTracingProceduralGeometry.hpp, Renderer)
+// drives. Kept apart from the cache so the API layer never includes the renderer.
 namespace Desert::Graphic::RayTracing
 {
     struct ProceduralBlasPrepared

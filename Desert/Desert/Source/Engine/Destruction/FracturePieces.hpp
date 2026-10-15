@@ -118,8 +118,8 @@ namespace Desert::Destruction
         for ( const auto& slot : split.SlotDraws )
             draws.push_back( { true, slot.Mat, slot.VisibleMask, slot.CastShadows, instance.Transform, part, 0 } );
         for ( const auto& section : split.SectionDraws )
-            draws.push_back( { false, Material{}, section.HiddenMask, section.CastShadows, instance.Transform, part,
-                               section.Slot } );
+            draws.push_back( { false, Material{}, section.HiddenMask, section.CastShadows, instance.Transform,
+                               part, section.Slot } );
         return draws;
     }
 } // namespace Desert::Destruction
