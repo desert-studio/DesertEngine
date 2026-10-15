@@ -411,9 +411,13 @@ namespace Desert::Graphic::SurfaceCache
                      block.Sampled( std::format( "u_GlobalDistanceField{}", level ), inputs.Field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                                     RDG::SamplerDesc::LinearRepeat() );
-                 // The cascades, the cloud map and the local shadow atlas, with the composite's samplers.
+                 // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
+                 // light grid read is the world grid bound above, not the view's.
+                 // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
                  if ( layout )
-                     BindSceneViewInputs( block, inputs.View, *layout );
+                     SceneViewDetail::BindWhere( block, inputs.View,
+                                                 [&bound = *layout]( std::string_view name )
+                                                 { return SceneViewDetail::LayoutSamples( bound, name ); } );
                  pass.ColorTarget( 0, direct, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
              },
