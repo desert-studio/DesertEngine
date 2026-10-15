@@ -62,6 +62,7 @@
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
@@ -562,6 +563,8 @@ namespace Desert::Graphic
         // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
         // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
+        // The view's screen probe gather (a traced GI method; its history follows this view), made on first use.
+        std::unique_ptr<GlobalIllumination::ScreenProbeGather> m_ScreenProbeGather;
         // The "Scene: PopulateSceneDepth" node's pipeline (made on the first temporal frame).
         std::unique_ptr<System::PopulateSceneDepthRenderer> m_PopulateSceneDepth;
         // The fixed SSAA downsample for a Supersample split (Split.Mode == Supersample, TAA1-B step 6): owns its
@@ -808,11 +811,13 @@ namespace Desert::Graphic
         // Brings the view's global distance field up to this frame's camera and meshes, into
         // FrameTransients::GlobalDistanceField* — only when GlobalDistanceFieldRead().
         void AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        // The world radiance cache's update (GlobalIllumination::WorldRadianceCache), into
-        // FrameTransients::RadianceCache* — only when RadianceCacheRuns(), after the G-buffer it marks from.
-        void            AddFrameRadianceCache( RDG::Builder& graph, FrameTextures& textures,
-                                               const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                               const glm::vec4& lightColor, const ViewFrame& frame );
+        // The traced GI of this frame — only when RadianceCacheRuns(), after the G-buffer: the GI frame record and
+        // the tracer's frame (GlobalIllumination::TracerFrame), the world radiance cache's update
+        // (GlobalIllumination::WorldRadianceCache), then the screen probe gather that reads it
+        // (GlobalIllumination::ScreenProbeGather), into FrameTransients::ScreenProbe*.
+        void            AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
+                                          const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                                          const glm::vec4& lightColor, const ViewFrame& frame );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef giAccum,
                                 RDG::TextureRef ssr, RDG::TextureRef sunShadowMask,

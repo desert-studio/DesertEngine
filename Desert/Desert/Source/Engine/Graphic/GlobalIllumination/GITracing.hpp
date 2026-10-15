@@ -7,6 +7,8 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -152,16 +154,20 @@ namespace Desert::Graphic::GlobalIllumination
     // the tracer (so the permutation and the reads cannot disagree). The frame's owner (SceneRenderer) fills it
     // once; a consumer hands it to TracerVariant / TracerFrameMissing / DeclareTracerReads and reads no member
     // itself.
-    //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF; their placement rides in the
-    //                          GI frame record, GIFrame.gdfLevels);
+    //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
+    //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
+    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it;
     //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
     //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the hit's
     //                          vertex streams and alpha test), and the surface cache's MeshCards index per TLAS
     //                          instance custom index (GI-SURFACE-CACHE; one uint per instance, DECISIONS-1015 S4).
+    //                          The ray-query walk's own record; it reads no distance field data. It fills four of
+    //                          the tracer's five bindings (GI_TRACER_BINDING + 0..3); + 4 stays unbound.
     struct TracerFrame
     {
         GlobalIllumination::Pipeline        Pipeline{};
         std::array<RDG::TextureRef, 4>      GlobalDistanceField{};
+        RDG::BufferRef                      GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
         RDG::BufferRef                      InstanceMeshCards;
@@ -173,6 +179,22 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr std::string_view kHardwareTracerGeometryName          = "RayTracingGeometryRecords";
     inline constexpr std::string_view kHardwareTracerMaterialsName         = "RayTracingMaterialRecords";
     inline constexpr std::string_view kHardwareTracerInstanceMeshCardsName = "GIInstanceMeshCards";
+
+    // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
+    // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound
+    // as "GIFrameUB" by the radiance cache's passes and the screen probe gather.
+    struct GIFramePayload
+    {
+        glm::mat4 ViewProjection{ 1.0f };    // the jittered matrix the G-buffer was rasterised with
+        glm::mat4 InvViewProjection{ 1.0f }; // its inverse
+        glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
+        glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
+        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity
+        glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
+        glm::vec4 SkyGain{ 1.0f };
+        glm::vec4 Screen{ 0.0f }; // xy = G-buffer extent (pixels), zw = 1 / that
+    };
+    static_assert( sizeof( GIFramePayload ) == 224 );
 
     // Empty when @p frame holds every resource its tracer reads; otherwise what is missing (for the consumer's
     // one error line).

@@ -18,8 +18,8 @@
 // THE WORLD RADIANCE CACHE, RUNNING (GI-RADIANCE-CACHE) — the update of RadianceCache.hpp's interface, ported from
 // UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Six compute passes a
 // frame (Programs/GlobalIllumination/RadianceCache*.shader):
-//   Mark      the cells this frame's readers interpolate are stamped "used" (UE: by the screen probes; until
-//             GI-FINAL-GATHER the readers are the G-buffer pixels themselves).
+//   Mark      the cells this frame's readers interpolate are stamped "used": the G-buffer pixels, which are where
+//             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel).
 //   Update    entries whose probe belongs to another world cell (the clipmap scrolled) or that went unread for
 //             kProbeUnusedFramesBeforeFree frames free their slot.
 //   Allocate  used empty entries take a slot; every used probe is ranked (new, lights changed, then age of its
@@ -30,8 +30,8 @@
 //             with its history. Its program is the permutation of TracerVariant( Pipeline ) and its tracer reads
 //             are DeclareTracerReads — the pass names no tracer resource itself (GITracing.hpp).
 //   Filter    radiance -> irradiance probe and distance moments, octahedral borders; the probe is published.
-// The deferred composite then reads the irradiance at each pixel (RadianceCacheIrradianceAt) in place of the sky's
-// diffuse irradiance (decision 7 of GI-ALL-LIGHTS: the trace sees the sky where the sky is visible).
+// The screen probe gather (ScreenProbeGather.hpp) then reads the cache's RADIANCE as the far field of its rays,
+// and every GI hit reads its irradiance for the next bounce (RadianceCacheIrradianceAt in GIHitRadiance).
 //
 // WHERE THIS DIFFERS FROM UE (for the owner):
 //   * Visibility in the interpolation. UE interpolates the eight probes with trilinear weights only and leaves
@@ -60,21 +60,6 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct GIFrame` in Common/GIFrame.glslh. 288 bytes.
-    struct GIFramePayload
-    {
-        glm::mat4 ViewProjection{ 1.0f };    // the jittered matrix the G-buffer was rasterised with
-        glm::mat4 InvViewProjection{ 1.0f }; // its inverse
-        glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
-        glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
-        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity
-        glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
-        glm::vec4 SkyGain{ 1.0f };
-        glm::vec4 GdfLevels[4]{}; // GlobalDistanceField::FrameField::Levels
-        glm::vec4 Screen{ 0.0f }; // xy = G-buffer extent (pixels), zw = 1 / that
-    };
-    static_assert( sizeof( GIFramePayload ) == 288 );
-
     // This frame's graph resources the update reads.
     struct RadianceCacheUpdateInputs
     {
@@ -88,7 +73,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef                 SpotLights;
         RDG::BufferRef                 WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
         RDG::BufferRef                 WorldGridCells;
-        GIFramePayload                 Frame;
+        RDG::BufferRef                 GIFrame; // this frame's GIFramePayload (GITracing.hpp), "GIFrameUB"
         glm::vec3                      CameraPosition{ 0.0f };
         glm::uvec2                     Extent{ 0u };
     };
@@ -101,6 +86,10 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Probes;      // "RadianceCacheProbesUB"
         RDG::TextureRef Irradiance;  // "u_RadianceCacheIrradiance"
         RDG::TextureRef Depth;       // "u_RadianceCacheDepth"
+        // The traced radiance probes, octahedral with borders (UE RadianceProbeAtlasTexture): the far field of
+        // a screen probe ray that leaves the cache's minimum trace distance without a hit
+        // (RadianceCacheRadianceAt).
+        RDG::TextureRef Radiance; // "u_RadianceCacheRadianceAtlas"
     };
 
     class WorldRadianceCache

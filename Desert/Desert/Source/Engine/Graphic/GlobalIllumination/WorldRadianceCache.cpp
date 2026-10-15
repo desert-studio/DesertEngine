@@ -180,8 +180,7 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef params =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( paramsPayload ) }, "RadianceCache.Params" );
         graph.QueueBufferUpload( params, std::as_bytes( std::span( &paramsPayload, 1 ) ) );
-        const RDG::BufferRef frame = graph.CreateBuffer( RDG::BufferDesc{ sizeof( GIFramePayload ) }, "GI.Frame" );
-        graph.QueueBufferUpload( frame, std::as_bytes( std::span( &inputs.Frame, 1 ) ) );
+        const RDG::BufferRef frame = inputs.GIFrame;
         const RDG::BufferRef schedule =
              graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( shape ) * 4ull }, "RadianceCache.Schedule" );
 
@@ -272,6 +271,7 @@ namespace Desert::Graphic::GlobalIllumination
                                                         .Indirection = indirection,
                                                         .Probes      = probes,
                                                         .Irradiance  = irradiance,
-                                                        .Depth       = depth } );
+                                                        .Depth       = depth,
+                                                        .Radiance    = radiance } );
     }
 } // namespace Desert::Graphic::GlobalIllumination

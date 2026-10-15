@@ -40,14 +40,14 @@ Shader "RadianceCacheTrace"
         #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
 
-        // 11..14: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
-        Uniform(15) samplerCube u_EnvSpecularTex;
-        Uniform(16) sampler2D u_GBufferDepth;
-        Uniform(17) sampler2D u_GBufferA;
-        Uniform(18) sampler2D u_GBufferEmissive;
-        Uniform(19) sampler2D u_RadianceCacheIrradiance;
-        Uniform(20) sampler2D u_RadianceCacheDepth;
-        layout(binding = 21, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
+        // 11..15: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
+        Uniform(16) samplerCube u_EnvSpecularTex;
+        Uniform(17) sampler2D u_GBufferDepth;
+        Uniform(18) sampler2D u_GBufferA;
+        Uniform(19) sampler2D u_GBufferEmissive;
+        Uniform(20) sampler2D u_RadianceCacheIrradiance;
+        Uniform(21) sampler2D u_RadianceCacheDepth;
+        layout(binding = 22, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes

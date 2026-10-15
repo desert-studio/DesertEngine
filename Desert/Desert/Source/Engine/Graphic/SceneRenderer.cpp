@@ -1257,7 +1257,7 @@ namespace Desert::Graphic
                 lightColor = dl[0].ColorIntensity;
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
-            AddFrameRadianceCache( graph, textures, gbuffer, lightDir, lightColor, frame );
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
             // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour

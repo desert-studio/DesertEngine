@@ -108,15 +108,12 @@ namespace Desert::Graphic
         // Global Distance Field"
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
-        // The world radiance cache after this frame's update (SceneRenderer::AddFrameRadianceCache; the buffers
-        // and atlases are GlobalIllumination::WorldRadianceCache's, imported); invalid when the GI method traces
-        // nothing
+        // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
+        // update, then GlobalIllumination::ScreenProbeGather; the images are the gather's, imported): per pixel,
+        // the diffuse irradiance and the specular radiance. Invalid when the GI method traces nothing
         //   -> Deferred: Composite
-        RDG::BufferRef  RadianceCacheParams;
-        RDG::BufferRef  RadianceCacheIndirection;
-        RDG::BufferRef  RadianceCacheProbes;
-        RDG::TextureRef RadianceCacheIrradiance;
-        RDG::TextureRef RadianceCacheDepth;
+        RDG::TextureRef ScreenProbeDiffuse;
+        RDG::TextureRef ScreenProbeSpecular;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

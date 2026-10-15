@@ -250,3 +250,52 @@ vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
     return weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
 }
 #endif // RADIANCE_CACHE_INDIRECTION
+
+// THE RADIANCE READ (UE SampleRadianceCacheInterpolated), for a reader that also declares the sampler2D
+// u_RadianceCacheRadianceAtlas (the traced radiance probes with their octahedral borders) and defines
+// RADIANCE_CACHE_RADIANCE_ATLAS before including the file a second time: the radiance arriving at @p p from
+// @p direction, trilinear over the eight probes around @p p in the clipmap the dither picks. It is the far field of
+// a ray that left @p p and travelled the coverage's minTraceDistanceBeforeCache without a hit, so, as in UE, no
+// visibility weight: the trace in front of the read is what keeps it from leaking. .a = the weight of traced
+// probes that answered (0: none yet, -1: past the coarsest clipmap).
+#if defined( RADIANCE_CACHE_INDIRECTION ) && defined( RADIANCE_CACHE_RADIANCE_ATLAS ) &&                          \
+     !defined( RADIANCE_CACHE_RADIANCE_READ_GLSLH )
+#define RADIANCE_CACHE_RADIANCE_READ_GLSLH
+
+vec3 RadianceCacheSampleProbeRadiance( uint probe, vec3 direction )
+{
+    const uint res    = radianceCache.shape.z;
+    const vec2 origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) ) + 1.0;
+    const vec2 texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
+    return textureLod( u_RadianceCacheRadianceAtlas, texel / vec2( textureSize( u_RadianceCacheRadianceAtlas, 0 ) ),
+                       0.0 ).rgb;
+}
+
+vec4 RadianceCacheRadianceAt( vec3 p, vec3 direction, float ditherRandom )
+{
+    const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
+    if ( clipmap >= radianceCache.shape.x )
+        return vec4( 0.0, 0.0, 0.0, -1.0 );
+    const vec3  coord  = RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5;
+    const ivec3 base   = ivec3( floor( coord ) );
+    const vec3  alpha  = coord - vec3( base );
+    const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
+    const int   grid   = int( radianceCache.shape.y );
+
+    vec3  sum    = vec3( 0.0 );
+    float weight = 0.0;
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
+        if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
+            continue;
+        const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
+        const float w         = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 );
+        sum    += w * RadianceCacheSampleProbeRadiance( entry, direction );
+        weight += w;
+    }
+    return weight > 0.0 ? vec4( sum / weight, weight ) : vec4( 0.0 );
+}
+#endif // RADIANCE_CACHE_RADIANCE_ATLAS
