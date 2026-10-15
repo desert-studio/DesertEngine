@@ -39,8 +39,8 @@ namespace Desert::Graphic
         SunShadowReceive = 11,
         // The view's velocity (screen-space motion since the previous frame, NDC current - previous, written by
         // the G-buffer and scene-target passes for TAA): UE's "Velocity" buffer view - the 2D vector as a colour
-        // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
-        // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
+        // (hue = direction, brightness = speed), black where the pixel is still. Both paths (the forward base pass
+        // writes the same image); drawn by "Debug: Velocity" (VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
         // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
         // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted

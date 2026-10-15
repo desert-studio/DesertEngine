@@ -5,6 +5,7 @@
 #include <Mesh/PointLight.glslh>
 #include <Mesh/Spotlight.glslh>
 #include <Mesh/LightsMetadata.glslh>
+#include <Mesh/LightingDebug.glslh>
 // THE direct-light BRDF, shared with the deferred composite and the point/spot headers above.
 #include <Mesh/DirectLighting.glslh>
 
@@ -154,20 +155,13 @@ void main()
              DESERT_SHADING_MODEL_INDEX, ForwardLocalLightAt( lights, j, i.WorldPosition, N, subsurfaceOpacity ),
              surface, payload );
 
-    // Lighting debug (viewport View Mode -> Lighting): each source a distinct colour, weighted by
-    // attenuation * NdotL, mapped through an exposure-like curve so any light reaching the surface shows.
+    // Lighting debug (viewport View Mode -> Lighting): Mesh/LightingDebug.glslh, the glass's and the water's too.
     if ( u_DebugParams.y > 0.5 )
     {
-        vec3 dbg = vec3( 0.0 );
-        for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
-            dbg += LightDebugColor( p ) * PointLightContribution( pointLights[p], i.WorldPosition, N );
-        for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
-            dbg += HueToRGB( fract( float( p ) * 0.61803398875 + 0.5 ) ) *
-                   SpotLightContribution( spotLights[p], i.WorldPosition, N );
+        vec3 dbg = DesertLightingDebugLocalLights( i.WorldPosition, N );
         for ( uint p = 0; p < lightsMetadata.DirectionLightCount; p++ )
-            dbg += vec3( 1.0, 0.85, 0.35 ) *
-                   ( directionLights.directionLights.ColorIntensity.a * max( dot( N, sunDir ), 0.0 ) * shadow );
-        oColor = vec4( vec3( 1.0 ) - exp( -dbg * 6.0 ), 1.0 );
+            dbg += DesertLightingDebugSun( directionLights.directionLights.ColorIntensity.a, dot( N, sunDir ), shadow );
+        oColor = DesertLightingDebugDisplay( dbg );
         return;
     }
 

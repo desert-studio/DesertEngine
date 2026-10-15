@@ -317,8 +317,8 @@ namespace Desert::Graphic
                     meshSystem->AddShadowCaster( terrainSystem );
                 }
 
-                // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
-                // copy.
+                // The water surface (WATER-W6): drawn by its own node (AddFrameWater) on every shading path,
+                // after the scene copy.
                 RegisterSystem<System::WaterRenderer>( "WaterSystem", this, m_TargetFramebuffer );
                 if ( const auto init =
                           SP_CAST( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->Initialize();
@@ -856,6 +856,10 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
+        // The water draws in the wireframe and lighting views as the meshes do.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )
+             ->SetDebugView( m_DebugView.WireframeMode, m_DebugView.LightingDebug );
 
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
@@ -1265,20 +1269,31 @@ namespace Desert::Graphic
         // grid and the local shadow atlas, neutral where a path has no producer) and, on Deferred with SSR, the
         // SSR history the copy refills.
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+            // The frame's visible glass, collected before the copy is asked for: it is the copy's reader.
+            const bool glass = meshRenderer != nullptr && meshRenderer->BuildGlassDraws();
             // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
             // serves this frame's refraction and next frame's reflections.
+            const bool            ssrHistory = ssrFrame.SceneHistory.IsValid();
             std::function<void()> stampHistory;
-            if ( ssrFrame.SceneHistory.IsValid() )
+            if ( ssrHistory )
                 stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
+            // THE COPY ONLY WHEN SOMETHING READS IT (UE: the scene colour copy of the translucency is made only when
+            // a primitive that samples it is drawn): this frame's glass, or next frame's SSR trace. The water reads
+            // no scene input (WaterSurface.shader); WATER-W7's refraction makes it a reader here.
+            RDG::TextureRef sceneCopy;
+            if ( glass || ssrHistory )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+                sceneCopy  = AddFrameSceneCopy( graph, textures, sceneColor(), copy, ssrFrame.SceneHistory,
+                                                std::move( stampHistory ) );
+            }
 
-            // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-            // the glass, which then refracts the water behind it.
+            // The water after the copy (the scene without water) and before the glass, which then refracts the
+            // water behind it.
             AddFrameWater( graph, textures );
-            AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
+            if ( glass )
+                AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
         }
 
         AddFrameSceneDepthResolve( graph, textures );

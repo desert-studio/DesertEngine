@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
+#include <Common/Core/DevInstruments.hpp>
 
 #include <glm/glm.hpp>
 
@@ -49,6 +50,17 @@ namespace Desert::Graphic::System
         void                                DeclareDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
+        // The viewport's debug views, pushed per view as the mesh renderer's are (SceneRenderer::OnUpdate): the
+        // wireframe view draws the water in line mode, the lighting view shows the sources landing on it - the water
+        // draws in them the way every mesh does. In a player's build the wireframe flag is accepted and dropped.
+        void SetDebugView( [[maybe_unused]] bool wireframe, bool lightingDebug )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            m_Wireframe = wireframe;
+#endif
+            m_LightingDebug = lightingDebug;
+        }
+
         void Submit( WaterZoneDraw zone )
         {
             m_Queue.push_back( std::move( zone ) );
@@ -69,7 +81,22 @@ namespace Desert::Graphic::System
             uint32_t QuadsPerSide = 0;
         };
 
-        std::shared_ptr<GraphicsPipeline>   m_Pipeline;
+        // The pipeline the draws record with: the wireframe variant in the wireframe view, else the surface's.
+        [[nodiscard]] const GraphicsPipeline& DrawPipeline() const
+        {
+#if DESERT_DEV_INSTRUMENTS
+            if ( m_Wireframe && m_WireframePipeline )
+                return *m_WireframePipeline;
+#endif
+            return *m_Pipeline;
+        }
+
+        std::shared_ptr<GraphicsPipeline> m_Pipeline;
+#if DESERT_DEV_INSTRUMENTS
+        std::shared_ptr<GraphicsPipeline> m_WireframePipeline; // same spec, PolygonMode::Wireframe
+        bool                              m_Wireframe = false;
+#endif
+        bool                                m_LightingDebug = false;
         ShaderBindingLayoutCache            m_Layout;
         std::unique_ptr<DataDrivenMaterial> m_Material;
 

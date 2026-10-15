@@ -80,6 +80,8 @@ layout( binding = 7 ) uniform ShadowUB
 #include <Common/ContactShadow.glslh>
 // The point and spot lights, through the same statement the opaque forward cells shade them with.
 #include <Mesh/ForwardLocalLights.glslh>
+// The lighting debug view, as every lit surface draws it.
+#include <Mesh/LightingDebug.glslh>
 
 // The view's reflection captures, declared as Pass_Forward, the forward terrain and the deferred composite declare
 // them (SET 1, bindings 0 and 1; bound by name by BindSceneViewInputs).
@@ -116,11 +118,25 @@ void main()
     const float fresnel = f0 + ( 1.0 - f0 ) * pow( 1.0 - max( dot( N, V ), 0.0 ), 5.0 );
 
     // Sun specular highlight (glass is smooth -> a tight hotspot).
-    const vec3 L    = normalize( -directionLights.directionLights.Direction.xyz );
-    vec3       spec = vec3( GlassHotspot( N, V, L ) * directionLights.directionLights.ColorIntensity.a *
-                            CloudShadowFactor( v_Surface.WorldPosition ) *
+    const vec3  L         = normalize( -directionLights.directionLights.Direction.xyz );
+    const float sunShadow = CloudShadowFactor( v_Surface.WorldPosition ) *
                             ContactShadowFactor( v_Surface.WorldPosition, N, L, u_SunContactShadow,
-                                                 /*not a subsurface receiver*/ -1.0 ) );
+                                                 /*not a subsurface receiver*/ -1.0 );
+
+    // Lighting debug (viewport View Mode -> Lighting): the sources landing on the glass, as on every lit surface.
+    if ( u_DebugParams.y > 0.5 )
+    {
+        vec3 dbg = DesertLightingDebugLocalLights( v_Surface.WorldPosition, N );
+        for ( uint p = 0u; p < lightsMetadata.DirectionLightCount; p++ )
+            dbg += DesertLightingDebugSun( directionLights.directionLights.ColorIntensity.a, dot( N, L ), sunShadow );
+        oColor = DesertLightingDebugDisplay( dbg );
+#ifdef DESERT_SURFACE_RESPONSIVE_AA
+        oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
+#endif
+        return;
+    }
+
+    vec3 spec = vec3( GlassHotspot( N, V, L ) * directionLights.directionLights.ColorIntensity.a * sunShadow );
     // ...and each point and spot light's, by its radiance and its shadow.
     const ForwardLightList lights = ForwardLightListAt( gl_FragCoord.xy, v_Surface.WorldPosition );
     for ( uint j = 0u; j < lights.Count; j++ )

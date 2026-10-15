@@ -1,0 +1,39 @@
+#ifndef DESERT_LIGHTING_DEBUG_GLSLH
+#define DESERT_LIGHTING_DEBUG_GLSLH
+
+// THE LIGHTING DEBUG VIEW (viewport View Mode -> Lighting; ShadowUB u_DebugParams.y on the meshes, WaterUB Debug.x on
+// the water): every source that lands on the point in its own colour, weighted by how much of it lands (attenuation x
+// NdotL; the sun's under the shadow the surface itself applies to it), through one exposure-like curve so any light
+// reaching the surface shows. ONE statement for every lit surface of the scene - the opaque forward cells, the glass
+// and the water: a surface that drew its own colour in this view would read as a surface no light reaches.
+
+const vec3 kDesertLightingDebugSun = vec3( 1.0, 0.85, 0.35 );
+
+// The sun's share: @p intensity its ColorIntensity.a, @p NdotL toward the sun, @p shadow what the surface applies.
+vec3 DesertLightingDebugSun( float intensity, float NdotL, float shadow )
+{
+    return kDesertLightingDebugSun * ( intensity * max( NdotL, 0.0 ) * shadow );
+}
+
+// The view's colour of the summed attribution.
+vec4 DesertLightingDebugDisplay( vec3 attribution )
+{
+    return vec4( vec3( 1.0 ) - exp( -attribution * 6.0 ), 1.0 );
+}
+
+#ifdef POINTLIGHT_GLSLH
+// Every point and spot light of the scene (the buffers Mesh/PointLight.glslh, Mesh/Spotlight.glslh and
+// Mesh/LightsMetadata.glslh declare), each type stepping its own hues by its own small index (LightDebugColor).
+vec3 DesertLightingDebugLocalLights( vec3 worldPosition, vec3 N )
+{
+    vec3 attribution = vec3( 0.0 );
+    for ( uint p = 0u; p < lightsMetadata.PointLightCount; p++ )
+        attribution += LightDebugColor( p ) * PointLightContribution( pointLights[p], worldPosition, N );
+    for ( uint p = 0u; p < lightsMetadata.SpotLightCount; p++ )
+        attribution += HueToRGB( fract( float( p ) * 0.61803398875 + 0.5 ) ) *
+                       SpotLightContribution( spotLights[p], worldPosition, N );
+    return attribution;
+}
+#endif // POINTLIGHT_GLSLH
+
+#endif // DESERT_LIGHTING_DEBUG_GLSLH

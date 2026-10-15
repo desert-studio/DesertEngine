@@ -85,6 +85,7 @@ Shader "WaterSurface"
 
         #include <Programs/Water/WaterSurfaceData.glslh>
         #include <Common/ObjectMotion.glslh>
+        #include <Mesh/LightingDebug.glslh>
 
         void main()
         {
@@ -97,6 +98,16 @@ Shader "WaterSurface"
             vec3       sun  = u.SunColor.rgb * max( u.SunColor.a, 0.0001 );
             float      NdV  = abs( dot( N, V ) );
             float      fres = 0.02 + 0.98 * pow( 1.0 - NdV, 5.0 );
+            vec4       world = vec4( v_WorldPos, 1.0 );
+            oVelocity        = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+
+            // The lighting debug view, as every lit surface draws it: the sun is the one source the water's
+            // shading takes, so it is the one this view shows landing on it.
+            if ( u.Debug.x > 0.5 )
+            {
+                o_Color = DesertLightingDebugDisplay( DesertLightingDebugSun( u.SunColor.a, L.y, 1.0 ) );
+                return;
+            }
 
             vec3 skyCol   = vec3( 0.45, 0.52, 0.62 ) * 0.5;
             vec3 waterCol = vec3( 0.02, 0.09, 0.13 );
@@ -104,9 +115,7 @@ Shader "WaterSurface"
             vec3 H        = normalize( V + L );
             vec3 glint    = sun * pow( max( dot( N, H ), 0.0 ), 400.0 ) * fres * step( 0.0, L.y );
 
-            o_Color   = vec4( mix( body, skyCol, fres ) + glint, 1.0 );
-            vec4 world = vec4( v_WorldPos, 1.0 );
-            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+            o_Color = vec4( mix( body, skyCol, fres ) + glint, 1.0 );
         }
     }
 }

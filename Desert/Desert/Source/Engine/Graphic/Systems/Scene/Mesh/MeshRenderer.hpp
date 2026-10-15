@@ -423,15 +423,19 @@ namespace Desert::Graphic::System
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
         // inside the "Scene: Glass" graph node whose @p context this is and records the list
-        // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
+        // BuildGlassDraws built. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
-        // SETUP of the "Scene: Glass" node: the frame's translucent draw list, one binding block per cell (its
+        // The frame's translucent draw list, built BEFORE the frame graph asks for the scene copy: whether a
+        // translucent object is visible this frame is what decides whether the copy runs at all (UE: the scene
+        // colour copy is made only when a refractive translucent primitive is drawn). Writes each cell's rows and
+        // scene snapshot (once per frame, see TranslucentDraw). True = at least one draw.
+        [[nodiscard]] bool BuildGlassDraws();
+        // SETUP of the "Scene: Glass" node: the list BuildGlassDraws built, one binding block per cell (its
         // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
-        // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
-        // (and the node draws nothing) when no translucent object is visible.
+        // refraction) and the scene/view inputs of @p view the cell's shader has a slot for.
         void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy,
-                                   const SceneViewInputs& view );
+                                   const SceneViewInputs& view ) const;
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.
@@ -831,11 +835,24 @@ namespace Desert::Graphic::System
         // (the GPU hang). There is no engine-wide glass material: the object's template decides its shader.
         struct TranslucentDraw
         {
-            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::shared_ptr<GraphicsPipeline> Pipeline;
+#if DESERT_DEV_INSTRUMENTS
+            std::shared_ptr<GraphicsPipeline> WireframePipeline; // same spec, PolygonMode::Wireframe
+#endif
             std::shared_ptr<DataDrivenMaterial> Material;
             MaterialInstancePtr                 Instance;
         };
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
+        // The pipeline a translucent draw records with: the wireframe variant in the wireframe view (as
+        // WireframePipelineOr serves the opaque meshes), else the cell's.
+        [[nodiscard]] const GraphicsPipeline* GlassPipeline( const TranslucentDraw& draw ) const
+        {
+#if DESERT_DEV_INSTRUMENTS
+            if ( m_Wireframe && draw.WireframePipeline )
+                return draw.WireframePipeline.get();
+#endif
+            return draw.Pipeline.get();
+        }
 
         // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
         // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with

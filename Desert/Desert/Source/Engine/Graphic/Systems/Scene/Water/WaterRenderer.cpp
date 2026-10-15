@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <cstddef>
 #include <string>
@@ -25,6 +26,7 @@ namespace Desert::Graphic::System
             glm::vec4 CameraPos;
             glm::vec4 SunDir;
             glm::vec4 SunColor;
+            glm::vec4 Debug; // x = the lighting debug view
         };
 
         // Matches WaterTileRow (WaterTiles, binding 1).
@@ -58,6 +60,17 @@ namespace Desert::Graphic::System
         if ( !pipeline )
             return Common::MakeError( "WaterRenderer: " + pipeline.GetError() );
         m_Pipeline = pipeline.GetValue();
+#if DESERT_DEV_INSTRUMENTS
+        // The wireframe view draws the water as it draws every mesh (MeshRenderer's StaticMeshWireframe): the same
+        // state in line polygon mode. Not in a player's build - nothing there can set the view
+        // (Desert/Tests/Engine/ShippingPipelines). A debug view, so a refusal costs the view and not the water.
+        spec.DebugName   = "WaterSurfaceWireframe";
+        spec.PolygonMode = PrimitivePolygonMode::Wireframe;
+        if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
+            m_WireframePipeline = wireframe.GetValue();
+        else
+            LOG_ERROR( "[WaterRenderer] the wireframe view draws no water: {}", wireframe.GetError() );
+#endif // DESERT_DEV_INSTRUMENTS
         m_Material = std::make_unique<DataDrivenMaterial>( "WaterSurface" );
         return BOOLSUCCESS;
     }
@@ -117,6 +130,7 @@ namespace Desert::Graphic::System
             ub.SunDir   = lights[0].Direction;
             ub.SunColor = lights[0].ColorIntensity;
         }
+        ub.Debug = glm::vec4( m_LightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
 
         // Uploaded up front at final size, before any draw records (the terrain's reason: growing a storage buffer
         // reallocates it under a draw already recorded against the old one).
@@ -146,11 +160,12 @@ namespace Desert::Graphic::System
         // The row base and the matrix are push constants, snapshotted per draw at record.
         const RDG::PassBindings block( context, context.GetBindingBlock( 0 ) );
         m_Material->SetPushMatrix( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+        const GraphicsPipeline& pipeline = DrawPipeline();
         for ( const FrameDraw& draw : m_FrameDraws )
         {
             m_Material->SetMaterialIndex( draw.FirstRow );
             if ( auto drawn = Renderer::GetInstance().DrawProcedural(
-                      block, *m_Pipeline, m_Material->GetMaterialExecutor(),
+                      block, pipeline, m_Material->GetMaterialExecutor(),
                       draw.QuadsPerSide * draw.QuadsPerSide * 6u, draw.RowCount );
                  !drawn.IsSuccess() )
                 return drawn;

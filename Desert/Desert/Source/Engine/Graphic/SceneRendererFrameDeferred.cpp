@@ -512,9 +512,9 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures,
                                               const RDG::TextureRef target )
     {
-        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity ||
-             m_RenderPath != Core::RenderPath::Deferred )
+        // Every shading path: the velocity is the view's (the resolved one image the forward base pass and the
+        // G-buffer pass both write, Transients::Velocity), not a G-buffer channel.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity )
             return;
         const RDG::TextureRef velocity = textures.Transients.Velocity;
         const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );

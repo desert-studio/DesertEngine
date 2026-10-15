@@ -497,19 +497,18 @@ namespace Desert::Graphic::System
         return m_GenericDraws.Record( context );
     }
 
-    void MeshRenderer::DeclareGlassBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                             const SceneViewInputs& view )
+    bool MeshRenderer::BuildGlassDraws()
     {
         m_GlassDraws.Clear();
         if ( m_StaticQueue.empty() )
         {
-            return;
+            return false;
         }
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( !target || camera == nullptr )
         {
-            return;
+            return false;
         }
 
         // Collect the translucent objects (their template's BlendMode), each with the draw state of ITS
@@ -571,7 +570,7 @@ namespace Desert::Graphic::System
         }
         if ( draws.empty() )
         {
-            return;
+            return false;
         }
         // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
         const std::vector<uint32_t> drawOrder = TranslucentSortOrder( camera->GetPosition(), sortKeys );
@@ -596,7 +595,7 @@ namespace Desert::Graphic::System
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
             MaterialInstance*   instance = draw.State->Instance.get();
-            m_GlassDraws.Add( { .Pipeline = draw.State->Pipeline.get(),
+            m_GlassDraws.Add( { .Pipeline = GlassPipeline( *draw.State ),
                                 .Mesh     = obj->Mesh,
                                 // View pass: World / PrevWorld come from the object's motion row
                                 // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
@@ -613,7 +612,12 @@ namespace Desert::Graphic::System
                                     material->Bind( instance );
                                 } } );
         }
+        return !m_GlassDraws.IsEmpty();
+    }
 
+    void MeshRenderer::DeclareGlassBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                             const SceneViewInputs& view ) const
+    {
         // A cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor), this
         // frame's graph transient, with the sampler the material route sampled the copy with (linear, REPEAT) -
         // bound only where the cell's layout HAS the slot, as the scene/view inputs are (UE's pass parameters: a
@@ -1570,7 +1574,19 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         draw->Pipeline = pipeline.GetValue();
-        slot           = std::move( draw );
+#if DESERT_DEV_INSTRUMENTS
+        // The wireframe view draws the glass as it draws every mesh (StaticMeshWireframe): the cell's own state in
+        // line polygon mode. Not in a player's build (see m_StaticWireframePipeline); a debug view, so a refusal
+        // costs the view and not the glass.
+        spec.DebugName   = cellShader + ".Wireframe";
+        spec.PolygonMode = PrimitivePolygonMode::Wireframe;
+        if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
+            draw->WireframePipeline = wireframe.GetValue();
+        else
+            LOG_ERROR( "[MeshRenderer] the wireframe view draws translucent cell '{}' filled: {}", cellShader,
+                       wireframe.GetError() );
+#endif // DESERT_DEV_INSTRUMENTS
+        slot = std::move( draw );
         return slot.get();
     }
 

@@ -735,7 +735,8 @@ namespace Desert::Graphic
                           const glm::vec3& sunDir );
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
-        // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
+        // The list MeshRenderer::BuildGlassDraws built this frame (called only when it built one). @p sceneCopy: this
+        // frame's scene snapshot (FrameTransients::SceneColorCopy); invalid (the copy refused) -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
