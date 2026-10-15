@@ -670,7 +670,7 @@ namespace Desert::Migration
         int failed  = 0;
         int relaid  = 0;
         // Materials with a retired parameter renamed: OcclusionStrength -> AOStrength (MaterialAOParam.hpp),
-        // FoliageSurface's AlphaCutoff -> OpacityMaskClipValue (MaterialMaskClipParam.hpp).
+        // AlphaCutoff -> the masked template's OpacityMaskClipValue (MaterialMaskClipParam.hpp).
         int materialsRenamed = 0;
 
         // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
@@ -1182,10 +1182,11 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            // THE FOLIAGE TEMPLATE IS MASKED (MaterialMaskClipParam.hpp): its retired AlphaCutoff is renamed
-            // OpacityMaskClipValue - on the text the AO step left, so one run does both.
+            // CUT-OUT IS A BLEND MODE (MaterialMaskClipParam.hpp): a retired AlphaCutoff is re-stated as the
+            // masked template's OpacityMaskClipValue (an opaque StandardSurface drops the mask) - on the text the
+            // AO step left, so one run does both.
             const std::string& afterAO = oneAO.GetValue() ? *oneAO.GetValue() : source;
-            const auto maskClip = Desert::Migration::FoliageMaterialWithMaskClipParam( path.string(), afterAO );
+            const auto maskClip = Desert::Migration::MaterialWithMaskedTemplate( path.string(), afterAO );
             if ( !maskClip )
             {
                 err << "FAIL   " << maskClip.GetError() << "\n";
@@ -1197,9 +1198,9 @@ namespace Desert::Migration
                 const std::string renamed = maskClip.GetValue() ? *maskClip.GetValue() : afterAO;
                 const std::string what =
                      oneAO.GetValue() && maskClip.GetValue()
-                          ? "OcclusionStrength -> AOStrength, AlphaCutoff -> OpacityMaskClipValue"
+                          ? "OcclusionStrength -> AOStrength, AlphaCutoff -> the masked template"
                      : oneAO.GetValue() ? "OcclusionStrength -> AOStrength"
-                                        : "AlphaCutoff -> OpacityMaskClipValue";
+                                        : "AlphaCutoff -> the masked template";
                 ++materialsRenamed;
                 if ( check )
                     out << "WOULD  " << path.string() << " — " << what << "\n";
