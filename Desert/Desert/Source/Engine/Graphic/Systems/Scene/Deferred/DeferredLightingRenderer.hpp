@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -19,6 +20,7 @@
 
 #include <array>
 #include <span>
+#include <string>
 #include <type_traits>
 #include <string_view>
 
@@ -77,17 +79,19 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                 return Common::MakeError( "Deferred lighting target framebuffer missing" );
 
             GraphicsPipelineSpecification spec;
-            spec.DebugName         = "DeferredLighting";
             spec.TargetLayout      = SceneTargetLayout();
-            spec.Shader            = m_Programs[kCascadeProgram].Shader;
             // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
             // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
             // preserved — the shader discards non-geometry texels so that scene shows through.
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
-            for ( CompositeProgram& program : m_Programs )
+            for ( std::size_t index = 0; index < m_Programs.size(); ++index )
             {
-                spec.Shader         = program.Shader;
+                CompositeProgram& program = m_Programs[index];
+                // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
+                const std::string programName{ kProgramDebugNames[index] };
+                spec.DebugName = programName;
+                spec.Shader    = program.Shader;
                 const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
                 if ( !pipeline )
                     return Common::MakeError( pipeline.GetError() );
@@ -287,6 +291,8 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         };
         static constexpr std::size_t kCascadeProgram      = 0; // DeferredCascadeShadow
         static constexpr std::size_t kRayTracedSunProgram = 1; // DeferredScreenShadowMask
+        static constexpr std::array<std::string_view, 2> kProgramDebugNames = { "DeferredLighting",
+                                                                                "DeferredLighting RayTracedSun" };
         std::array<CompositeProgram, 2> m_Programs;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
 

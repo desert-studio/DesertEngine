@@ -489,7 +489,7 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp",
                "\"VelocityView\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
-               "\"DeferredLighting\"", Verdict::Shipped, "" },
+               "programName", Verdict::Shipped, "one per sun-shadow permutation (cascades, ray-traced mask)" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DepthExpandRenderer.hpp",
                "\"DepthExpand\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp",
