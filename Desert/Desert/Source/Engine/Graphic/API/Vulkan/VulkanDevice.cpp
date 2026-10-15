@@ -688,6 +688,16 @@ namespace Desert::Graphic::API::Vulkan
             return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() ).get();
         }
     } // namespace
+
+    VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts )
+    {
+        const VulkanLogicalDevice* device = EngineVulkanDevice();
+        VulkanBindlessTextureTable* table  = device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+        if ( table == nullptr || layouts.size() <= kBindlessSetIndex ||
+             layouts[kBindlessSetIndex] != table->GetLayout() )
+            return nullptr;
+        return table;
+    }
 } // namespace Desert::Graphic::API::Vulkan
 
 namespace Desert::Graphic

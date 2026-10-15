@@ -49,6 +49,11 @@ namespace Desert::Graphic
         Engine::DeviceMemoryReport      Device;
         ResourceCensus                  Ledger;
         Common::Utils::ProcessFootprint Process;
+        // The global bindless texture table (BindlessTextureTable.hpp): live slots and current capacity. Unknown
+        // (no line) until the device has made the table — never a 0 that reads as "empty".
+        bool     BindlessKnown    = false;
+        uint32_t BindlessLive     = 0;
+        uint32_t BindlessCapacity = 0;
 
         /**
          * @brief Three live queries. Cached by nothing, at any layer.

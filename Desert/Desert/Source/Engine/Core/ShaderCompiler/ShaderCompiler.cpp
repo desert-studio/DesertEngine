@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include "ShaderCompiler.hpp"
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
@@ -114,6 +115,13 @@ namespace Desert::Core
                 const std::string_view name  = ShaderDefineName( define );
                 const std::string_view value = ShaderDefineValue( define );
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
+            }
+            // Every stage, not only those that include BindlessTextures.glslh: the define is the engine's set index
+            // (BindlessSetIndex.hpp), and the cache key mixes it in (ShaderCacheKey.cpp kOptionsFingerprint).
+            {
+                const std::string bindlessSet = std::to_string( kBindlessSetIndex );
+                options.AddMacroDefinition( kBindlessSetDefine.data(), kBindlessSetDefine.size(), bindlessSet.data(),
+                                            bindlessSet.size() );
             }
             // THE OLDEST ACCEPTED DEVICE, NOT THE CURRENT ONE. SPIR-V is cached on disk and shipped, so its
             // target cannot follow the GPU of the machine that compiled it; it follows DeviceCaps' minimum,
