@@ -56,10 +56,12 @@ namespace Desert::Geometry
         Assets::EnqueueMeshDistanceField(
              std::move( slot ), std::format( "primitive '{}'", PrimitiveTypeName( type ) ),
              [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() )](
-                  bool& built ) -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
+                  bool& built, const Assets::MeshDistanceFieldCancel& cancel )
+                  -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
              {
                  built      = true;
-                 auto field = Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{} );
+                 auto field =
+                      Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{}, cancel );
                  if ( !field.IsSuccess() )
                      return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
                           field.GetError() );

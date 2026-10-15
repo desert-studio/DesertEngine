@@ -216,11 +216,12 @@ namespace Desert::Assets
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
-              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() )]( bool& built )
+              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() )](
+                  bool& built, const MeshDistanceFieldCancel& cancel )
              {
                  return LoadMeshDistanceField(
                       path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
-                      { return Common::MakeSuccess( *in ); }, &built );
+                      { return Common::MakeSuccess( *in ); }, &built, cancel );
              } );
     }
 

@@ -279,9 +279,10 @@ namespace Desert::Assets
         s_DfBuilder = std::move( builder );
     }
 
-    Common::ResultStr<std::string> BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input )
+    Common::ResultStr<std::string> BuildMeshDistanceFieldBytes( const MeshDistanceFieldBuildInput& input,
+                                                                const MeshDistanceFieldCancel&     cancel )
     {
-        auto built = BuildMeshDistanceField( input, MeshDistanceFieldBuildSettings{} );
+        auto built = BuildMeshDistanceField( input, MeshDistanceFieldBuildSettings{}, cancel );
         if ( !built.IsSuccess() )
             return Common::MakeError<std::string>( built.GetError() );
         return Common::MakeSuccess( EncodeMeshDistanceField( built.GetValue() ) );
@@ -291,7 +292,7 @@ namespace Desert::Assets
     LoadMeshDistanceField( const std::filesystem::path& asset, const uint64_t renderDataKey,
                            const std::vector<uint8_t>&                                            submeshTwoSided,
                            const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input,
-                           bool*                                                                  built )
+                           bool* built, const MeshDistanceFieldCancel& cancel )
     {
         if ( built != nullptr )
             *built = false;
@@ -317,16 +318,17 @@ namespace Desert::Assets
         }
         else
         {
-            auto derived = Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
-                                                    [&builder, &input, built]() -> Common::ResultStr<std::string>
-                                                    {
-                                                        if ( built != nullptr )
-                                                            *built = true;
-                                                        auto in = input();
-                                                        if ( !in.IsSuccess() )
-                                                            return Common::MakeError<std::string>( in.GetError() );
-                                                        return builder( in.GetValue() );
-                                                    } );
+            auto derived =
+                 Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
+                                          [&builder, &input, built, &cancel]() -> Common::ResultStr<std::string>
+                                          {
+                                              if ( built != nullptr )
+                                                  *built = true;
+                                              auto in = input();
+                                              if ( !in.IsSuccess() )
+                                                  return Common::MakeError<std::string>( in.GetError() );
+                                              return builder( in.GetValue(), cancel );
+                                          } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': distance field: {}", asset.string(),
                                                            derived.GetError() );
@@ -372,6 +374,9 @@ namespace Desert::Assets
             std::deque<DfQueuedWork> Waiting;
             size_t                   Running = 0;
             bool                     Exiting = false;
+            // Raised once, by the exit hook: every running build's token reads it (MeshDistanceFieldCancel) and
+            // the build stops at its next brick. Never lowered - the process is going away.
+            std::atomic<bool> Abort{ false };
             // Signalled whenever Running drops: CancelMeshDistanceFields waits on it for the running work.
             std::condition_variable Idle;
             // The current burst (from the first request into an idle queue until it drains), for its log line.
@@ -383,7 +388,8 @@ namespace Desert::Assets
             double                                WorkMs    = 0.0;
         };
 
-        // Drops the waiting work and returns once none is running. @p exiting also refuses new work.
+        // Drops the waiting work and returns once none is running. @p exiting also refuses new work and cancels
+        // the running work, so the wait is for the brick each build is on, not for the build.
         void DfQuiesce( bool exiting );
 
         DfQueue& DfQueueState()
@@ -417,7 +423,10 @@ namespace Desert::Assets
             DfQueue&                     q = DfQueueState();
             std::unique_lock<std::mutex> lock( q.Mutex );
             if ( exiting )
+            {
                 q.Exiting = true;
+                q.Abort.store( true, std::memory_order_relaxed );
+            }
             q.Cancelled += static_cast<uint32_t>( q.Waiting.size() );
             q.Waiting.clear();
             q.Idle.wait( lock, [&q] { return q.Running == 0; } );
@@ -463,11 +472,25 @@ namespace Desert::Assets
             bool       cancelled = false;
             Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>> field =
                  Common::MakeSuccess<std::shared_ptr<const MeshDistanceFieldData>>( nullptr );
-            // The owner is gone: nothing would read the field, so it is neither read nor built.
-            if ( item.Slot.expired() )
-                cancelled = true;
-            else
-                field = item.Work( built );
+            DfQueue&                      q = DfQueueState();
+            const MeshDistanceFieldCancel cancel( &q.Abort, item.Slot );
+            // The owner is gone or the process exits: nothing would read the field, so it is neither read nor
+            // built - and a build already running stops at its next brick (the token) and writes no DDC entry.
+            for ( ;; )
+            {
+                if ( cancel.IsCancelled() )
+                {
+                    cancelled = true;
+                    break;
+                }
+                field = item.Work( built, cancel );
+                if ( field.IsSuccess() ||
+                     field.GetError().find( kMeshDistanceFieldCancelled ) == std::string::npos )
+                    break;
+                // Cancelled: ours (the loop's check above says so), or the DDC flight this work followed was
+                // another owner's (the same render data, unloaded): this owner still wants it, so derive again.
+                built = false;
+            }
             const double ms =
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
             if ( !field.IsSuccess() )
@@ -478,7 +501,6 @@ namespace Desert::Assets
             else if ( const auto slot = item.Slot.lock(); slot != nullptr && !cancelled )
                 slot->Publish( field.ExtractValue() );
 
-            DfQueue& q         = DfQueueState();
             bool     drained   = false;
             uint32_t fromCache = 0, builtCount = 0, failed = 0, dropped = 0;
             double   wallSeconds = 0.0, workMs = 0.0;
