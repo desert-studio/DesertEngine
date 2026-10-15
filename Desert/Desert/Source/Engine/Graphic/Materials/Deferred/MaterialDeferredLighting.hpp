@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
@@ -29,6 +31,21 @@ namespace Desert::Graphic
         bool             Enabled              = true;
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
     };
+
+    // PURE. The ShadowUB values of @p shadow (x reserved 0: the casters carry the bias; y enabled; z debug mode 0;
+    // w cascade count) - the deferred composite's and the surface-cache lighting's one packer.
+    [[nodiscard]] inline SceneResources::ShadowUBData PackDeferredShadow( const DeferredShadowInput& shadow )
+    {
+        SceneResources::ShadowUBData data{};
+        const uint32_t               n =
+             shadow.Count < SceneResources::kMaxCascades ? shadow.Count : SceneResources::kMaxCascades;
+        for ( uint32_t i = 0; i < SceneResources::kMaxCascades; ++i )
+            data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
+        data.Params            = glm::vec4( 0.0f, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
+        data.DebugParams       = glm::vec4( 0.0f );
+        data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
+        return data;
+    }
 
     // CloudShadowInput — the cloud layer's shadow, a SECOND independent occluder of the same sun — used
     // to be declared right here, which is precisely why nothing but this pass ever received it. It now
@@ -124,21 +141,7 @@ namespace Desert::Graphic
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {
-            struct ShadowUBData
-            {
-                glm::mat4 LightViewProj[4];
-                glm::vec4 Params; // x reserved (0: the casters carry the bias), y = enabled, z = debug mode, w =
-                                  // cascade count
-                glm::vec4 DebugParams;
-                glm::vec4 CascadeTexelWorld;
-            } data;
-
-            const uint32_t n = shadow.Count < 4u ? shadow.Count : 4u;
-            for ( uint32_t i = 0; i < 4u; ++i )
-                data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
-            data.Params = glm::vec4( 0.0f, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
-            data.DebugParams       = glm::vec4( 0.0f );
-            data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
+            const SceneResources::ShadowUBData data = PackDeferredShadow( shadow );
 
             if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

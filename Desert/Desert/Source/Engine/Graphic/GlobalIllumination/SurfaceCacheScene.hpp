@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -115,6 +116,10 @@ namespace Desert::Graphic::SurfaceCache
         std::vector<MeshCardsPayload> MeshCards;
         std::vector<CardCapture>      Captures;
         std::vector<CardPageCopy>     Copies;
+        // Indices into Pages relit this frame (the direct-lighting budget; every page captured this frame).
+        std::vector<uint32_t> LightingPages;
+        // The scene frame these records belong to (ConfirmCapturesExecuted takes it back).
+        uint64_t                      Frame         = 0;
         uint32_t                      ResidentCards = 0;
         uint32_t                      CapturedCards = 0;
     };
@@ -129,6 +134,10 @@ namespace Desert::Graphic::SurfaceCache
 
         // One frame: add / remove / move instances, choose resolutions, allocate, pick captures.
         [[nodiscard]] SceneFrame Update( const std::vector<SceneInstance>& instances, const glm::vec3& viewer );
+
+        // From the exec of the graph that copies frame @p frame's captures into the atlas (any thread): those
+        // captures landed, their cards are the surface from the next Update on.
+        void ConfirmCapturesExecuted( uint64_t frame );
 
         [[nodiscard]] uint32_t InstanceCount() const
         {
@@ -148,6 +157,7 @@ namespace Desert::Graphic::SurfaceCache
             uint32_t               PagesX = 0, PagesY = 0;
             std::vector<AtlasRect> Pages; // PagesX * PagesY, row-major
             bool                   Captured = false;
+            uint64_t CaptureFrame           = 0;    // the frame whose graph captures it, until that graph executes
             bool                   Ready    = true; // the owning instance's CaptureReady this frame
             float                  Distance = 0.0f;
             uint32_t               WantX = 0, WantY = 0;
@@ -174,6 +184,10 @@ namespace Desert::Graphic::SurfaceCache
         SurfaceCacheAllocator                  m_Allocator;
         std::unordered_map<uint64_t, Instance> m_Instances;
         uint64_t                               m_Frame = 0;
+        // Frames whose capture copy executed, not yet folded into the cards (ConfirmCapturesExecuted).
+        static constexpr uint64_t kCaptureConfirmFrames = 4;
+        std::mutex                m_ExecutedMutex;
+        std::vector<uint64_t>     m_ExecutedCaptureFrames;
     };
 
     // PURE. The world frame of @p card of a mesh placed by @p world (UE FLumenCard::SetTransform): Z = the card's

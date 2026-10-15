@@ -1188,13 +1188,9 @@ namespace Desert::Graphic
             AddFrameTerrainGBuffer( graph, textures );
             AddFrameDepthResolve( graph, textures );
 
-            glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
-            glm::vec4 lightColor( 1.0f, 0.98f, 0.92f, 3.0f );
-            if ( const auto& dl = m_DirectionLights.DirectionLights; !dl.empty() )
-            {
-                lightDir   = dl[0].Direction;
-                lightColor = dl[0].ColorIntensity;
-            }
+            const FrameSun  sun        = GetFrameSun();
+            const glm::vec4 lightDir   = sun.Direction;
+            const glm::vec4 lightColor = sun.ColorIntensity;
             AddFrameSSAO( graph, textures, gbuffer, frame );
 
             RDG::TextureRef giAccum;

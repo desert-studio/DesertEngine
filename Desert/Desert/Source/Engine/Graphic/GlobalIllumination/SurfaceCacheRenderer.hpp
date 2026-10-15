@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
@@ -46,10 +49,33 @@ namespace Desert::Graphic::SurfaceCache
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
-        // The captured layers this renderer owns (SurfaceCache::Layer Depth..Emissive). The lit layers arrive
-        // with the card lighting (the next task of the programme).
+        // The captured layers this renderer owns (SurfaceCache::Layer Depth..Emissive).
         static constexpr std::array<Layer, 5> kCapturedLayers{ Layer::Depth, Layer::Albedo, Layer::Opacity,
                                                                Layer::Normal, Layer::Emissive };
+        // The lit layers of the direct lighting (GI-SURFACE-CACHE-4). IndirectLighting and the radiosity count
+        // arrive with the radiosity (the next task of the programme).
+        static constexpr std::array<Layer, 2> kLitLayers{ Layer::DirectLighting, Layer::FinalLighting };
+
+        // The frame's records as graph buffers, uploaded once and read by every pass of the frame.
+        struct FrameBuffers
+        {
+            RDG::BufferRef Cards;
+            RDG::BufferRef Pages;
+        };
+        // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene
+        // view inputs - cascades, cloud map, local shadow atlas -, the view's light buffers, the composite's
+        // ShadowUB and cloud values, the sun).
+        struct DirectLightingInputs
+        {
+            SceneViewInputs              View;
+            ViewLightBuffers             Lights;
+            SceneResources::ShadowUBData Shadow{};
+            CloudShadowUniforms          Cloud;
+            glm::vec4                    LightDir{ 0.0f, -1.0f, 0.0f, 0.0f };
+            glm::vec4                    LightColor{ 0.0f };
+            uint32_t                     PointCount = 0;
+            uint32_t                     SpotCount  = 0;
+        };
 
         // Shaders, the copy pipeline and the capture framebuffer.
         [[nodiscard]] Common::BoolResultStr Initialize();
@@ -77,13 +103,21 @@ namespace Desert::Graphic::SurfaceCache
         // UE CopyCardsToSurfaceCache: one 8 x 8 group per tile of every page of the frame's captures.
         [[nodiscard]] Common::BoolResultStr AddCopyPass( RDG::Builder& graph, const ImportImage& import,
                                                          const CaptureTextures& capture, const SceneFrame& frame );
+        [[nodiscard]] FrameBuffers          UploadRecords( RDG::Builder& graph, const SceneFrame& frame ) const;
+        // UE LumenSceneDirectLighting: the frame's LightingPages relit into DirectLighting and FinalLighting.
+        [[nodiscard]] Common::BoolResultStr AddDirectLightingPass( RDG::Builder& graph, const ImportImage& import,
+                                                                   const SceneFrame&           frame,
+                                                                   const FrameBuffers&         buffers,
+                                                                   const DirectLightingInputs& inputs );
         // "Surface Cache Atlas": the four captured layers, a quadrant each (albedo, normal, depth, opacity).
         [[nodiscard]] Common::BoolResultStr AddAtlasViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target );
         // "Lumen Scene": the scene drawn from its cards alone - every captured card's surface (its depth layer
-        // placed back into the world) shaded with its albedo, depth-tested against the other cards.
+        // placed back into the world) shaded with its albedo, or with its FinalLighting when @p lit ("Lumen Scene
+        // (Lit)"), depth-tested against the other cards.
         [[nodiscard]] Common::BoolResultStr AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target, const SceneFrame& frame,
+                                                              const FrameBuffers& buffers, bool lit,
                                                               const glm::mat4& viewProjection,
                                                               const glm::vec3& cameraPosition );
 
@@ -96,6 +130,7 @@ namespace Desert::Graphic::SurfaceCache
         SurfaceCacheScene                                                     m_Scene;
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, 5>                               m_Layers;
+        std::array<std::shared_ptr<Image2D>, 2>                               m_LitLayers;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;
         std::shared_ptr<ComputePipeline>                                      m_CopyPipeline;
@@ -104,6 +139,9 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_AtlasViewLayout;
         std::shared_ptr<Shader>                                               m_SceneViewShader;
         mutable ShaderBindingLayoutCache                                      m_SceneViewLayout;
+        std::shared_ptr<Shader>                                               m_LightingShader;
+        mutable ShaderBindingLayoutCache                                      m_LightingLayout;
+        std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

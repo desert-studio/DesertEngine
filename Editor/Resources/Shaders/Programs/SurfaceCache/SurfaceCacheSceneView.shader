@@ -3,7 +3,8 @@
 // world as the surface cache holds it - nothing but the cards. Every captured card draws its front quad (the
 // card plane, facing its direction); each fragment reads the card's texel through the page table, discards where
 // the capture saw no surface, and moves its depth back to the captured surface (the card's depth layer), so the
-// cards depth-test into the shape they captured; the colour is the card's albedo. Where the cards miss a surface
+// cards depth-test into the shape they captured; the colour is the card's albedo, or in the Lit view its
+// FinalLighting (SurfaceCacheDirectLighting.shader). Where the cards miss a surface
 // (a hole, a too-thin card) the background shows - which is the point of the view.
 Shader "SurfaceCacheSceneView"
 {
@@ -55,7 +56,7 @@ Shader "SurfaceCacheSceneView"
         {
             SurfaceCardPage surfaceCardPages[];
         };
-        Uniform(2) sampler2D u_AtlasAlbedo;
+        Uniform(2) sampler2D u_AtlasColor; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
         Uniform(3) sampler2D u_AtlasDepth;
         Uniform(4) sampler2D u_AtlasOpacity;
         In(0) vec2 v_Local;
@@ -79,7 +80,7 @@ Shader "SurfaceCacheSceneView"
             if (res.y >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE)
                 page.y = min(texel.y / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.y - 1u);
             const SurfaceCardPage entry = surfaceCardPages[v_CardInfo.z + page.y * pages.x + page.x];
-            const vec2  atlasSize  = vec2(textureSize(u_AtlasAlbedo, 0));
+            const vec2  atlasSize  = vec2(textureSize(u_AtlasColor, 0));
             const ivec2 atlasTexel = ivec2(entry.physicalAtlasUVRect.xy * atlasSize + 0.5) +
                                      ivec2(texel - page * SURFACE_CACHE_VIRTUAL_PAGE_SIZE);
             if (texelFetch(u_AtlasOpacity, atlasTexel, 0).r < 0.5)
@@ -87,7 +88,7 @@ Shader "SurfaceCacheSceneView"
             // Back to the captured surface: the depth layer runs from the card plane (0) to the far side (1).
             const vec4 clip = v_Clip - texelFetch(u_AtlasDepth, atlasTexel, 0).r * v_ClipDepthStep;
             gl_FragDepth    = clip.z / clip.w;
-            oColor          = vec4(texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb, 1.0);
+            oColor          = vec4(texelFetch(u_AtlasColor, atlasTexel, 0).rgb, 1.0);
         }
     }
 }

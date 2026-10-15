@@ -1,8 +1,10 @@
 // SceneRenderer's surface-cache node (GI-SURFACE-CACHE-2): the Lumen scene update, the card capture through the
-// G-buffer light-view pass, the copy into the atlas and the two view modes that show it.
+// G-buffer view pass, the copy into the atlas, the direct lighting of the cards and the three view modes that show
+// it.
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
@@ -20,8 +22,9 @@ namespace Desert::Graphic
     {
         const bool atlasView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheAtlas;
         const bool sceneView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheScene;
+        const bool litView   = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheSceneLit;
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( ( !atlasView && !sceneView ) || m_RenderPath != Core::RenderPath::Deferred )
+        if ( ( !atlasView && !sceneView && !litView ) || m_RenderPath != Core::RenderPath::Deferred )
             return;
         const auto  it = m_RenderSystems.find( "MeshSystem" );
         auto* const meshRenderer =
@@ -108,6 +111,36 @@ namespace Desert::Graphic
             }
         }
 
+        // THE DIRECT LIGHTING (UE LumenSceneDirectLighting): the frame's relit pages, lit by exactly what the
+        // deferred composite read this frame - its scene view inputs (cascades, cloud map, local shadow atlas),
+        // the view's light buffers (AddFrameLightGrid), the composite's ShadowUB and cloud values, the frame sun.
+        const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records =
+             m_SurfaceCache->UploadRecords( graph, scene );
+        {
+            const FrameGraphRefs                                     refs = textures.GraphRefs();
+            SurfaceCache::SurfaceCacheRenderer::DirectLightingInputs lighting;
+            lighting.View   = SceneViewInputsOf( refs );
+            lighting.Lights = refs.Transients.Lights;
+            DeferredShadowInput shadow;
+            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
+            shadow.Count                = meshRenderer->GetValidCascadeCount();
+            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
+            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
+            lighting.Shadow             = PackDeferredShadow( shadow );
+            lighting.Cloud              = CloudShadowPackUniforms( GetCloudShadowInput() );
+            const FrameSun sun          = GetFrameSun();
+            lighting.LightDir           = sun.Direction;
+            lighting.LightColor         = sun.ColorIntensity;
+            lighting.PointCount         = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+            lighting.SpotCount          = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+            if ( const auto lit = m_SurfaceCache->AddDirectLightingPass( graph, import, scene, records, lighting );
+                 !lit )
+            {
+                LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", lit.GetError() );
+                return;
+            }
+        }
+
         // Said when the scene settles or grows, not per frame.
         const uint64_t census = ( static_cast<uint64_t>( scene.Cards.size() ) << 32 ) | scene.CapturedCards;
         if ( scene.Captures.empty() && census != m_SurfaceCacheLoggedCensus )
@@ -120,7 +153,7 @@ namespace Desert::Graphic
 
         const auto drawn = atlasView
                                 ? m_SurfaceCache->AddAtlasViewPass( graph, import, target )
-                                : m_SurfaceCache->AddSceneViewPass( graph, import, target, scene,
+                                : m_SurfaceCache->AddSceneViewPass( graph, import, target, scene, records, litView,
                                                                     frame.ViewProjection, frame.CameraPosition );
         if ( !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", drawn.GetError() );

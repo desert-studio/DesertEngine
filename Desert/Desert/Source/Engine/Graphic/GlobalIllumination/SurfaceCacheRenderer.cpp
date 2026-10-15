@@ -4,6 +4,9 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
+#include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -24,6 +27,18 @@ namespace Desert::Graphic::SurfaceCache
         constexpr std::array<std::string_view, 5> kLayerImages{ "u_AtlasDepth", "u_AtlasAlbedo", "u_AtlasOpacity",
                                                                 "u_AtlasNormal", "u_AtlasEmissive" };
         constexpr uint32_t kCopyGroup = 8; // Programs/SurfaceCache/SurfaceCacheCardCopy.shader LocalSize
+
+        constexpr std::array<std::string_view, 2> kLitLayerNames{ "SurfaceCache.DirectLighting",
+                                                                  "SurfaceCache.FinalLighting" };
+
+        // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader SurfaceDirectLightingPush.
+        struct DirectLightingPush
+        {
+            glm::vec4  LightDir{ 0.0f };
+            glm::vec4  LightColor{ 0.0f };
+            glm::uvec4 Counts{ 0u }; // x = point lights, y = spot lights
+        };
+        static_assert( sizeof( DirectLightingPush ) == 48 );
 
         struct SceneViewPush
         {
@@ -53,15 +68,34 @@ namespace Desert::Graphic::SurfaceCache
         m_CopyShader       = shaders->GetByName( "SurfaceCacheCardCopy" );
         m_AtlasViewShader  = shaders->GetByName( "SurfaceCacheAtlasView" );
         m_SceneViewShader  = shaders->GetByName( "SurfaceCacheSceneView" );
-        if ( !m_CopyShader || !m_AtlasViewShader || !m_SceneViewShader )
-            return Common::MakeFormattedError<bool>(
-                 "surface cache: shader {} not found",
-                 !m_CopyShader ? "SurfaceCacheCardCopy"
-                               : ( !m_AtlasViewShader ? "SurfaceCacheAtlasView" : "SurfaceCacheSceneView" ) );
+        m_LightingShader   = shaders->GetByName( "SurfaceCacheDirectLighting" );
+        for ( const auto& [shader, name] : { std::pair{ m_CopyShader.get(), "SurfaceCacheCardCopy" },
+                                             std::pair{ m_AtlasViewShader.get(), "SurfaceCacheAtlasView" },
+                                             std::pair{ m_SceneViewShader.get(), "SurfaceCacheSceneView" },
+                                             std::pair{ m_LightingShader.get(), "SurfaceCacheDirectLighting" } } )
+            if ( shader == nullptr )
+                return Common::MakeFormattedError<bool>( "surface cache: shader {} not found", name );
         auto pipeline = ComputePipeline::Create( { .Shader = m_CopyShader, .DebugName = "SurfaceCacheCardCopy" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
         m_CopyPipeline = pipeline.GetValue();
+
+        // The direct lighting: one quad per relit page into the two lit layers (no depth, no blend: every texel of
+        // a relit page is written).
+        GraphicsPipelineSpecification lighting;
+        lighting.DebugName = "SurfaceCacheDirectLighting";
+        lighting.TargetLayout =
+             RenderTargetLayout{ .ColorFormats = { kLayerFormats[static_cast<std::size_t>( kLitLayers[0] )],
+                                                   kLayerFormats[static_cast<std::size_t>( kLitLayers[1] )] },
+                                 .DepthFormat  = std::nullopt,
+                                 .Samples      = 1 };
+        lighting.Shader             = m_LightingShader;
+        lighting.DepthTestEnabled   = false;
+        lighting.DepthWriteEnabled  = false;
+        const auto lightingPipeline = GraphicsPipeline::Create( lighting );
+        if ( !lightingPipeline )
+            return Common::MakeError<bool>( lightingPipeline.GetError() );
+        m_LightingPipeline = lightingPipeline.GetValue();
 
         // The capture atlas: the RSM's slots (the light-view permutation's outputs), its own fixed side.
         FramebufferSpecification spec;
@@ -110,6 +144,25 @@ namespace Desert::Graphic::SurfaceCache
                 return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
                                                          kLayerNames[i], budget.AtlasSize );
         }
+        for ( std::size_t i = 0; i < kLitLayers.size(); ++i )
+        {
+            // Colour targets of the direct lighting, sampled by the views (and the tracers later).
+            const Core::Formats::Image2DSpecification spec{
+                 .Tag        = std::string( kLitLayerNames[i] ),
+                 .Width      = budget.AtlasSize,
+                 .Height     = budget.AtlasSize,
+                 .Format     = kLayerFormats[static_cast<std::size_t>( kLitLayers[i] )],
+                 .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Usage      = Core::Formats::Image2DUsage::Attachment,
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
+            m_LitLayers[i] = Image2D::Create( spec );
+            if ( !m_LitLayers[i] )
+                return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
+                                                         kLitLayerNames[i], budget.AtlasSize );
+        }
         m_AtlasSize = budget.AtlasSize;
         return BOOLSUCCESS;
     }
@@ -145,11 +198,16 @@ namespace Desert::Graphic::SurfaceCache
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Storage( kLayerImages[i], layers[i], RDG::Access::StorageWrite );
              },
-             [pipeline, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [pipeline, count, scene = &m_Scene,
+              frameId = frame.Frame]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::DispatchCompute( bindings, *pipeline, kPhysicalPageSize / kCopyGroup,
-                                                   kPhysicalPageSize / kCopyGroup, count );
+                 auto dispatched = Renderer::DispatchCompute( bindings, *pipeline, kPhysicalPageSize / kCopyGroup,
+                                                              kPhysicalPageSize / kCopyGroup, count );
+                 // The captures of this frame landed: their cards are the surface from the next update on.
+                 if ( dispatched )
+                     scene->ConfirmCapturesExecuted( frameId );
+                 return dispatched;
              } );
         return BOOLSUCCESS;
     }
@@ -214,8 +272,9 @@ namespace Desert::Graphic::SurfaceCache
     Common::BoolResultStr SurfaceCacheRenderer::AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                                   const RDG::TextureRef target,
                                                                   const SceneFrame&     frame,
-                                                                  const glm::mat4&      viewProjection,
-                                                                  const glm::vec3&      cameraPosition )
+                                                                  const FrameBuffers& buffers, const bool lit,
+                                                                  const glm::mat4& viewProjection,
+                                                                  const glm::vec3& cameraPosition )
     {
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )
@@ -229,8 +288,8 @@ namespace Desert::Graphic::SurfaceCache
         depthDesc.Mips              = 1;
         depthDesc.Layers            = 1;
         const RDG::TextureRef depth = graph.CreateTexture( depthDesc, "SurfaceCache.SceneViewDepth" );
-        const RDG::BufferRef  cards = UploadBuffer( graph, frame.Cards, "SurfaceCache.Cards" );
-        const RDG::BufferRef  pages = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" );
+        const RDG::BufferRef  cards = buffers.Cards;
+        const RDG::BufferRef  pages = buffers.Pages;
         RDG::TextureRef       albedo, depthLayer, opacity;
         for ( std::size_t i = 0; i < kCapturedLayers.size(); ++i )
         {
@@ -242,6 +301,8 @@ namespace Desert::Graphic::SurfaceCache
             else if ( kCapturedLayers[i] == Layer::Opacity )
                 opacity = layer;
         }
+        // The Lit view shows the cards' FinalLighting where the Cards view shows their albedo.
+        const RDG::TextureRef color = lit ? import( m_LitLayers[1], kLitLayerNames[1] ) : albedo;
         SceneViewPush push;
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
@@ -249,14 +310,15 @@ namespace Desert::Graphic::SurfaceCache
         GraphicsPipeline* const raw   = pipeline.GetValue().get();
         const uint32_t          count = static_cast<uint32_t>( frame.Cards.size() );
         graph.AddPass(
-             "Debug: Lumen Scene (surface cache cards)", RDG::PassFlags::Raster,
+             lit ? "Debug: Lumen Scene (lit surface cache cards)" : "Debug: Lumen Scene (surface cache cards)",
+             RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::OtherRouteFill{} )
                       .Storage( "SurfaceCardBuffer", cards, RDG::Access::StorageRead )
                       .Storage( "SurfaceCardPageBuffer", pages, RDG::Access::StorageRead )
-                      .Sampled( "u_AtlasAlbedo", albedo, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_AtlasColor", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                                RDG::SamplerDesc::PointClamp() )
                       .Sampled( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                       .Sampled( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics,
@@ -272,6 +334,76 @@ namespace Desert::Graphic::SurfaceCache
                  // Six vertices per card (its front quad), one instance per card; a card not captured collapses.
                  if ( count == 0 )
                      return BOOLSUCCESS;
+                 return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
+             } );
+        return BOOLSUCCESS;
+    }
+
+    SurfaceCacheRenderer::FrameBuffers SurfaceCacheRenderer::UploadRecords( RDG::Builder&     graph,
+                                                                            const SceneFrame& frame ) const
+    {
+        return { .Cards = UploadBuffer( graph, frame.Cards, "SurfaceCache.Cards" ),
+                 .Pages = UploadBuffer( graph, frame.Pages, "SurfaceCache.Pages" ) };
+    }
+
+    Common::BoolResultStr SurfaceCacheRenderer::AddDirectLightingPass( RDG::Builder&               graph,
+                                                                       const ImportImage&          import,
+                                                                       const SceneFrame&           frame,
+                                                                       const FrameBuffers&         buffers,
+                                                                       const DirectLightingInputs& inputs )
+    {
+        if ( frame.LightingPages.empty() )
+            return BOOLSUCCESS;
+        if ( !inputs.Lights.Point.IsValid() || !inputs.Lights.Spot.IsValid() ||
+             !inputs.Lights.ShadowViews.IsValid() )
+            return Common::MakeError<bool>( "surface cache direct lighting: the view's light buffers were not "
+                                            "uploaded this frame (AddFrameLightGrid)" );
+        std::array<RDG::TextureRef, 5> layers;
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+            layers[i] = import( m_Layers[i], kLayerNames[i] );
+        const RDG::TextureRef direct   = import( m_LitLayers[0], kLitLayerNames[0] );
+        const RDG::TextureRef finalLit = import( m_LitLayers[1], kLitLayerNames[1] );
+        const RDG::BufferRef  relit    = UploadBuffer( graph, frame.LightingPages, "SurfaceCache.LightingPages" );
+        const RDG::BufferRef shadow = UploadBuffer( graph, std::vector{ inputs.Shadow }, "SurfaceCache.ShadowUB" );
+        const RDG::BufferRef cloud =
+             UploadBuffer( graph, std::vector{ inputs.Cloud }, "SurfaceCache.CloudShadowUB" );
+
+        DirectLightingPush push;
+        push.LightDir                 = inputs.LightDir;
+        push.LightColor               = inputs.LightColor;
+        push.Counts                   = glm::uvec4( inputs.PointCount, inputs.SpotCount, 0u, 0u );
+        GraphicsPipeline* const raw   = m_LightingPipeline.get();
+        const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
+        graph.AddPass(
+             std::format( "SurfaceCache: Direct Lighting ({} pages)", count ), RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 const auto& layout = m_LightingLayout.Get( m_LightingShader );
+                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 block.Storage( "SurfaceCardBuffer", buffers.Cards, RDG::Access::StorageRead )
+                      .Storage( "SurfaceCardPageBuffer", buffers.Pages, RDG::Access::StorageRead )
+                      .Storage( "SurfaceLightingPages", relit, RDG::Access::StorageRead )
+                      .Storage( ShaderProtocols::PointLight::Name, inputs.Lights.Point, RDG::Access::StorageRead )
+                      .Storage( ShaderProtocols::SpotLight::Name, inputs.Lights.Spot, RDG::Access::StorageRead )
+                      .Storage( System::kLocalShadowViewsBlockName, inputs.Lights.ShadowViews,
+                                RDG::Access::StorageRead )
+                      .Storage( "SurfaceCacheShadowUB", shadow, RDG::Access::StorageRead )
+                      .Storage( "SurfaceCacheCloudShadowUB", cloud, RDG::Access::StorageRead )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                 for ( std::size_t i = 0; i < layers.size(); ++i )
+                     block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 // The cascades, the cloud map and the local shadow atlas, with the composite's samplers.
+                 if ( layout )
+                     BindSceneViewInputs( block, inputs.View, *layout );
+                 pass.ColorTarget( 0, direct, RDG::LoadOp::Load() );
+                 pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
+             },
+             [raw, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 // Six vertices per relit page (its atlas rectangle), one instance per page.
                  return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
              } );
         return BOOLSUCCESS;

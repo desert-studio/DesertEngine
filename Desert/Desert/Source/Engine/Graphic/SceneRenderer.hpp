@@ -515,6 +515,24 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+        // The frame's sun as every lit pass receives it: the first directional light (direction it travels,
+        // colour/intensity), or the default sun when the scene has none. The deferred composite and the
+        // surface-cache lighting read this one rule.
+        struct FrameSun
+        {
+            glm::vec4 Direction{ 0.0f, -1.0f, 0.0f, 0.0f };
+            glm::vec4 ColorIntensity{ 1.0f, 0.98f, 0.92f, 3.0f };
+        };
+        [[nodiscard]] FrameSun GetFrameSun() const
+        {
+            FrameSun sun;
+            if ( const auto& dl = m_DirectionLights.DirectionLights; !dl.empty() )
+            {
+                sun.Direction      = dl[0].Direction;
+                sun.ColorIntensity = dl[0].ColorIntensity;
+            }
+            return sun;
+        }
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is

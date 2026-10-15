@@ -51,11 +51,14 @@ namespace Desert::Graphic
         // The surface cache (Graphic/GlobalIllumination/SurfaceCacheRenderer): UE's r.Lumen.Visualize views. The
         // atlas
         // - its captured layers, a quadrant each (albedo, normal, depth, opacity) - and the Lumen Scene: the world
-        // drawn from the captured cards alone, each card's albedo placed back at its captured depth. Deferred
-        // only; drawn after the temporal resolve. The only readers of the surface cache until the card lighting,
-        // so the cache is brought up only while one of them is on.
-        SurfaceCacheAtlas = 14,
-        SurfaceCacheScene = 15,
+        // drawn from the captured cards alone, each card's albedo placed back at its captured depth - and the
+        // Lit Lumen Scene: the same cards showing their FinalLighting (direct light of every source with its
+        // shadow + emissive), UE r.Lumen.Visualize "Lumen Scene" lit. Deferred only; drawn after the temporal
+        // resolve. The only readers of the surface cache until the tracers, so the cache is brought up only while
+        // one of them is on.
+        SurfaceCacheAtlas    = 14,
+        SurfaceCacheScene    = 15,
+        SurfaceCacheSceneLit = 16,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

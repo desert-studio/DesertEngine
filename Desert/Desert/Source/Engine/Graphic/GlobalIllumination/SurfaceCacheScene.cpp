@@ -159,6 +159,7 @@ namespace Desert::Graphic::SurfaceCache
                 card.Pages.clear();
                 card.ResX = card.ResY = card.PagesX = card.PagesY = 0;
                 card.Captured                                     = false;
+                card.CaptureFrame                                 = 0;
             }
     }
 
@@ -181,6 +182,7 @@ namespace Desert::Graphic::SurfaceCache
         card.Pages.clear();
         card.ResX = card.ResY = card.PagesX = card.PagesY = 0;
         card.Captured                                     = false;
+        card.CaptureFrame                                 = 0;
     }
 
     bool SurfaceCacheScene::AllocateCard( Card& card, const uint32_t resX, const uint32_t resY )
@@ -206,6 +208,7 @@ namespace Desert::Graphic::SurfaceCache
         card.PagesX   = pagesX;
         card.PagesY   = pagesY;
         card.Captured = false;
+        card.CaptureFrame = 0;
         return true;
     }
 
@@ -216,6 +219,12 @@ namespace Desert::Graphic::SurfaceCache
         const float texels   = static_cast<float>( m_Budget.CardTexelDensityPercent ) * longSide /
                              std::max( card.Distance, kMinViewerDistance );
         return static_cast<uint32_t>( std::max( texels, 1.0f ) );
+    }
+
+    void SurfaceCacheScene::ConfirmCapturesExecuted( const uint64_t frame )
+    {
+        const std::lock_guard lock( m_ExecutedMutex );
+        m_ExecutedCaptureFrames.push_back( frame );
     }
 
     SceneFrame SurfaceCacheScene::Update( const std::vector<SceneInstance>& instances, const glm::vec3& viewer )
@@ -260,6 +269,7 @@ namespace Desert::Graphic::SurfaceCache
                 it->second.SurfaceKey = in.SurfaceKey;
                 for ( Card& card : it->second.Cards )
                     card.Captured = false;
+                card.CaptureFrame = 0;
             }
             for ( Card& card : it->second.Cards )
                 card.Ready = in.CaptureReady;
@@ -344,6 +354,31 @@ namespace Desert::Graphic::SurfaceCache
             }
         }
 
+        // CONFIRMED CAPTURES (GI-SURFACE-CACHE-4). A capture becomes the card's surface only once the graph that
+        // drew it EXECUTED (ConfirmCapturesExecuted, from the copy pass's exec): a frame whose graph was dropped
+        // (a pass refused at build) never ran its copy, and its cards are captured again rather than shown empty
+        // for ever. A capture that no execution confirms within kCaptureConfirmFrames is taken as dropped.
+        {
+            std::vector<uint64_t> executed;
+            {
+                const std::lock_guard lock( m_ExecutedMutex );
+                executed.swap( m_ExecutedCaptureFrames );
+            }
+            for ( auto& [key, instance] : m_Instances )
+                for ( Card& card : instance.Cards )
+                {
+                    if ( card.CaptureFrame == 0 )
+                        continue;
+                    if ( std::find( executed.begin(), executed.end(), card.CaptureFrame ) != executed.end() )
+                    {
+                        card.Captured     = true;
+                        card.CaptureFrame = 0;
+                    }
+                    else if ( card.CaptureFrame + kCaptureConfirmFrames < m_Frame )
+                        card.CaptureFrame = 0;
+                }
+        }
+
         // CAPTURES, nearest first, shelf-packed into the capture atlas (rows of the tallest card in them).
         uint32_t                        shelfX = 0, shelfY = 0, shelfHeight = 0;
         std::map<const Card*, uint32_t> captured; // card -> index in frame.Captures
@@ -351,7 +386,7 @@ namespace Desert::Graphic::SurfaceCache
         {
             if ( frame.Captures.size() >= m_MaxCapturesPerFrame )
                 break;
-            if ( card->ResX == 0 || card->Captured || !card->Ready )
+            if ( card->ResX == 0 || card->Captured || card->CaptureFrame != 0 || !card->Ready )
                 continue;
             if ( shelfX + card->ResX > m_CaptureAtlasSize )
             {
@@ -374,11 +409,13 @@ namespace Desert::Graphic::SurfaceCache
                                                   0.0f, 2.0f * card->Extent.z );
             captured.emplace( card, static_cast<uint32_t>( frame.Captures.size() ) );
             frame.Captures.push_back( capture );
-            card->Captured = true;
+            card->CaptureFrame = m_Frame;
         }
 
         // THE GPU RECORDS (compact, this frame's order) and the page copies of this frame's captures.
-        const float atlas = static_cast<float>( m_Budget.AtlasSize );
+        const float    atlas          = static_cast<float>( m_Budget.AtlasSize );
+        const uint64_t lightingFactor = std::max( m_Budget.DirectLightingUpdateFactor, 1u );
+        frame.Frame                   = m_Frame;
         for ( auto& [key, instance] : m_Instances )
         {
             const uint32_t   meshIndex = static_cast<uint32_t>( frame.MeshCards.size() );
@@ -407,7 +444,10 @@ namespace Desert::Graphic::SurfaceCache
                 payload.LocalExtent = glm::vec4( card.Extent, resident ? 2.0f * card.Extent.x / card.ResX : 0.0f );
                 payload.Pages       = glm::uvec4( card.PagesX | ( card.PagesY << 16u ),
                                                   static_cast<uint32_t>( frame.Pages.size() ), 0u, 0u );
-                const bool visible  = resident && card.Captured;
+                // Shown (and lit) once captured, or while this frame's graph captures it: the same graph copies
+                // the capture into the atlas before any reader, and a dropped graph drops its readers with it.
+                const bool capturing = card.CaptureFrame == m_Frame;
+                const bool visible   = resident && ( card.Captured || capturing );
                 payload.Info =
                      glm::uvec4( ( resident ? Log2( card.ResX ) | ( Log2( card.ResY ) << 8u ) : 0u ) |
                                       ( direction << 16u ) | ( 0xFu << 20u ) | ( visible ? 1u << 24u : 0u ),
@@ -432,6 +472,16 @@ namespace Desert::Graphic::SurfaceCache
                              glm::vec4( rect.X / atlas, rect.Y / atlas, rect.Width / atlas, rect.Height / atlas );
                         page.TexelScale =
                              glm::vec4( 1.0f / card.ResX, 1.0f / card.ResY, 1.0f / atlas, 1.0f / atlas );
+                        // DIRECT LIGHTING BUDGET (UE r.LumenScene.DirectLighting.UpdateFactor): a page captured
+                        // this frame is lit in it; every other visible page in one frame of
+                        // DirectLightingUpdateFactor, chosen by its PHYSICAL page (stable while allocated;
+                        // sub-allocated cards of one page relight together).
+                        const uint32_t physicalPage =
+                             rect.X / kPhysicalPageSize +
+                             rect.Y / kPhysicalPageSize * AtlasPagesPerSide( m_Budget.AtlasSize );
+                        if ( visible &&
+                             ( capturing || physicalPage % lightingFactor == m_Frame % lightingFactor ) )
+                            frame.LightingPages.push_back( static_cast<uint32_t>( frame.Pages.size() ) );
                         frame.Pages.push_back( page );
                         if ( capture != captured.end() )
                         {
