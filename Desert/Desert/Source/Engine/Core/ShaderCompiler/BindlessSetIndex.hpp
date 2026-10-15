@@ -34,12 +34,15 @@ namespace Desert::Core
         uint32_t         Value = 0;
     };
 
-    // Every compile gets all four (ShaderCompiler), and the cache key mixes all four (ShaderCacheKey), so a
+    // Every compile gets all of them (ShaderCompiler), and the cache key mixes all of them (ShaderCacheKey), so a
     // change to any constant above recompiles every shader instead of serving SPIR-V built against the old one.
-    inline constexpr std::array<BindlessShaderDefine, 4> kBindlessShaderDefines{ {
+    // The wrap count lets the shader header spell BindlessSamplerFor's numbering (BINDLESS_SAMPLER_*) without
+    // literal indices.
+    inline constexpr std::array<BindlessShaderDefine, 5> kBindlessShaderDefines{ {
          { "DESERT_BINDLESS_SET", kBindlessSetIndex },
          { "DESERT_BINDLESS_SAMPLER_BINDING", kBindlessSamplerBinding },
          { "DESERT_BINDLESS_TEXTURE_BINDING", kBindlessTextureBinding },
          { "DESERT_BINDLESS_SAMPLER_COUNT", kBindlessSamplerStateCount },
+         { "DESERT_BINDLESS_SAMPLER_WRAP_COUNT", kBindlessSamplerWrapCount },
     } };
 } // namespace Desert::Core

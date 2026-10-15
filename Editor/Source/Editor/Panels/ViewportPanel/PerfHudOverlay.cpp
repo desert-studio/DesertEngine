@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <format>
 #include <vector>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -111,9 +112,10 @@ namespace Desert::Editor
         // rebuild.
         if ( bindless )
         {
-            char row[96];
-            std::snprintf( row, sizeof( row ), "Bindless: %u live / %u", bindless->Live, bindless->Capacity );
-            dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 200, 235, 255 ), row );
+            char       row[96];
+            const auto written = std::format_to_n( row, sizeof( row ), "Bindless: {} live / {}", bindless->Live,
+                                                   bindless->Capacity );
+            dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 200, 235, 255 ), row, written.out );
             y += lineH;
         }
 

@@ -18,18 +18,28 @@
 #if !defined( DESERT_BINDLESS_TEXTURE_BINDING ) || !defined( DESERT_BINDLESS_SAMPLER_COUNT )
 #error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
 #endif
+#ifndef DESERT_BINDLESS_SAMPLER_WRAP_COUNT
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
 
 layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_SAMPLER_BINDING ) uniform sampler
      u_BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
 layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D u_BindlessTextures[];
 
-// Sampler indices: wrapU + 3 * wrapV + 9 * filter, with wrap Repeat 0 / Clamp 1 / Mirror 2 and filter Linear 0 /
-// Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
-#define BINDLESS_SAMPLER_LINEAR_REPEAT  0u
-#define BINDLESS_SAMPLER_LINEAR_CLAMP   4u
-#define BINDLESS_SAMPLER_LINEAR_MIRROR  8u
-#define BINDLESS_SAMPLER_NEAREST_REPEAT 9u
-#define BINDLESS_SAMPLER_NEAREST_CLAMP  13u
+// Sampler indices: wrapU + W * wrapV + W * W * filter with W = DESERT_BINDLESS_SAMPLER_WRAP_COUNT, wrap Repeat 0 /
+// Clamp 1 / Mirror 2 and filter Linear 0 / Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
+const uint BINDLESS_SAMPLER_WRAP_COUNT = uint( DESERT_BINDLESS_SAMPLER_WRAP_COUNT );
+
+uint BindlessSamplerIndex( uint wrapU, uint wrapV, uint filterMode )
+{
+    return wrapU + BINDLESS_SAMPLER_WRAP_COUNT * wrapV + BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT * filterMode;
+}
+
+const uint BINDLESS_SAMPLER_LINEAR_REPEAT  = 0u;
+const uint BINDLESS_SAMPLER_LINEAR_CLAMP   = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u;
+const uint BINDLESS_SAMPLER_LINEAR_MIRROR  = 2u + BINDLESS_SAMPLER_WRAP_COUNT * 2u;
+const uint BINDLESS_SAMPLER_NEAREST_REPEAT = BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT;
+const uint BINDLESS_SAMPLER_NEAREST_CLAMP  = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u + BINDLESS_SAMPLER_NEAREST_REPEAT;
 
 // Both indices are nonuniformEXT: a ray hit or a material record diverges across a subgroup, and an index that
 // is not dynamically uniform without the qualifier is undefined behaviour.

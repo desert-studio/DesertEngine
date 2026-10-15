@@ -28,9 +28,11 @@ namespace Desert::Core
         // stage is compiled under. The assembled text already carries the new #version line, but a key
         // that moves only through text would let an artifact compiled under 450 rules survive any path
         // that hashes a stage without that header; the fingerprint names the language version outright.
-        // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined; its value is mixed in
-        // right after the fingerprint (MixCompileOptions), so moving the set index moves every key.
-        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v3";
+        // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined.
+        // v4 (BINDLESS-TEX): every stage gets all of kBindlessShaderDefines (set, both bindings, sampler count and
+        // wrap count); their values are mixed in right after the fingerprint (MixCompileOptions), so moving any
+        // of them moves every key.
+        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v4";
 
         void FnvMix( uint64_t& h, std::string_view data )
         {
