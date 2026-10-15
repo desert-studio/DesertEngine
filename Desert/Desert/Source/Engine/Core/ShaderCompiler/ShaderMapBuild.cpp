@@ -80,7 +80,8 @@ namespace Desert::Core
             std::sort( built.Stages.begin(), built.Stages.end(),
                        []( const ShaderMapStage& a, const ShaderMapStage& b )
                        { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
-            // Every stage is compiled: the one place every binding of the program is a number (SharedSamplerBinding).
+            // Every stage is compiled: the one place every binding of the program is a number
+            // (SharedSamplerBinding).
             if ( const auto numbered = AssignSharedSamplerBindings( built.Stages, request.Name ); !numbered )
                 return Common::MakeError<ShaderMap>( numbered.GetError() );
             if ( const auto stored = StoreShaderMap( mapKey, built ); !stored )
@@ -224,8 +225,8 @@ namespace Desert::Core
             bool        IsSampler = false;
         };
         std::map<std::pair<uint32_t, uint32_t>, std::vector<Holder>> claimed;     // (set, binding) -> holders
-        std::map<uint32_t, uint32_t>                                  lastBinding; // set -> one past the highest
-        std::map<std::string, Shared>                                 shared;      // ordered: numbered by name
+        std::map<uint32_t, uint32_t>                                 lastBinding; // set -> one past the highest
+        std::map<std::string, Shared>                                shared;      // ordered: numbered by name
         for ( size_t s = 0; s < stages.size(); ++s )
         {
             const std::string stageName = Graphic::Shader::GetStringShaderStage( stages[s].Stage );
@@ -245,9 +246,10 @@ namespace Desert::Core
                              shaderName, stageName, resource.Name, kAutoSamplerBinding );
                     Shared& entry = shared[resource.Name];
                     if ( !entry.Words.empty() && entry.Set != resource.Set )
-                        return Common::MakeFormattedError( "shader '{}': the shared sampler '{}' is declared in set "
-                                                           "{} and in set {}; one sampler is one slot",
-                                                           shaderName, resource.Name, entry.Set, resource.Set );
+                        return Common::MakeFormattedError(
+                             "shader '{}': the shared sampler '{}' is declared in set "
+                             "{} and in set {}; one sampler is one slot",
+                             shaderName, resource.Name, entry.Set, resource.Set );
                     entry.Set = resource.Set;
                     entry.Sampled |= resource.Sampled;
                     entry.Words.emplace_back( s, resource.BindingWord );
@@ -275,7 +277,8 @@ namespace Desert::Core
                     if ( other.Name == sampler.Name )
                         continue;
                     return Common::MakeFormattedError(
-                         "shader '{}' [{}]: the sampler '{}' is on set {}, binding {}, which '{}' [{}] also holds; "
+                         "shader '{}' [{}]: the sampler '{}' is on set {}, binding {}, which '{}' [{}] also "
+                         "holds; "
                          "declare a shared sampler as `Uniform sampler {};` and the rule numbers it after the "
                          "program's last resource",
                          shaderName, sampler.Stage, sampler.Name, slot.first, slot.second, other.Name, other.Stage,
@@ -291,14 +294,15 @@ namespace Desert::Core
                      "shader '{}': the shared sampler '{}' is declared in [{}] and no stage samples through it; "
                      "declare it in the stage that samples, or remove it",
                      shaderName, name, entry.Declaring );
-            // After the program's last resource in the set; each next shared sampler of the set after the one before.
+            // After the program's last resource in the set; each next shared sampler of the set after the one
+            // before.
             uint32_t&      last    = lastBinding[entry.Set];
             const uint32_t binding = last;
             last                   = binding + 1;
             if ( binding >= kAutoSamplerBinding )
                 return Common::MakeFormattedError(
-                     "shader '{}': the shared sampler '{}' would be numbered {}, at or past the marker {}", shaderName,
-                     name, binding, kAutoSamplerBinding );
+                     "shader '{}': the shared sampler '{}' would be numbered {}, at or past the marker {}",
+                     shaderName, name, binding, kAutoSamplerBinding );
             for ( const auto& [stage, word] : entry.Words )
                 stages[stage].Spirv[word] = binding;
         }

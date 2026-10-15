@@ -1358,8 +1358,8 @@ namespace Desert::Core::Preprocess
             static const std::regex kAutoOut( R"(\bOut\b(?!\s*\())" );
             // One combined pattern over the four binding keywords so they share ONE binding space in text order.
             static const std::regex kAutoBinding( R"(\b(Uniform|ReadBuffer|WriteBuffer|Buffer)\b(?!\s*\())" );
-            // `Uniform sampler <name>;` is a SHARED SAMPLER STATE: it takes no number from this text (which is blind
-            // to the other stages, the included headers and every macro-spelled binding) but the marker the
+            // `Uniform sampler <name>;` is a SHARED SAMPLER STATE: it takes no number from this text (which is
+            // blind to the other stages, the included headers and every macro-spelled binding) but the marker the
             // program build renumbers once every stage is compiled (SharedSamplerBinding.hpp).
             static const std::regex kSharedSampler( R"(^\s+sampler\b)" );
 
