@@ -2316,6 +2316,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = close + 1;
             }
+            else if ( first == pass && pass != node )
+            {
+                // A graph node named by an expression (the shadow cache copies' `copy.Name`): the entry names the
+                // expression. Read as a literal, its name would be the next quote anywhere after it - or, with
+                // none left in the body, a search from 0 that sent `at` backwards and looped without end.
+                const size_t open  = text.find( '(', pass ) + 1;
+                const size_t comma = text.find( ',', open );
+                ASSERT_NE( comma, std::string::npos ) << "graph.AddPass with one argument";
+                added.push_back( std::format( "named[{}]", squeeze( text.substr( open, comma - open ) ) ) );
+                at = comma + 1;
+            }
             else
             {
                 // graph.AddPass / AddRaster: the node's name literal.
@@ -2345,12 +2356,16 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
          // target - the sky CLEARS it, the meshes then the terrain LOAD over it - then the outline silhouette
          // mask (cleared).
-         "system[mesh->ShadowCascadePasses(maps)]",
-         "rasters[cascades,true]",
-         // SHADOW-LOCAL: the point/spot shadow views of the local-light atlas, LOADING it: each clears and
-         // draws only its own stale tile.
+         // SHADOW-CSM2: the stale static layers (each clearing its cascade's cache), each rebuilt cascade copied
+         // from its cache (a node per copy, named by the copy), the movable casters LOADING over it, then the
+         // local lights' atlas tiles (LOAD: a still tile keeps last frame's depth).
+         "rasters[cascades.StaticPasses,true]",
+         "named[copy.Name]",
+         "rasters[cascades.MovablePasses,false]",
          "system[mesh->LocalShadowPasses()]",
          "rasters[local,false]",
+         // LIGHT-CLUSTER: the froxel light grid is binned before the scene draws that read it.
+         "LightGrid",
          "system[sky->SkyPass()]",
          "system[mesh->GeometryPass()]",
          "system[terrain->GeometryPass()]",
@@ -2362,6 +2377,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: DepthResolve",
          "Deferred: DepthExpand",
          "Deferred: SSAO",
+         // SSR2: the view's HZB the trace marches, built before it.
+         "temporal[hzb]",
          "Deferred: SSR",
          "Deferred: RSM",
          "Deferred: GIResolve",
