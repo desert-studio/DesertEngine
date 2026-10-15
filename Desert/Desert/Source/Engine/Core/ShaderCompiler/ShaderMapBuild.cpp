@@ -100,6 +100,8 @@ namespace Desert::Core
         constexpr size_t   kSpvHeaderWords       = 5;
         constexpr uint32_t kSpvOpName            = 5;
         constexpr uint32_t kSpvOpTypeSampler     = 26;
+        constexpr uint32_t kSpvOpTypeArray        = 28;
+        constexpr uint32_t kSpvOpTypeRuntimeArray = 29;
         constexpr uint32_t kSpvOpTypePointer     = 32;
         constexpr uint32_t kSpvOpVariable        = 59;
         constexpr uint32_t kSpvOpLoad            = 61;
@@ -144,6 +146,7 @@ namespace Desert::Core
             std::unordered_map<uint32_t, size_t>       bindingWords;
             std::unordered_set<uint32_t>               samplerTypes;
             std::unordered_map<uint32_t, uint32_t>     pointee;   // pointer type -> pointed-to type
+            std::unordered_map<uint32_t, uint32_t>     element;   // array type -> element type
             std::vector<std::pair<uint32_t, uint32_t>> variables; // (id, pointer type)
             std::unordered_set<uint32_t>               loaded;
             for ( size_t at = kSpvHeaderWords; at < words.size(); )
@@ -157,6 +160,9 @@ namespace Desert::Core
                     names[words[at + 1]] = SpvString( words, at + 2, at + count );
                 else if ( opcode == kSpvOpTypeSampler && count >= 2 )
                     samplerTypes.insert( words[at + 1] );
+                else if ( ( opcode == kSpvOpTypeArray && count >= 4 ) ||
+                          ( opcode == kSpvOpTypeRuntimeArray && count >= 3 ) )
+                    element[words[at + 1]] = words[at + 2];
                 else if ( opcode == kSpvOpTypePointer && count >= 4 )
                     pointee[words[at + 1]] = words[at + 3];
                 else if ( opcode == kSpvOpVariable && count >= 4 )
@@ -181,11 +187,21 @@ namespace Desert::Core
                 SpvResource resource;
                 const auto  name     = names.find( id );
                 resource.Name        = name != names.end() ? name->second : std::string();
+                const auto pointed   = pointee.find( pointerType );
+                if ( resource.Name.empty() && pointed != pointee.end() )
+                {
+                    // An anonymous block instance (`Buffer(0) Histogram { ... };`) has an empty OpName; the
+                    // block's name is on its struct type (behind any array), as spirv-cross names it too.
+                    uint32_t type = pointed->second;
+                    for ( auto inner = element.find( type ); inner != element.end(); inner = element.find( type ) )
+                        type = inner->second;
+                    if ( const auto typeName = names.find( type ); typeName != names.end() )
+                        resource.Name = typeName->second;
+                }
                 const auto set       = sets.find( id );
                 resource.Set         = set != sets.end() ? set->second : 0u;
                 resource.BindingWord = binding->second;
                 resource.Binding     = words[binding->second];
-                const auto pointed   = pointee.find( pointerType );
                 resource.IsSampler   = pointed != pointee.end() && samplerTypes.contains( pointed->second );
                 resource.Sampled     = loaded.contains( id );
                 resources.push_back( std::move( resource ) );
