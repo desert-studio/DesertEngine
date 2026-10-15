@@ -138,6 +138,16 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<ScreenProbeGatherFrame>( traced.GetError() );
+        // The software tracer's near field marches the mesh SDFs (Common/GITraceMeshSDF.glslh, declared by that
+        // permutation only); the hardware tracer's TLAS is its own.
+        const bool meshSDFs = TracerReadsGlobalDistanceField( inputs.Tracer.Pipeline );
+        if ( meshSDFs && !inputs.MeshSDFs )
+            return Common::MakeError<ScreenProbeGatherFrame>(
+                 "screen probes: the software tracer's mesh SDFs were not read this frame" );
+        if ( !inputs.HZB.IsValid() || !inputs.SceneColorHistory.IsValid() )
+            return Common::MakeError<ScreenProbeGatherFrame>(
+                 "screen probes: the screen trace's HZB or scene colour history is missing (bind the system black "
+                 "texture when the view has none)" );
         const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent );
         if ( const auto images = EnsureImages( inputs.Extent, layout ); !images )
             return Common::MakeError<ScreenProbeGatherFrame>( images.GetError() );
@@ -158,6 +168,11 @@ namespace Desert::Graphic::GlobalIllumination
         params.Atlas =
              glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, ++m_FrameIndex, m_HistoryValid ? 1u : 0u, 0u );
         m_HistoryValid = true;
+        const uint32_t traceFlags = ( inputs.SceneColorHistoryReadable ? ScreenProbeLayout::kTraceScreen : 0u ) |
+                                    ( meshSDFs ? ScreenProbeLayout::kTraceMeshSDFs : 0u );
+        params.Trace =
+             glm::vec4( ScreenProbeLayout::kMeshSDFTraceDistance, ScreenProbeLayout::kMeshSDFEndDistanceFromCamera,
+                        static_cast<float>( traceFlags ), 0.0f );
 
         const RDG::BufferRef paramsBuffer =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "ScreenProbes.Params" );
@@ -244,7 +259,21 @@ namespace Desert::Graphic::GlobalIllumination
                                     RDG::SamplerDesc::LinearClamp() )
                           .Sampled( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all,
                                     RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_ScreenProbeTraced", traced, kW );
+                          .Storage( "u_ScreenProbeTraced", traced, kW )
+                          .Sampled( "u_HZB", inputs.HZB, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "u_SceneColorHistory", inputs.SceneColorHistory, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() );
+                     if ( meshSDFs )
+                     {
+                         const DistanceField::GlobalDistanceField::MeshSDFScene& mesh = *inputs.MeshSDFs;
+                         block.Sampled( "u_DFBrickAtlas", mesh.BrickAtlas, kS, all,
+                                        RDG::SamplerDesc::LinearRepeat() )
+                              .Storage( "DFAssetData", mesh.AssetData, kR )
+                              .Storage( "DFIndirection", mesh.Indirection, kR )
+                              .Storage( "DFObjects", mesh.Objects, kR )
+                              .Storage( "GIMeshSDFObjectRowsUB", mesh.ObjectRows, kR )
+                              .Storage( "GIMeshSDFCulledUB", mesh.Culled, kR );
+                     }
                  },
                  [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

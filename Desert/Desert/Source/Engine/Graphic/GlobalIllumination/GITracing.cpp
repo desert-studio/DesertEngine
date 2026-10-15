@@ -16,6 +16,8 @@ namespace Desert::Graphic::GlobalIllumination
                         return "the global distance field was not brought up";
                 if ( !frame.GlobalDistanceFieldLevels.IsValid() )
                     return "the global distance field's clipmap placement was not uploaded";
+                if ( !frame.GlobalDistanceFieldObjectGrid.IsValid() )
+                    return "the global distance field's object grid was not brought up";
                 return {};
             case Tracer::HardwareRayQuery:
                 return "the ray-query tracer is not in this build (GI-HWRT)";
@@ -33,6 +35,8 @@ namespace Desert::Graphic::GlobalIllumination
                                    frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All(),
                                    RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
+                block.Sampled( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
+                               RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
                 return;
             case Tracer::HardwareRayQuery:
                 return; // GI-HWRT declares the TLAS here; TracerFrameMissing refuses the frame until then
@@ -43,7 +47,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         if ( !frame.Cards.IsValid() || !frame.Pages.IsValid() || !frame.MeshCards.IsValid() )
             return "the surface cache's card records were not uploaded this frame";
-        if ( !frame.InstanceRows.IsValid() || !frame.ObjectGrid.IsValid() )
+        if ( !frame.InstanceRows.IsValid() )
             return "the surface cache's instance table was not uploaded this frame";
         if ( !frame.FinalLighting.IsValid() || !frame.Depth.IsValid() || !frame.Opacity.IsValid() )
             return "the surface cache's atlas layers were not imported this frame";
@@ -57,7 +61,6 @@ namespace Desert::Graphic::GlobalIllumination
              .Storage( "SurfaceCardPageBuffer", frame.Pages, RDG::Access::StorageRead )
              .Storage( "SurfaceMeshCardsBuffer", frame.MeshCards, RDG::Access::StorageRead )
              .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
-             .Storage( "SurfaceCacheObjectGridUB", frame.ObjectGrid, RDG::Access::StorageRead )
              .Sampled( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all,
                        RDG::SamplerDesc::PointClamp() )
              .Sampled( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all,

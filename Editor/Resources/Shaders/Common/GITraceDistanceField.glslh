@@ -5,8 +5,8 @@
 // distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF). Port of UE's global-SDF leg of Lumen software
 // tracing (LumenTraceGlobalSDF / RayTraceGlobalDistanceField in GlobalDistanceFieldUtils.ush): the hit is the
 // expanded surface's entry, its normal the field's gradient. UE first marches the mesh SDFs near the ray origin
-// (r.Lumen.TraceMeshSDFs); here every ray marches the global field, so a probe's first two metres are as coarse as
-// the rest (GI-RADIANCE-CACHE REMAINDER).
+// (r.Lumen.TraceMeshSDFs): the screen probes do so here too (Common/GITraceMeshSDF.glslh, before this walk); the
+// radiance cache's probes and the cards' shadow rays march the global field only, as in UE.
 //
 // Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, includes
 // Common/GlobalDistanceField.glslh, and defines GI_TRACE_GDF_LEVELS as the expression of this frame's
@@ -101,6 +101,46 @@ vec3 GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset )
                               vec3( maxOffset ) );
     }
     return p;
+}
+
+// The rows of the object grid cell at @p hit (UE EvaluateGlobalDistanceFieldHit): the cell is looked up half a voxel
+// off the surface along the normal, in the finest clipmap holding that point, so a thin wall's two sides read the
+// cells in front of them. A slot holds the row in its low 24 bits (the distance above them only sorted the cell).
+uvec4 GIHitObjectGridRows( GIHit hit )
+{
+    const vec3 probe = hit.position + hit.normal * ( 0.5 * GITraceVoxelAt( hit.position ) );
+    const int  level = GlobalDistanceFieldLevelAt( probe, GI_TRACE_GDF_LEVELS );
+    if ( level < 0 )
+        return uvec4( GI_NO_INSTANCE );
+    const float cellSize = float( GDF_OBJECT_GRID_CELL_VOXELS ) * GI_TRACE_GDF_LEVELS[level].w;
+    const ivec3 cell     = ivec3( floor( probe / cellSize ) );
+    const ivec3 wrapped  = ( ( cell % GDF_OBJECT_GRID_RESOLUTION ) + GDF_OBJECT_GRID_RESOLUTION ) %
+                          GDF_OBJECT_GRID_RESOLUTION;
+    const ivec3 base     = ivec3( wrapped.x * GDF_OBJECT_GRID_SLOTS, wrapped.y,
+                                  level * GDF_OBJECT_GRID_RESOLUTION + wrapped.z );
+    uvec4 rows;
+    for ( int i = 0; i < GDF_OBJECT_GRID_SLOTS; ++i )
+    {
+        const uint slot = texelFetch( u_GlobalDistanceFieldObjectGrid, base + ivec3( i, 0, 0 ), 0 ).r;
+        rows[i]         = slot == GI_NO_INSTANCE ? GI_NO_INSTANCE : ( slot & 0xFFFFFFu );
+    }
+    return rows;
+}
+
+// The grid's rows, except for a hit that knows its object (the mesh SDF near field, Common/GITraceMeshSDF.glslh):
+// that row first (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex), then the cell's
+// others.
+uvec4 GIHitInstanceRows( GIHit hit )
+{
+    const uvec4 cell = GIHitObjectGridRows( hit );
+    if ( hit.instance == GI_NO_INSTANCE )
+        return cell;
+    uvec4 rows = uvec4( hit.instance, GI_NO_INSTANCE, GI_NO_INSTANCE, GI_NO_INSTANCE );
+    int   next = 1;
+    for ( int i = 0; i < GDF_OBJECT_GRID_SLOTS && next < 4; ++i )
+        if ( cell[i] != GI_NO_INSTANCE && cell[i] != hit.instance )
+            rows[next++] = cell[i];
+    return rows;
 }
 
 #endif // GI_TRACE_DISTANCE_FIELD_GLSLH

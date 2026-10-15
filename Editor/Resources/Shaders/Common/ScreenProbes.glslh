@@ -26,13 +26,18 @@
 // Below this summed interpolation weight of the coarser probes a finer tile gets an adaptive probe.
 #define SP_ADAPTIVE_WEIGHT_THRESHOLD 0.25
 
-// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (112 bytes).
+// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (128 bytes).
 struct ScreenProbeParams {
     mat4  prevViewProjection; // last frame's (unjittered) view-projection: the integrate's history
     vec4  prevCamera;         // xyz = last frame's camera (cm)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
     uvec4 atlas;              // x = probes per atlas row, y = frame index, z = 1 when the history is this view's
+    // The trace's legs (ScreenProbeTrace.shader): x = the mesh SDF near field's trace distance (cm), y = the
+    // camera distance past which a probe traces no mesh SDF (cm), z = SP_TRACE_* flags, w unused.
+    vec4  trace;
 };
+#define SP_TRACE_SCREEN     1u // the scene colour history holds the previous frame: the screen trace runs
+#define SP_TRACE_MESH_SDFS  2u // the mesh SDFs of the frame are bound: the near field runs
 
 // std430 — must match GlobalIllumination::ScreenProbePayload (32 bytes).
 struct ScreenProbe {
