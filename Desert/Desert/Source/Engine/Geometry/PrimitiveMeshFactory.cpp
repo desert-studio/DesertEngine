@@ -33,6 +33,9 @@ namespace Desert::Geometry
         auto& mesh = s_SharedPrimitives[type];
         if ( !mesh )
         {
+            // Shared by every scene and view until ReleaseShared(), so the device's, not the view's that first
+            // drew one (RT-LEDGER-4: a view scope open here would report these buffers as its leak on close).
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::Device );
             mesh = Create( type );
             if ( mesh )
                 mesh->Invalidate(); // build the GPU vertex/index buffers once

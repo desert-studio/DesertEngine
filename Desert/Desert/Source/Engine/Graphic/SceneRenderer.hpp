@@ -158,7 +158,14 @@ namespace Desert::Graphic
         // @p extent is the size of the surface this view renders into — the viewport panel, the preview
         // widget, the thumbnail, the runtime window — and the build allocates at exactly that; Resize()
         // follows the surface from then on. A surface that has no size yet passes kUnsizedViewExtent.
-        SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile );
+        //
+        // @p accountUnder: None (every real view) mints this view's own ledger instance. A view that renders FOR
+        // its scene's state rather than for a viewer — a reflection capture's face view — passes the scene's
+        // instance: its rows are then the scene's ("scene #N", RT-LEDGER-4 lead decision), it is no budget entry
+        // of its own (LiveHoldings skips it, HeldBytes is 0) and its close checks nothing (the scene's rows are not
+        // its to account for).
+        SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile,
+                       ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
         // Unregisters the view; its per-view copies defer their GPU release (ViewResources).
         ~SceneRenderer();
 
@@ -439,6 +446,13 @@ namespace Desert::Graphic
         // This view's and its scene's ledger rows, taken now (ViewLedgerMemory).
         [[nodiscard]] ViewLedgerMemory TakeLedgerMemory() const;
 
+        // This view's ledger instance: what an object drawing FOR this view but owned elsewhere (the game's
+        // Render2D over it) tags its rows with, so they are in this view's budget (RT-LEDGER-4).
+        [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerView.Instance;
+        }
+
         // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
         [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> LiveHoldings();
 
@@ -559,9 +573,16 @@ namespace Desert::Graphic
         // member that held a row of the view is gone, and logs what is left (0, or a leak by name).
         struct LedgerView
         {
-            ResourceOwnerInstance Instance = ResourceOwnerInstance::NewView();
+            // The view's own instance, or the scene's it accounts under (the constructor's accountUnder).
+            ResourceOwnerInstance Instance;
+            // True when Instance is the scene's: the rows are not this view's to check on close or to budget.
+            bool Borrowed = false;
 
-            LedgerView() = default;
+            explicit LedgerView( const ResourceOwnerInstance accountUnder )
+                 : Instance( accountUnder.IsNone() ? ResourceOwnerInstance::NewView() : accountUnder ),
+                   Borrowed( !accountUnder.IsNone() )
+            {
+            }
             ~LedgerView();
             LedgerView( const LedgerView& )            = delete;
             LedgerView& operator=( const LedgerView& ) = delete;

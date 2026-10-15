@@ -670,7 +670,7 @@ namespace Desert::Graphic::System
                        uploaded.GetError() );
     }
 
-    void SkyboxRenderer::EnsureProceduralEnvironment( float deltaSeconds )
+    void SkyboxRenderer::EnsureProceduralEnvironment( float deltaSeconds, const ResourceOwnerInstance scene )
     {
         if ( !m_UseProceduralSky )
             return;
@@ -855,7 +855,7 @@ namespace Desert::Graphic::System
 
         m_PendingBake = EnvironmentManager::BeginProcedural(
              size.Width, size.Height, m_SkyParams.get(), physical ? m_TransmittanceLut.get() : nullptr,
-             physical ? m_MultiScatterLut.get() : nullptr, cloudBinding );
+             physical ? m_MultiScatterLut.get() : nullptr, cloudBinding, scene );
         if ( !m_PendingBake )
         {
             // Keep the previous environment and say why; the user can retry with the Bake button. Do NOT

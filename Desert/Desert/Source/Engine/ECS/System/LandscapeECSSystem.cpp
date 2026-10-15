@@ -39,7 +39,8 @@ namespace Desert::ECS
         }
 
         std::shared_ptr<Graphic::Image2D> CreateHeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
-                                                           int32_t tileZ, std::vector<unsigned char> texels )
+                                                           int32_t tileZ, std::vector<unsigned char> texels,
+                                                           const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
                  .Tag        = "LandscapeTile(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
@@ -56,8 +57,9 @@ namespace Desert::ECS
             spec.Data = std::move( texels );
 
             // A derived copy: the recipe is the component's samples, which the scene owns, so the owner is
-            // the renderer side that re-derives it - releasing it loses nothing.
-            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer );
+            // the renderer side that re-derives it - releasing it loses nothing. The scene's row, not the view's
+            // whose frame happened to run the system: every view of the scene draws this one copy.
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer, scene );
             return Graphic::Image2D::Create( spec );
         }
 
@@ -65,7 +67,8 @@ namespace Desert::ECS
         // (LandscapeWeightmapAtlasTexels): no neighbour ring — the surface samples it at the vertex's own
         // sample, which every tile holds for its edges.
         std::shared_ptr<Graphic::Image2D> CreateWeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
-                                                           int32_t tileZ, std::vector<unsigned char> texels )
+                                                           int32_t tileZ, std::vector<unsigned char> texels,
+                                                           const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
                  .Tag     = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
@@ -81,8 +84,8 @@ namespace Desert::ECS
             };
             spec.Data = std::move( texels );
 
-            // Derived from the component's weights, like the heightmap copy above.
-            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer );
+            // Derived from the component's weights, like the heightmap copy above; the scene's row likewise.
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer, scene );
             return Graphic::Image2D::Create( spec );
         }
     } // namespace
@@ -242,7 +245,10 @@ namespace Desert::ECS
             const auto              heightmap         = RefreshLandscapeTileImage(
                  gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
                  [&] { return HeightmapTexels( heights, neighbours ); }, [&]( std::vector<unsigned char> texels )
-                 { return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
+                 {
+                     return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
+                                             m_SceneLedger );
+                 } );
             if ( !heightmap.IsSuccess() )
             {
                 LOG_ERROR(
@@ -339,7 +345,10 @@ namespace Desert::ECS
              heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
              weightsDirty, [&] { return Landscape::LandscapeWeightmapAtlasTexels( heights ); },
              [&]( std::vector<unsigned char> texels )
-             { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
+             {
+                 return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
+                                         m_SceneLedger );
+             } );
         if ( weightmap.IsSuccess() )
         {
             if ( weightsDirty || gpu.Weightmap.get() != previousWeightmap )

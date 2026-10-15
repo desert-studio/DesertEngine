@@ -8,6 +8,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -272,8 +273,11 @@ namespace Desert::Graphic
             if ( !m_Faces[f] )
             {
                 m_Faces[f]           = std::make_unique<FaceView>();
-                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
-                                                                        kReflectionCaptureViewProfile );
+                // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
+                // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
+                m_Faces[f]->Renderer = std::make_unique<SceneRenderer>(
+                     ViewExtent{ faceSize, faceSize }, kReflectionCaptureViewProfile,
+                     scene.GetRayTracingCache().GetLedgerInstance() );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }

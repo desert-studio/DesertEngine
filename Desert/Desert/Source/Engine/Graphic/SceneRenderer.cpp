@@ -653,7 +653,10 @@ namespace Desert::Graphic
         // view's ledger scope, so the targets, the history, the per-view copies and the RT rows all carry the
         // view's instance. The ledger is the one statement of those bytes; the budget, the [ViewMemory] lines,
         // the overlay and the [Resources] census cannot disagree. The scene cache's rows carry the scene's
-        // instance and are its own entry (SceneHoldings), never here.
+        // instance and are its own entry (SceneHoldings), never here — nor are a capture face view's, which
+        // accounts under its scene's instance (LedgerView::Borrowed).
+        if ( m_LedgerView.Borrowed )
+            return 0;
         return ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
     }
 
@@ -675,6 +678,10 @@ namespace Desert::Graphic
     SceneRenderer::LedgerView::~LedgerView()
     try
     {
+        // A view accounting under its scene's instance has no rows of its own to check: the scene's rows are
+        // held by the scene and outlive this view by design.
+        if ( Borrowed )
+            return;
         // Every member that held a row of this view has been destroyed by now (this one is declared first).
         const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
         if ( left.Live == 0 )
@@ -692,7 +699,13 @@ namespace Desert::Graphic
         std::vector<Engine::ViewBudget::HeldView> held;
         held.reserve( LiveRenderers().size() );
         for ( const SceneRenderer* renderer : LiveRenderers() )
+        {
+            // A capture face view's rows are its scene's entry (SceneHoldings): listing it here would count them
+            // twice, or list a view at 0 bytes that no viewer opened.
+            if ( renderer->m_LedgerView.Borrowed )
+                continue;
             held.push_back( { renderer->m_ViewResources.GetName(), renderer->HeldBytes() } );
+        }
         return held;
     }
 
@@ -709,8 +722,9 @@ namespace Desert::Graphic
                             static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
     }
 
-    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
+    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
+                                  const ResourceOwnerInstance accountUnder )
+         : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
            m_RenderExtent( extent )
     {
         // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
@@ -1035,7 +1049,8 @@ namespace Desert::Graphic
         // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
-            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
+            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds(),
+                                                       m_SceneLedgerInstance );
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes

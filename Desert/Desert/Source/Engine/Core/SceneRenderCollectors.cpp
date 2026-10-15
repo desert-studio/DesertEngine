@@ -12,6 +12,7 @@
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/ECS/System/WaterZoneECSSystem.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 
 namespace Desert::Core
 {
@@ -27,7 +28,8 @@ namespace Desert::Core
         // floor) and emits one command.
         scene.AddSystem<ECS::HeightFogECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
-        scene.AddSystem<ECS::LandscapeECSSystem>();
+        // The tiles' GPU copies are the scene's ledger rows (its RayTracingSceneCache holds the scene instance).
+        scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetRayTracingCache().GetLedgerInstance() );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         scene.AddSystem<ECS::WaterZoneECSSystem>();
         scene.AddSystem<ECS::PointLightECSSystem>();

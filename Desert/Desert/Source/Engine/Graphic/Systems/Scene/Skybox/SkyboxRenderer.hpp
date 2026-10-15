@@ -55,8 +55,9 @@ namespace Desert::Graphic::System
         // frame-boundary-safe point (BEFORE the render graph records), NOT from inside a pass. The bake is
         // SUBMITTED, not waited for: it lands on the first call that finds its batch complete, and until then
         // the previous environment (or none, on the first bake) stays. @p deltaSeconds drives the debounce
-        // that keeps a drag from baking on every frame it crosses the angular threshold.
-        void EnsureProceduralEnvironment( float deltaSeconds );
+        // that keeps a drag from baking on every frame it crosses the angular threshold. @p scene is the ledger
+        // instance the bake's rows belong to (EnvironmentManager::BeginProcedural).
+        void EnsureProceduralEnvironment( float deltaSeconds, ResourceOwnerInstance scene );
 
         /// "The light this view's sky gives is not the one it will give a frame from now": a procedural sky
         /// whose bake is still on the GPU, or that has none yet. A capture of the view waits on this — a

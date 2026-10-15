@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Render2D/PreparedDraws.hpp>
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -47,7 +48,11 @@ namespace Desert::Graphic::Render2D
 
         // (Re)creates the pipeline against @p target (the scene HDR framebuffer, composited via a load pass).
         // Call after every Scene::Init — the framebuffers are recreated there. Idempotent.
-        Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target );
+        // @p view: the ledger instance of the view this UI is drawn for (SceneRenderer::GetLedgerInstance). Every
+        // GPU object this renderer creates — buffers, executors, retained-layer targets and their renderers — is
+        // that view's row (RT-LEDGER-4, lead decision), so the view's budget holds its UI and closing the view
+        // after this renderer is gone finds none of them. Pipelines are the device's (IPipeline).
+        Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target, ResourceOwnerInstance view );
 
         bool IsInitialized() const
         {
@@ -137,6 +142,13 @@ namespace Desert::Graphic::Render2D
         }
 
     private:
+        // Rows opened while the returned scope lives are the view's this renderer draws for (Init's @p view).
+        // C++17 guaranteed elision returns the pinned scope.
+        [[nodiscard]] ResourceAttributionScope OpenLedgerScope() const
+        {
+            return ResourceAttributionScope( ResourceOwner::UserInterface, m_LedgerView );
+        }
+
         // One pooled layer target: an RGBA8 framebuffer (its colour image is what the graph imports; its render
         // pass is what the layer renderer's pipelines are built against), the graph-external record of that image
         // for the graph being built, and the Render2D that draws the layer. Sizes are rounded up to
@@ -245,6 +257,8 @@ namespace Desert::Graphic::Render2D
         std::shared_ptr<IndexBuffer>      m_IndexBuffer;
         uint32_t                          m_VertexCapacity = 0;
         uint32_t                          m_IndexCapacity  = 0;
+        // The view this UI is drawn for (Init); every row this renderer opens carries it.
+        ResourceOwnerInstance             m_LedgerView;
 
         std::shared_ptr<Texture2D> m_WhiteTexture;
         Image2D*                   m_WhiteImage = nullptr;
