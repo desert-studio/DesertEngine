@@ -4,7 +4,8 @@
 //   probes    the four probes around the pixel of every level (uniform 16 px, adaptive 8 and 4 px), each weighted
 //             bilinearly x by how well its plane holds the pixel and its hemisphere faces the pixel's normal
 //             (CalculateUpsampleInterpolationWeights). Where no probe's plane holds the pixel the uniform four
-//             answer by position and normal alone, so a pixel never reads nothing while a probe is near;
+//             answer by position and normal alone, so a pixel never reads nothing while a probe is near; where
+//             no probe is near at all (a lone leaf against the sky) the world radiance cache answers in place;
 //   diffuse   the probes' irradiance SH at the pixel's normal (already / pi);
 //   specular  the probes' filtered radiance in the reflection direction (bilinear in the hemi-octahedron): the
 //             rough reflections of UE (ScreenProbeGather integrates the specular of surfaces above
@@ -21,6 +22,7 @@ Shader "ScreenProbeIntegrate"
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
+        #include <Common/RadianceCache.glslh>
         #include <Common/ReconstructPosition.glslh>
 
         ReadBuffer(0) ScreenProbeParamsUB
@@ -50,8 +52,25 @@ Shader "ScreenProbeIntegrate"
         Uniform(9) sampler2D u_ScreenProbeSpecularHistory;
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ScreenProbeDiffuseOut;
         layout(binding = 11, rgba16f) restrict writeonly uniform image2D u_ScreenProbeSpecularOut;
+        ReadBuffer(12) RadianceCacheParamsUB
+        {
+            RadianceCacheParams radianceCache;
+        };
+        ReadBuffer(13) RadianceCacheIndirectionUB
+        {
+            uint radianceCacheIndirection[];
+        };
+        ReadBuffer(14) RadianceCacheProbesUB
+        {
+            RadianceCacheProbe radianceCacheProbes[];
+        };
+        Uniform(15) sampler2D u_RadianceCacheIrradiance;
+        Uniform(16) sampler2D u_RadianceCacheDepth;
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
+        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+        #define RADIANCE_CACHE_PROBES radianceCacheProbes
+        #include <Common/RadianceCache.glslh>
 
         // The history's share of a reprojected pixel (UE: about ten frames accumulated).
         #define SP_HISTORY_WEIGHT 0.9
@@ -134,6 +153,21 @@ Shader "ScreenProbeIntegrate"
             {
                 diffuse  /= total;
                 specular /= total;
+            }
+            else
+            {
+                // NO SCREEN PROBE HOLDS THE PIXEL, NOT EVEN BY POSITION: every probe of its tiles sits on the sky (a
+                // leaf card or a twig at a crown's edge, alone against the sky, under every level's placement). It
+                // reads the world radiance cache in place, as the ProbeVolume method does for every pixel
+                // (IrradianceFieldGather) - the same cache the probes' own rays end in - and is never black: before
+                // this, Bistro's linde tree drew every such leaf as a black cut-out (FOLIAGE-LOOK-2 x1_uncovered).
+                vec3       cacheSpecular;
+                const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, true, cacheSpecular );
+                if ( cache.a > 0.0 )
+                {
+                    diffuse  = cache.rgb;
+                    specular = cacheSpecular;
+                }
             }
 
             // ---- Temporal: the pixel's surface in last frame's view.

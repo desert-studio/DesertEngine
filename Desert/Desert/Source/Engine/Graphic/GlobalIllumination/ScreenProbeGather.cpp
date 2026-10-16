@@ -294,7 +294,15 @@ namespace Desert::Graphic::GlobalIllumination
                           .Sampled( "u_ScreenProbeSpecularHistory", specularHistory, kS, all,
                                     RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_ScreenProbeDiffuseOut", diffuse, kW )
-                          .Storage( "u_ScreenProbeSpecularOut", specular, kW );
+                          .Storage( "u_ScreenProbeSpecularOut", specular, kW )
+                          // A pixel no screen probe holds reads the world radiance cache in place.
+                          .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
+                          .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
+                          .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
+                          .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() );
                      gbuf( block );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
