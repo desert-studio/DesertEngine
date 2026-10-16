@@ -40,7 +40,7 @@ Shader "RadianceCacheTrace"
         #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
 
-        // 11..15: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
+        // 32..41: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
         Uniform(16) samplerCube u_EnvSpecularTex;
         Uniform(17) sampler2D u_GBufferDepth;
         Uniform(18) sampler2D u_GBufferA;
@@ -52,7 +52,7 @@ Shader "RadianceCacheTrace"
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
-        #define GI_TRACER_BINDING 11
+        #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 24
         #include <Common/GIHitLighting.glslh>

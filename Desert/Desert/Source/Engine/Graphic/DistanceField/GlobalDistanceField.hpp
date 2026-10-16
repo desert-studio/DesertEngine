@@ -21,6 +21,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -74,6 +75,14 @@ namespace Desert::Graphic::DistanceField
     // THE INCREMENTAL UPDATE OF ONE LEVEL (pure): the bricks of the window around @p centre that must be
     // recomposited - all of them without a previous window or after a jump of a window or more, otherwise the
     // ones that entered it plus the ones @p dirty (world boxes, already grown by the influence radius) touch.
+    // THE NEAR-FIELD OBJECT GRID (pure; UE's mesh SDF grid culling, LumenMeshSDFCulling):
+    // DF_MESH_SDF_GRID_RESOLUTION^3 cells of @p cell cm from @p minCell (in cells), each listing the objects whose
+    // world box grown by DF_MESH_SDF_TRACE_DISTANCE overlaps it - every object a ray starting in the cell can
+    // reach within its near field. Layout: one uint per cell (x fastest), 0 for no object or the offset of its
+    // list in the same array, the list's count first.
+    [[nodiscard]] std::vector<uint32_t> MeshObjectGrid( const glm::ivec3& minCell, float cell,
+                                                        const std::vector<Common::Math::AABB>& objectBounds );
+
     [[nodiscard]] std::vector<glm::ivec3> PlanClipmapUpdate( const std::optional<glm::ivec3>& previousCentre,
                                                              const glm::ivec3& centre, float voxelSize,
                                                              const std::vector<Common::Math::AABB>& dirty );
@@ -92,11 +101,13 @@ namespace Desert::Graphic::DistanceField
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // What a reader of this frame's field binds: the clipmaps as graph textures and their parameters,
-        // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel.
+        // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel - and the mesh
+        // fields it was composited from with the near-field object grid (a GI ray's first metres).
         struct FrameField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
+            MeshDistanceFieldReads                                    MeshFields;
         };
 
         // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
@@ -149,5 +160,17 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectGridBuffer;
+        // The graph's view of the buffers a trace reads (re-imported every frame: each frame in flight has its
+        // own copy).
+        RDG::ExternalBuffer m_AssetImport;
+        RDG::ExternalBuffer m_IndirectionImport;
+        RDG::ExternalBuffer m_ObjectImport;
+        RDG::ExternalBuffer m_ObjectGridImport;
+        // The near-field object grid (MeshObjectGrid) and what it was built for: its window's minimum cell and
+        // the placed objects in order - a difference rebuilds it.
+        std::vector<uint32_t>     m_ObjectGrid;
+        std::optional<glm::ivec3> m_ObjectGridMinCell;
+        uint64_t                  m_ObjectGridObjectsKey = 0;
     };
 } // namespace Desert::Graphic::DistanceField

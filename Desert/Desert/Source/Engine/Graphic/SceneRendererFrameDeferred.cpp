@@ -726,6 +726,7 @@ namespace Desert::Graphic
         }
         textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
+        textures.Transients.MeshDistanceFields        = field.GetValue().MeshFields;
     }
 
 #if DESERT_DEV_INSTRUMENTS

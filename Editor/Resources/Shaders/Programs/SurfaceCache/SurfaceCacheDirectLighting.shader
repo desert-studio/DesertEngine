@@ -141,8 +141,8 @@ Shader "SurfaceCacheDirectLighting"
 
         #include <Common/SubsurfaceDensity.glslh> // ContactShadowSubsurfaceDensity
 
-        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..25.
-        #define GI_TRACER_BINDING 21
+        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 28..37.
+        #define GI_TRACER_BINDING 28
         #include <Common/GITracer.glslh>
 
         PushConstant SurfaceDirectLightingPush

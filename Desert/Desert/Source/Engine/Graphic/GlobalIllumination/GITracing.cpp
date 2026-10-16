@@ -16,6 +16,8 @@ namespace Desert::Graphic::GlobalIllumination
                         return "the global distance field was not brought up";
                 if ( !frame.GlobalDistanceFieldLevels.IsValid() )
                     return "the global distance field's clipmap placement was not uploaded";
+                if ( !frame.MeshDistanceFields.IsValid() )
+                    return "the mesh distance fields and their near-field object grid were not imported";
                 return {};
             case Tracer::HardwareRayQuery:
                 return "the ray-query tracer is not in this build (GI-HWRT)";
@@ -32,7 +34,15 @@ namespace Desert::Graphic::GlobalIllumination
                     block.Sampled( std::format( "u_GlobalDistanceField{}", level ),
                                    frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All(),
                                    RDG::SamplerDesc::LinearRepeat() );
-                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
+                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFAssetsUB", frame.MeshDistanceFields.Assets, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFIndirectionUB", frame.MeshDistanceFields.Indirection,
+                               RDG::Access::StorageRead )
+                     .Storage( "GITracerDFObjectsUB", frame.MeshDistanceFields.Objects, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFObjectGridUB", frame.MeshDistanceFields.ObjectGrid,
+                               RDG::Access::StorageRead )
+                     .Sampled( "u_DFBrickAtlas", frame.MeshDistanceFields.BrickAtlas, sampled,
+                               RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
                 return;
             case Tracer::HardwareRayQuery:
                 return; // GI-HWRT declares the TLAS here; TracerFrameMissing refuses the frame until then

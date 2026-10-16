@@ -4,6 +4,7 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <glm/glm.hpp>
@@ -157,15 +158,26 @@ namespace Desert::Graphic::GlobalIllumination
     // once; a consumer hands it to TracerVariant / TracerFrameMissing / DeclareTracerReads and reads no member
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
-    //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
-    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it;
+    //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) then the
+    //                          near-field object grid's placement (TracerSoftwarePayload) — the walk's own
+    //                          record, so the neutral GI frame (GIFramePayload) carries nothing of it — and the
+    //                          mesh fields with their object grid (the near field, UE r.Lumen.TraceMeshSDFs);
     //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
     struct TracerFrame
     {
         GlobalIllumination::Pipeline   Pipeline{};
         std::array<RDG::TextureRef, 4> GlobalDistanceField{};
-        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
+        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
+        DistanceField::MeshDistanceFieldReads MeshDistanceFields;
     };
+
+    // "GITracerSoftwareUB" — std430, must match the block in Common/GITracer.glslh.
+    struct TracerSoftwarePayload
+    {
+        std::array<glm::vec4, 4> GlobalDistanceFieldLevels{};
+        glm::vec4                MeshObjectGridPlacement{ 0.0f }; // MeshDistanceFieldReads::ObjectGridPlacement
+    };
+    static_assert( sizeof( TracerSoftwarePayload ) == 80 );
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
     // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound

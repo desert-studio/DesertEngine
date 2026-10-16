@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <tuple>
 #include <unordered_set>
 
 namespace Desert::Graphic::DistanceField
@@ -108,6 +109,36 @@ namespace Desert::Graphic::DistanceField
     glm::ivec3 ClipmapCentreBrick( const glm::dvec3& camera, const float voxelSize )
     {
         return glm::ivec3( glm::round( camera / ( static_cast<double>( voxelSize ) * kGdfBrick ) ) );
+    }
+
+    std::vector<uint32_t> MeshObjectGrid( const glm::ivec3& minCell, const float cell,
+                                          const std::vector<Common::Math::AABB>& objectBounds )
+    {
+        constexpr int      kResolution = DFShared::DF_MESH_SDF_GRID_RESOLUTION;
+        constexpr uint32_t kCells      = static_cast<uint32_t>( kResolution * kResolution * kResolution );
+        const float        reach       = DFShared::DF_MESH_SDF_TRACE_DISTANCE;
+        std::vector<std::vector<uint32_t>> lists( kCells );
+        for ( uint32_t o = 0; o < objectBounds.size(); ++o )
+        {
+            const glm::ivec3 lo =
+                 glm::max( glm::ivec3( glm::floor( ( objectBounds[o].Min - reach ) / cell ) ) - minCell, 0 );
+            const glm::ivec3 hi = glm::min(
+                 glm::ivec3( glm::floor( ( objectBounds[o].Max + reach ) / cell ) ) - minCell, kResolution - 1 );
+            for ( int z = lo.z; z <= hi.z; ++z )
+                for ( int y = lo.y; y <= hi.y; ++y )
+                    for ( int x = lo.x; x <= hi.x; ++x )
+                        lists[static_cast<uint32_t>( ( z * kResolution + y ) * kResolution + x )].push_back( o );
+        }
+        std::vector<uint32_t> grid( kCells, 0u );
+        for ( uint32_t c = 0; c < kCells; ++c )
+        {
+            if ( lists[c].empty() )
+                continue;
+            grid[c] = static_cast<uint32_t>( grid.size() );
+            grid.push_back( static_cast<uint32_t>( lists[c].size() ) );
+            grid.insert( grid.end(), lists[c].begin(), lists[c].end() );
+        }
+        return grid;
     }
 
     std::vector<glm::ivec3> PlanClipmapUpdate( const std::optional<glm::ivec3>& previousCentre,
@@ -201,8 +232,9 @@ namespace Desert::Graphic::DistanceField
                 return Common::MakeFormattedError<bool>(
                      "global distance field: clipmap {} ({}^3 RG16F) not created", level, kGdfResolution );
         }
-        // Per-frame buffers (persistent = false): each frame in flight writes its own copy, and only a frame that
-        // dispatches a composite writes at all.
+        // Per-frame buffers (persistent = false): each frame in flight writes its own copy. The update bricks and
+        // their lists are written by a frame that dispatches a composite; the fields, the objects and the
+        // near-field object grid every frame, since the GI trace reads them every frame.
         m_AssetBuffer = ShaderResources::StorageBuffer::Create( "DFAssetData", 16, kGdfAssetBinding, false );
         m_IndirectionBuffer =
              ShaderResources::StorageBuffer::Create( "DFIndirection", 16, kGdfIndirectionBinding, false );
@@ -211,8 +243,9 @@ namespace Desert::Graphic::DistanceField
              ShaderResources::StorageBuffer::Create( "GDFUpdateBricks", 16, kGdfUpdateBinding, false );
         m_BrickObjectBuffer =
              ShaderResources::StorageBuffer::Create( "GDFBrickObjects", 16, kGdfBrickListBinding, false );
+        m_ObjectGridBuffer = ShaderResources::StorageBuffer::Create( "DFObjectGrid", 16, 0, false );
         if ( !m_AssetBuffer || !m_IndirectionBuffer || !m_ObjectBuffer || !m_UpdateBrickBuffer ||
-             !m_BrickObjectBuffer )
+             !m_BrickObjectBuffer || !m_ObjectGridBuffer )
             return Common::MakeError<bool>( "global distance field: a storage buffer could not be created" );
         return BOOLSUCCESS;
     }
@@ -317,8 +350,31 @@ namespace Desert::Graphic::DistanceField
             objectData.push_back( glm::vec4( std::bit_cast<float>( flags ), 0.0f, 0.0f, 0.0f ) );
         }
 
+        FrameField frame;
+        // The near-field object grid, around the camera, rebuilt when its window or the placed objects (in order:
+        // the list holds their indices) changed.
+        {
+            const float cell = 2.0f * DFShared::DF_MESH_SDF_GRID_EXTENT /
+                               static_cast<float>( DFShared::DF_MESH_SDF_GRID_RESOLUTION );
+            const glm::ivec3 minCell =
+                 glm::ivec3( glm::floor( camera / cell ) ) - DFShared::DF_MESH_SDF_GRID_RESOLUTION / 2;
+            uint64_t objectsKey = 0xCBF29CE484222325ULL;
+            for ( const auto& p : placed )
+                objectsKey = ( objectsKey ^ p.Key ) * 0x100000001B3ULL;
+            if ( m_ObjectGridMinCell != minCell || m_ObjectGridObjectsKey != objectsKey || m_ObjectGrid.empty() )
+            {
+                std::vector<Common::Math::AABB> bounds;
+                bounds.reserve( placed.size() );
+                for ( const auto& p : placed )
+                    bounds.push_back( p.Bounds );
+                m_ObjectGrid           = MeshObjectGrid( minCell, cell, bounds );
+                m_ObjectGridMinCell    = minCell;
+                m_ObjectGridObjectsKey = objectsKey;
+            }
+            frame.MeshFields.ObjectGridPlacement = glm::vec4( glm::vec3( minCell ) * cell, cell );
+        }
+
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
-        FrameField                                                              frame;
         std::vector<glm::ivec4>                                                 updateBricks;
         std::vector<uint32_t>                                                   brickObjects;
         std::array<std::pair<uint32_t, uint32_t>, kGlobalDistanceFieldClipmaps> levelRange{};
@@ -378,21 +434,36 @@ namespace Desert::Graphic::DistanceField
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
             frame.Clipmaps[level] =
                  import( m_Clipmaps[level], std::format( "GlobalDistanceField.Clipmap{}", level ) );
-        if ( updateBricks.empty() )
-            return Common::MakeSuccess( frame );
-
+        // What a trace reads, every frame: the fields, the objects, the object grid.
         if ( auto r = GdfUpload( *m_AssetBuffer, m_SceneData.GetAssetData(), "asset data" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_IndirectionBuffer, m_SceneData.GetIndirection(), "indirection" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_ObjectBuffer, objectData, "objects" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
+        if ( auto r = GdfUpload( *m_ObjectGridBuffer, m_ObjectGrid, "near-field object grid" ); !r )
+            return Common::MakeError<FrameField>( r.GetError() );
+        for ( const auto& [buffer, external, name] :
+              { std::tuple{ &m_AssetBuffer, &m_AssetImport, "DistanceField.Assets" },
+                std::tuple{ &m_IndirectionBuffer, &m_IndirectionImport, "DistanceField.Indirection" },
+                std::tuple{ &m_ObjectBuffer, &m_ObjectImport, "DistanceField.Objects" },
+                std::tuple{ &m_ObjectGridBuffer, &m_ObjectGridImport, "DistanceField.ObjectGrid" } } )
+            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
+                return Common::MakeFormattedError<FrameField>( "global distance field: {}: {}", name,
+                                                               imported.GetError() );
+        const RDG::TextureRef atlas  = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+        frame.MeshFields.Assets      = graph.RegisterExternal( m_AssetImport, "DistanceField.Assets" );
+        frame.MeshFields.Indirection = graph.RegisterExternal( m_IndirectionImport, "DistanceField.Indirection" );
+        frame.MeshFields.Objects     = graph.RegisterExternal( m_ObjectImport, "DistanceField.Objects" );
+        frame.MeshFields.ObjectGrid  = graph.RegisterExternal( m_ObjectGridImport, "DistanceField.ObjectGrid" );
+        frame.MeshFields.BrickAtlas  = atlas;
+        if ( updateBricks.empty() )
+            return Common::MakeSuccess( frame );
+
         if ( auto r = GdfUpload( *m_UpdateBrickBuffer, updateBricks, "update bricks" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_BrickObjectBuffer, brickObjects, "brick object lists" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
-
-        const RDG::TextureRef atlas = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
             const auto [first, count] = levelRange[level];

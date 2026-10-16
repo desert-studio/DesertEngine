@@ -8,7 +8,8 @@
 // tracers fill.
 //
 // THE FUNCTIONS — declared here, each DEFINED by exactly one include of the consumer's permutation:
-//   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the global SDF march (GLOBAL-SDF, GITraceDistanceField);
+//   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the mesh SDFs near the origin, then the global SDF march
+//                      (GLOBAL-SDF, GITraceDistanceField);
 //                      DESERT_GI_TRACER_HARDWARE: rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
 //   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction — the
 //                      shadow ray of hit lighting (and of the cards' lighting where no shadow map covers them).

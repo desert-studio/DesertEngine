@@ -1,16 +1,16 @@
 #ifndef GI_TRACE_DISTANCE_FIELD_GLSLH
 #define GI_TRACE_DISTANCE_FIELD_GLSLH
 
-// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as a march of the global
-// distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF). Port of UE's global-SDF leg of Lumen software
-// tracing (LumenTraceGlobalSDF / RayTraceGlobalDistanceField in GlobalDistanceFieldUtils.ush): the hit is the
-// expanded surface's entry, its normal the field's gradient. UE first marches the mesh SDFs near the ray origin
-// (r.Lumen.TraceMeshSDFs); here every ray marches the global field, so a probe's first two metres are as coarse as
-// the rest (GI-RADIANCE-CACHE REMAINDER).
+// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as UE Lumen's software
+// tracing - a NEAR FIELD through the mesh distance fields of the objects around the ray (UE r.Lumen.TraceMeshSDFs:
+// LumenMeshSDFCulling's per-cell object lists, RayTraceSingleMeshSDF / TraceMeshSDFs in LumenSoftwareRayTracing),
+// then the global distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF; UE LumenTraceGlobalSDF /
+// RayTraceGlobalDistanceField) from where the near field ended. The global field's 39 cm voxels close a dense crown
+// of leaf cards into one blob; the mesh fields keep the gaps between the cards (FOLIAGE-LOOK-7).
 //
-// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, includes
-// Common/GlobalDistanceField.glslh, and defines GI_TRACE_GDF_LEVELS as the expression of this frame's
-// vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
+// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, the mesh field buffers
+// (Common/MeshDistanceField.glslh's inputs) and the object grid, includes both field headers, and defines
+// GI_TRACE_GDF_LEVELS as the expression of this frame's vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
 
 #ifndef DESERT_GI_TRACER_SOFTWARE
 #error "GITraceDistanceField.glslh is the software tracer: define DESERT_GI_TRACER_SOFTWARE"
@@ -18,12 +18,100 @@
 
 // Sphere-trace steps per ray (UE r.Lumen.TraceGlobalSDF... MaxSteps scale; the GDF debug view's count).
 #define GI_GDF_MAX_STEPS 128
+// Sphere-trace steps per object of the near field (UE's mesh SDF MaxTraceSteps).
+#define GI_MESH_SDF_MAX_STEPS 64
+
+// The object list of the near-field grid cell holding @p position: the offset of its count in
+// giTracerMeshObjectGridCells, or 0 (no object, or outside the grid: the camera's DF_MESH_SDF_GRID_EXTENT).
+uint GIMeshObjectList( vec3 position )
+{
+    const vec3 cell = floor( ( position - giTracerMeshObjectGrid.xyz ) / giTracerMeshObjectGrid.w );
+    if ( any( lessThan( cell, vec3( 0.0 ) ) ) || any( greaterThanEqual( cell, vec3( float( DF_MESH_SDF_GRID_RESOLUTION ) ) ) ) )
+        return 0u;
+    const uvec3 c = uvec3( cell );
+    return giTracerMeshObjectGridCells[( c.z * uint( DF_MESH_SDF_GRID_RESOLUTION ) + c.y ) * uint( DF_MESH_SDF_GRID_RESOLUTION ) + c.x];
+}
+
+// ONE OBJECT OF THE NEAR FIELD (UE RayTraceSingleMeshSDF): the ray clipped to the object's volume box, sphere traced
+// in world centimetres through the object's field (DistanceToMeshSurfaceStandalone, volume -> world at the
+// smallest axis scale: conservative under a non-uniform scale). A hit before @p tEnd lowers @p tEnd to it and
+// writes its world normal (the field's gradient in volume space through the transpose of world -> volume).
+//
+// THE SURFACE IS EXPANDED BY HALF A VOXEL OF THE FINEST RESIDENT MIP, as the global field's (GlobalDistanceField.glslh):
+// a leaf card thinner than a voxel reconstructs to a V that never goes negative, and a step can cross it; the
+// expansion catches it. FOLIAGE (DF_OBJECT_FLAG_MOSTLY_TWO_SIDED, UE bMostlyTwoSided) stops a GI gather ray
+// (@p ditheredTransparency, UE bDitheredTransparency) at each sheet it enters with the global field's per-step
+// chance GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD, and steps through the sheet otherwise; a shadow ray stops on it.
+bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
+                        bool ditheredTransparency, uint seed, inout vec3 normal )
+{
+    const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
+    const vec4 r0          = u_DFObjects[base + 0u];
+    const vec4 r1          = u_DFObjects[base + 1u];
+    const vec4 r2          = u_DFObjects[base + 2u];
+    const vec4 extentScale = u_DFObjects[base + 3u];
+    const uint assetIndex  = floatBitsToUint( u_DFObjects[base + 4u].x );
+    const bool foliage     = ( floatBitsToUint( u_DFObjects[base + 5u].x ) & uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
+    const uint numMips     = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return false;
+
+    // The ray in volume space, still parameterised by world centimetres.
+    const vec3 extent = extentScale.xyz;
+    const vec3 vo     = vec3( dot( r0, vec4( origin, 1.0 ) ), dot( r1, vec4( origin, 1.0 ) ), dot( r2, vec4( origin, 1.0 ) ) );
+    const vec3 vd     = vec3( dot( r0.xyz, direction ), dot( r1.xyz, direction ), dot( r2.xyz, direction ) );
+    const vec3 inv    = 1.0 / mix( vd, vec3( 1e-12 ), lessThan( abs( vd ), vec3( 1e-12 ) ) );
+    const vec3 ta     = ( -extent - vo ) * inv;
+    const vec3 tb     = ( extent - vo ) * inv;
+    const vec3 tNear  = min( ta, tb );
+    const vec3 tFar   = max( ta, tb );
+    const float tIn   = max( max( tNear.x, max( tNear.y, tNear.z ) ), tStart );
+    const float tOut  = min( min( tFar.x, min( tFar.y, tFar.z ) ), tEnd );
+    if ( tIn >= tOut )
+        return false;
+
+    const float volumeToWorld = extentScale.w;
+    const DFAssetMip finest   = LoadDFAssetMip( assetIndex, numMips - 1u );
+    const float voxelVolume   = 1.0 / ( float( DF_UNIQUE_BRICK_SIZE ) *
+                                      max( finest.VolumeToIndirectionScale.x,
+                                           max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
+    const float expand        = 0.5 * voxelVolume * volumeToWorld;
+    const uint  objectSeed    = seed ^ ( objectIndex * 2654435761u );
+
+    float t              = tIn;
+    bool  previousInBand = false;
+    for ( int step = 0; step < GI_MESH_SDF_MAX_STEPS && t < tOut; ++step )
+    {
+        const vec3  v        = clamp( vo + vd * t, -extent, extent );
+        const float distance = DistanceToMeshSurfaceStandalone( v, assetIndex ) * volumeToWorld;
+        const bool  inBand   = distance < expand;
+        if ( inBand && ( !foliage || !ditheredTransparency ||
+                         ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
+                                                  GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
+        {
+            const float h = voxelVolume;
+            const vec3  g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
+                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, h, 0 ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, h, 0 ), -extent, extent ), assetIndex ),
+                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, 0, h ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
+            const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
+            normal = dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
+            tEnd   = t;
+            return true;
+        }
+        previousInBand = inBand;
+        // Through a sheet the ray passed: at least half the band per step, so it leaves the sheet in two.
+        t += max( abs( distance ), expand );
+    }
+    return false;
+}
 
 GITraceResult GITraceRay( GITraceInput ray )
 {
     GITraceResult result;
     result.hit = false;
-    const vec3 start = ray.origin + ray.direction * ray.tMin;
     // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it. The dither's
     // seed is the ray itself: every consumer already jitters its rays per frame, so the noise moves with them.
     const bool  dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
@@ -31,13 +119,49 @@ GITraceResult GITraceRay( GITraceInput ray )
     const uvec2 d        = floatBitsToUint( ray.direction.xy );
     const uint  seed     = ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
                       ( d.y * 2246822519u );
-    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin,
+
+    // The near field: every object of the origin's cell (each within DF_MESH_SDF_TRACE_DISTANCE of it), the closest
+    // hit. The cell's list holds every object the ray can reach before DF_MESH_SDF_TRACE_DISTANCE.
+    float      globalStart = ray.tMin;
+    const float nearEnd    = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
+    const uint list        = ray.tMin < nearEnd ? GIMeshObjectList( ray.origin ) : 0u;
+    if ( list != 0u )
+    {
+        float      tHit       = nearEnd;
+        vec3       normal     = -ray.direction;
+        bool       hit        = false;
+        const uint count      = giTracerMeshObjectGridCells[list];
+        for ( uint i = 0u; i < count; ++i )
+            hit = GITraceMeshObject( giTracerMeshObjectGridCells[list + 1u + i], ray.origin, ray.direction, ray.tMin,
+                                     tHit, dithered, seed, normal ) || hit;
+        if ( hit )
+        {
+            result.hit                  = true;
+            result.surface.distance     = tHit;
+            result.surface.position     = ray.origin + ray.direction * tHit;
+            result.surface.meshCards    = GI_NO_MESH_CARDS;
+            result.surface.instance     = GI_NO_INSTANCE;
+            result.surface.primitive    = 0u;
+            result.surface.barycentrics = vec2( 0.0 );
+            result.surface.normal       = normal;
+            result.surface.frontFace    = dot( normal, ray.direction ) < 0.0;
+            return result;
+        }
+        // The global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
+        // SDF trace distance).
+        globalStart = nearEnd;
+    }
+    if ( globalStart >= ray.tMax )
+        return result;
+
+    const vec3 start = ray.origin + ray.direction * globalStart;
+    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - globalStart,
                                                                    GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed );
     if ( !march.Hit )
         return result;
 
     result.hit                   = true;
-    result.surface.distance      = ray.tMin + march.T;
+    result.surface.distance      = globalStart + march.T;
     result.surface.position      = start + ray.direction * march.T;
     result.surface.meshCards     = GI_NO_MESH_CARDS;
     result.surface.instance      = GI_NO_INSTANCE;

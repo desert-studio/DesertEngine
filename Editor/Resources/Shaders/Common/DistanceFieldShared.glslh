@@ -23,6 +23,14 @@ const int DF_OBJECT_STRIDE = 6;
 // Flag bits of the object's last row (.x as uint bits): the mesh is mostly two-sided (foliage, UE bMostlyTwoSided).
 const int DF_OBJECT_FLAG_MOSTLY_TWO_SIDED = 1;
 
+// The near field a GI ray traces through the mesh distance fields before the global one (UE
+// r.Lumen.TraceMeshSDFs.TraceDistance 180), and the camera-centred grid of object lists it looks its objects up in:
+// cells per side and the grid's half-size (UE r.Lumen.DiffuseIndirect.CardTraceEndDistanceFromCamera 40 m - no
+// mesh field is traced from farther), in centimetres.
+const float DF_MESH_SDF_TRACE_DISTANCE = 180.0f;
+const int   DF_MESH_SDF_GRID_RESOLUTION = 32;
+const float DF_MESH_SDF_GRID_EXTENT     = 4000.0f;
+
 // The global distance field (UE GlobalDistanceField.cpp: four clipmaps of 128^3, Lumen's 25 m first extent
 // doubling per level, an influence range of four voxels).
 const int   GDF_NUM_CLIPMAPS                = 4;
