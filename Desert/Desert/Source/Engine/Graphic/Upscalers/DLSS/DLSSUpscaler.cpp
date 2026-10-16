@@ -213,6 +213,14 @@ namespace Desert::Graphic
         return Common::MakeSuccess( *best );
     }
 
+    std::string DLSSUpscaler::Unavailable()
+    {
+        const Streamline::Runtime& runtime = Streamline::Runtime::Get();
+        if ( runtime.DlssReady() )
+            return {};
+        return std::format( "DLSS is not available: {}", runtime.DlssRefusal() );
+    }
+
     bool DLSSUpscaler::Supports( const ResolutionSplit& split ) const
     {
         return ModeFor( split ).IsSuccess();

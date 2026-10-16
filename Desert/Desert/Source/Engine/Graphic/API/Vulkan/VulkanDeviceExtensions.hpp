@@ -38,6 +38,20 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t ComputeQueuesCreated  = 0;
     };
 
+    // What a runtime asks of the instance.
+    struct InstanceRequirements
+    {
+        // Instance extensions, every one of them already checked present.
+        std::vector<const char*> Extensions;
+        // The runtime's SDK hands the engine's Vulkan handles to the driver along a path the layers do not sit
+        // on (NVIDIA NGX: nvngx_dlss calls into the ICD directly). The validation layer gives the application
+        // wrapped handles (unique ids, not the driver's pointers) unless told not to, and a wrapped handle that
+        // reaches the driver unseen is dereferenced as a pointer - an access violation inside the driver, which
+        // Streamline reports as Result::eErrorExceptionHandler. With this set, the instance is created with
+        // VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT whenever the validation layer is on.
+        bool PassesHandlesBesideTheLayers = false;
+    };
+
     class IVulkanDeviceExtension
     {
     public:
@@ -45,9 +59,9 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] virtual std::string_view Name() const = 0;
 
-        // Before vkCreateInstance, once. The instance extensions this runtime needs, every one of them already
-        // checked present (an absent one makes the runtime refuse itself and return nothing).
-        [[nodiscard]] virtual std::vector<const char*> InstanceExtensions() = 0;
+        // Before vkCreateInstance, once. What this runtime needs of the instance (a runtime that cannot run
+        // refuses itself and asks for nothing).
+        [[nodiscard]] virtual InstanceRequirements InstanceExtensions() = 0;
 
         // After the physical device is chosen and before vkCreateDevice, once. Enables on @p device what the
         // runtime needs (only when all of it is present; otherwise the runtime refuses itself and enables

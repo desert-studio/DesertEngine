@@ -206,8 +206,20 @@ namespace Desert::Graphic::API::Vulkan
         // What the platform's runtimes need on the instance (VulkanDeviceExtensions.hpp), each list already
         // checked present by its runtime.
         for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
-            for ( const char* name : extension->InstanceExtensions() )
+        {
+            const InstanceRequirements requirements = extension->InstanceExtensions();
+            for ( const char* name : requirements.Extensions )
                 builder.enable_extension( name );
+            // The layer still validates every call it sees; it only stops replacing the driver's handles with
+            // its own ids, which the runtime's SDK would otherwise carry to the driver past the layer.
+            if ( validationRequested && requirements.PassesHandlesBesideTheLayers )
+            {
+                builder.add_validation_feature_disable( VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT );
+                LOG_INFO( "[Vulkan] validation layer without unique handles: {} hands the engine's handles to "
+                          "the driver past the layers",
+                          extension->Name() );
+            }
+        }
 
         auto built = builder.build();
 

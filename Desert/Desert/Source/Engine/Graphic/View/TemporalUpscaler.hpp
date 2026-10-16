@@ -160,6 +160,27 @@ namespace Desert::Graphic
     // SceneRenderer is enough.
     [[nodiscard]] std::unique_ptr<ITemporalUpscaler> CreateTemporalUpscaler( TemporalMethod method );
 
+    // Why the vendor method @p method cannot run on this device now, empty while it can and for the engine's own
+    // methods. The catalog offers a vendor method from what its runtime said at device creation; a runtime that
+    // fails later (DLSS: an exception inside slEvaluateFeature) refuses itself for the device's life, and this is
+    // how the view hears of it before it builds a frame on that method.
+    [[nodiscard]] std::string TemporalMethodUnavailable( TemporalMethod method );
+
+    // The quality a view renders when a vendor method it resolves to is unavailable (@p unavailable: the reason
+    // per method, TemporalMethodUnavailable in the renderer): the vendor's native AA becomes the engine's TAA and
+    // the vendor's upscaler becomes None, which UpscalerForScale turns into the level's engine temporal upscaler
+    // (TAAU or TSR) below 100 %. Why is empty when nothing was replaced. PURE.
+    struct VendorMethodFallback
+    {
+        Common::Scalability::PathAntiAliasing AntiAliasing;
+        Common::Scalability::Upscaler         Upscaler = Common::Scalability::Upscaler::None;
+        std::string                           Why;
+    };
+    [[nodiscard]] VendorMethodFallback
+    ReplaceUnavailableVendorMethods( const Common::Scalability::PathAntiAliasing&               antiAliasing,
+                                     Common::Scalability::Upscaler                              upscaler,
+                                     const std::function<std::string( TemporalMethod method )>& unavailable );
+
     // TWO EXTENTS PER VIEW (TAA1-B step 6). Every view target follows one of them: the RENDER set is what the
     // scene draws into before the temporal resolve (scene target, G-buffer, velocity, depth resolve, silhouette
     // mask, overdraw, outline) and is ResolutionSplit::Render; the OUTPUT set is what the post chain writes after

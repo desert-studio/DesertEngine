@@ -53,6 +53,10 @@ namespace Desert::Graphic
         AddPasses( RDG::Builder& graph, const ViewFrame& frame,
                    const TemporalUpscalerInputs& inputs ) const override;
 
+        // Why DLSS cannot run on this device now (the Streamline runtime's refusal), empty while it can
+        // (TemporalMethodUnavailable).
+        [[nodiscard]] static std::string Unavailable();
+
         // The mode that resolves @p split, or why none does.
         [[nodiscard]] Common::ResultStr<Streamline::DlssMode> ModeFor( const ResolutionSplit& split ) const;
 

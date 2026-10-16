@@ -50,7 +50,7 @@ namespace Desert::Graphic::API::Vulkan::FidelityFX
         return "FidelityFX";
     }
 
-    std::vector<const char*> DeviceRequirements::InstanceExtensions()
+    InstanceRequirements DeviceRequirements::InstanceExtensions()
     {
         return {}; // the backend asks the instance for nothing (it is handed the device, ffx_vk.h VkDeviceContext)
     }
@@ -101,21 +101,32 @@ namespace Desert::Graphic::API::Vulkan::FidelityFX
 
         // VK_KHR_shader_float16_int8 listed with shaderFloat16 -> the 16-bit permutations (:2008-2020). The
         // backend reads the same feature bit, so an unsupported bit selects the 32-bit shaders and needs nothing.
+        // The 16-bit permutations also declare the SPIR-V Int16 capability (min16int / uint16_t), which is the
+        // core shaderInt16 bit: the backend picks them on shaderFloat16 alone, so shaderInt16 goes with it, and a
+        // device with the first and not the second cannot run them (VUID-VkShaderModuleCreateInfo-pCode-08740).
         if ( device.is_extension_present( VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME ) )
         {
+            bool float16 = false;
             if ( api >= VK_API_VERSION_1_2 )
             {
                 VkPhysicalDeviceVulkan12Features f{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
                 f.shaderFloat16 = VK_TRUE;
-                device.enable_extension_features_if_present( f );
+                float16         = device.enable_extension_features_if_present( f );
             }
             else
             {
                 VkPhysicalDeviceShaderFloat16Int8Features f{
                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES };
                 f.shaderFloat16 = VK_TRUE;
-                EnableExtensionWithFeatures( device, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, f );
+                float16 = EnableExtensionWithFeatures( device, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, f );
             }
+            VkPhysicalDeviceFeatures int16{};
+            int16.shaderInt16 = VK_TRUE;
+            if ( float16 && !device.enable_features_if_present( int16 ) )
+                Refuse(
+                     std::format( "'{}' reports shaderFloat16 without shaderInt16, and the FidelityFX backend's "
+                                  "16-bit shaders (chosen on shaderFloat16) declare the Int16 capability",
+                                  device.properties.deviceName ) );
         }
 
         // VK_KHR_synchronization2 listed with the feature -> vkCmdWriteBufferMarker2AMD for breadcrumbs (:1718).

@@ -364,7 +364,7 @@ namespace Desert::Graphic::Streamline
         m_DlssReady     = false;
     }
 
-    std::vector<const char*> Runtime::InstanceExtensions()
+    API::Vulkan::InstanceRequirements Runtime::InstanceExtensions()
     {
         const std::scoped_lock      lock( m_Mutex );
         const std::filesystem::path directory  = ExecutableDirectory();
@@ -456,7 +456,11 @@ namespace Desert::Graphic::Streamline
                                  system.error().message() ) );
             return {};
         }
-        std::vector<const char*> extensions;
+        API::Vulkan::InstanceRequirements instance;
+        // NGX (DLSS) records its work through the driver directly with the handles slEvaluateFeature is given:
+        // a validation layer that wraps handles would hand it ids the driver dereferences (the access violation
+        // in nvoglv64 under slEvaluateFeature, Result::eErrorExceptionHandler).
+        instance.PassesHandlesBesideTheLayers = true;
         for ( uint32_t i = 0; i < requirements.vkNumInstanceExtensions; ++i )
         {
             const char* name = requirements.vkInstanceExtensions[i];
@@ -469,9 +473,9 @@ namespace Desert::Graphic::Streamline
             m_InstanceExtensionNames.emplace_back( name );
         }
         for ( const std::string& name : m_InstanceExtensionNames )
-            extensions.push_back( name.c_str() );
+            instance.Extensions.push_back( name.c_str() );
         m_DlssCandidate = true; // until the device says otherwise
-        return extensions;
+        return instance;
     }
 
     void Runtime::OnPhysicalDeviceSelected( VkInstance /*instance*/, vkb::PhysicalDevice& device )
@@ -789,14 +793,23 @@ namespace Desert::Graphic::Streamline
                  input.Color.Width, input.Color.Height, input.Depth.Width, input.Depth.Height,
                  input.MotionVectors.Width, input.MotionVectors.Height, input.Output.Width, input.Output.Height );
 
+        // A Streamline call that fails here has not written the output this pass promised (Result::
+        // eErrorExceptionHandler: NGX faulted inside the driver), and nothing says the next frame fares better:
+        // DLSS refuses itself for the device's life, with the call and its result as the reason, and the view
+        // renders with the engine's method from the next frame on (TemporalMethodUnavailable).
+        const auto refuseEvaluation = [this]( std::string why ) -> Common::BoolResultStr
+        {
+            Refuse( why );
+            return Common::MakeFormattedError( "{}", why );
+        };
         if ( m_TokenFrame != input.EngineFrame )
         {
             sl::FrameToken* token = nullptr;
             const auto      index = static_cast<uint32_t>( input.EngineFrame );
             if ( const sl::Result result = m_Library->GetNewFrameToken( token, &index );
                  result != sl::Result::eOk )
-                return Common::MakeFormattedError( "slGetNewFrameToken(frame {}): {}", input.EngineFrame,
-                                                   ResultName( result ) );
+                return refuseEvaluation(
+                     std::format( "slGetNewFrameToken(frame {}): {}", input.EngineFrame, ResultName( result ) ) );
             m_Token      = token;
             m_TokenFrame = input.EngineFrame;
         }
@@ -829,8 +842,8 @@ namespace Desert::Graphic::Streamline
         constants.motionVectorsJittered  = sl::Boolean::eFalse; // velocity never carries the jitter
         if ( const sl::Result result = m_Library->SetConstants( constants, token, viewport );
              result != sl::Result::eOk )
-            return Common::MakeFormattedError( "slSetConstants(viewport {}): {}", input.Viewport,
-                                               ResultName( result ) );
+            return refuseEvaluation(
+                 std::format( "slSetConstants(viewport {}): {}", input.Viewport, ResultName( result ) ) );
 
         // Tagged locally, for this evaluation only: the images are graph resources valid for this pass, so nothing
         // is copied and nothing outlives the call.
@@ -859,10 +872,10 @@ namespace Desert::Graphic::Streamline
                   sl::kFeatureDLSS, token, const_cast<const sl::BaseStructure**>( inputs.data() ),
                   static_cast<uint32_t>( inputs.size() ), commandBuffer );
              result != sl::Result::eOk )
-            return Common::MakeFormattedError( "slEvaluateFeature(DLSS, viewport {}, {} {}x{} -> {}x{}): {}",
-                                               input.Viewport, DlssModeName( input.Mode ), input.RenderWidth,
-                                               input.RenderHeight, input.OutputWidth, input.OutputHeight,
-                                               ResultName( result ) );
+            return refuseEvaluation( std::format( "slEvaluateFeature(DLSS, viewport {}, {} {}x{} -> {}x{}): {}",
+                                                  input.Viewport, DlssModeName( input.Mode ), input.RenderWidth,
+                                                  input.RenderHeight, input.OutputWidth, input.OutputHeight,
+                                                  ResultName( result ) ) );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::Streamline

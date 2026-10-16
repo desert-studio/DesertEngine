@@ -1041,9 +1041,23 @@ namespace Desert::Graphic
         // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
         // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
+        // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
+        // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
+        // write its output.
+        const VendorMethodFallback vendor = ReplaceUnavailableVendorMethods(
+             m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             TemporalMethodUnavailable );
+        if ( vendor.Why != m_VendorFallbackSaid )
+        {
+            if ( !vendor.Why.empty() )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the view renders with the engine's temporal method instead",
+                           m_ViewResources.GetName(), vendor.Why );
+            m_VendorFallbackSaid = vendor.Why;
+        }
+        m_RenderedAntiAliasing                           = vendor.AntiAliasing;
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
              m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), m_DebugView.ScreenPercentage,
-             m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             m_RenderedAntiAliasing, vendor.Upscaler,
              m_Quality.As<Common::Scalability::EngineTemporalUpscaler>( Parameter::TemporalUpscaler ),
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {

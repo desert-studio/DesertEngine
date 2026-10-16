@@ -848,6 +848,8 @@ namespace Desert::Graphic
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
         // The anti-aliasing this view's frames ACTUALLY render, as ViewInputs::AntiAliasing (BeginScene).
         Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
+        // The vendor-method fallback last logged (ReplaceUnavailableVendorMethods::Why): logged when it changes.
+        std::string                        m_VendorFallbackSaid;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest

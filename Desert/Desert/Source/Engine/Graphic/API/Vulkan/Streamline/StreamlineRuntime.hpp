@@ -156,7 +156,7 @@ namespace Desert::Graphic::Streamline
 
         // IVulkanDeviceExtension
         [[nodiscard]] std::string_view         Name() const override;
-        [[nodiscard]] std::vector<const char*> InstanceExtensions() override;
+        [[nodiscard]] API::Vulkan::InstanceRequirements InstanceExtensions() override;
         void OnPhysicalDeviceSelected( VkInstance instance, vkb::PhysicalDevice& device ) override;
         void AmendCatalogProbe( API::Vulkan::CatalogProbe& probe ) const override;
         void OnDeviceCreated( const API::Vulkan::VulkanDeviceHandles& handles ) override;

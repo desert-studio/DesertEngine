@@ -61,6 +61,45 @@ namespace Desert::Graphic
         return nullptr;
     }
 
+    std::string TemporalMethodUnavailable( const TemporalMethod method )
+    {
+#if defined( DESERT_UPSCALER_DLSS )
+        if ( method == TemporalMethod::DLSS )
+            return DLSSUpscaler::Unavailable();
+#endif
+        // The engine's methods run wherever the engine runs; FSR's backend never refuses itself after the
+        // catalog offered it (Fsr3Upscaler reports a failed dispatch as that frame's error).
+        static_cast<void>( method );
+        return {};
+    }
+
+    VendorMethodFallback
+    ReplaceUnavailableVendorMethods( const Common::Scalability::PathAntiAliasing&               antiAliasing,
+                                     const Common::Scalability::Upscaler                        upscaler,
+                                     const std::function<std::string( TemporalMethod method )>& unavailable )
+    {
+        using Common::Scalability::AntiAliasingMethod;
+        using Common::Scalability::Upscaler;
+        VendorMethodFallback fallback{ .AntiAliasing = antiAliasing, .Upscaler = upscaler, .Why = {} };
+        const auto           replace =
+             [&]( const TemporalMethod method, const AntiAliasingMethod nativeAA, const Upscaler vendorUpscaler )
+        {
+            if ( antiAliasing.Method != nativeAA && upscaler != vendorUpscaler )
+                return;
+            const std::string why = unavailable( method );
+            if ( why.empty() )
+                return;
+            if ( antiAliasing.Method == nativeAA )
+                fallback.AntiAliasing.Method = AntiAliasingMethod::TAA;
+            if ( upscaler == vendorUpscaler )
+                fallback.Upscaler = Upscaler::None;
+            fallback.Why = why;
+        };
+        replace( TemporalMethod::DLSS, AntiAliasingMethod::DLAA, Upscaler::DLSS );
+        replace( TemporalMethod::FSR, AntiAliasingMethod::FSRNative, Upscaler::FSR );
+        return fallback;
+    }
+
     uint32_t ITemporalUpscaler::JitterSequenceLength( const ResolutionSplit& split ) const
     {
         return TemporalJitterSequenceLength( Method(), split );

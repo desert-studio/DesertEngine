@@ -25,7 +25,7 @@ namespace Desert::Graphic::API::Vulkan::FidelityFX
         static DeviceRequirements& Get();
 
         [[nodiscard]] std::string_view         Name() const override;
-        [[nodiscard]] std::vector<const char*> InstanceExtensions() override;
+        [[nodiscard]] InstanceRequirements InstanceExtensions() override;
         void OnPhysicalDeviceSelected( VkInstance instance, vkb::PhysicalDevice& device ) override;
         void AmendCatalogProbe( CatalogProbe& probe ) const override;
         void OnDeviceCreated( const VulkanDeviceHandles& handles ) override;
