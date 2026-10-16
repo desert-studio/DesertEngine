@@ -60,7 +60,21 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameNoSunCascades( RDG::Builder& graph )
+    {
+        const RDG::TextureRef none = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
+                                                                            .Format = ViewTargetFormats::kShadowDepth,
+                                                                            .Layers = 1,
+                                                                            .Dim    = RDG::TextureDim::Tex2DArray },
+                                                          "CSM.None" );
+        graph.AddPass(
+             "CSM.None", RDG::PassFlags::Raster, [none]( RDG::PassBuilder& pass )
+             { pass.DepthTarget( none, RDG::LoadOp::ClearDepth( 1.0f ) ); },
+             []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+        return none;
+    }
+
+    void SceneRenderer::ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
         if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
@@ -78,17 +92,15 @@ namespace Desert::Graphic
         // which takes no 2D stand-in, so the view gets a one-texel array cleared to the far plane - 1 under the
         // cascades' standard Z, "no occluder" - and the shader's cascade count (0) never reads it anyway.
         if ( !view.ShadowCascades.IsValid() )
-        {
-            view.ShadowCascades = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
-                                                                         .Format = ViewTargetFormats::kShadowDepth,
-                                                                         .Layers = 1,
-                                                                         .Dim    = RDG::TextureDim::Tex2DArray },
-                                                       "CSM.None" );
-            graph.AddPass(
-                 "CSM.None", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
-                 { pass.DepthTarget( view.ShadowCascades, RDG::LoadOp::ClearDepth( 1.0f ) ); },
-                 []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
-        }
+            view.ShadowCascades = AddFrameNoSunCascades( graph );
+    }
+
+    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The sun's cascades and the local lights' atlas are NOT imported here: their budget follows the frame's
+        // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
+        // (ImportViewShadowMaps).
+        FrameTransients& view = textures.Transients;
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
@@ -390,30 +402,30 @@ namespace Desert::Graphic
         }
         const FrameGraphRefs                          refs = textures.GraphRefs();
         GlobalIllumination::RadianceCacheUpdateInputs inputs;
-        inputs.GBufferDepth        = depth;
-        inputs.GBufferA            = gbuffer[0];
-        inputs.GBufferB            = gbuffer[1];
-        inputs.GBufferEmissive     = gbuffer[3];
-        inputs.EnvSpecular         = SceneViewInputsOf( refs ).EnvSpecular;
-        inputs.Tracer              = MakeTracerFrame( graph, textures, m_GIPipeline );
+        inputs.GBufferDepth    = depth;
+        inputs.GBufferA        = gbuffer[0];
+        inputs.GBufferB        = gbuffer[1];
+        inputs.GBufferEmissive = gbuffer[3];
+        inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
+        inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
         // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
         // refused by the consumers (SurfaceCacheFrameMissing), never traced against stale records.
         if ( m_SurfaceCacheFrame )
             inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
-        inputs.PointLights         = t.Lights.Point;
-        inputs.SpotLights          = t.Lights.Spot;
-        inputs.WorldGridParams     = t.Lights.WorldGridParams;
-        inputs.WorldGridCells      = t.Lights.WorldGridCells;
-        inputs.CameraPosition      = frame.CameraPosition;
-        inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        inputs.PointLights     = t.Lights.Point;
+        inputs.SpotLights      = t.Lights.Spot;
+        inputs.WorldGridParams = t.Lights.WorldGridParams;
+        inputs.WorldGridCells  = t.Lights.WorldGridCells;
+        inputs.CameraPosition  = frame.CameraPosition;
+        inputs.Extent          = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         GlobalIllumination::GIFramePayload payload;
-        payload.InvViewProjection                   = frame.InvJitteredViewProjection;
-        payload.ViewProjection                      = glm::inverse( frame.InvJitteredViewProjection );
-        payload.Camera                              = glm::vec4( frame.CameraPosition, 1.0f );
-        const bool hasSun                           = !m_DirectionLights.DirectionLights.empty();
-        payload.SunTravel   = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        payload.InvViewProjection = frame.InvJitteredViewProjection;
+        payload.ViewProjection    = glm::inverse( frame.InvJitteredViewProjection );
+        payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
+        const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
+        payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
+        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
         if ( const auto& env = GetEnvironment(); env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
@@ -538,7 +550,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                           System::MeshRenderer* meshRenderer,
+                                           const RDG::TextureRef sunShadowMask, System::MeshRenderer* meshRenderer,
                                            const glm::vec4& lightDir, const glm::vec4& lightColor,
                                            const ViewFrame& frame )
     {
@@ -584,15 +596,20 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
-        if ( meshRenderer != nullptr )
+        if ( SunShadowIsRayTraced() )
         {
-            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-            shadow.Count                = meshRenderer->GetValidCascadeCount();
-            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-            shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
-            shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
+            // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
+            // never shadowed by cascades no pass drew.
+            inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
+            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
         }
+        else if ( meshRenderer != nullptr )
+            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
+                                                .Count                = meshRenderer->GetValidCascadeCount(),
+                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
+                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
+                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
+                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();

@@ -86,10 +86,19 @@ namespace Desert::Graphic::RDG
     // What the shader slot is. Checked against the reflected descriptor type by the consumer.
     enum class ShaderResourceKind : uint8_t
     {
-        SampledTexture, // sampler2D, read with the entry's SamplerDesc
+        // A separate texture2D / textureCube(Array) (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE), read through a Sampler
+        // slot the same pass fills. An element of an arrayed slot is named "<name>[<element>]".
+        Texture,
+        // A separate `sampler` slot (VK_DESCRIPTOR_TYPE_SAMPLER): the entry's SamplerDesc, no resource. UE's
+        // shared sampler state: a few of them serve every Texture input of a pass, which keeps a screen pass under
+        // maxPerStageDescriptorSamplers (16 on MoltenVK) however many inputs it reads.
+        Sampler,
         StorageTexture, // image2D, one mip
         UniformBuffer,
         StorageBuffer,
+        // accelerationStructureEXT (ray query): a TLAS buffer the pass declares as AccelStructRead; the backend
+        // binds the acceleration structure that buffer stores, not the buffer.
+        AccelerationStructure,
     };
 
     // RDG-FAULT1. A shader's resource interface as the graph sees it: names and kinds, no set / binding indices
@@ -99,7 +108,7 @@ namespace Desert::Graphic::RDG
     struct ShaderSlot
     {
         std::string        Name;
-        ShaderResourceKind Kind = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind Kind = ShaderResourceKind::Texture;
     };
 
     struct ShaderBindingLayout
@@ -121,12 +130,12 @@ namespace Desert::Graphic::RDG
     struct DeclaredBindingEntry
     {
         std::string                ShaderName;
-        ShaderResourceKind         Kind     = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind         Kind     = ShaderResourceKind::Texture;
         ResourceKind               Resource = ResourceKind::Texture;
         uint32_t                   Index    = kInvalidResource;
         Access                     Declared = Access::None;
         SubresourceRange           Range    = SubresourceRange::All();
-        std::optional<SamplerDesc> Sampler; // SampledTexture only
+        std::optional<SamplerDesc> Sampler; // Sampler only
     };
 
     struct DeclaredBindingBlock

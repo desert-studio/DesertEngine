@@ -108,8 +108,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on SceneDepthResolved: opens block 0.

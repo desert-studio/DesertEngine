@@ -4,11 +4,20 @@ Shader "SceneComposite"
     Fragment
     {
         In(0) vec2 v_TexCoord;
-        Uniform(2) sampler2D u_GeometryTexture;
-        Uniform(3) sampler2D u_BloomTexture;
-        Uniform(4) sampler2D u_AvgLuminance;      // 1x1 adapted luminance (eye adaptation)
-        Uniform(5) sampler2D u_LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
-        Uniform(6) sampler2D u_LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_LinearRepeatSampler;
+        Uniform(7) sampler u_LinearClampSampler;
+        Uniform(2) texture2D u_GeometryTexture;
+        #define u_GeometryTexture sampler2D(u_GeometryTexture, u_LinearRepeatSampler)
+        Uniform(3) texture2D u_BloomTexture;
+        #define u_BloomTexture sampler2D(u_BloomTexture, u_LinearClampSampler)
+        Uniform(4) texture2D u_AvgLuminance;      // 1x1 adapted luminance (eye adaptation)
+        #define u_AvgLuminance sampler2D(u_AvgLuminance, u_LinearRepeatSampler)
+        Uniform(5) texture2D u_LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
+        #define u_LightShaftTexture sampler2D(u_LightShaftTexture, u_LinearClampSampler)
+        Uniform(6) texture2D u_LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
+        #define u_LensFlareTexture sampler2D(u_LensFlareTexture, u_LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB

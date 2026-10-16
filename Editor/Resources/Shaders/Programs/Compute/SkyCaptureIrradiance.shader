@@ -20,7 +20,11 @@ Shader "SkyCaptureIrradiance"
 
         const float PI = 3.141592653589793;
 
-        Uniform(0) samplerCube u_Radiance; // the radiance cube's coarse mip only (a single-mip view)
+        // The radiance cube's coarse mip only (a single-mip view), a separate texture read through POINT CLAMP
+        // (Graphic::kComputeImagesSamplerBinding on the .hdr path): every texel is summed exactly once.
+        Uniform(0) textureCube u_Radiance;
+        Uniform(2) sampler u_PointClampSampler;
+        #define u_Radiance samplerCube(u_Radiance, u_PointClampSampler)
         layout(binding = 1, rgba32f) writeonly uniform imageCube u_Output;
 
         // The direction of the face texel at (st in [0,1]^2), the convention PanoramaToCubemap writes the cube in.

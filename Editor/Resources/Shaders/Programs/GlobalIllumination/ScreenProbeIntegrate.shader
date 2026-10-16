@@ -43,11 +43,21 @@ Shader "ScreenProbeIntegrate"
         {
             vec4 screenProbeSH[];
         };
-        Uniform(5) sampler2D u_ScreenProbeFiltered;
-        Uniform(6) sampler2D u_GBufferDepth;
-        Uniform(7) sampler2D u_GBufferB;
-        Uniform(8) sampler2D u_ScreenProbeDiffuseHistory;
-        Uniform(9) sampler2D u_ScreenProbeSpecularHistory;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(5) texture2D u_ScreenProbeFiltered;
+        #define u_ScreenProbeFiltered sampler2D(u_ScreenProbeFiltered, u_LinearClampSampler)
+        Uniform(6) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(7) texture2D u_GBufferB;
+        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform(8) texture2D u_ScreenProbeDiffuseHistory;
+        #define u_ScreenProbeDiffuseHistory sampler2D(u_ScreenProbeDiffuseHistory, u_LinearClampSampler)
+        Uniform(9) texture2D u_ScreenProbeSpecularHistory;
+        #define u_ScreenProbeSpecularHistory sampler2D(u_ScreenProbeSpecularHistory, u_LinearClampSampler)
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ScreenProbeDiffuseOut;
         layout(binding = 11, rgba16f) restrict writeonly uniform image2D u_ScreenProbeSpecularOut;
         #define SCREEN_PROBES_DECLARED

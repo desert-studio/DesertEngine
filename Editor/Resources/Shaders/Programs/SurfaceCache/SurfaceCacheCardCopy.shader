@@ -10,10 +10,15 @@ Shader "SurfaceCacheCardCopy"
     {
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_CaptureAlbedo;
-        Uniform(1) sampler2D u_CaptureNormal;
-        Uniform(2) sampler2D u_CaptureEmissive;
-        Uniform(3) sampler2D u_CaptureDepth;
+        Uniform sampler u_PointClampSampler;
+        Uniform(0) texture2D u_CaptureAlbedo;
+        #define u_CaptureAlbedo sampler2D(u_CaptureAlbedo, u_PointClampSampler)
+        Uniform(1) texture2D u_CaptureNormal;
+        #define u_CaptureNormal sampler2D(u_CaptureNormal, u_PointClampSampler)
+        Uniform(2) texture2D u_CaptureEmissive;
+        #define u_CaptureEmissive sampler2D(u_CaptureEmissive, u_PointClampSampler)
+        Uniform(3) texture2D u_CaptureDepth;
+        #define u_CaptureDepth sampler2D(u_CaptureDepth, u_PointClampSampler)
         // Two uvec4 per page copy (SurfaceCache::CardPageCopy): (capture origin xy, card resolution zw),
         // (atlas origin xy, page size x | y << 16, card texel offset x | y << 16).
         ReadBuffer(4) SurfaceCardPageCopies

@@ -67,8 +67,8 @@ namespace Desert::Graphic::System
         void DeclareBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneDepth ) const
         {
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const

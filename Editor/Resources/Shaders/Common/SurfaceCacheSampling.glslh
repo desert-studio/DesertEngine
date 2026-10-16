@@ -52,9 +52,15 @@ layout( std430, binding = GI_SURFACE_CACHE_BINDING + 4 ) readonly buffer Surface
 {
     uint surfaceCacheGrid[];
 };
-layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform sampler2D u_SurfaceCacheFinalLighting;
-layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform sampler2D u_SurfaceCacheDepth;
-layout( binding = GI_SURFACE_CACHE_BINDING + 7 ) uniform sampler2D u_SurfaceCacheOpacity;
+// The atlas layers are separate textures read through the includer's point-clamped shared state (UE shared
+// samplers; DeclareSurfaceCacheReads binds u_PointClampSampler with them): the includer declares
+// u_PointClampSampler, as every tracer program does for its G-buffer reads.
+layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform texture2D u_SurfaceCacheFinalLighting;
+#define u_SurfaceCacheFinalLighting sampler2D(u_SurfaceCacheFinalLighting, u_PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D u_SurfaceCacheDepth;
+#define u_SurfaceCacheDepth sampler2D(u_SurfaceCacheDepth, u_PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 7 ) uniform texture2D u_SurfaceCacheOpacity;
+#define u_SurfaceCacheOpacity sampler2D(u_SurfaceCacheOpacity, u_PointClampSampler)
 
 #define SURFACE_CACHE_GRID_HEADER 8u
 // Below this summed weight the cards hold too little of the hit to stand for it (UE: bValid needs a weight).

@@ -170,11 +170,7 @@ namespace
             names.insert( resource.Name );
         for ( const auto& [binding, resource] : set.StorageBuffers )
             names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
+        for ( const auto& [binding, resource] : set.SampledImages )
             names.insert( resource.Name );
         return names;
     }

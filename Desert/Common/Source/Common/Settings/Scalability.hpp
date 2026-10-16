@@ -105,9 +105,9 @@ namespace Common::Scalability
                             // off..32
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
-        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
-        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
+        DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
+        AmbientOcclusionSamples, // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
@@ -122,12 +122,24 @@ namespace Common::Scalability
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // GPU skin cache (RayTracing::RayTracingSkinCache): 1 = each skinned primitive skinned once per frame in
+        // compute, the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no
+        // skinned TLAS geometry. Values: 0/1
+        SkinCache,
         // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
         // costs against what building the grid costs. The image is the same at every value (a cell whose list is
         // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
         LightGridPixelSize,        // tile edge in render pixels. 16..256
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
+        // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
+        // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
+        ShadowRayTracedSamplesPerPixel,
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // (translucency; volumes when one reads them): drawn only on a frame with such a reader
+        // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
+        ShadowRayTracedTranslucencyCascades,
+        ShadowRayTracedTranslucencyMapSize,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

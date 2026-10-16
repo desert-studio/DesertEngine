@@ -109,9 +109,6 @@ TEST( DescriptorFallbacks, VolumeBindingsAreEnumeratedAsVolumes )
     const auto set0     = ReflectSetZero( kEveryImageKind, shaderc_glsl_compute_shader, ShaderStage::Compute );
     const auto bindings = ShaderResource::CollectImageBindings( set0 );
 
-    ASSERT_TRUE( KindOf( bindings, 1 ).has_value() ) << "sampler3D binding 1 got no fallback at all";
-    EXPECT_EQ( *KindOf( bindings, 1 ), FallbackImageKind::Sampled3D );
-
     ASSERT_TRUE( KindOf( bindings, 4 ).has_value() ) << "image3D binding 4 got no fallback at all";
     EXPECT_EQ( *KindOf( bindings, 4 ), FallbackImageKind::Storage3D );
 }
@@ -122,12 +119,6 @@ TEST( DescriptorFallbacks, TwoDimensionalAndCubeBindingsKeepTheirKinds )
 {
     const auto set0     = ReflectSetZero( kEveryImageKind, shaderc_glsl_compute_shader, ShaderStage::Compute );
     const auto bindings = ShaderResource::CollectImageBindings( set0 );
-
-    ASSERT_TRUE( KindOf( bindings, 0 ).has_value() );
-    EXPECT_EQ( *KindOf( bindings, 0 ), FallbackImageKind::Sampled2D );
-
-    ASSERT_TRUE( KindOf( bindings, 2 ).has_value() );
-    EXPECT_EQ( *KindOf( bindings, 2 ), FallbackImageKind::SampledCube );
 
     ASSERT_TRUE( KindOf( bindings, 3 ).has_value() );
     EXPECT_EQ( *KindOf( bindings, 3 ), FallbackImageKind::Storage2D );

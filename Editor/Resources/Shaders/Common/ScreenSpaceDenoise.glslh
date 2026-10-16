@@ -2,8 +2,9 @@
 // SSDTemporalAccumulation.usf), included by the four passes of System::ScreenSpaceDenoiser:
 //   Programs/Denoise/SSDReconstructReflections.shader - reflections: ratio estimator over the half-res trace
 //   Programs/Denoise/SSDReconstructDiffuse.shader     - diffuse indirect: bilateral spatial reconstruction
-//   Programs/Denoise/SSDTemporalAccumulation.shader   - both signals: reprojection, variance rejection, counting
-//   Programs/Denoise/SSDHistoryConvolution.shader     - both signals: bilateral post filter by the sample count
+//   Programs/Denoise/SSDReconstructShadowVisibility.shader - shadow visibility: penumbra-sized bilateral kernel
+//   Programs/Denoise/SSDTemporalAccumulation.shader   - every signal: reprojection, variance rejection, counting
+//   Programs/Denoise/SSDHistoryConvolution.shader     - every signal: bilateral post filter by the sample count
 // A signal is (rgb, a): rgb = the radiance where the signal answered, a = the share it answered (the COVERAGE;
 // 1 - a is answered by the next source). Between the passes it travels PREMULTIPLIED (rgb * a, a): blending and
 // clamping straight colour would weigh a texel that answered nothing like one that answered everything.
@@ -15,9 +16,11 @@ const float kSSDPi = 3.14159265358979;
 // ScreenSpaceDenoiser.hpp DenoiserSignal - the push constant's signal id.
 const int kSSDSignalReflections     = 0;
 const int kSSDSignalDiffuseIndirect = 1;
+const int kSSDSignalShadowVisibility = 2;
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
-// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect: every surface pixel.
+// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect and shadow visibility: every
+// surface pixel.
 bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
 {
 	if (signal == kSSDSignalReflections)
@@ -33,14 +36,16 @@ struct SSDSceneInfo
 	float Roughness;
 };
 
-SSDSceneInfo SSDLoadSceneInfo(sampler2D gbufferNormal, sampler2D gbufferDepth, mat4 invJitteredViewProjection,
+// The G-buffer comes in as separate textures and is read through the includer's u_PointClampSampler (declared
+// BEFORE including this file): a constructed sampler2D only at a lookup, never as a function argument.
+SSDSceneInfo SSDLoadSceneInfo(texture2D gbufferNormal, texture2D gbufferDepth, mat4 invJitteredViewProjection,
                               ivec2 pixel, vec2 viewSize)
 {
-	const vec4   gb = texelFetch(gbufferNormal, pixel, 0);
+	const vec4   gb = texelFetch(sampler2D(gbufferNormal, u_PointClampSampler), pixel, 0);
 	SSDSceneInfo info;
 	info.Normal    = dot(gb.rgb, gb.rgb) > 0.0 ? normalize(gb.rgb) : vec3(0.0);
 	info.Roughness = gb.a;
-	info.Position  = ReconstructWorldPosition((vec2(pixel) + 0.5) / viewSize, texelFetch(gbufferDepth, pixel, 0).r,
+	info.Position  = ReconstructWorldPosition((vec2(pixel) + 0.5) / viewSize, texelFetch(sampler2D(gbufferDepth, u_PointClampSampler), pixel, 0).r,
 	                                          invJitteredViewProjection);
 	return info;
 }

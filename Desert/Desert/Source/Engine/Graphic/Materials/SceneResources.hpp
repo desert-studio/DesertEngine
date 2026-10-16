@@ -78,7 +78,7 @@ namespace Desert::Graphic::SceneResources
     }
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";
-    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // sampler2DArray, layer c
+    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // texture2DArray, layer c
     inline constexpr const char* kEnvIrradianceName            = "u_EnvIrradianceTex";
     inline constexpr const char* kEnvSpecularName              = "u_EnvSpecularTex";
     inline constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Texture.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 

@@ -11,7 +11,8 @@
 // follows the empty space it crosses instead of a step count.
 //
 // THE INCLUDER DECLARES the hierarchy before including this file:
-//   Uniform(n) sampler2D u_HZB; // all mips, point sampled (texelFetch only)
+//   Uniform(n) texture2D u_HZB; // all mips, point sampled (texelFetch only)
+//   #define u_HZB sampler2D(u_HZB, u_PointClampSampler) // through a shared sampler state of the pass
 //
 // Screen space here is (uv, deviceZ): uv (0,0) top-left (Common/ScreenUV.glslh), deviceZ the reversed-Z depth. A
 // straight world ray is a straight line in that space (z/w is affine in the screen), so the ray is origin +

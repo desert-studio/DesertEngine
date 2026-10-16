@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -103,7 +104,10 @@ namespace Desert::Graphic::System
     // ground.
     struct LandscapeWeightDraw
     {
-        Image2D*                                                           Weightmap  = nullptr;
+        std::shared_ptr<Image2D> Weightmap;
+        // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
+        // ray-tracing BLAS of the tile reclassifies its hole cells on a change.
+        uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
         std::array<glm::vec4, 2>                                           AlphaBlend{};
@@ -131,6 +135,10 @@ namespace Desert::Graphic::System
         uint32_t QuadsPerTile = 0u;
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
+        // The tile's entity (its GPU-scene motion row and ray-tracing state are keyed by it), and the revision
+        // of the heightmap's pixels, bumped whenever LandscapeECSSystem rewrites them (sculpt, neighbour ring).
+        uint32_t Entity         = 0u;
+        uint64_t HeightRevision = 0u;
     };
 
     // ── Landscape LOD ───────────────────────────────────────────────────────────────────────────────

@@ -28,8 +28,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // One capability on its planned route: asked and, when present, enabled. The feature bits chosen
-        // for DescriptorIndexing are the bindless subset VKF2 will use (runtime arrays, partially bound,
-        // variable count, non-uniform sampled-image indexing), not the whole extension.
+        // for DescriptorIndexing are the bindless table's subset (runtime arrays, partially bound, variable
+        // count, non-uniform sampled-image indexing, sampled-image update-after-bind, update-unused-while-
+        // pending: the table is written while earlier frames are still in flight), not the whole extension.
         bool ProbeAndEnable( vkb::PhysicalDevice& device, Capability capability, CapabilityRoute route )
         {
             const CapabilitySpec& spec = SpecOf( capability );
@@ -77,18 +78,22 @@ namespace Desert::Graphic::API::Vulkan
                     {
                         VkPhysicalDeviceVulkan12Features f{
                              VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-                        f.runtimeDescriptorArray                    = VK_TRUE;
-                        f.descriptorBindingPartiallyBound           = VK_TRUE;
-                        f.descriptorBindingVariableDescriptorCount  = VK_TRUE;
-                        f.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+                        f.runtimeDescriptorArray                       = VK_TRUE;
+                        f.descriptorBindingPartiallyBound              = VK_TRUE;
+                        f.descriptorBindingVariableDescriptorCount     = VK_TRUE;
+                        f.shaderSampledImageArrayNonUniformIndexing    = VK_TRUE;
+                        f.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                        f.descriptorBindingUpdateUnusedWhilePending    = VK_TRUE;
                         return device.enable_extension_features_if_present( f );
                     }
                     VkPhysicalDeviceDescriptorIndexingFeatures f{
                          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-                    f.runtimeDescriptorArray                    = VK_TRUE;
-                    f.descriptorBindingPartiallyBound           = VK_TRUE;
-                    f.descriptorBindingVariableDescriptorCount  = VK_TRUE;
-                    f.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+                    f.runtimeDescriptorArray                       = VK_TRUE;
+                    f.descriptorBindingPartiallyBound              = VK_TRUE;
+                    f.descriptorBindingVariableDescriptorCount     = VK_TRUE;
+                    f.shaderSampledImageArrayNonUniformIndexing    = VK_TRUE;
+                    f.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                    f.descriptorBindingUpdateUnusedWhilePending    = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
                 case Capability::BufferDeviceAddress:
@@ -175,6 +180,35 @@ namespace Desert::Graphic::API::Vulkan
             return std::format( "{} {}", std::string( driver.driverName ), std::string( driver.driverInfo ) );
         }
 
+        // The bindless table's ceilings. The properties struct is core 1.2 and the extension's own on 1.1
+        // with one layout, so a device on either route answers through the same chain.
+        DescriptorIndexingLimits DescriptorIndexingLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            VkPhysicalDeviceDescriptorIndexingProperties indexing{
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES };
+            VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &indexing };
+            vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
+            DescriptorIndexingLimits limits;
+            limits.MaxPerStageUpdateAfterBindSampledImages =
+                 indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
+            limits.MaxSetUpdateAfterBindSampledImages  = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
+            limits.MaxPerStageUpdateAfterBindSamplers  = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSamplers       = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxPerStageUpdateAfterBindResources = indexing.maxPerStageUpdateAfterBindResources;
+            return limits;
+        }
+
+        PerStageDescriptorLimits PerStageDescriptorLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            const VkPhysicalDeviceLimits& limits = device.properties.limits;
+            return PerStageDescriptorLimits{ .MaxSamplers       = limits.maxPerStageDescriptorSamplers,
+                                             .MaxSampledImages  = limits.maxPerStageDescriptorSampledImages,
+                                             .MaxUniformBuffers = limits.maxPerStageDescriptorUniformBuffers,
+                                             .MaxStorageBuffers = limits.maxPerStageDescriptorStorageBuffers,
+                                             .MaxStorageImages  = limits.maxPerStageDescriptorStorageImages,
+                                             .MaxResources      = limits.maxPerStageResources };
+        }
+
         ProbedDevice Probe( const vkb::PhysicalDevice& candidate )
         {
             ProbedDevice probed;
@@ -196,6 +230,9 @@ namespace Desert::Graphic::API::Vulkan
                               DependenciesPresent( probed.Caps, capability ) &&
                               ProbeAndEnable( device, capability, row.Route );
             }
+            if ( probed.Caps.Has( Capability::DescriptorIndexing ) )
+                probed.Caps.DescriptorIndexing = DescriptorIndexingLimitsOf( device );
+            probed.Caps.PerStage = PerStageDescriptorLimitsOf( device );
             return probed;
         }
 

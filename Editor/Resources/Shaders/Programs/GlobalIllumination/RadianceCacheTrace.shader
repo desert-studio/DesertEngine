@@ -41,12 +41,23 @@ Shader "RadianceCacheTrace"
         #include <Mesh/LightGrid.glslh>
 
         // 11..15: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
-        Uniform(16) samplerCube u_EnvSpecularTex;
-        Uniform(17) sampler2D u_GBufferDepth;
-        Uniform(18) sampler2D u_GBufferA;
-        Uniform(19) sampler2D u_GBufferEmissive;
-        Uniform(20) sampler2D u_RadianceCacheIrradiance;
-        Uniform(21) sampler2D u_RadianceCacheDepth;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(16) textureCube u_EnvSpecularTex;
+        #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
+        Uniform(17) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(18) texture2D u_GBufferA;
+        #define u_GBufferA sampler2D(u_GBufferA, u_PointClampSampler)
+        Uniform(19) texture2D u_GBufferEmissive;
+        #define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_PointClampSampler)
+        Uniform(20) texture2D u_RadianceCacheIrradiance;
+        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
+        Uniform(21) texture2D u_RadianceCacheDepth;
+        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
         layout(binding = 22, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection

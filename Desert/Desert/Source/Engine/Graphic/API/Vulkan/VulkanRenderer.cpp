@@ -170,6 +170,9 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
@@ -441,11 +444,23 @@ namespace Desert::Graphic::API::Vulkan
             using Sets = std::vector<VkDescriptorSet>;
             Sets sets;
             sets.reserve( layouts.size() );
+            // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
+            // bound as it is, and slots written into it later reach commands already recorded. A layout is the
+            // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
+            // table exists whenever this matches.
+            const VulkanBindlessTextureTable* bindless   = BindlessTableIn( layouts );
+            const auto                        isBindless = [bindless]( size_t set )
+            { return bindless != nullptr && set == kBindlessSetIndex; };
             for ( size_t index = 0; index < layouts.size(); ++index )
             {
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
+                if ( isBindless( index ) )
+                {
+                    sets.push_back( bindless->GetDescriptorSet() );
+                    continue;
+                }
                 const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
@@ -459,6 +474,11 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry.Slot.Set >= sets.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
                                                              pass, name, entry.Slot.Set, sets.size() );
+                if ( isBindless( entry.Slot.Set ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
+                         "through BindlessTextureTable::Register",
+                         pass, name, entry.Slot.Set );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
@@ -467,26 +487,38 @@ namespace Desert::Graphic::API::Vulkan
                          entry.Slot.Set, entry.Slot.Binding );
                 VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
-                if ( entry.Texture != nullptr )
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                {
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
+                             static_cast<int>( binding->descriptorType ) );
+                    const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
+                    if ( !made )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                }
+                else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    VkSampler sampler = VK_NULL_HANDLE;
-                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                    {
-                        if ( !texture.Sampler )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
-                                                                     pass, name );
-                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
-                        if ( !made )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                        sampler = made.GetValue();
-                    }
-                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler );
+                    if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
+                             "texture is read through a Sampler slot of the pass",
+                             pass, name, static_cast<int>( binding->descriptorType ) );
+                    written =
+                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
+                }
+                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                {
+                    written = descriptors.WriteAccelerationStructure(
+                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
                 }
                 else
                 {
@@ -1207,8 +1239,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors =
-                 std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, EngineSamplerCache(), slots );
+            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>(
+                 m_RdgDevice.Device, EngineSamplerCache(), slots, device->GetRayTracingFunctions().Complete() );
 
             // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
             // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose

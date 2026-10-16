@@ -162,21 +162,24 @@ namespace Desert::Graphic
             SurfaceCache::SurfaceCacheRenderer::DirectLightingInputs lighting;
             lighting.View   = SceneViewInputsOf( refs );
             lighting.Lights = refs.Transients.Lights;
+            // The card texels read the sun's cascades (the cascade arm): under a ray-traced sun with no
+            // cascade reader this frame, the view's cascades are the far-plane stand-in (AddFrameNoSunCascades)
+            // and the tracer's rays shadow the cards.
             DeferredShadowInput shadow;
-            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-            shadow.Count                = meshRenderer->GetValidCascadeCount();
-            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-            shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
-            shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
+            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
+                                                .Count                = meshRenderer->GetValidCascadeCount(),
+                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
+                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
+                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
+                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
             // A card texel has no screen depth to march: the block states the view's contact settings with no
             // steps (GetContactShadowSettings), so the cache reads the same ShadowUB layout with the march off.
-            shadow.Contact              = GetContactShadowSettings( frame, false );
-            lighting.Shadow             = PackDeferredShadow( shadow );
-            lighting.Cloud              = CloudShadowPackUniforms( GetCloudShadowInput() );
-            const FrameSun sun          = GetFrameSun();
-            lighting.LightDir           = sun.Direction;
-            lighting.LightColor         = sun.ColorIntensity;
+            shadow.Contact      = GetContactShadowSettings( frame, false );
+            lighting.Shadow     = PackDeferredShadow( shadow );
+            lighting.Cloud      = CloudShadowPackUniforms( GetCloudShadowInput() );
+            const FrameSun sun  = GetFrameSun();
+            lighting.LightDir   = sun.Direction;
+            lighting.LightColor = sun.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).

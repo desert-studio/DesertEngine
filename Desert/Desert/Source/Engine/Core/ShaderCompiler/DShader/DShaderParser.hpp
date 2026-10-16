@@ -101,6 +101,14 @@ namespace Desert::Core::Preprocess
     // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
     // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
     inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
+    // THE DEPTH-NORMAL ENTRY OF A TEMPLATE WITHOUT A SURFACE BLOCK (Graphic::MeshPass::DepthNormal). Such a
+    // template is hand-written, so the parser cannot derive the pass from a surface function: an OPAQUE
+    // mesh-domain one declares it as a named pass of this name, writing reversed-Z depth and the world normal
+    // into the G-buffer's normal slot (Mesh/Generic/DepthNormal.glslh; every other colour slot unwritten, so
+    // its write mask is 0 - VulkanShaderReflection BuildColorBlendAttachments). A `BlendMode Masked` template
+    // discards there exactly as its default program does. The deferred path draws it in "Deferred: Forward
+    // Depth/Normal" so the G-buffer's screen-space readers see the forward-shaded mesh (UE: the depth prepass).
+    inline constexpr std::string_view kGenericDepthNormalPass = "DepthNormal";
     // THE DEFAULT PROGRAM AND THE DEFAULT CELL ARE ONE PROGRAM (UE: one FMaterialShaderMap entry per cell, not a
     // copy for the lookup by name). Every consumer that enumerates a template's cells — ShaderService's
     // registration, the boot content's shader maps, the package cook, the shader map key — compiles the default
@@ -188,8 +196,8 @@ namespace Desert::Core::Preprocess
     // Headers the parser writes into a stage that the authored text never names. A key computed over the
     // AUTHORED text (the shader map's, see ShaderCacheKey.hpp) must hash these as well, or editing one would
     // leave every material program on its old binary.
-    inline constexpr std::array<std::string_view, 1> kParserInjectedIncludes = {
-         "Common/MaterialTransport.glslh" };
+    inline constexpr std::array<std::string_view, 2> kParserInjectedIncludes = { "Common/MaterialTransport.glslh",
+                                                                                 "Common/BindlessTextures.glslh" };
 
     class DShaderParser
     {

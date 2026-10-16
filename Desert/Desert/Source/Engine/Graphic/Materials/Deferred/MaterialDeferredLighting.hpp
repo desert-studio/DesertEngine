@@ -19,12 +19,16 @@
 
 #include <glm/glm.hpp>
 
+#include <Engine/Graphic/RDG/RDGResources.hpp>
+
+#include <type_traits>
 #include <unordered_set>
+#include <variant>
 
 namespace Desert::Graphic
 {
-    // CSM data the deferred lighting pass needs to shadow the sun (mirrors Graphic::SceneShadowBind).
-    struct DeferredShadowInput
+    // The sun's cascades (mirrors Graphic::SceneShadowBind): the composite's default program samples them.
+    struct DeferredCascadeShadow
     {
         const glm::mat4* CascadeVP            = nullptr; // [Count] light view-proj matrices
         uint32_t         Count                = 0;
@@ -32,6 +36,19 @@ namespace Desert::Graphic
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
         glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
         float            SourceTanHalf        = 0.0f;
+    };
+
+    // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask, read by the
+    // composite's DESERT_SUN_SHADOW_RAY_QUERY program in place of the cascades.
+    struct DeferredScreenShadowMask
+    {
+        RDG::TextureRef Mask; // r = visibility, 1 = lit
+    };
+
+    // What the deferred lighting pass shadows the sun with: the arm IS the program (no method uniform).
+    struct DeferredShadowInput
+    {
+        std::variant<DeferredCascadeShadow, DeferredScreenShadowMask> Sun;
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
     };
@@ -41,16 +58,34 @@ namespace Desert::Graphic
     // composite's and the surface-cache lighting's one packer.
     [[nodiscard]] inline SceneResources::ShadowUBData PackDeferredShadow( const DeferredShadowInput& shadow )
     {
+        constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
         SceneResources::ShadowUBData data{};
-        const uint32_t               n =
-             shadow.Count < SceneResources::kMaxCascades ? shadow.Count : SceneResources::kMaxCascades;
-        for ( uint32_t i = 0; i < SceneResources::kMaxCascades; ++i )
-            data.LightViewProj[i] = ( i < n && shadow.CascadeVP ) ? shadow.CascadeVP[i] : glm::mat4( 1.0f );
-        data.Params =
-             glm::vec4( shadow.SourceTanHalf, shadow.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
-        data.DebugParams       = glm::vec4( 0.0f );
-        data.CascadeTexelWorld = shadow.CascadeWorldPerTexel;
-        data.CascadeDepthRange = shadow.CascadeDepthRange;
+        data.DebugParams = glm::vec4( 0.0f );
+        std::visit(
+             [&data]( const auto& sun )
+             {
+                 using Arm = std::decay_t<decltype( sun )>;
+                 if constexpr ( std::is_same_v<Arm, DeferredCascadeShadow> )
+                 {
+                     const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
+                     for ( uint32_t i = 0; i < kCascades; ++i )
+                         data.LightViewProj[i] = ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
+                     data.Params = glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f,
+                                              static_cast<float>( n ) );
+                     data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
+                     data.CascadeDepthRange = sun.CascadeDepthRange;
+                 }
+                 else
+                 {
+                     // The mask program reads no cascade: the block keeps only its "enabled" word.
+                     for ( glm::mat4& viewProj : data.LightViewProj )
+                         viewProj = glm::mat4( 1.0f );
+                     data.Params            = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );
+                     data.CascadeTexelWorld = glm::vec4( 1.0f );
+                     data.CascadeDepthRange = glm::vec4( 1.0f );
+                 }
+             },
+             shadow.Sun );
         SceneResources::PackContactShadow( data, shadow.Contact );
         return data;
     }
@@ -94,7 +129,10 @@ namespace Desert::Graphic
     class MaterialDeferredLighting final : public Material
     {
     public:
-        MaterialDeferredLighting() : Material( "MaterialDeferredLighting", "DeferredLighting" )
+        // Over one program of DeferredLighting (the base one, or its DESERT_SUN_SHADOW_RAY_QUERY permutation): a
+        // permutation's bindings are its own (Material's shader constructor).
+        explicit MaterialDeferredLighting( const std::shared_ptr<Shader>& shader )
+            : Material( "MaterialDeferredLighting", shader )
         {
         }
 

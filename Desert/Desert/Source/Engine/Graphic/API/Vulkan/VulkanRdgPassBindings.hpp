@@ -19,6 +19,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         uint32_t Set     = 0;
         uint32_t Binding = 0;
+        // The descriptor of an arrayed binding (a separate texture2D u_X[N]: slot "u_X[e]" is element e); 0 else.
+        uint32_t Element = 0;
 
         friend bool operator==( const RdgSlotKey&, const RdgSlotKey& ) = default;
     };
@@ -28,7 +30,7 @@ namespace Desert::Graphic::API::Vulkan
     struct RdgResolvedEntry
     {
         RdgSlotKey               Slot;
-        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::SampledTexture;
+        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::Texture;
         const RDG::BoundTexture* Texture = nullptr; // set for the texture kinds
         const RDG::BoundBuffer*  Buffer  = nullptr; // set for the buffer kinds
     };
@@ -48,8 +50,8 @@ namespace Desert::Graphic::API::Vulkan
     // by the block AND @p other; a resource slot of the shader is filled by neither; the push constants are
     // given by both, by neither while the shader declares a range, or with a size other than the declared one.
     // RDG-FAULT1. What a pass's binding block is validated against (RDG::ValidatePassBindings): every slot the
-    // reflected shader declares that a block can fill, and its push-constant range. An acceleration structure
-    // has no ShaderResourceKind (a block cannot fill one), so it is not a slot of the layout.
+    // reflected shader declares, acceleration structures included (BindingBlockBuilder::AccelerationStructure),
+    // and its push-constant range.
     RDG::ShaderBindingLayout MakeShaderBindingLayout( const ShaderResource::ReflectionData& reflection,
                                                       std::string_view                      shaderName );
 

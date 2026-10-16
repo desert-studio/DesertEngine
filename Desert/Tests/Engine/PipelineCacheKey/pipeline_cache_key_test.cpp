@@ -674,7 +674,7 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
 // the word's three fields (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive =
 // NO_SUN_SHADOWS) decode the one integer fetch. Mutations: `usampler2D u_GBufferShadingWord` -> `sampler2D`, or a
 // debug branch reading texture(u_GBufferShadingWord,
-// ...), or a second .Sampled("u_GBufferShadingWord", ...) anywhere -> red.
+// ...), or a second .Texture("u_GBufferShadingWord", ...) anywhere -> red.
 TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
 {
     const auto read = []( const std::filesystem::path& path )
@@ -743,8 +743,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     const std::string renderer = strip( read(
          root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );
     EXPECT_NE(
-         renderer.find( ".Sampled(\"u_GBufferShadingWord\",inputs.GBufferShadingWord,RDG::Access::SampledGraphics,"
-                        "RDG::SubresourceRange::All(),RDG::SamplerDesc::PointClamp())" ),
+         renderer.find( ".Texture(\"u_GBufferShadingWord\",inputs.GBufferShadingWord,kRead,kWhole)" ),
          std::string::npos );
     const std::string deferred =
          strip( read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" ) );

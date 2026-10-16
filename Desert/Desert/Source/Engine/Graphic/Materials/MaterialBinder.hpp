@@ -72,7 +72,8 @@ namespace Desert::Graphic::MaterialBinder
                                std::string_view name, const glm::vec4& value )
     {
         const auto* p = layout.FindParam( name );
-        if ( p == nullptr )
+        // A texture slot is written from the material's texture (DataDrivenMaterial::GetParamRow), not a value.
+        if ( p == nullptr || p->IsTexture )
             return false;
         const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
         if ( slot >= row.size() )

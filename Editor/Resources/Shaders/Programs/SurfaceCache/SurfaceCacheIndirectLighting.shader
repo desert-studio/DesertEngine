@@ -52,12 +52,20 @@ Shader "SurfaceCacheIndirectLighting"
         {
             SurfaceCard surfaceCards[];
         };
-        Uniform(3) sampler2D u_AtlasDepth;
-        Uniform(4) sampler2D u_AtlasAlbedo;
-        Uniform(5) sampler2D u_AtlasOpacity;
-        Uniform(6) sampler2D u_AtlasNormal;
-        Uniform(7) sampler2D u_AtlasEmissive;
-        Uniform(8) sampler2D u_AtlasDirectLighting;
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(3) texture2D u_AtlasDepth;
+        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
+        Uniform(4) texture2D u_AtlasAlbedo;
+        #define u_AtlasAlbedo sampler2D(u_AtlasAlbedo, u_PointClampSampler)
+        Uniform(5) texture2D u_AtlasOpacity;
+        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
+        Uniform(6) texture2D u_AtlasNormal;
+        #define u_AtlasNormal sampler2D(u_AtlasNormal, u_PointClampSampler)
+        Uniform(7) texture2D u_AtlasEmissive;
+        #define u_AtlasEmissive sampler2D(u_AtlasEmissive, u_PointClampSampler)
+        Uniform(8) texture2D u_AtlasDirectLighting;
+        #define u_AtlasDirectLighting sampler2D(u_AtlasDirectLighting, u_PointClampSampler)
         ReadBuffer(9) RadianceCacheParamsUB
         {
             RadianceCacheParams radianceCache;
@@ -70,8 +78,10 @@ Shader "SurfaceCacheIndirectLighting"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform(12) sampler2D u_RadianceCacheIrradiance;
-        Uniform(13) sampler2D u_RadianceCacheDepth;
+        Uniform(12) texture2D u_RadianceCacheIrradiance;
+        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
+        Uniform(13) texture2D u_RadianceCacheDepth;
+        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>

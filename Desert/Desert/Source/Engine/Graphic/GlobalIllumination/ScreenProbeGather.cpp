@@ -10,6 +10,8 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
+
 #include <format>
 #include <span>
 #include <string>
@@ -18,16 +20,13 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 4> kShaderNames{ "ScreenProbePlace", "ScreenProbeTrace",
-                                                                "ScreenProbeFilter", "ScreenProbeIntegrate" };
+        using Common::Math::DivideRoundUp;
+
+        constexpr std::array<std::string_view, 4> kScreenProbeShaderNames{
+             "ScreenProbePlace", "ScreenProbeTrace", "ScreenProbeFilter", "ScreenProbeIntegrate" };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kLevels> kPlaceNames{
              "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 8", "ScreenProbes: Place Adaptive 4" };
-
-        uint32_t DivideUp( const uint32_t value, const uint32_t by )
-        {
-            return ( value + by - 1u ) / by;
-        }
 
         std::shared_ptr<Image2D>
         CreateTarget( const std::string_view tag, const uint32_t width, const uint32_t height,
@@ -58,14 +57,14 @@ namespace Desert::Graphic::GlobalIllumination
         {
             if ( program == Trace )
                 continue; // a tracer permutation, EnsureTraceProgram
-            m_Shaders[program] = shaders->GetByName( std::string( kShaderNames[program] ) );
+            m_Shaders[program] = shaders->GetByName( std::string( kScreenProbeShaderNames[program] ) );
             if ( !m_Shaders[program] )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} not found",
-                                                         kShaderNames[program] );
+                                                         kScreenProbeShaderNames[program] );
             auto pipeline = ComputePipeline::Create(
-                 { .Shader = m_Shaders[program], .DebugName = std::string( kShaderNames[program] ) } );
+                 { .Shader = m_Shaders[program], .DebugName = std::string( kScreenProbeShaderNames[program] ) } );
             if ( !pipeline )
-                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", kShaderNames[program],
+                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", kScreenProbeShaderNames[program],
                                                          pipeline.GetError() );
             m_Pipelines[program] = pipeline.GetValue();
         }
@@ -76,7 +75,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
-        const std::string name( kShaderNames[Trace] );
+        const std::string name( kScreenProbeShaderNames[Trace] );
         auto              shader =
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
         if ( !shader )
@@ -176,8 +175,9 @@ namespace Desert::Graphic::GlobalIllumination
         const auto            all  = RDG::SubresourceRange::All();
         const auto            gbuf = [&]( RDG::BindingBlockBuilder& block )
         {
-            block.Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all, RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() );
+            block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferB", inputs.GBufferB, kS, all );
         };
 
         // Place: level 0 (uniform), then the two adaptive levels, each reading the coarser ones.
@@ -185,8 +185,8 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[Place].get();
             const uint32_t         spacing  = ScreenProbeLayout::kDownsample >> level;
-            const glm::uvec2       groups( DivideUp( DivideUp( inputs.Extent.x, spacing ), 8u ),
-                                           DivideUp( DivideUp( inputs.Extent.y, spacing ), 8u ) );
+            const glm::uvec2       groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, spacing ), 8u ),
+                                           DivideRoundUp( DivideRoundUp( inputs.Extent.y, spacing ), 8u ) );
             graph.AddPass(
                  kPlaceNames[level], RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
@@ -231,19 +231,15 @@ namespace Desert::Graphic::GlobalIllumination
                      DeclareTracerReads( block, inputs.Tracer );
                      if ( readsCards )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
-                     block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferA", inputs.GBufferA, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
+                     block.Texture( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferA", inputs.GBufferA, kS, all )
+                          .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all )
+                          .Texture( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all )
+                          .Texture( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all )
+                          .Texture( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all )
                           .Storage( "u_ScreenProbeTraced", traced, kW );
                  },
                  [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -264,7 +260,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbeIndexUB", index, kR )
                           .Storage( "ScreenProbesUB", probes, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Sampled( "u_ScreenProbeTraced", traced, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_ScreenProbeTraced", traced, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_ScreenProbeFiltered", filtered, kW )
                           .Storage( "ScreenProbeSHUB", sh, kW );
                  },
@@ -276,7 +273,7 @@ namespace Desert::Graphic::GlobalIllumination
         }
         {
             ComputePipeline* const pipeline = m_Pipelines[Integrate].get();
-            const glm::uvec2       groups( DivideUp( inputs.Extent.x, 8u ), DivideUp( inputs.Extent.y, 8u ) );
+            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
             graph.AddPass(
                  "ScreenProbes: Integrate", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
@@ -288,11 +285,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbesUB", probes, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Storage( "ScreenProbeSHUB", sh, kR )
-                          .Sampled( "u_ScreenProbeFiltered", filtered, kS, all, RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeDiffuseHistory", diffuseHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeSpecularHistory", specularHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_ScreenProbeFiltered", filtered, kS, all )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_ScreenProbeDiffuseHistory", diffuseHistory, kS, all )
+                          .Texture( "u_ScreenProbeSpecularHistory", specularHistory, kS, all )
                           .Storage( "u_ScreenProbeDiffuseOut", diffuse, kW )
                           .Storage( "u_ScreenProbeSpecularOut", specular, kW );
                      gbuf( block );

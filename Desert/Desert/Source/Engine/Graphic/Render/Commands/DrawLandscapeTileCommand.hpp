@@ -6,6 +6,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
+#include <memory>
 #include <utility>
 
 namespace Desert::Graphic
@@ -20,14 +21,15 @@ namespace Desert::Graphic::Render
     // outlives the frame through the allocator's per-frame deletion queue.
     struct DrawLandscapeTileCommand : RenderCommand
     {
-        Image2D*                  Heightmap = nullptr;
+        std::shared_ptr<Image2D>    Heightmap;
         System::LandscapeTileDraw   Tile;
         MaterialOverrides         Overrides;
         System::LandscapeWeightDraw Weights;
 
-        DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+        DrawLandscapeTileCommand( std::shared_ptr<Image2D> heightmap, const System::LandscapeTileDraw& tile,
                                   MaterialOverrides overrides, const System::LandscapeWeightDraw& weights )
-             : Heightmap( heightmap ), Tile( tile ), Overrides( std::move( overrides ) ), Weights( weights )
+             : Heightmap( std::move( heightmap ) ), Tile( tile ), Overrides( std::move( overrides ) ),
+               Weights( weights )
         {
         }
 

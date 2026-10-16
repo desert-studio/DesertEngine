@@ -318,11 +318,7 @@ namespace
         const auto set = data.ShaderDescriptorSets.find( 0 );
         if ( set == data.ShaderDescriptorSets.end() )
             return names;
-        for ( const auto& [binding, resource] : set->second.Image2DSamplers )
-            names.Sampled.insert( resource.Name );
-        for ( const auto& [binding, resource] : set->second.Image3DSamplers )
-            names.Sampled.insert( resource.Name );
-        for ( const auto& [binding, resource] : set->second.ImageCubeSamplers )
+        for ( const auto& [binding, resource] : set->second.SampledImages )
             names.Sampled.insert( resource.Name );
         for ( const auto& [binding, resource] : set->second.StorageImage2DSamplers )
             names.Storage.insert( resource.Name );
@@ -2530,9 +2526,7 @@ TEST_F( ShaderCacheKeyShaderRoot, NoShippedProgramDeclaresABindingInTheGraphsRes
             // entitled declaration can be in. A uniform block, a storage buffer, a storage image or a
             // sampler3D inside the window is an engine declaration whatever it is called.
             std::map<uint32_t, std::string> entitledCandidates;
-            for ( const auto& [binding, resource] : setZero->second.Image2DSamplers )
-                entitledCandidates.emplace( binding, resource.Name );
-            for ( const auto& [binding, resource] : setZero->second.ImageCubeSamplers )
+            for ( const auto& [binding, resource] : setZero->second.SampledImages )
                 entitledCandidates.emplace( binding, resource.Name );
 
             for ( const auto& binding : ShaderReflection::BuildLayoutBindings( setZero->second ) )

@@ -2,6 +2,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 
 #include <algorithm>
+#include <format>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -142,6 +143,20 @@ namespace Desert::Graphic::API::Vulkan
         if ( reflection.PushConstantRanges )
             reflection.PushConstantRanges->Size = cell.Layout.PushSize;
 
+        // The per-stage limits and the set layouts are part of the transaction: committing first left a shader
+        // the limit check had refused with modules and stage infos, so IsCompiled() held and the pipeline was
+        // still built on it (VUID-VkGraphicsPipelineCreateInfo-layout-07988, VK_ERROR_INITIALIZATION_FAILED).
+        std::vector<DescriptorSetLayoutRef> layouts;
+        {
+            const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );
+            auto                          laidOut = CreateDescriptorsLayout( reflection, layouts );
+            if ( !laidOut.IsSuccess() )
+            {
+                discard();
+                return laidOut;
+            }
+        }
+
         // Past this line the compile has succeeded, so the old state may go. The modules are ours alone
         // (a pipeline copies what it needs at creation) and are destroyed; the layouts are only
         // RELEASED, because a pipeline layout, a descriptor pool or an allocated set built from one is
@@ -155,10 +170,8 @@ namespace Desert::Graphic::API::Vulkan
         m_PipelineShaderStageCreateInfos = std::move( stageInfos );
         m_ReflectionData                 = std::move( reflection );
         m_MaterialLayout                 = std::move( cell.Layout );
-        m_DescriptorSetLayouts.clear();
-
-        const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );
-        return CreateDescriptorsLayout();
+        m_DescriptorSetLayouts           = std::move( layouts );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanShader::Reflect( VkShaderStageFlagBits vkStage, const std::vector<uint32_t>& spirv,
@@ -193,25 +206,69 @@ namespace Desert::Graphic::API::Vulkan
                                            diagnostics.front() );
     }
 
-    Common::BoolResultStr VulkanShader::CreateDescriptorsLayout()
+    Common::BoolResultStr
+    VulkanShader::CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
+                                           std::vector<DescriptorSetLayoutRef>&  layouts ) const
     {
-        auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        for ( const auto& [setIndex, descriptorSet] : m_ReflectionData.ShaderDescriptorSets )
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        auto       device  = logical->GetVulkanLogicalDevice();
+
+        // Every stage is held to the device's per-stage limits here, by name, before any layout exists: past
+        // them the pipeline layout is invalid (VUID-VkPipelineLayoutCreateInfo-descriptorType-03016 and kin) and
+        // MoltenVK fails the pipeline with no word of which resource tipped it (16 samplers per stage there).
+        const DeviceCaps&              caps = logical->GetPhysicalDevice()->GetDeviceCaps();
+        const std::vector<std::string> overrun =
+             ShaderReflection::PerStageLimitRefusals( reflection, caps.PerStage, caps.DescriptorIndexing );
+        for ( const auto& message : overrun )
+        {
+            LOG_ERROR( "Shader '{}': {}", m_ShaderName, message );
+        }
+        if ( !overrun.empty() )
+            return Common::MakeFormattedError(
+                 "Shader '{}' exceeds {} per-stage descriptor limit(s) of '{}'; first: {}", m_ShaderName,
+                 overrun.size(), caps.DeviceName, overrun.front() );
+        for ( const auto& [setIndex, descriptorSet] : reflection.ShaderDescriptorSets )
         {
             // The binding list comes from the device-free reflection unit, so the shape a pipeline
             // layout and a descriptor set have to agree on is computed by code a test can run without
             // Vulkan (Tests/Engine/ShaderCacheKey drives it over the real engine shaders).
             const auto bindings = ShaderReflection::BuildLayoutBindings( descriptorSet );
 
-            if ( setIndex >= m_DescriptorSetLayouts.size() )
-                m_DescriptorSetLayouts.resize( setIndex + 1 );
+            if ( setIndex >= layouts.size() )
+                layouts.resize( setIndex + 1 );
 
             auto layout = std::make_shared<VulkanDescriptorSetLayout>( device, setIndex, bindings, m_ShaderName );
             if ( layout->Handle() == VK_NULL_HANDLE )
                 return Common::MakeFormattedError( "Shader '{}': descriptor set layout {} could not be created",
                                                    m_ShaderName, setIndex );
 
-            m_DescriptorSetLayouts[setIndex] = std::move( layout );
+            layouts[setIndex] = std::move( layout );
+        }
+
+        // The bindless set's layout is the table's own (update-after-bind, variable count), shared by every
+        // pipeline that samples the table, so the one live table set binds to all of them. Reflection has already
+        // refused anything else declared in that set.
+        if ( reflection.UsesBindlessTable )
+        {
+            const auto logicalDevice = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+            if ( kBindlessSetIndex >= layouts.size() )
+                layouts.resize( kBindlessSetIndex + 1 );
+            layouts[kBindlessSetIndex] = logicalDevice->GetBindlessTextureTable().GetLayout();
+        }
+
+        // A set the shader skips below one it uses gets an EMPTY layout: a pipeline layout cannot hold
+        // VK_NULL_HANDLE in pSetLayouts (RawHandles), and a pass allocates and binds sets 0..N-1 contiguously.
+        for ( size_t setIndex = 0; setIndex < layouts.size(); ++setIndex )
+        {
+            if ( layouts[setIndex] )
+                continue;
+            auto empty = std::make_shared<VulkanDescriptorSetLayout>( device, static_cast<uint32_t>( setIndex ),
+                                                                      std::vector<VkDescriptorSetLayoutBinding>{},
+                                                                      m_ShaderName );
+            if ( empty->Handle() == VK_NULL_HANDLE )
+                return Common::MakeFormattedError(
+                     "Shader '{}': empty descriptor set layout {} could not be created", m_ShaderName, setIndex );
+            layouts[setIndex] = std::move( empty );
         }
 
         return BOOLSUCCESS;
@@ -233,20 +290,58 @@ namespace Desert::Graphic::API::Vulkan
         return res;
     }
 
-    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> VulkanShader::GetUniformImageCubeModels() const 
-    { 
-        std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> res;
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
-            for ( const auto& [b, sc] : dSet.ImageCubeSamplers ) res.push_back( sc );
-        return res;
+    namespace
+    {
+        // The material-route texture models: every single separate texture of @p dimension, each paired with its
+        // own sampler state `<name>Sampler` in the same set when the shader declares one. A pass's inputs are
+        // among them too; MaterialExecutor makes a property only for the ones the template's Properties block
+        // names.
+        template <typename Model>
+        std::vector<Model> TextureModels( const ShaderResource::ReflectionData&                data,
+                                          ShaderResources::ShaderLayout::SampledImageDimension dimension )
+        {
+            std::vector<Model> models;
+            for ( const auto& [set, dSet] : data.ShaderDescriptorSets )
+                for ( const auto& [binding, image] : dSet.SampledImages )
+                {
+                    if ( image.Dimension != dimension || image.ArraySize != 1 )
+                        continue;
+                    Model model;
+                    model.BindingPoint  = binding;
+                    model.DescriptorSet = image.DescriptorSet;
+                    model.Name          = image.Name;
+                    model.ShaderStage   = image.ShaderStage;
+                    const std::string samplerName =
+                         std::format( "{}{}", image.Name, Core::Formats::kMaterialTextureSamplerSuffix );
+                    for ( const auto& [samplerBinding, sampler] : dSet.Samplers )
+                        if ( sampler.Name == samplerName )
+                            model.SamplerBindingPoint = samplerBinding;
+                    models.push_back( std::move( model ) );
+                }
+            return models;
+        }
+    } // namespace
+
+    const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler>
+    VulkanShader::GetUniformImageCubeModels() const
+    {
+        return TextureModels<ShaderResources::ShaderLayout::ImageCubeSampler>(
+             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Cube );
     }
 
-    const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const 
-    { 
-        std::vector<ShaderResources::ShaderLayout::Image2DSampler> res;
+    bool VulkanShader::SamplesTexture( const std::string_view name ) const
+    {
         for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
-            for ( const auto& [b, s2] : dSet.Image2DSamplers ) res.push_back( s2 );
-        return res;
+            for ( const auto& [binding, image] : dSet.SampledImages )
+                if ( image.Name == name )
+                    return true;
+        return false;
+    }
+
+    const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const
+    {
+        return TextureModels<ShaderResources::ShaderLayout::Image2DSampler>(
+             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Texture2D );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

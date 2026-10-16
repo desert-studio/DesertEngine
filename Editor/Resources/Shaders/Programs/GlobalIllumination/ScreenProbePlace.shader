@@ -32,8 +32,14 @@ Shader "ScreenProbePlace"
         };
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
-        Uniform(4) sampler2D u_GBufferDepth;
-        Uniform(5) sampler2D u_GBufferB;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_PointClampSampler;
+        Uniform(4) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(5) texture2D u_GBufferB;
+        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
 
         PushConstant ScreenProbePlacePush
         {

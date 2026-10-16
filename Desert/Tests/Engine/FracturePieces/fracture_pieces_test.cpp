@@ -245,7 +245,7 @@ TEST( FracturePieces, ACustomShaderSlotDrawsOnTheSlotPathWithThePiecesTransformA
     {
         // What FracturePieceDraw::Record does: the slot binding's entry of submesh si, custom ones off the lit
         // path.
-        return PieceDraws<const Mat*>( instance, ids.size(),
+        return PieceDraws<const Mat*>( instance, ids.size(), /*one slot per submesh*/ ids.size(),
                                        [&]( size_t si ) -> const Mat*
                                        {
                                            const auto& c   = choices[si];

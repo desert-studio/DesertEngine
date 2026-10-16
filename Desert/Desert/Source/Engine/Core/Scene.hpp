@@ -29,6 +29,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <entt/entt.hpp>
 #include <functional>
@@ -37,6 +38,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace Desert::Graphic::RayTracing
+{
+    class RayTracingSceneCache;
+}
 
 namespace Desert::Graphic
 {
@@ -558,6 +564,22 @@ namespace Desert::Core
             return m_SkyLight;
         }
 
+        // THE SCENE'S RAY-TRACING GEOMETRY (UE: FScene's GPU skin cache and cached RT geometry): skinned BLASes
+        // skinned once per frame and hidden-submesh BLAS variants, shared by every view's TLAS. Renderer state
+        // cached on the scene, like the reflection captures.
+        [[nodiscard]] Graphic::RayTracing::RayTracingSceneCache& GetRayTracingCache() const
+        {
+            return *m_RayTracingCache;
+        }
+
+        // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
+        // reflection-capture arrays, the ray-tracing cache, the sky light — is a row of this instance, and
+        // the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
+        [[nodiscard]] Graphic::ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerInstance;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -672,8 +694,12 @@ namespace Desert::Core
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
 
+        // See GetLedgerInstance. Declared BEFORE the members it is handed to.
+        Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
+        // See GetRayTracingCache. Never null: made by both constructors.
+        std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
         // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
 

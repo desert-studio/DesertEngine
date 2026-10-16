@@ -38,6 +38,7 @@ namespace
     Domain Surface
     TwoSided
     BlendMode Masked
+    OpacityMask u_BaseTexture Channel(A)
 
     Properties Binding(2) TextureBinding(20)
     {

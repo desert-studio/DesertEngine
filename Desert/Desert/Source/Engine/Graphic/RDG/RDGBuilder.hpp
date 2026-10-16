@@ -204,7 +204,9 @@ namespace Desert::Graphic::RDG
                                                std::span<ExternalTexture* const> resolves = {} );
 
         // A transient extracted into @p into survives the graph: it is a culling root, is never aliased,
-        // and @p into receives its description and final states on Execute. For an external resource
+        // and @p into receives its description and final states on Execute. Its device memory is a ledger row
+        // of the CALLER'S attribution scope (CurrentResourceAttribution at this call), not of the scope the graph
+        // later executes in: the extractor is who holds it. For an external resource
         // @p into must be the object it was registered from, and the call only sets the final access
         // (e.g. Present for a swapchain image).
         void Extract( TextureRef texture, ExternalTexture& into, Access final );
@@ -388,6 +390,8 @@ namespace Desert::Graphic::RDG
             ExternalBuffer*  ExternalBuf    = nullptr;
             ExternalTexture* ExtractTex     = nullptr;
             ExternalBuffer*  ExtractBuf     = nullptr;
+            // The scope Extract was called in: the owner of the extracted resource's ledger row (ResourceView).
+            ResourceAttribution ExtractOwner;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)

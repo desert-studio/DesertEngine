@@ -60,6 +60,8 @@ namespace Desert::Graphic
              SkyCaptureIsWhole( static_cast<bool>( m_Environment ), m_Captured.CloudsMarched, from.CloudsMarched )
                   ? System::SkyCapturePace::Whole
                   : System::SkyCapturePace::TimeSliced;
+        // The capture's cubes are the scene's rows, not the claiming view's.
+        const ResourceAttributionScope owned( ResourceOwner::Environment, m_Scene );
         if ( !m_Capture.Begin( size, pace, source ) )
             return false;
         m_Pending        = from;

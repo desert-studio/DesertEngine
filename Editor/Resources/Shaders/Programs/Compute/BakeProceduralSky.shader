@@ -67,8 +67,17 @@ Shader "BakeProceduralSky"
         // The cached atmosphere LUTs (Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding).
         // SkyboxRenderer dispatches them immediately before a physical bake; on the gradient model the
         // C++ side binds fallbacks and the physical branch below never runs.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Every input of this bake is a separate texture read through one of two shared states, the ones the
+        // screen passes read the same images with: u_GlobalFilterSampler (Graphic::kSkyBakeGlobalFilterSamplerBinding)
+        // for the LUTs and the distant sky light, u_LinearRepeatSampler (kSkyBakeLinearRepeatSamplerBinding) for
+        // the cloud volumes and maps.
+        Uniform(18) sampler u_GlobalFilterSampler;
+        Uniform(17) sampler u_LinearRepeatSampler;
+
+        Uniform(2) texture2D u_TransmittanceLut;
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
+        Uniform(3) texture2D u_MultiScatterLut;
+        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
 
         // The same read-side mappings the SkyViewLut fill uses: raw uv for the transmittance LUT,
         // texel-centre remap for the multi-scatter LUT — each the exact inverse of its write side.
@@ -108,34 +117,45 @@ Shader "BakeProceduralSky"
         // The four noise volumes a layer's species can name, deduplicated by
         // Graphic::ResolveCloudNoiseVolumes exactly as they are for the screen march. Separate bindings
         // and not an array: this engine's reflection refuses an array of descriptors.
-        Uniform(5) sampler3D u_CloudNoise;
-        Uniform(6) sampler3D u_CloudNoise1;
-        Uniform(7) sampler3D u_CloudNoise2;
-        Uniform(8) sampler3D u_CloudNoise3;
+        Uniform(5) texture3D u_CloudNoise;
+        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
+        Uniform(6) texture3D u_CloudNoise1;
+        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
+        Uniform(7) texture3D u_CloudNoise2;
+        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
+        Uniform(8) texture3D u_CloudNoise3;
+        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
 
         // The procedural MODELLING VOLUME (256 x 32 x 256 RGBA8) this view's clouds are shaped by, and the
         // sculpted hero-cloud ATLAS beside it. Both borrowed from the VolumetricCloudRenderer of the same
         // SceneRenderer, so the capture is baked from the field the frame is about to march.
-        Uniform(9)  sampler3D u_CloudModelling;
+        Uniform(9) texture3D u_CloudModelling;
+        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(14) sampler2D u_CloudFarWeather;
-        Uniform(15) sampler2D u_CloudLayoutPattern;
-        Uniform(16) sampler2D u_CloudLayoutMask;
-        Uniform(10) sampler3D u_CloudAuthoredAtlas;
+        Uniform(14) texture2D u_CloudFarWeather;
+        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
+        Uniform(15) texture2D u_CloudLayoutPattern;
+        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
+        Uniform(16) texture2D u_CloudLayoutMask;
+        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
+        Uniform(10) texture3D u_CloudAuthoredAtlas;
+        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky. It is the
         // physical model's ambient and u_CloudAmbient.w decides whether it is read, which is the same gate
         // the screen march applies.
-        Uniform(12) sampler2D u_DistantSkyLight;
+        Uniform(12) texture2D u_DistantSkyLight;
+        #define u_DistantSkyLight sampler2D(u_DistantSkyLight, u_GlobalFilterSampler)
 
         // THE SKY-LIGHT OCCLUSION VOLUME, written by the previous frame's
         // Programs/Clouds/CloudSkyOcclusionVolume.shader over the modelling volume's own region. Read on
         // exactly the screen march's gate, so a deck that shades its own underside on screen shades it in
         // the bake too; without it the baked dome is brighter than the visible one by the whole of the
         // layer's self-occlusion.
-        Uniform(13) sampler3D u_CloudSkyOcclusionVolume;
+        Uniform(13) texture3D u_CloudSkyOcclusionVolume;
+        #define u_CloudSkyOcclusionVolume sampler3D(u_CloudSkyOcclusionVolume, u_LinearRepeatSampler)
 
         // The four-way select, a compare chain because a sampler is not indexable in this dialect. The CPU
         // deduplicates the slots, so the ordinary sky sends 0 for every species and this is one fetch.

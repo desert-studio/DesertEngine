@@ -1,0 +1,19 @@
+// The depth-normal entry of a template WITHOUT a Surface block (DShaderParser kGenericDepthNormalPass, the
+// "DepthNormal" named pass; Graphic::MeshPass::DepthNormal). The deferred path draws it in "Deferred: Forward
+// Depth/Normal", into the G-buffer, before the screen-space readers of the G-buffer (the ray-traced sun's mask,
+// SSAO, SSR) run - so a forward-shaded opaque mesh is in their depth and normal as a G-buffer mesh is (UE: the
+// depth prepass). The fragment stage writes the G-buffer's normal slot ONLY: every other colour slot is
+// undeclared, so its write mask is 0 (VulkanShaderReflection BuildColorBlendAttachments) and the composite's
+// clear shading word there shades nothing; the forward draw after the composite colours the pixel.
+#ifndef DESERT_GENERIC_DEPTH_NORMAL_GLSLH
+#define DESERT_GENERIC_DEPTH_NORMAL_GLSLH
+
+layout( location = 1 ) out vec4 oGBufferB; // world Normal.rgb, Roughness.a (Mesh/Surface/Pass_GBuffer.glslh)
+
+// @p worldNormal need not be normalized; @p roughness is what SSR reads (clamped as the G-buffer pass clamps it).
+void DesertWriteDepthNormal( vec3 worldNormal, float roughness )
+{
+    oGBufferB = vec4( normalize( worldNormal ), max( roughness, 0.04 ) );
+}
+
+#endif // DESERT_GENERIC_DEPTH_NORMAL_GLSLH

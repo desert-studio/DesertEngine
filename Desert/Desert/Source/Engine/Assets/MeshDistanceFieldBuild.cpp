@@ -12,12 +12,13 @@
 // but never counts as a backface, as UE's IsHitTwoSided: it bounds no volume. Samples beyond the band are not
 // traced and stay outside, as in UE (bTraceRays).
 #include <Engine/Assets/MeshDistanceField.hpp>
+#include <Engine/Assets/StratifiedHemisphereSamples.hpp>
 #include <Engine/Geometry/TriangleBvh.hpp>
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <limits>
+#include <optional>
 
 namespace Desert::Assets
 {
@@ -101,42 +102,16 @@ namespace Desert::Assets
         // counts as a hit but never as a backface (UE IsHitTwoSided). Embree is replaced by
         // Geometry/TriangleBvh.hpp.
 
-        // UE FRandomStream (seed 0): MutateSeed, then a float in [0, 1) from the seed's top 23 bits.
-        struct UeRandomStream
-        {
-            uint32_t Seed = 0;
-            float    GetFraction()
-            {
-                Seed                  = Seed * 196314165u + 907633515u;
-                const uint32_t bits   = 0x3F800000u | ( Seed >> 9 );
-                float          result = 0.0f;
-                std::memcpy( &result, &bits, sizeof( result ) );
-                return result - 1.0f;
-            }
-        };
-
-        // UE MeshUtilities::GenerateStratifiedUniformHemisphereSamples(49) twice, the second set mirrored in Z
-        // (GenerateSignedDistanceFieldVolumeData, bUsePointQuery): 7 x 7 jittered strata per hemisphere, each
-        // mapped by UniformSampleHemisphere (phi = 2 pi u, cos theta = v).
+        // UE MeshUtilities::GenerateStratifiedUniformHemisphereSamples(49) twice from one stream at seed 0, the
+        // second set mirrored in Z (GenerateSignedDistanceFieldVolumeData, bUsePointQuery): 7 x 7 jittered strata
+        // per hemisphere.
         constexpr int           kDfSignSamplesPerHemisphere = 49;
         std::vector<glm::dvec3> SignDirections()
         {
-            const int dim = static_cast<int>( std::sqrt( static_cast<float>( kDfSignSamplesPerHemisphere ) ) );
-            UeRandomStream          random;
-            std::vector<glm::dvec3> directions;
+            Common::Math::RandomStream random;
+            std::vector<glm::dvec3>    directions;
             for ( const double zSign : { 1.0, -1.0 } )
-                for ( int x = 0; x < dim; ++x )
-                    for ( int y = 0; y < dim; ++y )
-                    {
-                        const float  u1 = random.GetFraction();
-                        const float  u2 = random.GetFraction();
-                        const double phi =
-                             2.0 * 3.14159265358979323846 * ( ( x + u1 ) / static_cast<float>( dim ) );
-                        const double cosTheta = ( y + u2 ) / static_cast<float>( dim );
-                        const double sinTheta = std::sqrt( std::max( 0.0, 1.0 - cosTheta * cosTheta ) );
-                        directions.emplace_back( std::cos( phi ) * sinTheta, std::sin( phi ) * sinTheta,
-                                                 zSign * cosTheta );
-                    }
+                AppendStratifiedUniformHemisphereSamples( kDfSignSamplesPerHemisphere, random, zSign, directions );
             return directions;
         }
 
@@ -173,12 +148,17 @@ namespace Desert::Assets
         // (its index range is clamped), and the sweep carries it inwards: a volume that is one of several over
         // the mesh (MeshDistanceFieldData::Volumes) sees its neighbours' surface across the seam. A triangle
         // farther than that cannot reach a sample within the band and is skipped.
-        void ExactBand( const SdfMesh& mesh, SdfLattice& lattice, const double trace )
+        // False when @p cancel was raised part-way (polled every few hundred triangles): the lattice is
+        // unfinished.
+        bool ExactBand( const SdfMesh& mesh, SdfLattice& lattice, const double trace,
+                        const MeshDistanceFieldCancel& cancel )
         {
             const glm::dvec3 reachLo = lattice.Origin - glm::dvec3( trace );
             const glm::dvec3 reachHi = lattice.Origin + glm::dvec3( lattice.N - 1 ) * lattice.Voxel + trace;
             for ( int t = 0; t < static_cast<int>( mesh.Triangles.size() ); ++t )
             {
+                if ( ( t & 255 ) == 0 && cancel.IsCancelled() )
+                    return false;
                 const glm::uvec3& tri = mesh.Triangles[t];
                 glm::dvec3        lo =
                      glm::min( glm::min( mesh.Positions[tri.x], mesh.Positions[tri.y] ), mesh.Positions[tri.z] );
@@ -205,6 +185,7 @@ namespace Desert::Assets
                             }
                         }
             }
+            return true;
         }
 
         void CheckNeighbour( const SdfMesh& mesh, SdfLattice& lattice, const int i, const int j, const int k,
@@ -226,14 +207,18 @@ namespace Desert::Assets
             }
         }
 
-        void Sweep( const SdfMesh& mesh, SdfLattice& lattice, const int di, const int dj, const int dk,
-                    const double trace )
+        // False when @p cancel was raised (polled per lattice slice): the lattice is unfinished.
+        bool Sweep( const SdfMesh& mesh, SdfLattice& lattice, const int di, const int dj, const int dk,
+                    const double trace, const MeshDistanceFieldCancel& cancel )
         {
             const glm::ivec3 n  = lattice.N;
             const int        i0 = di > 0 ? 1 : n.x - 2, i1 = di > 0 ? n.x : -1;
             const int        j0 = dj > 0 ? 1 : n.y - 2, j1 = dj > 0 ? n.y : -1;
             const int        k0 = dk > 0 ? 1 : n.z - 2, k1 = dk > 0 ? n.z : -1;
             for ( int k = k0; k != k1; k += dk )
+            {
+                if ( cancel.IsCancelled() )
+                    return false;
                 for ( int j = j0; j != j1; j += dj )
                     for ( int i = i0; i != i1; i += di )
                     {
@@ -245,6 +230,8 @@ namespace Desert::Assets
                         CheckNeighbour( mesh, lattice, i, j, k, i, j - dj, k - dk, trace );
                         CheckNeighbour( mesh, lattice, i, j, k, i - di, j - dj, k - dk, trace );
                     }
+            }
+            return true;
         }
 
         uint8_t Quantize( const double localDistance, const double localToVolume, const glm::dvec2 scaleBias )
@@ -256,9 +243,13 @@ namespace Desert::Assets
         // ONE VOLUME over the box [lo, hi] of mesh space, mip0Dims bricks along each axis (UE
         // GenerateSignedDistanceFieldVolumeData from the bounds on): per mip the lattice, its band, the sign by
         // rays, the bricks that are not saturated, the volume -> virtual UV transform.
-        MeshDistanceFieldVolume BuildVolume( const SdfMesh& mesh, const Geometry::TriangleBvh& bvh,
-                                             const std::vector<glm::dvec3>& directions, const glm::dvec3& lo,
-                                             const glm::dvec3& hi, const glm::ivec3& mip0Dims )
+        // Empty when @p cancel was raised: polled per lattice slice of the band, each sweep and each brick row, so
+        // a cancelled build stops within one of them (UE's running async tasks check the cancel per brick).
+        std::optional<MeshDistanceFieldVolume> BuildVolume( const SdfMesh& mesh, const Geometry::TriangleBvh& bvh,
+                                                            const std::vector<glm::dvec3>& directions,
+                                                            const glm::dvec3& lo, const glm::dvec3& hi,
+                                                            const glm::ivec3&              mip0Dims,
+                                                            const MeshDistanceFieldCancel& cancel )
         {
             const glm::dvec3        extent        = ( hi - lo ) * 0.5;
             const glm::dvec3        size          = hi - lo;
@@ -291,14 +282,19 @@ namespace Desert::Assets
                 const size_t points = static_cast<size_t>( lattice.N.x ) * lattice.N.y * lattice.N.z;
                 lattice.Distance.assign( points, static_cast<float>( trace ) );
                 lattice.Closest.assign( points, -1 );
-                ExactBand( mesh, lattice, trace );
+                if ( !ExactBand( mesh, lattice, trace, cancel ) )
+                    return std::nullopt;
                 for ( const int dk : { 1, -1 } )
                     for ( const int dj : { 1, -1 } )
                         for ( const int di : { 1, -1 } )
-                            Sweep( mesh, lattice, di, dj, dk, trace );
+                            if ( !Sweep( mesh, lattice, di, dj, dk, trace, cancel ) )
+                                return std::nullopt;
                 lattice.Inside.assign( points, 0 );
                 for ( int k = 0; k < lattice.N.z; ++k )
                     for ( int j = 0; j < lattice.N.y; ++j )
+                    {
+                        if ( cancel.IsCancelled() )
+                            return std::nullopt;
                         for ( int i = 0; i < lattice.N.x; ++i )
                         {
                             // UE traces only where the closest surface lies within the trace distance
@@ -309,6 +305,7 @@ namespace Desert::Assets
                                      DfInsideByRays( mesh, bvh, directions, lattice.Point( i, j, k ), trace ) ? 1
                                                                                                               : 0;
                         }
+                    }
 
                 SparseDistanceFieldMip& mip        = out.Mips[mipIndex];
                 mip.IndirectionDimensions          = glm::uvec3( dims );
@@ -318,6 +315,9 @@ namespace Desert::Assets
                 std::vector<uint8_t> brick( kDistanceFieldBrickVoxels );
                 for ( int bz = 0; bz < dims.z; ++bz )
                     for ( int by = 0; by < dims.y; ++by )
+                    {
+                        if ( cancel.IsCancelled() )
+                            return std::nullopt;
                         for ( int bx = 0; bx < dims.x; ++bx )
                         {
                             uint8_t lowest = 255, highest = 0;
@@ -344,6 +344,7 @@ namespace Desert::Assets
                                 mip.BrickData.insert( mip.BrickData.end(), brick.begin(), brick.end() );
                             }
                         }
+                    }
                 // Account for the border voxels: [-VolumePositionExtent, VolumePositionExtent] -> [uvMin, uvMin +
                 // uvSize].
                 const glm::dvec3 uvMin = glm::dvec3( kBorder ) / glm::dvec3( dims * kUnique );
@@ -359,8 +360,10 @@ namespace Desert::Assets
 
     Common::ResultStr<MeshDistanceFieldData>
     BuildMeshDistanceField( const MeshDistanceFieldBuildInput&    input,
-                            const MeshDistanceFieldBuildSettings& settings )
+                            const MeshDistanceFieldBuildSettings& settings, const MeshDistanceFieldCancel& cancel )
     {
+        const auto cancelled = []
+        { return Common::MakeError<MeshDistanceFieldData>( std::string( kMeshDistanceFieldCancelled ) ); };
         if ( input.Indices.size() % 3 != 0 )
             return Common::MakeFormattedError<MeshDistanceFieldData>(
                  "distance field: {} indices are not whole triangles", input.Indices.size() );
@@ -439,7 +442,10 @@ namespace Desert::Assets
         const double chunkVoxel = std::max( static_cast<double>( settings.ChunkVoxelSize ), 1.0 / voxelsPerUnit );
         if ( !( coarsest > thinnest && coarsest > chunkVoxel ) )
         {
-            out.Volumes.push_back( BuildVolume( mesh, bvh, directions, lo, hi, mip0Dims ) );
+            auto volume = BuildVolume( mesh, bvh, directions, lo, hi, mip0Dims, cancel );
+            if ( !volume.has_value() )
+                return cancelled();
+            out.Volumes.push_back( std::move( *volume ) );
             return Common::MakeSuccess( std::move( out ) );
         }
 
@@ -496,7 +502,10 @@ namespace Desert::Assets
             const glm::dvec3 voxels = ( vHi - vLo ) / chunkVoxel + 2.0 * kBorder;
             const glm::ivec3 dims = glm::clamp( glm::ivec3( glm::ceil( voxels / static_cast<double>( kUnique ) ) ),
                                                 glm::ivec3( 1 ), glm::ivec3( maxBlocks ) );
-            out.Volumes.push_back( BuildVolume( mesh, bvh, directions, vLo, vHi, dims ) );
+            auto             volume = BuildVolume( mesh, bvh, directions, vLo, vHi, dims, cancel );
+            if ( !volume.has_value() )
+                return cancelled();
+            out.Volumes.push_back( std::move( *volume ) );
         }
         return Common::MakeSuccess( std::move( out ) );
     }

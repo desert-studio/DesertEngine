@@ -28,7 +28,12 @@ Shader "LightGridWorldView"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(0) sampler2D u_Depth; // the G-buffer's device depth (render extent)
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(0) texture2D u_Depth; // the G-buffer's device depth (render extent)
+        #define u_Depth sampler2D(u_Depth, u_LinearRepeatSampler)
         ReadBuffer(1) LightGridWorldViewUB
         {
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the depth was rasterised with

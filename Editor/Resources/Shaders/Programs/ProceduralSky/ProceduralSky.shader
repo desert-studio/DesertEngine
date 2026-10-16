@@ -42,8 +42,13 @@ Shader "ProceduralSky"
 
         // PhysicalAtmosphere only. When the gradient renders, both stay on their fallback descriptors
         // and the branch below never samples them.
-        Uniform(2) sampler2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
-        Uniform(3) sampler2D u_SkyViewLut;       // per-view 192x104, refilled every frame
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearClampSampler;
+        Uniform(2) texture2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_LinearClampSampler)
+        Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
+        #define u_SkyViewLut sampler2D(u_SkyViewLut, u_LinearClampSampler)
 
         // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
         // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its

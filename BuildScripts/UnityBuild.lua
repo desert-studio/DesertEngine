@@ -57,6 +57,7 @@ DesertUnity.OptOut = {
     { pattern = "**Source/Common/Utilities/ContentManifest.cpp", why = "clang unity check: redefinition of 'kMagic'" },
     { pattern = "**Source/Engine/Animation/Rig/ControlShape.cpp", why = "clang unity check: redefinition of 'Finite'" },
     { pattern = "**Source/Engine/Assets/CloudNoiseVolume.cpp", why = "clang unity check: redefinition of 'kFormatRgba8'" },
+    { pattern = "**Source/Engine/Assets/CloudProceduralVolume.cpp", why = "clang unity check: includes CloudNoise.glslh inside its own namespace; after CloudNoiseVolumeGenerator.cpp the header guard leaves that namespace empty (no member named 'CloudPerlinPeriodic' in 'CloudShapeNoiseGlsl')" },
     { pattern = "**Source/Engine/Assets/CloudNoiseVolumeSheet.cpp", why = "clang unity check: redefinition of 'kBytesPerVoxel'" },
     { pattern = "**Source/Engine/Assets/Serialization/TextureBinary.cpp", why = "clang unity check: redefinition of 'kByteOrderTag'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp", why = "clang unity check: redefinition of 'BytesToMiB'" },

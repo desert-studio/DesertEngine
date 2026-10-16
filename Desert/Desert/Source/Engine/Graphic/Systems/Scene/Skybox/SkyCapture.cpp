@@ -235,6 +235,15 @@ namespace Desert::Graphic::System
             sampled( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
                      clouds.MediumImages[slot] != nullptr ? clouds.MediumImages[slot].get() : Fallback2D() );
 
+        // Every texture above is a separate one read through a shared state (MAT-BINDLESS): the cloud volumes and
+        // maps through trilinear REPEAT, the state the screen march reads them with; the medium's own textures
+        // through the state right after them (ShaderGraph's Volume-domain emitter), as VolumetricCloudRenderer's
+        // u_CloudMediumSampler. The LUTs' state (kSkyBakeGlobalFilterSamplerBinding) is the graph block's.
+        pipeline.SetSampler( kSkyBakeLinearRepeatSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+        if ( !clouds.MediumImages.empty() )
+            pipeline.SetSampler( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( clouds.MediumImages.size() ),
+                                 GlobalTextureFilterSampler() );
+
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies the
         // atmosphere's transmittance at each cloud sample's own altitude -- ANDed with the physical model, whose
         // transmittance LUT is the only one that is an atmosphere (the gradient model binds the fallback).
@@ -476,12 +485,13 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( program.Layout.Get( program.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *program.Pipeline ) )
-                      .Sampled( "u_TransmittanceLut", lutT, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), ownSampler )
-                      .Sampled( "u_MultiScatterLut", lutM, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), ownSampler )
-                      .Sampled( "u_DistantSkyLight", distantSky, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), ownSampler )
+                      .Texture( "u_TransmittanceLut", lutT, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_MultiScatterLut", lutM, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_DistantSkyLight", distantSky, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_GlobalFilterSampler", ownSampler )
                       .Storage( "outputFaces", radiance, RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( FacesPush ) ) );
              },
@@ -513,8 +523,9 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_Downsample.Layout.Get( m_Downsample.Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample.Pipeline ) )
-                          .Sampled( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1u ), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( mip - 1u ) )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample.Pipeline, mip,
@@ -540,9 +551,9 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( m_Irradiance.Layout.Get( m_Irradiance.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Irradiance.Pipeline ) )
-                      .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::Mip( SkyCaptureIrradianceSourceMip( m_Size.Face ) ),
-                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::Mip( SkyCaptureIrradianceSourceMip( m_Size.Face ) ) )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_Output", irradiance, RDG::Access::StorageWrite, 0 );
              },
              [pipeline = m_Irradiance.Pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -574,8 +585,9 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_Prefilter.Layout.Get( m_Prefilter.Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Prefilter.Pipeline ) )
-                          .Sampled( "inputTexture", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), ownSampler )
+                          .Texture( "inputTexture", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", ownSampler )
                           .Storage( "outputTexture", prefiltered, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( PrefilterPush ) ) );
                  },

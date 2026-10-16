@@ -1839,6 +1839,24 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t stated = 0;
+        for ( auto& entity : entities )
+        {
+            const auto payload = entity.Components.get( "DirectionLight" );
+            if ( !payload.has_value() )
+                continue;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() || fields.value().get( "SourceAngle" ).has_value() )
+                continue;
+            fields.value()["SourceAngle"]        = rfl::Generic( static_cast<double>( kSourceAngleDefault ) );
+            entity.Components["DirectionLight"] = rfl::Generic( std::move( fields.value() ) );
+            ++stated;
+        }
+        return stated;
+    }
+
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
     {
         std::size_t restated = 0;
@@ -3835,6 +3853,13 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.ScriptDefaults.Refused );
                     return;
                 }
+            }
+
+            // The sun states its source angle (RT-SHADOWS).
+            if ( statedSceneVersion < kSceneVersionSourceAngle )
+            {
+                report.SourceAngleRaised  = true;
+                report.SourceAnglesStated = MigrateSourceAngleV54ToV55( entities );
             }
 
             // Lights state their units, the exposure range is EV100 (LIGHT-UNITS).

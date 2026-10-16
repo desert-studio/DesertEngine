@@ -44,6 +44,7 @@ namespace Desert::Graphic::API::Vulkan
         GetStorageBufferModels() const override; // flattened per call; read once per ShaderResourcesManager
         virtual const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> GetUniformImageCubeModels() const override;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>   GetUniformImage2DModels() const override;
+        [[nodiscard]] bool SamplesTexture( std::string_view name ) const override;
 
         virtual const Common::Filepath& GetFilepath() const override
         {
@@ -189,7 +190,10 @@ namespace Desert::Graphic::API::Vulkan
         // shader with a named reason than to bind something of the wrong shape.
         Common::BoolResultStr Reflect( VkShaderStageFlagBits flag, const std::vector<uint32_t>& spirvBinary,
                                        ShaderResource::ReflectionData& into );
-        Common::BoolResultStr CreateDescriptorsLayout();
+        // Builds into @p layouts, never into the shader: it runs before the compile is committed, so a stage
+        // over a per-stage limit leaves the shader uncompiled (IsCompiled) and no pipeline is ever built on it.
+        Common::BoolResultStr CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
+                                                       std::vector<DescriptorSetLayoutRef>&  layouts ) const;
 
         Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
 

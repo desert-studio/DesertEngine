@@ -14,10 +14,22 @@
 #endif
 
 #if defined( DESERT_GI_TRACER_SOFTWARE )
-layout( binding = GI_TRACER_BINDING + 0 ) uniform sampler3D u_GlobalDistanceField0;
-layout( binding = GI_TRACER_BINDING + 1 ) uniform sampler3D u_GlobalDistanceField1;
-layout( binding = GI_TRACER_BINDING + 2 ) uniform sampler3D u_GlobalDistanceField2;
-layout( binding = GI_TRACER_BINDING + 3 ) uniform sampler3D u_GlobalDistanceField3;
+// The clipmaps are separate texture3Ds read through the shared repeat state (UE shared samplers), which the tracer
+// declares itself (numbered by the program build, ShaderMapBuild.cpp AssignSharedSamplerBindings) and
+// DeclareTracerReads binds with them. A program that reads its own inputs through the same state declares it under
+// the same guard before this include (SurfaceCacheDirectLighting.shader): one sampler is one declaration.
+#ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+#define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+Uniform sampler u_LinearRepeatSampler;
+#endif
+layout( binding = GI_TRACER_BINDING + 0 ) uniform texture3D u_GlobalDistanceField0;
+#define u_GlobalDistanceField0 sampler3D(u_GlobalDistanceField0, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 1 ) uniform texture3D u_GlobalDistanceField1;
+#define u_GlobalDistanceField1 sampler3D(u_GlobalDistanceField1, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 2 ) uniform texture3D u_GlobalDistanceField2;
+#define u_GlobalDistanceField2 sampler3D(u_GlobalDistanceField2, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 3 ) uniform texture3D u_GlobalDistanceField3;
+#define u_GlobalDistanceField3 sampler3D(u_GlobalDistanceField3, u_LinearRepeatSampler)
 // The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels): the
 // software walk's own record, not the neutral GI frame's (GlobalIllumination::TracerFrame).
 layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwareUB
@@ -28,7 +40,18 @@ layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwa
 #define GI_TRACE_GDF_LEVELS giTracerGdfLevels
 #include <Common/GITraceDistanceField.glslh>
 #elif defined( DESERT_GI_TRACER_HARDWARE )
-#error "GITracer.glslh: the ray-query tracer is not in this build (GI-HWRT defines it here)"
+// The TLAS and the per-segment records (C++ GlobalIllumination::kHardwareTracer*Name, DeclareTracerReads), the
+// visibility walk shared with RT-SHADOWS, then the surface cache's MeshCards index per TLAS instance custom index.
+// The ray-query walk reads no distance field data and leaves GI_TRACER_BINDING + 4 unused.
+#define RAY_QUERY_VISIBILITY_TLAS_BINDING ( GI_TRACER_BINDING + 0 )
+#define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ( GI_TRACER_BINDING + 1 )
+#define RAY_QUERY_VISIBILITY_MATERIALS_BINDING ( GI_TRACER_BINDING + 2 )
+#include <Common/RayQueryVisibility.glslh>
+layout( std430, binding = GI_TRACER_BINDING + 3 ) readonly buffer GIInstanceMeshCards
+{
+    uint u_GIInstanceMeshCards[];
+};
+#include <Common/GITraceRayQuery.glslh>
 #endif
 
 #endif // GI_TRACER_GLSLH

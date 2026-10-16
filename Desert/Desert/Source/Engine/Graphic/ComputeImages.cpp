@@ -7,6 +7,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -63,8 +64,10 @@ namespace Desert::Graphic
         }
         const auto& pipeline = built.GetValue();
 
-        pipeline->SetInput( 0, input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetOutput( 1, output.get(), 0 );
+        pipeline->SetInput( kComputeImagesInputBinding, input, RDG::Access::SampledCompute,
+                            RDG::SubresourceRange::All() );
+        pipeline->SetSampler( kComputeImagesSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+        pipeline->SetOutput( kComputeImagesOutputBinding, output.get(), 0 );
 
         // One thread per face texel (the shaders normalize by `imageSize(outputTexture)`, which is the
         // face). When this dispatch was derived from the old cross-layout Width it launched 4x3 = TWELVE
@@ -150,8 +153,10 @@ namespace Desert::Graphic
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
 
-            pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            pipeline->SetOutput( 1, output.get(), mip );
+            pipeline->SetInput( kComputeImagesInputBinding, radiance, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() );
+            pipeline->SetSampler( kComputeImagesSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+            pipeline->SetOutput( kComputeImagesOutputBinding, output.get(), mip );
             pipeline->SetPushConstants( &push, sizeof( push ) );
             pipeline->Record( batch, groups, groups, 6u );
         }
@@ -192,8 +197,10 @@ namespace Desert::Graphic
         // The source is ONE mip (the shader sums every texel of what it is given), the output's mip 0.
         // SkyCaptureIrradiance's LocalSize is 8x8, not kComputeImagesWorkGroupSize.
         constexpr uint32_t kIrradianceGroupSize = 8u;
-        pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( sourceMip ) );
-        pipeline->SetOutput( 1, output.get(), 0 );
+        pipeline->SetInput( kComputeImagesInputBinding, radiance, RDG::Access::SampledCompute,
+                            RDG::SubresourceRange::Mip( sourceMip ) );
+        pipeline->SetSampler( kComputeImagesSamplerBinding, RDG::SamplerDesc::PointClamp() );
+        pipeline->SetOutput( kComputeImagesOutputBinding, output.get(), 0 );
         const uint32_t groups = DispatchGroupCount( spec.FaceSize, kIrradianceGroupSize );
         pipeline->Record( batch, groups, groups, 6u );
         batch.Retain( pipeline );

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
+#include <unordered_set>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -45,9 +46,11 @@
 #include <memory>
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <unordered_map>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -148,6 +151,7 @@ namespace Desert::Graphic::System
         // what travels the chain is a shared_ptr, so the slots and the instances in them cannot be freed
         // under a draw that is still in flight.
         MaterialSlotBindingPtr MaterialSlots;
+        uint32_t               SectionSlot = 0; // static: the slot this draw's submeshes shade with
 
         // optional
         std::vector<glm::mat4> BoneMatrices;
@@ -181,6 +185,9 @@ namespace Desert::Graphic::System
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
             // ECS systems have run (A8-3).
             MaterialSlotBindingPtr MaterialSlots;
+            // The slot every drawn submesh shades with, in every pass (SectionSurface); HiddenSubmeshes masks the
+            // sections of the entity's other slots, which arrive as their own entries.
+            uint32_t               SectionSlot              = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -192,6 +199,17 @@ namespace Desert::Graphic::System
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
+        // A skinned entry's section group: every submesh that shades with one material slot.
+        struct SkinnedSection
+        {
+            // The (surface x Skinned) material. It is SHARED with every other entity using the same
+            // `.demat`, which is why nothing per-object may be stored on it: the pose is packed into a
+            // per-frame buffer and named by a push constant instead.
+            class Graphic::DataDrivenMaterial* Material = nullptr;
+            MaterialInstance* Instance        = nullptr; // applied during Bind; owned by the entry's MaterialSlots
+            uint64_t          HiddenSubmeshes = 0;       // every submesh of the other sections
+        };
+
         struct SkinnedMeshRenderData
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
@@ -201,16 +219,15 @@ namespace Desert::Graphic::System
             uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
-            // The (surface x Skinned) material. It is SHARED with every other entity using the same
-            // `.demat`, which is why nothing per-object may be stored on it: the pose below is packed
-            // into a per-frame buffer and named by a push constant instead.
-            class Graphic::DataDrivenMaterial* Material = nullptr;
-            // The binding the instance below was selected FROM, carried so that it keeps that instance
-            // alive: the entity that authored it can be destroyed between the record and this queue being
-            // drawn (A8-3). Holding the binding rather than a second shared_ptr to the instance keeps the
+            // The binding every section's instance below was selected FROM, carried so that it keeps those
+            // instances alive: the entity that authored it can be destroyed between the record and this queue
+            // being drawn (A8-3). Holding the binding rather than a second shared_ptr per instance keeps the
             // static and skinned queues answering the lifetime question the same way.
             MaterialSlotBindingPtr      MaterialSlots;
-            MaterialInstance*           Instance = nullptr; // instance applied during Bind; owned by MaterialSlots
+            // One per section material (UE: a skeletal mesh's sections, each a batch element with its own
+            // MaterialIndex), by the static rule Desert::SectionMaterialSlot. The pose is skinned ONCE per entry;
+            // every pass draws each section with its own material, masked to its own submeshes.
+            std::vector<SkinnedSection> Sections;
             std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
             bool                        Outlined    = false;
             bool                        CastShadows = true;
@@ -223,8 +240,11 @@ namespace Desert::Graphic::System
         {
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
-            class Desert::Mesh*                           Mesh = nullptr;
-            MaterialInstancePtr                           Material;   // slot 0 (Lit)
+            // The entity that owns the field: each instance's GPU-scene row is keyed {Entity, instance}.
+            uint32_t                                      Entity = 0;
+            class Desert::Mesh*                           Mesh   = nullptr;
+            MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
+            uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
             bool                                          CastContactShadow = true; // UE bCastContactShadow
@@ -232,6 +252,10 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
+            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions):
+            // instance i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and
+            // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
+            uint32_t FirstMotionRow = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -259,9 +283,12 @@ namespace Desert::Graphic::System
             // queue's flag: a generic draw is not necessarily a solid object. The text system submits
             // its SDF glyph quads through this same queue, and the shadow pass has no alpha test — a
             // default of true would hang an opaque rectangle in the cascade behind every 3D label.
-            // The producers that ARE meshes opt in; ECS::Rules::RouteMeshShadowCaster decides which
-            // single draw of an entity does so, because the shadow pass draws a mesh WHOLE.
+            // The producers that ARE meshes opt in; every draw of an entity casts only the submeshes it
+            // draws (VisibleSubmeshMask), so the entity's silhouette is the union of its draws.
             bool CastShadows = false;
+            // Whether the view's TLAS holds this record (UE bVisibleInRayTracing). Off by default for the reason
+            // CastShadows is: a text glyph quad is not a surface a ray should hit. The mesh producers opt in.
+            bool VisibleInRayTracing = false;
 
             Graphic::Material*        SlotMaterial      = nullptr; // owned by MaterialService (stable)
             uint64_t                  VisibleSubmeshMask = ~0ull;  // bit i = submesh i drawn
@@ -272,6 +299,22 @@ namespace Desert::Graphic::System
             Graphic::Image2D* DirectTexture        = nullptr;
             std::string       DirectTextureSampler;
         };
+
+        // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
+        // (MeshRendererShadow.cpp) and the ray-tracing segments (RayTracingGather.cpp) both take, so a masked
+        // section is alpha-tested by a shadow map and by a ray alike.
+        struct SectionShading
+        {
+            MaterialInstance*            Instance = nullptr;
+            Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
+            bool                         Masked   = false;
+        };
+        [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        // A static entry's section: SectionSurface of its SectionSlot.
+        [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
+        // An ISM section group: its slot instance and that instance's parent surface.
+        [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
+        [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
 
         using RenderSystem::RenderSystem;
 
@@ -306,7 +349,88 @@ namespace Desert::Graphic::System
         // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
-        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory& motion );
+        // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
+        // tiles) that still need a GPU-scene row - their TLAS custom index; their rows, in order, are
+        // GetOtherMotionRows().
+        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
+        // stage) writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after
+        // the ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the
+        // absolute frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view
+        // graph). A skin step that fails is logged and its rows lose the address; the view still draws.
+        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                   motion,
+                                                                std::span<const MotionRecord>    otherRigid,
+                                                                RayTracing::RayTracingSkinCache* skinCache,
+                                                                uint64_t                         frame );
+
+        // The rows of BuildObjectMotions' @p otherRigid records, in their order. Valid until the next build.
+        [[nodiscard]] std::span<const uint32_t> GetOtherMotionRows() const
+        {
+            return m_OtherMotionRows;
+        }
+
+        // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
+        void SetSkinCacheEnabled( const bool enabled )
+        {
+            m_SkinCacheEnabled = enabled;
+        }
+        [[nodiscard]] bool IsSkinCacheEnabled() const
+        {
+            return m_SkinCacheEnabled;
+        }
+        // This view's graph refs of the skin-cache streams its skinned rows address (RayTracingSkinCache::
+        // DeclareReads fills them, SceneRenderer clears them per frame): every pass that draws skinned primitives
+        // declares them StorageRead (the G-buffer / forward geometry pass, the cascade and local shadow passes,
+        // the silhouette).
+        [[nodiscard]] std::vector<RDG::BufferRef>& SkinCacheReads()
+        {
+            return m_SkinCacheReads;
+        }
+        // The morph twin's output external of @p entity when @p mesh is its blended twin (the external
+        // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through
+        // it.
+        [[nodiscard]] RDG::ExternalBuffer* FindMorphOutput( uint32_t entity, const SkinnedMesh* mesh );
+        // This view's ObjectBones as the skin pass's graph external.
+        [[nodiscard]] RDG::ExternalBuffer& SkinCacheBonesImport()
+        {
+            return m_SkinCacheBonesImport;
+        }
+
+        // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
+        // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
+        [[nodiscard]] std::span<const StaticMeshRenderData> GetStaticQueue() const
+        {
+            return m_StaticQueue;
+        }
+        // This frame's skinned queue, rows assigned: what the ray-tracing skin cache skins (RayTracingSkinCache).
+        [[nodiscard]] std::span<const SkinnedMeshRenderData> GetSkinnedQueue() const
+        {
+            return m_SkinnedQueue;
+        }
+        // This frame's generic queue, rows assigned: the records with VisibleInRayTracing enter the TLAS.
+        [[nodiscard]] std::span<const GenericMeshRenderData> GetGenericQueue() const
+        {
+            return m_GenericQueue;
+        }
+        // This frame's ISM / foliage fields; with GetInstancedMotionRows, one TLAS instance per field instance.
+        [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
+        {
+            return m_InstancedQueue;
+        }
+        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
+        [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
+        {
+            return m_InstancedMotionRows;
+        }
+        // This frame's rows and the view's ObjectBones (BuildObjectMotions): the skin cache skins from the same
+        // palette at the same BoneOffset the raster does - one source of the pose.
+        [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
+        {
+            return m_ScratchMotionRows;
+        }
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetObjectBones() const
+        {
+            return m_ObjectBones;
+        }
 
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -354,6 +478,14 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
+        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
+        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
+        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_RAY_QUERY permutation, the lit
+        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
+        // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them current).
+        void InvalidateCascadeCaches();
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
         // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the
@@ -407,6 +539,15 @@ namespace Desert::Graphic::System
         // G-buffer shaders sample no scene/view input). The exec records that list.
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
+        // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
+        // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
+        // that are shaded forward over the composite. The exec records that list. @p rayTracedSun: the frame
+        // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
+        // sun-reading opaque programs through their DESERT_SUN_SHADOW_RAY_QUERY permutation - the forward
+        // pipeline whose readiness this prepass checks together with its own.
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
+        [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
@@ -428,11 +569,6 @@ namespace Desert::Graphic::System
         // draw whose shader has slots for it); the exec records that list.
         void DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context ) const;
-        // Deferred path: draws SKINNED meshes forward over the deferred lighting composite (they have no
-        // G-buffer variant, so without this they only appear in the silhouette/outline pass — invisible
-        // otherwise). Forward path draws them inside MeshGeometryPass.
-        void DeclareSkinnedDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
-        [[nodiscard]] Common::BoolResultStr RenderSkinnedManual( const RDG::PassContext& context ) const;
         // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3/5, UE LumenSceneCardCapture). Gather: this
         // frame's static, instanced (ISM / foliage), generic (another template's slot material, a Shader Override)
         // and skinned (bounds cards) mesh instances that carry cards, keyed stably (entity + part; mesh
@@ -474,17 +610,6 @@ namespace Desert::Graphic::System
             return m_OverdrawFB;
         }
 #endif // DESERT_DEV_INSTRUMENTS
-
-        // This frame's static and instanced draws, whole (before any view's culling): what the view's global
-        // distance field composites (SceneRenderer::AddFrameGlobalDistanceFieldView).
-        [[nodiscard]] const std::vector<StaticMeshRenderData>& GetStaticQueue() const
-        {
-            return m_StaticQueue;
-        }
-        [[nodiscard]] const std::vector<InstancedMeshRenderData>& GetInstancedQueue() const
-        {
-            return m_InstancedQueue;
-        }
 
         // True if any queued mesh is flagged for the selection outline this frame. The Jump Flood pass
         // uses this to skip its (log2(width)) full-screen ping-pong passes when nothing is selected.
@@ -732,8 +857,28 @@ namespace Desert::Graphic::System
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // Which part of the generic queue a list takes, and through which program of each draw's template.
+        enum class GenericSlice : uint8_t
+        {
+            // The forward render path: every draw, its own program, in MeshGeometryPass.
+            Forward,
+            // Deferred, "Deferred: GBuffer": the Shader Override draws naming a SURFACE template (it has cells)
+            // through its (Static x GBuffer) cell — a surface material, shaded by the composite like the lit
+            // queue, never forward.
+            DeferredSurfaceGBuffer,
+            // Deferred, "Deferred: Forward Depth/Normal": the other draws whose program is opaque, through their
+            // template's (Static x DepthNormal) program.
+            DeferredDepthNormal,
+            // Deferred, "Deferred: Generic": the other draws, their own program over the composite; an opaque one
+            // at CloserOrEqual against its own prepassed depth.
+            DeferredForward,
+            // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
+            // through its DESERT_SUN_SHADOW_RAY_QUERY permutation (ReadsSunShadowRayTraced), which reads the view's
+            // screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through itself.
+            DeferredForwardRayTracedSun,
+        };
         // per-object data-driven materials (v3 slots + overrides)
-        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list );
+        void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list, GenericSlice slice );
         // Which casters a shadow view draws. A local view draws all of them; a cascade draws its STATIC ones into
         // its cache and its MOVABLE ones over the copied cache, every frame.
         enum class ShadowCasterLayer : uint8_t
@@ -760,10 +905,9 @@ namespace Desert::Graphic::System
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
-        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer" static
+        MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
-        MeshRendererDetail::MeshDrawList m_SkinnedDraws;
-        // "Deferred: Skinned"
+        MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
@@ -771,26 +915,34 @@ namespace Desert::Graphic::System
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
-        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source.
-        struct CardCaptureSource
+        // One section of a card instance (UE FLumenCardRenderer: a card is drawn with every section of its mesh,
+        // each a mesh batch with its own material): its material, the submeshes it does NOT draw, its motion row.
+        struct CardCaptureSection
         {
-            const Desert::Mesh* Mesh     = nullptr;
-            glm::mat4           World    = glm::mat4( 1.0f );
-            MaterialInstance*   Instance = nullptr;
-            // The surface's material: a static/generic slot's (Static x Forward), an ISM's, a skinned mesh's
-            // (Skinned x Forward). Null for a Shader Override draw (Generic below).
+            MaterialInstance* Instance = nullptr;
+            // The section's surface: a static/generic slot's `.demat`, an ISM section group's, a skinned
+            // section's. Null for a Shader Override draw (Generic below).
             DataDrivenMaterial* Surface = nullptr;
-            uint64_t            Hidden  = 0;
+            uint64_t            Hidden  = 0; // every submesh of the instance's other sections
             // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
             // skinned cell's bone palette).
             uint32_t MotionRow = 0;
-            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
-            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
-            MeshVertexPath Path = MeshVertexPath::Static;
             // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
             // and the (Static x GBuffer) cell of its template that captures it.
             const GenericMeshRenderData* Generic = nullptr;
             std::string                  OverrideCell;
+        };
+        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source: one per
+        // mesh instance, its cards captured by drawing every opaque section into them (a translucent section
+        // is not drawn: glass transmits, a card would hold what is behind it).
+        struct CardCaptureSource
+        {
+            const Desert::Mesh* Mesh  = nullptr;
+            glm::mat4           World = glm::mat4( 1.0f );
+            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
+            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
+            MeshVertexPath                  Path = MeshVertexPath::Static;
+            std::vector<CardCaptureSection> Sections;
         };
         std::vector<CardCaptureSource> m_CardCaptureSources;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
@@ -816,6 +968,22 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
+        // DESERT_SUN_SHADOW_RAY_QUERY permutation while the sun is ray traced. A blended program (TextSDF) or one
+        // that reads no sun shadow is shaded through itself.
+        [[nodiscard]] static bool ReadsSunShadowRayTraced( const Shader& shader, bool opaque );
+        // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
+        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass does.
+        [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
+                                                        const std::string& shaderName, bool rayTracedSun );
+        // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward Depth/Normal"
+        // admits it when BOTH its depth-normal and its forward pipeline are Ready and records it here; "Deferred:
+        // Generic" shades only what this frame admitted, so no draw is shaded forward against a missing prepass
+        // depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the view's frame.
+        bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
+        std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
+        std::optional<uint64_t>                          m_GenericPrepassFrame;
+        bool                                             m_GenericPrepassRayTracedSun = false;
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
@@ -854,10 +1022,14 @@ namespace Desert::Graphic::System
         // the queue again.
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
-        // (Skinned x GBuffer): the surface cache's capture of a skinned mesh's cards (the scene draws skinned
-        // meshes forward). Null if the shader or the pipeline is missing.
-        std::shared_ptr<Shader>           m_SkinnedGBufferShader;
-        std::shared_ptr<GraphicsPipeline> m_SkinnedGBufferPipeline;
+        // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
+        // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal; the
+        // surface cache captures a skinned mesh's cards with the same state. Null if the shader or the cell is
+        // missing, and SetupGBufferPass says skinned meshes are then absent from a deferred scene. The unowned
+        // material is the skinned twin of m_GBufferUnownedMaterial (same reason).
+        std::shared_ptr<Shader>             m_SkinnedGBufferShader;
+        std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
+        std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
@@ -1149,6 +1321,8 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
+        std::vector<uint32_t>                m_InstancedMotionRows; // see GetInstancedMotionRows
+        std::vector<uint32_t>                m_OtherMotionRows;     // see GetOtherMotionRows
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed
@@ -1176,6 +1350,7 @@ namespace Desert::Graphic::System
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
+            uint64_t            HiddenSubmeshMask = 0; // the batch's section group (one mask for every instance)
             // A draw call carries ONE index range, so a batch carries ONE level. Before this field the
             // batched path drew at the default 0 while the per-object path next to it computed a level
             // and passed it — the same object at two detail levels depending on whether it batched.
@@ -1214,7 +1389,7 @@ namespace Desert::Graphic::System
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
-            std::shared_ptr<GraphicsPipeline> Pipeline;
+            GraphicsPipeline*                 Pipeline = nullptr; // held by the pipeline cache / m_CellPipelines
             uint32_t                          Row = 0;
         };
         // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.
@@ -1229,6 +1404,7 @@ namespace Desert::Graphic::System
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
+            uint64_t            HiddenSubmeshMask = 0; ///< see InstancedDraw::HiddenSubmeshMask
             InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
         };
 
@@ -1280,7 +1456,11 @@ namespace Desert::Graphic::System
             uint32_t          Row       = 0;
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
+            // Skinned path: the primitive's row in the view's ObjectMotions (PrimitiveIndex), whose skin-cache
+            // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
+            uint32_t          MotionRow         = 0;
             uint32_t          LodLevel  = 0;
+            uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
@@ -1298,5 +1478,9 @@ namespace Desert::Graphic::System
         ObjectMotionRows                                m_ScratchMotionRows;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
+        // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
+        std::vector<RDG::BufferRef> m_SkinCacheReads;
+        RDG::ExternalBuffer         m_SkinCacheBonesImport;
+        bool                        m_SkinCacheEnabled = true;
     };
 } // namespace Desert::Graphic::System

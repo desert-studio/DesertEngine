@@ -9,8 +9,13 @@ Shader "MotionBlurFlatten"
         // gather's depth compare. CPU twin: Graphic::MotionBlurPixelVelocity.
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_Velocity;   // RenderExtent
-        Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(4) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Velocity;   // RenderExtent
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
+        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
         layout(binding = 2, rgba16f) restrict writeonly uniform image2D u_Flat;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.

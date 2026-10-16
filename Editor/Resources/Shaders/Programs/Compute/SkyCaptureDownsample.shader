@@ -8,7 +8,10 @@ Shader "SkyCaptureDownsample"
         // must be the image's own: the sky's radiance cube is RGBA32F (the format the sky's IBL chain has always been
         // built in, PanoramaToCubemap's output), the reflection captures' RGBA16F.
 
-        Uniform(0) samplerCube u_Source; // the source mip only (a single-mip view)
+        // The source mip only (a single-mip view), a separate texture read through bilinear CLAMP.
+        Uniform(0) textureCube u_Source;
+        Uniform(2) sampler u_LinearClampSampler;
+        #define u_Source samplerCube(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba32f) writeonly uniform imageCube u_Output;
 
         vec3 CubeDirection(vec2 texel, uint face, vec2 size)

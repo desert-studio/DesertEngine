@@ -18,8 +18,14 @@ Shader "RadianceCacheMark"
         {
             GIFrame giFrame;
         };
-        Uniform(7) sampler2D u_GBufferDepth;
-        Uniform(8) sampler2D u_GBufferB;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_PointClampSampler;
+        Uniform(7) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(8) texture2D u_GBufferB;
+        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
 
         void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
         {

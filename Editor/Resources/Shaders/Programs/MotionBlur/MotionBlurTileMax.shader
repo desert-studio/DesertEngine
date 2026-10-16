@@ -9,7 +9,11 @@ Shader "MotionBlurTileMax"
 
         const int kTileSize = 16; // Graphic::kMotionBlurTileSize
 
-        Uniform(0) sampler2D u_Flat; // RenderExtent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Flat; // RenderExtent
+        #define u_Flat sampler2D(u_Flat, u_PointClampSampler)
         layout(binding = 1, rg16f) restrict writeonly uniform image2D u_TileMax;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.

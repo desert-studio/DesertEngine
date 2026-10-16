@@ -177,7 +177,9 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer() = default;
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene )
+    {
+    }
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -278,8 +280,10 @@ namespace Desert::Graphic
             if ( !m_Faces[f] )
             {
                 m_Faces[f]           = std::make_unique<FaceView>();
+                // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
+                // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
                 m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
-                                                                        kReflectionCaptureViewProfile );
+                                                                        kReflectionCaptureViewProfile, m_Scene );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }
@@ -369,8 +373,10 @@ namespace Desert::Graphic
                  auto bindings = pass.Bindings( m_AssembleLayout.Get( m_Assemble->GetSpecification().Shader ),
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
-                     bindings.Sampled( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                     bindings
+                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
                  bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
                       .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );
              },
@@ -388,8 +394,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_DownsampleLayout.Get( m_Downsample->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample ) )
-                          .Sampled( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( mip - 1 ) )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -407,8 +414,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_FilterLayout.Get( m_Filter->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
-                          .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
@@ -443,7 +451,12 @@ namespace Desert::Graphic
                                                     .Layers = 6u * cubes,
                                                     .Dim    = RDG::TextureDim::CubeArray },
                                   name );
-        graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        {
+            // THE ARRAY IS THE SCENE'S, whichever view's graph creates it: the extraction is attributed to the
+            // scene, and the backend's pool opens the array's ledger row under it (RDG::Builder::Extract).
+            const ResourceAttributionScope sceneScope( ResourceOwner::SceneRenderer, m_Scene );
+            graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        }
         array.Cubes    = cubes;
         array.FaceSize = faceSize;
         array.Built    = true;

@@ -30,7 +30,7 @@ namespace Desert::Assets
             PutF32( out, v.z );
         }
 
-        struct Reader
+        struct MeshCardReader
         {
             std::string_view Bytes;
             size_t           At = 0;
@@ -81,7 +81,7 @@ namespace Desert::Assets
         if ( bytes.size() < sizeof( kCardMagic ) ||
              std::memcmp( bytes.data(), kCardMagic, sizeof( kCardMagic ) ) != 0 )
             return Common::MakeError<MeshCardsBuildData>( "not a DESTCARD container" );
-        Reader         r{ bytes, sizeof( kCardMagic ) };
+        MeshCardReader r{ bytes, sizeof( kCardMagic ) };
         const uint32_t version = r.U32();
         if ( version != kMeshCardsFormatVersion )
             return Common::MakeFormattedError<MeshCardsBuildData>( "DESTCARD version {} (this build reads {})",

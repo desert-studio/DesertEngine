@@ -18,7 +18,17 @@ namespace Desert::Graphic::GlobalIllumination
                     return "the global distance field's clipmap placement was not uploaded";
                 return {};
             case Tracer::HardwareRayQuery:
-                return "the ray-query tracer is not in this build (GI-HWRT)";
+                // Never answered by the distance field instead: a hardware pipeline without its TLAS is a defect
+                // (ResolveRenderMethods lowered HardwareTraced on a device without ray query, and
+                // RayTracingSceneRequired builds the TLAS for every frame whose GI traces hardware rays).
+                if ( !frame.Tlas.IsValid() )
+                    return "the view's TLAS was not built this frame";
+                if ( !frame.Metadata.Geometry.IsValid() || !frame.Metadata.Materials.IsValid() )
+                    return "the ray-tracing geometry / material records were not declared this frame";
+                if ( !frame.InstanceMeshCards.IsValid() )
+                    return "the surface cache's instance -> MeshCards table was not declared this frame "
+                           "(GI-SURFACE-CACHE)";
+                return {};
         }
         return "an unknown tracer";
     }
@@ -29,13 +39,19 @@ namespace Desert::Graphic::GlobalIllumination
         {
             case Tracer::SoftwareDistanceField:
                 for ( uint32_t level = 0; level < frame.GlobalDistanceField.size(); ++level )
-                    block.Sampled( std::format( "u_GlobalDistanceField{}", level ),
-                                   frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All(),
-                                   RDG::SamplerDesc::LinearRepeat() );
+                    block.Texture( std::format( "u_GlobalDistanceField{}", level ),
+                                   frame.GlobalDistanceField[level], sampled,
+                                   RDG::SubresourceRange::All() )
+                         .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
                 return;
             case Tracer::HardwareRayQuery:
-                return; // GI-HWRT declares the TLAS here; TracerFrameMissing refuses the frame until then
+                block.AccelerationStructure( kHardwareTracerTlasName, frame.Tlas )
+                     .Storage( kHardwareTracerGeometryName, frame.Metadata.Geometry, RDG::Access::StorageRead )
+                     .Storage( kHardwareTracerMaterialsName, frame.Metadata.Materials, RDG::Access::StorageRead )
+                     .Storage( kHardwareTracerInstanceMeshCardsName, frame.InstanceMeshCards,
+                               RDG::Access::StorageRead );
+                return;
         }
     }
 
@@ -58,11 +74,9 @@ namespace Desert::Graphic::GlobalIllumination
              .Storage( "SurfaceMeshCardsBuffer", frame.MeshCards, RDG::Access::StorageRead )
              .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
              .Storage( "SurfaceCacheObjectGridUB", frame.ObjectGrid, RDG::Access::StorageRead )
-             .Sampled( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all,
-                       RDG::SamplerDesc::PointClamp() )
-             .Sampled( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all,
-                       RDG::SamplerDesc::PointClamp() )
-             .Sampled( "u_SurfaceCacheOpacity", frame.Opacity, RDG::Access::SampledCompute, all,
-                       RDG::SamplerDesc::PointClamp() );
+             .Texture( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all )
+             .Texture( "u_SurfaceCacheOpacity", frame.Opacity, RDG::Access::SampledCompute, all );
     }
 } // namespace Desert::Graphic::GlobalIllumination

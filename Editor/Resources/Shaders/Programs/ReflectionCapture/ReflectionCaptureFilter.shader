@@ -19,7 +19,11 @@ Shader "ReflectionCaptureFilter"
         const uint NumSamples = 1024;
         const float InvNumSamples = 1.0 / float(NumSamples);
 
-        Uniform(0) samplerCube u_Radiance; // every mip of the capture's radiance cube
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) textureCube u_Radiance; // every mip of the capture's radiance cube
+        #define u_Radiance samplerCube(u_Radiance, u_LinearClampSampler)
         layout(binding = 1, rgba16f) writeonly uniform imageCubeArray u_Output; // this mip, every layer
 
         PushConstant PushConstants

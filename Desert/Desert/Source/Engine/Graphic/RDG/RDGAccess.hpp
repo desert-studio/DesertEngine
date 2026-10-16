@@ -284,16 +284,25 @@ namespace Desert::Graphic::RDG
         return accessMask == kPair;
     }
 
-    // The state a render pass leaves a READ-ONLY attachment in. The pass only tests (DepthRead), but the render
-    // pass's storeOp - STORE or DONT_CARE alike - is a write of the whole attachment at the end of the subpass
-    // (Vulkan spec "Load and Store Operations": a depth/stencil store is a DEPTH_STENCIL_ATTACHMENT_WRITE in
-    // LATE_FRAGMENT_TESTS). So the next use of the image is after a write: its barrier must make that write
-    // available (WAW / RAW), never merge with the read as if nothing had been written. A writable attachment's
-    // state already carries its write.
-    constexpr AccessState ReadOnlyAttachmentStoreState( const AccessState& state )
+    // THE STATE A RENDER PASS LEAVES ITS ATTACHMENT IN: the access's own state plus the attachment's STORE
+    // OPERATION. A store op is a write whatever the layout: VK_ATTACHMENT_STORE_OP_STORE and _DONT_CARE both
+    // write a depth/stencil attachment in LATE_FRAGMENT_TESTS with DEPTH_STENCIL_ATTACHMENT_WRITE (Vulkan spec,
+    // "Store Operations"), a read-only depth attachment (DepthRead, DEPTH_STENCIL_READ_ONLY_OPTIMAL) included —
+    // only STORE_OP_NONE does not, and the graph does not use it. With the bare DepthRead state (depth reads
+    // only) the barrier after such a pass had no source access, so the store was never made available and the
+    // next layout transition was a WRITE_AFTER_WRITE against it (Mac synchronization validation, MAT-BINDLESS).
+    // A colour attachment's own state already writes (ColorTarget), and a writable depth attachment's too; the
+    // rule is stated for every attachment so no depth use can leave a pass without it. It changes the barrier
+    // state only: the pass still produces no content (IsWriteAccess, culling and store decisions are unchanged).
+    constexpr AccessState AttachmentAccessState( Access access, bool isDepth )
     {
-        return AccessState{ state.Stages | PipelineStage_LateFragmentTests,
-                            state.Memory | MemoryAccess_DepthStencilWrite, state.Layout };
+        AccessState state = GetAccessState( access );
+        if ( isDepth )
+        {
+            state.Stages |= PipelineStage_LateFragmentTests;
+            state.Memory |= MemoryAccess_DepthStencilWrite;
+        }
+        return state;
     }
 
     // True when a resource already in @p current needs no barrier to be used in @p next: both are

@@ -67,15 +67,15 @@ namespace Desert::Graphic::SurfaceCache
     enum class Layer : uint32_t
     {
         // ---- captured
-        Depth = 0, // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
-        Albedo,    // diffuse albedo, rgb; a = 1
-        Opacity,   // coverage: 0 where the card ray finds no surface (outside coverage)
-        Normal,    // octahedral world normal
-        Emissive,  // material emissive, linear radiance
-                  // ---- lit
-        DirectLighting,             // every light with its shadow, as irradiance
-        IndirectLighting,           // radiosity: the card's hemisphere probes over the previous FinalLighting
-        FinalLighting,              // albedo × (direct + indirect) + emissive: what a traced hit reads
+        Depth = 0,        // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
+        Albedo,           // diffuse albedo, rgb; a = 1
+        Opacity,          // coverage: 0 where the card ray finds no surface (outside coverage)
+        Normal,           // octahedral world normal
+        Emissive,         // material emissive, linear radiance
+                          // ---- lit
+        DirectLighting,   // every light with its shadow, as irradiance
+        IndirectLighting, // radiosity: the card's hemisphere probes over the previous FinalLighting
+        FinalLighting,    // albedo × (direct + indirect) + emissive: what a traced hit reads
         RadiosityFramesAccumulated, // temporal count of the radiosity accumulation (UE NumFramesAccumulated)
         Count
     };

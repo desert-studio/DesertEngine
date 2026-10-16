@@ -43,21 +43,32 @@ Shader "CloudShadowMap"
 
         // The noise volume and the procedural modelling volume, at the march's own binding numbers (see
         // Graphic::kCloudShadowNoiseBinding). One vocabulary for one field.
-        Uniform(3) sampler3D u_CloudNoise;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(3) texture3D u_CloudNoise;
+        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
         // ALL FOUR OF THE MARCH'S NOISE SLOTS, at the march's own numbers. A cloud shades the ground with
         // the edge it actually has: a cirrus eroded by the fine volume for the eye and by the default one
         // for the shadow map would be two different clouds in one frame, and the disagreement would show
         // as a shadow that does not fit its cloud.
-        Uniform(10) sampler3D u_CloudNoise1;
-        Uniform(11) sampler3D u_CloudNoise2;
-        Uniform(12) sampler3D u_CloudNoise3;
-        Uniform(7) sampler3D u_CloudModelling;
+        Uniform(10) texture3D u_CloudNoise1;
+        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
+        Uniform(11) texture3D u_CloudNoise2;
+        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
+        Uniform(12) texture3D u_CloudNoise3;
+        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
+        Uniform(7) texture3D u_CloudModelling;
+        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by u_CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler2D u_CloudFarWeather;
-        Uniform(16) sampler2D u_CloudLayoutPattern;
-        Uniform(17) sampler2D u_CloudLayoutMask;
+        Uniform(15) texture2D u_CloudFarWeather;
+        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
+        Uniform(16) texture2D u_CloudLayoutPattern;
+        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
+        Uniform(17) texture2D u_CloudLayoutMask;
+        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
 
         // The same four-way select the march declares, for the same reason and at the same cost. Repeated
         // rather than shared because Common/CloudField.glslh must stay free of samplers to remain
@@ -78,7 +89,8 @@ Shader "CloudShadowMap"
         // the reason the shadow map needs it at all is that a hero cloud is a cloud: it shades the ground
         // under it because it is the same field, not because anything was added to the deferred pass.
         // ALWAYS BOUND, fallback included, on the terms the two above are bound on.
-        Uniform(9) sampler3D u_CloudAuthoredAtlas;
+        Uniform(9) texture3D u_CloudAuthoredAtlas;
+        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
 
         // The seam's three callbacks, exactly as CloudRaymarch.shader declares them: Common/CloudField.glslh
         // must stay free of samplers to remain compilable as C++ by its tests.

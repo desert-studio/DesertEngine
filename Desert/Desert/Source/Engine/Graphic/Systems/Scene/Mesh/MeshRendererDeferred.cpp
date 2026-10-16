@@ -1,6 +1,7 @@
 // MeshRenderer's deferred half: the manual G-buffer pass and its pipeline.
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -15,15 +16,47 @@ namespace Desert::Graphic::System
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
         // shaders sample no scene input: every block is the material's alone.
+        // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
+        // redraw follows on the deferred path.
         m_DeferredGeometry = true;
         BuildStaticDraws( m_GBufferDraws );
+        BuildSkinnedDraws( m_GBufferDraws );
         m_DeferredGeometry = false;
+        // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
+        BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
         m_GBufferDraws.Declare( pass, std::nullopt );
+        // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
+        // pass reads them after "SkinCache: Skin" wrote them.
+        for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+            pass.Read( streams, RDG::Access::StorageRead );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGBufferManual( const RDG::PassContext& context ) const
     {
         return m_GBufferDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun )
+    {
+        m_DepthNormalDraws.Clear();
+        // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
+        // stamped with its own frame.
+        m_GenericPrepassed.clear();
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        m_GenericPrepassFrame        = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
+        m_GenericPrepassRayTracedSun = rayTracedSun;
+        const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
+        if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
+            return;
+        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
+        // sample no scene/view input: the camera and the material row are the material's own blocks.
+        BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
+        m_DepthNormalDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderForwardDepthNormalManual( const RDG::PassContext& context ) const
+    {
+        return m_DepthNormalDraws.Record( context );
     }
 
     bool MeshRenderer::SetupGBufferPass()
@@ -114,27 +147,40 @@ namespace Desert::Graphic::System
                        DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::GBuffer ).value_or( "?" ) );
         }
 
-        // (Skinned x GBuffer): the pass state the surface cache captures a skinned mesh's cards with (the scene
-        // still draws skinned meshes forward, RenderSkinnedManual). Optional like the rest of this pass: without
-        // it skinned meshes are not in the Lumen scene, and the capture says so.
+        // (Skinned x GBuffer): skinned meshes are drawn in the base pass on the deferred path (BuildSkinnedDraws
+        // under m_DeferredGeometry), never forward over the composite, and the surface cache captures a skinned
+        // mesh's cards with the same pass state. Optional like the instanced cell: a refusal costs skinned meshes in
+        // a deferred scene and in the surface cache, said here.
         m_SkinnedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer );
         if ( m_SkinnedGBufferShader )
         {
             GraphicsPipelineSpecification sspec;
-            sspec.DebugName      = "SkinnedMeshGBuffer";
-            sspec.Layout         = MeshVertexLayout( MeshVertexPath::Skinned );
-            sspec.DepthCompareOp = DepthCompare::CloserOrEqual;
-            sspec.CullMode       = CullMode::Back;
-            sspec.Shader         = m_SkinnedGBufferShader;
-            sspec.TargetLayout   = GBufferLayout();
-            if ( const auto skinned = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec ) )
-                m_SkinnedGBufferPipeline = skinned.GetValue();
+            sspec.DebugName                 = "SkinnedMeshGBuffer";
+            sspec.Layout                    = MeshVertexLayout( MeshVertexPath::Skinned );
+            sspec.DepthCompareOp            = DepthCompare::CloserOrEqual;
+            sspec.CullMode                  = CullMode::Back;
+            sspec.Shader                    = m_SkinnedGBufferShader;
+            sspec.TargetLayout              = GBufferLayout();
+            const auto skinned              = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec );
+            m_SkinnedGBufferUnownedMaterial = CreateCellMaterial( MeshVertexPath::Skinned, MeshPass::GBuffer );
+            if ( !skinned )
+            {
+                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred, nor "
+                           "be in the surface cache: {}",
+                           skinned.GetError() );
+            }
+            else if ( !m_SkinnedGBufferUnownedMaterial )
+            {
+                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: "
+                           "the (Skinned x GBuffer) cell material was refused." );
+            }
             else
-                LOG_ERROR( "[MeshRenderer] skinned meshes are not in the surface cache: {}", skinned.GetError() );
+                m_SkinnedGBufferPipeline = skinned.GetValue();
         }
         else
         {
-            LOG_ERROR( "[MeshRenderer] shader '{}' is missing; skinned meshes are not in the surface cache.",
+            LOG_ERROR( "[MeshRenderer] shader '{}' is missing; skinned meshes will not be drawn while the scene "
+                       "renders deferred, nor be in the surface cache.",
                        DefaultSurfaceShaderName( MeshVertexPath::Skinned, MeshPass::GBuffer ).value_or( "?" ) );
         }
         return true;

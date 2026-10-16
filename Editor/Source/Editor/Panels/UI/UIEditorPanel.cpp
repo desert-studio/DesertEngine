@@ -134,7 +134,8 @@ namespace Desert::Editor
             return false;
         }
 
-        if ( const auto result = m_Render2D.Init( m_Target ); !result )
+        // The panel's own preview picture, drawn for no scene view: no view's budget holds it (RT-LEDGER-4).
+        if ( const auto result = m_Render2D.Init( m_Target, ::Desert::Graphic::ResourceOwnerInstance{} ); !result )
         {
             m_PreviewError = result.GetError();
             LOG_ERROR( "[UI Editor] preview Render2D init failed: {}", m_PreviewError );

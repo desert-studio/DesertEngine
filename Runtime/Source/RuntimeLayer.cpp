@@ -988,7 +988,9 @@ namespace Desert::Player
 
         m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
         m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
-        if ( const auto r = m_Render2D->Init( swapFb ); !r )
+        // The game's UI is drawn for the game's one view: its rows are that view's (RT-LEDGER-4). m_Render2D is
+        // reset in OnDetach, before m_SceneRenderer goes, so the view closes with none of them left.
+        if ( const auto r = m_Render2D->Init( swapFb, m_SceneRenderer->GetLedgerInstance() ); !r )
             return r;
 
         m_PresentReady = true;
@@ -1241,9 +1243,9 @@ namespace Desert::Player
                  {
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
                                     m_BlitExecutor->GetRouteFill() )
-                          .Sampled( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
-                                    Graphic::RDG::SubresourceRange::All(),
-                                    Graphic::RDG::SamplerDesc::LinearClamp() );
+                          .Texture( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
+                                    Graphic::RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", Graphic::RDG::SamplerDesc::LinearClamp() );
                  }
                  // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )

@@ -191,14 +191,15 @@ namespace Desert::Graphic::SurfaceCache
              {
                  auto block = pass.Bindings( m_CopyLayout.Get( m_CopyShader ),
                                              Renderer::GetPipelineRouteFill( *pipeline ) );
-                 block.Sampled( "u_CaptureAlbedo", capture.Albedo, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_CaptureNormal", capture.Normal, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_CaptureEmissive", capture.Emissive, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_CaptureDepth", capture.Depth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 block.Texture( "u_CaptureAlbedo", capture.Albedo, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_CaptureNormal", capture.Normal, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_CaptureEmissive", capture.Emissive, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_CaptureDepth", capture.Depth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
                       .Storage( "SurfaceCardPageCopies", copies, RDG::Access::StorageRead );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Storage( kLayerImages[i], layers[i], RDG::Access::StorageWrite );
@@ -262,8 +263,9 @@ namespace Desert::Graphic::SurfaceCache
                  auto block = pass.Bindings( m_AtlasViewLayout.Get( m_AtlasViewShader ), RDG::OtherRouteFill{} );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      if ( kCapturedLayers[i] != Layer::Emissive )
-                         block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
-                                        RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                         block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
+                                        RDG::SubresourceRange::All() )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f ) );
              },
              [raw]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -322,12 +324,10 @@ namespace Desert::Graphic::SurfaceCache
                  pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::OtherRouteFill{} )
                       .Storage( "SurfaceCardBuffer", cards, RDG::Access::StorageRead )
                       .Storage( "SurfaceCardPageBuffer", pages, RDG::Access::StorageRead )
-                      .Sampled( "u_AtlasColor", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_AtlasColor", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Texture( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SceneViewPush ) ) );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.02f, 0.02f, 0.03f, 1.0f ) );
                  pass.DepthTarget( depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), true );
@@ -465,10 +465,12 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
-                     block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
-                 block.Sampled( "u_AtlasIndirectLighting", indirect, RDG::Access::SampledGraphics,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                     block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 block.Texture( "u_AtlasIndirectLighting", indirect, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
@@ -523,15 +525,14 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( "RadianceCacheParamsUB", inputs.Params, RDG::Access::StorageRead )
                       .Storage( "RadianceCacheIndirectionUB", inputs.Indirection, RDG::Access::StorageRead )
                       .Storage( "RadianceCacheProbesUB", inputs.Probes, RDG::Access::StorageRead )
-                      .Sampled( "u_RadianceCacheIrradiance", inputs.Irradiance, RDG::Access::SampledGraphics, all,
-                                RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_RadianceCacheDepth", inputs.Depth, RDG::Access::SampledGraphics, all,
-                                RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_AtlasDirectLighting", direct, RDG::Access::SampledGraphics, all,
-                                RDG::SamplerDesc::PointClamp() );
+                      .Texture( "u_RadianceCacheIrradiance", inputs.Irradiance, RDG::Access::SampledGraphics, all )
+                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "u_RadianceCacheDepth", inputs.Depth, RDG::Access::SampledGraphics, all )
+                      .Texture( "u_AtlasDirectLighting", direct, RDG::Access::SampledGraphics, all )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
-                     block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics, all,
-                                    RDG::SamplerDesc::PointClamp() );
+                     block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, indirect, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
              },

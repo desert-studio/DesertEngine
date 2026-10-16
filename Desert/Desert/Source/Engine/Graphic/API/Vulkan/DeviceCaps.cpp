@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 
 #include <algorithm>
 #include <format>
@@ -38,7 +39,10 @@ namespace Desert::Graphic::API::Vulkan
              { C::MemoryBudget, "memory_budget", N::Optional, 0, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME },
              { C::TimelineSemaphore, "timelineSemaphore", N::Available, V12,
                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
-             { C::DescriptorIndexing, "descriptorIndexing", N::Available, V12,
+             // Required: the bindless texture table (runtime array of sampled images, update-after-bind,
+             // partially bound, variable count, non-uniform indexing). Core in 1.2; every desktop GPU and
+             // MoltenVK (argument buffers) carries it, and there is no non-bindless second path.
+             { C::DescriptorIndexing, "descriptorIndexing", N::Required, V12,
                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
              { C::BufferDeviceAddress, "bufferDeviceAddress", N::Available, V12,
                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME },
@@ -171,6 +175,29 @@ namespace Desert::Graphic::API::Vulkan
             if ( !spec.Extension.empty() )
                 missing += std::format( " ({})", spec.Extension );
         }
+        if ( caps.Has( Capability::DescriptorIndexing ) )
+        {
+            const DescriptorIndexingLimits& limits = caps.DescriptorIndexing;
+            // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
+            if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
+            {
+                if ( !missing.empty() )
+                    missing += ", ";
+                missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
+                                        2 * kBindlessInitialTextureCapacity,
+                                        limits.MaxPerStageUpdateAfterBindSampledImages,
+                                        limits.MaxSetUpdateAfterBindSampledImages );
+            }
+            if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
+            {
+                if ( !missing.empty() )
+                    missing += ", ";
+                missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
+                                        ::Desert::Core::kBindlessSamplerStateCount,
+                                        limits.MaxPerStageUpdateAfterBindSamplers,
+                                        limits.MaxSetUpdateAfterBindSamplers );
+            }
+        }
         if ( missing.empty() )
             return Common::MakeSuccess( true );
         return Common::MakeError<bool>(
@@ -196,5 +223,22 @@ namespace Desert::Graphic::API::Vulkan
             line += std::format( " {}{}={}", need, spec.Name, how );
         }
         return line;
+    }
+
+    std::string FormatDescriptorLimits( const DeviceCaps& caps )
+    {
+        const PerStageDescriptorLimits& stage = caps.PerStage;
+        const DescriptorIndexingLimits& uab   = caps.DescriptorIndexing;
+        // descriptorBindingSampledImageUpdateAfterBind is enabled with the descriptorIndexing row, never alone.
+        return std::format(
+             "per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage buffers "
+             "{}, storage images {}, resources {} | update-after-bind (sampledImageUpdateAfterBind="
+             "{}): per stage samplers {}, sampled images {}, resources {}; per set samplers {}, "
+             "sampled images {}",
+             stage.MaxSamplers, stage.MaxSampledImages, stage.MaxUniformBuffers, stage.MaxStorageBuffers,
+             stage.MaxStorageImages, stage.MaxResources, caps.Has( Capability::DescriptorIndexing ) ? "yes" : "no",
+             uab.MaxPerStageUpdateAfterBindSamplers, uab.MaxPerStageUpdateAfterBindSampledImages,
+             uab.MaxPerStageUpdateAfterBindResources, uab.MaxSetUpdateAfterBindSamplers,
+             uab.MaxSetUpdateAfterBindSampledImages );
     }
 } // namespace Desert::Graphic::API::Vulkan

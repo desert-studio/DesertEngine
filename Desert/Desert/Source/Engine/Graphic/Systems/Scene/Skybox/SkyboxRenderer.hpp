@@ -4,7 +4,6 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
-#include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialProceduralSky.hpp>

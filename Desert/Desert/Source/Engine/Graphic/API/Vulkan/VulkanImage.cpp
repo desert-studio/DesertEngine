@@ -268,6 +268,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanImage2D::Release()
     {
         DropGraphTexture(); // its views name the VkImage released below
+        if ( m_BindlessSlot.IsValid() )
+        {
+            // The slot names the view released below; the table reuses it only after the frames in flight.
+            if ( BindlessTextureTable* table = TryGetBindlessTextureTable() )
+                table->Release( m_BindlessSlot );
+            m_BindlessSlot = {};
+        }
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         if ( m_EncodedView != VK_NULL_HANDLE )
@@ -715,6 +722,20 @@ namespace Desert::Graphic::API::Vulkan
 
         m_IsLoaded           = true;
         m_ResourceGeneration = NextResourceGeneration();
+
+        // A sampled texture gets its bindless slot now, for its GPU life: with uploaded pixels, and without them
+        // too (an AM2 texture still cooking is filled later by SetData / RecordSetData into this same view). The
+        // pixels are no test of it: ReleaseUploadedPixels above has already emptied Data, and testing it here left
+        // every uploaded texture without a slot, drawing the table's missing texture. Attachments, storage and
+        // multisampled images never get one (the graph writes them; BindlessTextureTable).
+        if ( m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
+             ( m_Specification.Properties & Core::Formats::Storage ) == 0 && m_Specification.Samples <= 1 )
+        {
+            const auto slot = GetBindlessTextureTable().Register( *this );
+            if ( !slot.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "image '{}': {}", m_Specification.Tag, slot.GetError() );
+            m_BindlessSlot = slot.GetValue();
+        }
         return Common::MakeSuccess( true );
     }
 

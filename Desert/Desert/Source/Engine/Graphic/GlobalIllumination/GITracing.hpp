@@ -5,6 +5,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <glm/glm.hpp>
 
@@ -159,13 +160,28 @@ namespace Desert::Graphic::GlobalIllumination
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
     //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
     //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it;
-    //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
+    //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
+    //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the hit's
+    //                          vertex streams and alpha test), and the surface cache's MeshCards index per TLAS
+    //                          instance custom index (GI-SURFACE-CACHE; one uint per instance, DECISIONS-1015 S4).
+    //                          The ray-query walk's own record; it reads no distance field data. It fills four of
+    //                          the tracer's five bindings (GI_TRACER_BINDING + 0..3); + 4 stays unbound.
     struct TracerFrame
     {
-        GlobalIllumination::Pipeline   Pipeline{};
-        std::array<RDG::TextureRef, 4> GlobalDistanceField{};
-        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
+        GlobalIllumination::Pipeline        Pipeline{};
+        std::array<RDG::TextureRef, 4>      GlobalDistanceField{};
+        RDG::BufferRef                      GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
+        RDG::BufferRef                      Tlas;
+        RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::BufferRef                      InstanceMeshCards;
     };
+
+    // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
+    // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
+    inline constexpr std::string_view kHardwareTracerTlasName              = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerGeometryName          = "RayTracingGeometryRecords";
+    inline constexpr std::string_view kHardwareTracerMaterialsName         = "RayTracingMaterialRecords";
+    inline constexpr std::string_view kHardwareTracerInstanceMeshCardsName = "GIInstanceMeshCards";
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
     // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound

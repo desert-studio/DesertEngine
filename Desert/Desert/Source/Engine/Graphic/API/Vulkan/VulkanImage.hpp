@@ -159,6 +159,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Specification;
         }
+        [[nodiscard]] const Core::Formats::Image2DSpecification& GetSpecification() const
+        {
+            return m_Specification;
+        }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
 

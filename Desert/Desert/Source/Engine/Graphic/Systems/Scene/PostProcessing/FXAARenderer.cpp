@@ -54,8 +54,8 @@ namespace Desert::Graphic::System
             return;
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
-             .Sampled( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearRepeat() );
+             .Texture( "u_InputTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
     }
 
     Common::BoolResultStr FXAARenderer::Record( const RDG::PassContext& context )

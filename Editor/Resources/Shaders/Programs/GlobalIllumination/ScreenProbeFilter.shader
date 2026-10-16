@@ -35,7 +35,12 @@ Shader "ScreenProbeFilter"
         {
             GIFrame giFrame;
         };
-        Uniform(4) sampler2D u_ScreenProbeTraced;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_PointClampSampler;
+        Uniform(4) texture2D u_ScreenProbeTraced;
+        #define u_ScreenProbeTraced sampler2D(u_ScreenProbeTraced, u_PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_ScreenProbeFiltered;
         WriteBuffer(6) ScreenProbeSHUB
         {

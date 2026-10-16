@@ -19,10 +19,15 @@ Shader "IrradianceFieldUpsample"
         {
             GIFrame giFrame;
         };
-        Uniform(1) sampler2D u_GBufferDepth;
-        Uniform(2) sampler2D u_GBufferB;
-        Uniform(3) sampler2D u_GIHalfDiffuse;
-        Uniform(4) sampler2D u_GIHalfSpecular;
+        Uniform sampler u_PointClampSampler;
+        Uniform(1) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_GBufferB;
+        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform(3) texture2D u_GIHalfDiffuse;
+        #define u_GIHalfDiffuse sampler2D(u_GIHalfDiffuse, u_PointClampSampler)
+        Uniform(4) texture2D u_GIHalfSpecular;
+        #define u_GIHalfSpecular sampler2D(u_GIHalfSpecular, u_PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_GIDiffuseOut;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_GISpecularOut;
 

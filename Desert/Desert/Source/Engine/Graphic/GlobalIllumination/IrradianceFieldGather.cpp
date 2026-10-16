@@ -16,8 +16,8 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 2> kShaderNames{ "IrradianceFieldGather",
-                                                                "IrradianceFieldUpsample" };
+        constexpr std::array<std::string_view, 2> kIrradianceFieldShaderNames{ "IrradianceFieldGather",
+                                                                               "IrradianceFieldUpsample" };
 
         std::shared_ptr<Image2D> CreateTarget( const std::string_view tag, const glm::uvec2 extent )
         {
@@ -43,7 +43,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
-            const std::string name( kShaderNames[program] );
+            const std::string name( kIrradianceFieldShaderNames[program] );
             m_Shaders[program] = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !m_Shaders[program] )
                 return Common::MakeFormattedError<bool>( "irradiance field: shader {} not found", name );
@@ -106,13 +106,12 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
-                          .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
+                          .Texture( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all )
                           .Storage( "u_GIHalfDiffuseOut", halfDiffuse, kW )
                           .Storage( "u_GIHalfSpecularOut", halfSpecular, kW );
                  },
@@ -132,11 +131,11 @@ namespace Desert::Graphic::GlobalIllumination
                      auto block = builder.Bindings( m_Layouts[Upsample].Get( m_Shaders[Upsample] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
                      block.Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GIHalfDiffuse", halfDiffuse, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GIHalfSpecular", halfSpecular, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
+                          .Texture( "u_GIHalfDiffuse", halfDiffuse, kS, all )
+                          .Texture( "u_GIHalfSpecular", halfSpecular, kS, all )
                           .Storage( "u_GIDiffuseOut", diffuse, kW )
                           .Storage( "u_GISpecularOut", specular, kW );
                  },

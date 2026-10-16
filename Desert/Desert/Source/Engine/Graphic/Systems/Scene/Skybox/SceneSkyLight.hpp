@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyCapture.hpp>
 
@@ -56,7 +57,12 @@ namespace Desert::Graphic
     class SceneSkyLight
     {
     public:
-        SceneSkyLight()                                  = default;
+        /// @p scene: the ledger instance of the scene that owns it -- every image a capture allocates is that
+        /// scene's row (ResourceOwner::Environment), counted once in its budget entry whatever number of views
+        /// reads it.
+        explicit SceneSkyLight( ResourceOwnerInstance scene ) : m_Scene( scene )
+        {
+        }
         SceneSkyLight( const SceneSkyLight& )            = delete;
         SceneSkyLight& operator=( const SceneSkyLight& ) = delete;
 
@@ -131,6 +137,7 @@ namespace Desert::Graphic
     private:
         [[nodiscard]] bool Claims( const void* view ) const;
 
+        ResourceOwnerInstance m_Scene;
         System::SkyCapture m_Capture;
         bool               m_ProgramsMade   = false;
         bool               m_ProgramsFailed = false;

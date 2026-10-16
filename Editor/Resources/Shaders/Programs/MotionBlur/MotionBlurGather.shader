@@ -10,9 +10,16 @@ Shader "MotionBlurGather"
         // neighbourhood does not move returns its colour unmodified (a still frame is bit-equal).
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_SceneColor;  // linear HDR, OutputExtent
-        Uniform(1) sampler2D u_Flat;        // output-pixel velocity (xy), device depth (z); RenderExtent
-        Uniform(2) sampler2D u_NeighborMax; // tile extent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(5) sampler u_LinearClampSampler;
+        Uniform(6) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_SceneColor;  // linear HDR, OutputExtent
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
+        Uniform(1) texture2D u_Flat;        // output-pixel velocity (xy), device depth (z); RenderExtent
+        #define u_Flat sampler2D(u_Flat, u_PointClampSampler)
+        Uniform(2) texture2D u_NeighborMax; // tile extent
+        #define u_NeighborMax sampler2D(u_NeighborMax, u_PointClampSampler)
         layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_Output;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.

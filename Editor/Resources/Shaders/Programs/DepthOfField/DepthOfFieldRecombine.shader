@@ -8,10 +8,18 @@ Shader "DepthOfFieldRecombine"
         // layer over both by its opacity. A frame with nothing out of focus returns the colour unmodified.
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_SceneColor; // linear HDR, OutputExtent
-        Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        Uniform(2) sampler2D u_Foreground; // HalfExtent: rgb, a opacity
-        Uniform(3) sampler2D u_Background; // HalfExtent: rgb, a presence
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(6) sampler u_PointClampSampler;
+        Uniform(7) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_SceneColor; // linear HDR, OutputExtent
+        #define u_SceneColor sampler2D(u_SceneColor, u_PointClampSampler)
+        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_Foreground; // HalfExtent: rgb, a opacity
+        #define u_Foreground sampler2D(u_Foreground, u_LinearClampSampler)
+        Uniform(3) texture2D u_Background; // HalfExtent: rgb, a presence
+        #define u_Background sampler2D(u_Background, u_LinearClampSampler)
         layout(binding = 4, rgba16f) restrict writeonly uniform image2D u_Output;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.

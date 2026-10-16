@@ -410,8 +410,9 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Sampled( "u_DFBrickAtlas", atlas, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+                          .Texture( "u_DFBrickAtlas", atlas, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
                           .Storage( "u_Clipmap", clipmap, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
                  },
@@ -491,9 +492,9 @@ namespace Desert::Graphic::DistanceField
              {
                  auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} );
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
-                     block.Sampled( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
-                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                                    RDG::SamplerDesc::LinearRepeat() );
+                     block.Texture( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                  block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
                  pass.ColorTarget( 0, target, load );
              },

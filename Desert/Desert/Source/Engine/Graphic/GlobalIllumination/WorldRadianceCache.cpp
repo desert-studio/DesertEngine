@@ -10,6 +10,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
+
 #include <format>
 #include <span>
 
@@ -17,9 +19,11 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 6> kShaderNames{ "RadianceCacheMark",     "RadianceCacheUpdate",
-                                                                "RadianceCacheAllocate", "RadianceCacheSelect",
-                                                                "RadianceCacheTrace",    "RadianceCacheFilter" };
+        using Common::Math::DivideRoundUp;
+
+        constexpr std::array<std::string_view, 6> kRadianceCacheShaderNames{
+             "RadianceCacheMark",   "RadianceCacheUpdate", "RadianceCacheAllocate",
+             "RadianceCacheSelect", "RadianceCacheTrace",  "RadianceCacheFilter" };
 
         // std430 — must match `PushConstant RadianceCachePush` in Common/RadianceCacheState.glslh.
         struct RadianceCachePush
@@ -39,11 +43,6 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr uint32_t ScheduleEntries( const RadianceCache::RadianceCacheInputs& shape )
         {
             return RadianceCache::kPriorityBuckets + 2u + shape.ProbesPerFrame;
-        }
-
-        uint32_t DivideUp( const uint32_t value, const uint32_t by )
-        {
-            return ( value + by - 1u ) / by;
         }
 
         std::shared_ptr<Image2D> CreateAtlas( const std::string_view tag, const uint32_t side,
@@ -74,14 +73,14 @@ namespace Desert::Graphic::GlobalIllumination
         {
             if ( pass == Trace )
                 continue; // a tracer permutation, EnsureTraceProgram
-            m_Shaders[pass] = shaders->GetByName( std::string( kShaderNames[pass] ) );
+            m_Shaders[pass] = shaders->GetByName( std::string( kRadianceCacheShaderNames[pass] ) );
             if ( !m_Shaders[pass] )
                 return Common::MakeFormattedError<bool>( "radiance cache: shader {} not found",
-                                                         kShaderNames[pass] );
+                                                         kRadianceCacheShaderNames[pass] );
             auto pipeline = ComputePipeline::Create(
-                 { .Shader = m_Shaders[pass], .DebugName = std::string( kShaderNames[pass] ) } );
+                 { .Shader = m_Shaders[pass], .DebugName = std::string( kRadianceCacheShaderNames[pass] ) } );
             if ( !pipeline )
-                return Common::MakeFormattedError<bool>( "radiance cache: {}: {}", kShaderNames[pass],
+                return Common::MakeFormattedError<bool>( "radiance cache: {}: {}", kRadianceCacheShaderNames[pass],
                                                          pipeline.GetError() );
             m_Pipelines[pass] = pipeline.GetValue();
         }
@@ -92,7 +91,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
-        const std::string name( kShaderNames[Trace] );
+        const std::string name( kRadianceCacheShaderNames[Trace] );
         auto              shader =
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
         if ( !shader )
@@ -199,15 +198,16 @@ namespace Desert::Graphic::GlobalIllumination
 
         const uint32_t   grid      = shape.GridResolution;
         const uint32_t   clipCount = shape.Clipmaps;
-        const glm::uvec3 entryGroups( DivideUp( grid * clipCount, 4u ), DivideUp( grid, 4u ),
-                                      DivideUp( grid, 4u ) );
-        const glm::uvec3 groups[PassCount] = { glm::uvec3( DivideUp( DivideUp( inputs.Extent.x, 2u ), 8u ),
-                                                           DivideUp( DivideUp( inputs.Extent.y, 2u ), 8u ), 1u ),
-                                               entryGroups,
-                                               entryGroups,
-                                               glm::uvec3( DivideUp( push.MaxProbes, 64u ), 1u, 1u ),
-                                               glm::uvec3( shape.ProbesPerFrame, 1u, 1u ),
-                                               glm::uvec3( shape.ProbesPerFrame, 1u, 1u ) };
+        const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
+                                      DivideRoundUp( grid, 4u ) );
+        const glm::uvec3 groups[PassCount] = {
+             glm::uvec3( DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ),
+                         DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ), 1u ),
+             entryGroups,
+             entryGroups,
+             glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
+             glm::uvec3( shape.ProbesPerFrame, 1u, 1u ),
+             glm::uvec3( shape.ProbesPerFrame, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
              "RadianceCache: Select", "RadianceCache: Trace",  "RadianceCache: Filter" };
@@ -236,9 +236,9 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( "GIFrameUB", frame, kR );
                      if ( pass == Mark )
-                         block.Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() );
+                         block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Texture( "u_GBufferB", inputs.GBufferB, kS, all );
                      if ( pass == Allocate || pass == Trace )
                          block.Storage( "PointLightsUB", inputs.PointLights, kR )
                               .Storage( "SpotLightsUB", inputs.SpotLights, kR )
@@ -249,16 +249,14 @@ namespace Desert::Graphic::GlobalIllumination
                          DeclareTracerReads( block, inputs.Tracer );
                          if ( readsCards )
                              DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
-                         block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
-                                        RDG::SamplerDesc::LinearClamp() )
-                              .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferA", inputs.GBufferA, kS, all, RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_RadianceCacheIrradiance", irradiance, kS, all,
-                                        RDG::SamplerDesc::LinearClamp() )
-                              .Sampled( "u_RadianceCacheDepth", depth, kS, all, RDG::SamplerDesc::LinearClamp() )
+                         block.Texture( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all )
+                              .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                              .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Texture( "u_GBufferA", inputs.GBufferA, kS, all )
+                              .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all )
+                              .Texture( "u_RadianceCacheIrradiance", irradiance, kS, all )
+                              .Texture( "u_RadianceCacheDepth", depth, kS, all )
                               .Storage( "u_RadianceCacheRadiance", radiance, kRW );
                      }
                      if ( pass == Filter )

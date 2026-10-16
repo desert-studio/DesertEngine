@@ -41,8 +41,26 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
-// The cascaded shadow's two bindings; Mesh/CascadedShadow.glslh reads them by these names.
-layout( binding = 5 ) uniform sampler2DArray u_ShadowCascades;
+// Shared sampler states (UE's shared samplers): every scene/view input below is a separate texture read through one
+// of these, bound by the pass with the inputs (Graphic::BindSceneViewInputs). One combined sampler per input cost a
+// sampler descriptor each; the cell now holds two (and Mesh/Surface/SurfaceTypes.glslh's numbered point-clamped
+// one). 13 and 14 were the cascades 1..3, which are one array now.
+layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
+layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+
+#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+// "Shadows: Ray Traced Sun" (the permutation the deferred path draws a forward mesh with when the sun is ray
+// traced, as DeferredLighting.shader's): the screen shadow mask the trace wrote, at the render extent this target
+// has (r = visibility, 1 = lit), in place of the cascades - bound by SceneViewInputs (kSceneViewSunShadowMaskName)
+// with the point-clamped shared state (read with texelFetch).
+layout( binding = 5 ) uniform texture2D u_ScreenShadowMask;
+#define u_ScreenShadowMask sampler2D(u_ScreenShadowMask, u_PointClampSampler)
+#else
+// The cascaded shadow's binding: the cascades are ONE array texture (layer c = cascade c, Graphic::
+// kSceneViewShadowCascadesName); Mesh/CascadedShadow.glslh reads it by this name.
+layout( binding = 5 ) uniform texture2DArray u_ShadowCascades;
+#define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
+#endif
 layout( binding = 7 ) uniform ShadowUB
 {
     mat4 u_LightViewProj[4];
@@ -55,7 +73,9 @@ layout( binding = 7 ) uniform ShadowUB
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
 };
 
+#ifndef DESERT_SUN_SHADOW_RAY_QUERY
 #include <Mesh/CascadedShadow.glslh>
+#endif
 
 // THE CONTACT SHADOWS (UE ContactShadowLength), the same march as the deferred composite's, through the opaque
 // scene depth (u_SceneDepth, Mesh/Surface/SurfaceTypes.glslh: the G-buffer depth on the deferred path; the forward
@@ -69,18 +89,22 @@ layout( binding = 7 ) uniform ShadowUB
 #include <Common/ContactShadow.glslh>
 
 // Environment maps, the sky's look (Common/SkyLook.glslh) and the split-sum LUT.
-layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
-layout( binding = 9 ) uniform samplerCube u_EnvIrradianceTex;
+layout( binding = 8 ) uniform textureCube u_EnvSpecularTex;
+#define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
+layout( binding = 9 ) uniform textureCube u_EnvIrradianceTex;
+#define u_EnvIrradianceTex samplerCube(u_EnvIrradianceTex, u_LinearClampSampler)
 layout( binding = 22 ) uniform SkyLookUB
 {
     vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
     vec4 Gain;      // rgb = tint * intensity
 }
 skyLook;
-layout( binding = 10 ) uniform sampler2D u_BRDFLUTTexture;
+layout( binding = 10 ) uniform texture2D u_BRDFLUTTexture;
+#define u_BRDFLUTTexture sampler2D(u_BRDFLUTTexture, u_LinearClampSampler)
 
 // The cloud layer's shadow on the world, the sun's second occluder (Common/CloudShadowReceiver.glslh).
-layout( binding = 20 ) uniform sampler2D u_CloudShadowMap;
+layout( binding = 20 ) uniform texture2D u_CloudShadowMap;
+#define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
 layout( binding = 21 ) uniform CloudShadowUB
 {
     mat4 u_CloudShadowWorldToMap;
@@ -106,8 +130,8 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
-    DESERT_SURFACE_CLIP( s );
 
     const vec3 N = DesertSurfaceWorldNormal( i, s );
 
@@ -129,9 +153,14 @@ void main()
     const vec3 sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
     // The receiver's subsurface opacity for its contact shadows (UE IsSubsurfaceModel; -1 = not subsurface).
     const float subsurfaceOpacity = DesertSubsurfaceOpacity( DESERT_SHADING_MODEL_INDEX, payload );
+#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+    const float sunVisibility = texelFetch( u_ScreenShadowMask, ivec2( gl_FragCoord.xy ), 0 ).r;
+#else
     int         cascade;
-    float       shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade ) *
-                   ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
+    const float sunVisibility = ShadowFactor( i.WorldPosition, N, sunDir, cascade );
+#endif
+    float shadow =
+         sunVisibility * ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
     if ( s.ReceiveSunShadows < 0.5 )
         shadow = 1.0;
     shadow *= CloudShadowFactor( i.WorldPosition );
@@ -190,12 +219,15 @@ void main()
         return;
     }
 
-    // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit).
+    // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit). A traced sun has no cascades:
+    // mode 2 shows the raw factor there.
+#ifndef DESERT_SUN_SHADOW_RAY_QUERY
     if ( u_ShadowParams.z > 1.5 )
     {
         oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );
         return;
     }
+#endif
     if ( u_ShadowParams.z > 0.5 )
     {
         oColor = vec4( vec3( shadow ), 1.0 );

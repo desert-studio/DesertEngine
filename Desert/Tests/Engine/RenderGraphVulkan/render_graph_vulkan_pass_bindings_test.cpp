@@ -160,10 +160,10 @@ namespace
     {
         ShaderResource::ReflectionData       reflection;
         ShaderResource::ShaderDescriptorSet& set = reflection.ShaderDescriptorSets[0];
-        Layout::Image2DSampler               source;
+        Layout::SampledImage                 source;
         source.BindingPoint = 0;
         source.Name         = "u_Source";
-        set.Image2DSamplers.emplace( 0, source );
+        set.SampledImages.emplace( 0, source );
         Layout::Image2DSampler output;
         output.BindingPoint = 1;
         output.Name         = "u_Output";
@@ -212,9 +212,9 @@ namespace
 
     ShaderBindingLayout BelievedComplete()
     {
-        return Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
-                           { "u_Output", ShaderResourceKind::StorageTexture } },
-                         12 );
+        return Believed(
+             { { "u_Source", ShaderResourceKind::Texture }, { "u_Output", ShaderResourceKind::StorageTexture } },
+             12 );
     }
 
     // Runs one compute pass over a two-mip chain whose setup declares a block over @p believed filled by @p fill
@@ -254,8 +254,8 @@ namespace
 
     void FillComplete( BindingBlockBuilder& block, TextureRef chain )
     {
-        block.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                       SamplerDesc::LinearClamp() )
+        block.Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, Access::StorageWrite, 0 );
     }
 } // namespace
@@ -269,7 +269,7 @@ TEST( RenderGraphVulkanPassBindings, ACompleteBlockResolvesEveryNameToItsReflect
     const std::vector<RdgResolvedEntry>& entries = resolved.GetValue();
     ASSERT_EQ( entries.size(), 2u );
     EXPECT_EQ( entries[0].Slot, ( RdgSlotKey{ 0, 0 } ) );
-    EXPECT_EQ( entries[0].Kind, ShaderResourceKind::SampledTexture );
+    EXPECT_EQ( entries[0].Kind, ShaderResourceKind::Texture );
     EXPECT_EQ( entries[1].Slot, ( RdgSlotKey{ 0, 1 } ) );
     EXPECT_EQ( entries[1].Kind, ShaderResourceKind::StorageTexture );
 }
@@ -277,18 +277,18 @@ TEST( RenderGraphVulkanPassBindings, ACompleteBlockResolvesEveryNameToItsReflect
 // A name the shader does not declare is refused, naming the pass, the name and the shader.
 TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 {
-    const Verdict resolved =
-         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
-                                    { "u_Output", ShaderResourceKind::StorageTexture },
-                                    { "u_Sorce", ShaderResourceKind::SampledTexture } },
-                                  12 ),
-                        []( BindingBlockBuilder& bindings, TextureRef chain )
-                        {
-                            FillComplete( bindings, chain );
-                            bindings.Sampled( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                              SamplerDesc::LinearClamp() );
-                        } );
+    const Verdict resolved = ResolveInPass(
+         UpsampleReflection(), MaterialFillsParams(),
+         Believed( { { "u_Source", ShaderResourceKind::Texture },
+                     { "u_Output", ShaderResourceKind::StorageTexture },
+                     { "u_Sorce", ShaderResourceKind::Texture } },
+                   12 ),
+         []( BindingBlockBuilder& bindings, TextureRef chain )
+         {
+             FillComplete( bindings, chain );
+             bindings.Texture( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
+         } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
     EXPECT_NE( error.find( "PostFX: BloomUpsample1" ), std::string::npos ) << error;
@@ -298,18 +298,17 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
 // A sampled entry into a storage-image slot (and the reverse) is refused: the kind is checked against reflection.
 TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 {
-    const Verdict resolved =
-         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Output", ShaderResourceKind::SampledTexture },
-                                    { "u_Source", ShaderResourceKind::StorageTexture } },
-                                  12 ),
-                        []( BindingBlockBuilder& bindings, TextureRef chain )
-                        {
-                            bindings
-                                 .Sampled( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
-                                           SamplerDesc::LinearClamp() )
-                                 .Storage( "u_Source", chain, Access::StorageWrite, 0 );
-                        } );
+    const Verdict resolved = ResolveInPass(
+         UpsampleReflection(), MaterialFillsParams(),
+         Believed(
+              { { "u_Output", ShaderResourceKind::Texture }, { "u_Source", ShaderResourceKind::StorageTexture } },
+              12 ),
+         []( BindingBlockBuilder& bindings, TextureRef chain )
+         {
+             bindings.Texture( "u_Output", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
+                  .Storage( "u_Source", chain, Access::StorageWrite, 0 );
+         } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
     EXPECT_NE( error.find( "'u_Output' is bound as a Sampled texture" ), std::string::npos ) << error;
@@ -320,14 +319,14 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 // push-constant block nothing gives.
 TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
 {
-    const Verdict noOutput =
-         ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                        Believed( { { "u_Source", ShaderResourceKind::SampledTexture } }, 12 ),
-                        []( BindingBlockBuilder& bindings, TextureRef chain )
-                        {
-                            bindings.Sampled( "u_Source", chain, Access::SampledCompute,
-                                              SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp() );
-                        } );
+    const Verdict noOutput = ResolveInPass(
+         UpsampleReflection(), MaterialFillsParams(),
+         Believed( { { "u_Source", ShaderResourceKind::Texture } }, 12 ),
+         []( BindingBlockBuilder& bindings, TextureRef chain )
+         {
+             bindings.Texture( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
+         } );
     ASSERT_FALSE( noOutput.IsSuccess() );
     EXPECT_NE( noOutput.GetError().find( "'u_Output' (set 0 binding 1)" ), std::string::npos )
          << noOutput.GetError();
@@ -338,7 +337,7 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
     EXPECT_NE( noMaterial.GetError().find( "'u_Params'" ), std::string::npos ) << noMaterial.GetError();
 
     const Verdict noPush = ResolveInPass( UpsampleReflection(), MaterialFillsParams(),
-                                          Believed( { { "u_Source", ShaderResourceKind::SampledTexture },
+                                          Believed( { { "u_Source", ShaderResourceKind::Texture },
                                                       { "u_Output", ShaderResourceKind::StorageTexture } },
                                                     0 ),
                                           FillComplete );
@@ -376,4 +375,45 @@ TEST( RenderGraphVulkanPassBindings, ABlockWithAFailedEntryIsRefusedWithThatEntr
     ASSERT_FALSE( resolved.IsSuccess() );
     EXPECT_NE( resolved.GetError().find( "is not a block this pass declared" ), std::string::npos )
          << resolved.GetError();
+}
+
+// RT-SCENE: a ray-query shader's u_Scene (acceleration structure, set 1 binding 3) filled by a block entry on the
+// view's TLAS buffer resolves to that slot as an AccelerationStructure entry carrying the TLAS - the entry
+// WriteRdgPassSets turns into a VkWriteDescriptorSetAccelerationStructureKHR write.
+TEST( RenderGraphVulkanPassBindings, ATlasEntryResolvesToTheReflectedAccelerationStructureSlot )
+{
+    ShaderResource::ReflectionData       reflection;
+    ShaderResource::ShaderDescriptorSet& set = reflection.ShaderDescriptorSets[1];
+    Layout::AccelerationStructure        scene;
+    scene.BindingPoint  = 3;
+    scene.DescriptorSet = 1;
+    scene.Name          = "u_Scene";
+    set.AccelerationStructures.emplace( 3, scene );
+
+    ExternalBuffer            tlasStorage( BufferDesc{ 4096 }, Access::None );
+    Builder                   graph( "ray-query-consumer" );
+    const BufferRef           tlas    = graph.RegisterExternal( tlasStorage, "RayTracingScene.TLAS" );
+    Verdict                   verdict = Common::MakeError<std::vector<RdgResolvedEntry>>( "the pass did not run" );
+    const ShaderBindingLayout believed{ .ShaderName = "RayQuery",
+                                        .Slots = { { "u_Scene", ShaderResourceKind::AccelerationStructure } } };
+    graph.AddPass(
+         "RayQuery", PassFlags::Compute | PassFlags::NeverCull, [&]( PassBuilder& pass )
+         { pass.Bindings( believed, OtherRouteFill{} ).AccelerationStructure( "u_Scene", tlas ); },
+         [&]( PassContext& context ) -> Common::BoolResultStr
+         {
+             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+             verdict = ResolveRdgPassBindings( reflection, "RayQuery", bindings, RdgOtherRoute{} );
+             return Common::MakeSuccess( true );
+         } );
+    NoOpBackend                 backend;
+    const Common::BoolResultStr executed = graph.Execute( backend );
+    ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    ASSERT_TRUE( verdict.IsSuccess() ) << verdict.GetError();
+    ASSERT_EQ( verdict.GetValue().size(), 1u );
+    const RdgResolvedEntry& entry = verdict.GetValue()[0];
+    EXPECT_EQ( entry.Slot, ( RdgSlotKey{ 1, 3 } ) );
+    EXPECT_EQ( entry.Kind, ShaderResourceKind::AccelerationStructure );
+    ASSERT_NE( entry.Buffer, nullptr );
+    EXPECT_EQ( entry.Buffer->Declared, Access::AccelStructRead );
+    EXPECT_EQ( entry.Buffer->Buffer.Name, "RayTracingScene.TLAS" );
 }

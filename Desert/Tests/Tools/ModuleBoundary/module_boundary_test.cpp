@@ -19,6 +19,7 @@
 #include <ModuleTable.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>

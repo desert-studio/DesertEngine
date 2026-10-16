@@ -81,4 +81,14 @@ namespace Desert::Graphic
         // `BoneOffset` in the Skinned.ShadowDepth cell's push block (Vertex_Skinned.glslh), found by name.
         WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
     }
+
+    void MaterialShadowSkinned::SetSkinCache( const uint64_t address, const uint32_t vertexCount )
+    {
+        // The push block's SkinCache* fields (Mesh/Surface/Vertex_Skinned.glslh), found by name like BoneOffset.
+        const uint32_t addressLo = static_cast<uint32_t>( address & 0xffffffffu );
+        const uint32_t addressHi = static_cast<uint32_t>( address >> 32u );
+        WritePushField( "SkinCacheVertexCount", &vertexCount, sizeof( uint32_t ) );
+        WritePushField( "SkinCacheAddressLo", &addressLo, sizeof( uint32_t ) );
+        WritePushField( "SkinCacheAddressHi", &addressHi, sizeof( uint32_t ) );
+    }
 } // namespace Desert::Graphic
