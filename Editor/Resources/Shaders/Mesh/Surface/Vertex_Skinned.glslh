@@ -84,7 +84,7 @@ void main()
     vec3                  skinnedBitangent;
     if ( row.SkinCacheVertexCount != 0u )
     {
-        const SkinCacheStreams streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
+        SkinCacheStreams       streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
         const uint             count   = row.SkinCacheVertexCount;
         const uint             vertex  = uint( gl_VertexIndex );
         posed                          = DesertSkinCachePosition( streams, vertex );
@@ -136,7 +136,7 @@ void main()
 #endif
     if ( cacheCount != 0u )
     {
-        const SkinCacheStreams streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
+        SkinCacheStreams       streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
         const uint             vertex  = uint( gl_VertexIndex );
         posed                          = DesertSkinCachePosition( streams, vertex );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
