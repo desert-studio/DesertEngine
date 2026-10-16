@@ -13,9 +13,15 @@
 //
 // WHICH TEXELS: per world axis of the hit normal (in the mesh's frame) the cards facing it (MeshCards.cardLookup),
 // weighted by the squared normal component (UE: the normal's projection weights). A card counts where the hit
-// lies inside its box, the capture saw a surface there (opacity) and the captured depth matches the hit's within
-// the tracer's tolerance (GIRayBias.screenTolerance, the hit's own precision) - UE's depth weight. The weighted mean
-// of the FinalLighting texels is the hit's radiance; a hit no card holds returns false and is lit in place.
+// lies inside its box grown by half the SURFACE CACHE BIAS (GIHitSurfaceCacheBias: the traced field's precision,
+// UE's SurfaceCacheBias - 20 cm for a mesh SDF hit), over its four texels around the hit, each where the capture
+// saw a surface (opacity) and the captured depth lies within the bias of the hit's - UE SampleLumenCard. The
+// weighted mean of the FinalLighting texels is the hit's radiance.
+//
+// A HIT NO CARD HOLDS is one of two (GI-BACKFACE-HIT): behind a surface a card of the opposite direction captured -
+// the back of one-sided geometry, the inside band of its SDF - SURFACE_CACHE_HIT_BACK_FACE, which the caller treats
+// as UE treats a surface-cache miss there: an occluder with no radiance; or nothing any card says of it -
+// SURFACE_CACHE_HIT_UNCOVERED, a front surface without a card, lit in place.
 
 #include <Common/SurfaceCache.glslh>
 
@@ -60,8 +66,70 @@ struct SurfaceCacheHitSample {
     float weight;
 };
 
-// The cards of one instance at the hit, accumulated into @p acc.
-void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 normal, float tolerance,
+// The atlas texel holding texel @p texel of @p card's resolution (the page table of the card's pages).
+ivec2 SurfaceCacheCardAtlasTexel( SurfaceCard card, uvec2 res, uvec2 texel, vec2 atlasSize )
+{
+    const uvec2 pages = uvec2( card.pages.x & 0xFFFFu, card.pages.x >> 16u );
+    uvec2       page  = uvec2( 0u );
+    if ( res.x >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
+        page.x = min( texel.x / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.x - 1u );
+    if ( res.y >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
+        page.y = min( texel.y / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.y - 1u );
+    const SurfaceCardPage entry = surfaceCardPages[card.pages.y + page.y * max( pages.x, 1u ) + page.x];
+    return ivec2( entry.physicalAtlasUVRect.xy * atlasSize + 0.5 ) +
+           ivec2( texel - page * SURFACE_CACHE_VIRTUAL_PAGE_SIZE );
+}
+
+// Where a card's capture lies around @p position: its four texels (bilinear), the hit's normalised depth and UE's
+// depth threshold and falloff (in the card's normalised depth, 0 at the card plane, 1 at the far side). False where
+// the hit lies outside the card's box grown by half the bias.
+struct SurfaceCardFootprint {
+    ivec2 atlas0;    // atlas texel of t0; the footprint lies in t0's page
+    uvec2 t0;
+    uvec2 t1;
+    vec2  f;         // bilinear fraction towards t1
+    float hitDepth;  // the hit's normalised depth
+    float threshold; // the bias in normalised depth
+    float falloff;   // a quarter of it
+};
+
+bool SurfaceCardFootprintAt( SurfaceCard card, vec3 position, float bias, vec2 atlasSize, out SurfaceCardFootprint fp )
+{
+    vec3       local  = SurfaceCardWorldToLocal( card, position );
+    const vec3 extent = card.localExtent.xyz;
+    if ( any( greaterThan( abs( local ), extent + 0.5 * bias ) ) )
+        return false;
+    local.xy = clamp( local.xy, -extent.xy, extent.xy );
+    const uvec2 res = uvec2( 1u << ( card.info.x & 0xFFu ), 1u << ( ( card.info.x >> 8u ) & 0xFFu ) );
+    // Card UV: u along the card's X, v down its Y (the capture's rows run top-down), as the copy wrote it.
+    const vec2 uv = vec2( 0.5 + 0.5 * local.x / extent.x, 0.5 - 0.5 * local.y / extent.y );
+    const vec2 t  = clamp( uv * vec2( res ) - 0.5, vec2( 0.0 ), vec2( res - 1u ) );
+    fp.t0        = uvec2( t );
+    fp.t1        = min( fp.t0 + 1u, res - 1u );
+    fp.f         = t - vec2( fp.t0 );
+    fp.hitDepth  = 0.5 - 0.5 * local.z / extent.z;
+    fp.threshold = bias / extent.z;
+    fp.falloff   = 0.25 * fp.threshold;
+    // A physical page is its virtual page plus the border texel it shares with the next one
+    // (SURFACE_CACHE_PHYSICAL_PAGE_SIZE = VIRTUAL + 1), UE's bilinear page border.
+    fp.atlas0 = SurfaceCacheCardAtlasTexel( card, res, fp.t0, atlasSize );
+    return true;
+}
+
+// Texel @p k (0..3) of @p fp: its atlas texel and bilinear weight.
+float SurfaceCardFootprintTexel( SurfaceCardFootprint fp, uint k, out ivec2 atlasTexel )
+{
+    const uvec2 texel = uvec2( ( k & 1u ) != 0u ? fp.t1.x : fp.t0.x, ( k & 2u ) != 0u ? fp.t1.y : fp.t0.y );
+    atlasTexel        = fp.atlas0 + ivec2( texel - fp.t0 );
+    return ( ( k & 1u ) != 0u ? fp.f.x : 1.0 - fp.f.x ) * ( ( k & 2u ) != 0u ? fp.f.y : 1.0 - fp.f.y );
+}
+
+// The cards of one instance at the hit, accumulated into @p acc (UE SampleLumenMeshCards / SampleLumenCard). A card
+// counts where the hit lies in its box grown by half the bias (then clamped onto its face); its four texels around
+// the hit are each weighted bilinearly, by whether the capture saw a surface there (UE IsSurfaceCacheDepthValid:
+// the opacity) and by UE's depth visibility - full within the bias of the captured depth, falling to none over a
+// quarter of it beyond.
+void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 normal, float bias,
                                   inout SurfaceCacheHitSample acc )
 {
     const MeshCards mesh = surfaceMeshCards[meshCardsIndex];
@@ -82,77 +150,138 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
             const uint bit = findLSB( mask );
             mask &= mask - 1u;
             const SurfaceCard card = surfaceCards[mesh.cards.x + bit];
-            if ( !SurfaceCardVisible( card ) )
+            SurfaceCardFootprint fp;
+            if ( !SurfaceCardVisible( card ) || !SurfaceCardFootprintAt( card, position, bias, atlasSize, fp ) )
                 continue;
-            const vec3 local  = SurfaceCardWorldToLocal( card, position );
-            const vec3 extent = card.localExtent.xyz;
-            if ( any( greaterThan( abs( local.xy ), extent.xy ) ) || abs( local.z ) > extent.z + tolerance )
+            vec3  lighting  = vec3( 0.0 );
+            float weightSum = 0.0;
+            for ( uint k = 0u; k < 4u; ++k )
+            {
+                ivec2       atlasTexel;
+                const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
+                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                    continue;
+                const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                const float visibility = 1.0 - clamp( ( abs( fp.hitDepth - captured ) - fp.threshold ) / fp.falloff, 0.0, 1.0 );
+                const float w          = bilinear * visibility;
+                if ( w <= 0.0 )
+                    continue;
+                lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
+                weightSum += w;
+            }
+            if ( weightSum <= 0.0 )
                 continue;
-            const uvec2 res   = uvec2( 1u << ( card.info.x & 0xFFu ), 1u << ( ( card.info.x >> 8u ) & 0xFFu ) );
-            const uvec2 pages = uvec2( card.pages.x & 0xFFFFu, card.pages.x >> 16u );
-            // Card UV: u along the card's X, v down its Y (the capture's rows run top-down), as the copy wrote it.
-            const vec2  uv    = vec2( 0.5 + 0.5 * local.x / extent.x, 0.5 - 0.5 * local.y / extent.y );
-            const uvec2 texel = min( uvec2( uv * vec2( res ) ), res - 1u );
-            uvec2       page  = uvec2( 0u );
-            if ( res.x >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
-                page.x = min( texel.x / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.x - 1u );
-            if ( res.y >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
-                page.y = min( texel.y / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.y - 1u );
-            const SurfaceCardPage entry = surfaceCardPages[card.pages.y + page.y * max( pages.x, 1u ) + page.x];
-            const ivec2 atlasTexel = ivec2( entry.physicalAtlasUVRect.xy * atlasSize + 0.5 ) +
-                                     ivec2( texel - page * SURFACE_CACHE_VIRTUAL_PAGE_SIZE );
-            const float opacity = texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r;
-            if ( opacity < 0.5 )
-                continue;
-            // Depth from the card plane (0) to the far side (1) of the box; the hit's own, the same way.
-            const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r * 2.0 * extent.z;
-            const float hitDepth   = extent.z - local.z;
-            const float texelSize  = card.localExtent.w;
-            const float depthRange = max( tolerance, 2.0 * texelSize );
-            const float depthWeight = clamp( 1.0 - abs( hitDepth - captured ) / depthRange, 0.0, 1.0 );
-            const float w           = axisWeight * depthWeight;
-            if ( w <= 0.0 )
-                continue;
-            acc.lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
-            acc.weight += w;
+            // UE: the texels' normalised mean, weighted by the card's sample weight (normal x summed texel weight).
+            acc.lighting += lighting * axisWeight;
+            acc.weight += axisWeight * weightSum;
         }
     }
 }
 
-void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float tolerance, inout SurfaceCacheHitSample acc )
+// THE BACK OF A ONE-SIDED SURFACE (GI-BACKFACE-HIT): the weight with which the cards of one instance say the hit
+// lies BEHIND a surface they captured. Per axis of the hit normal, the cards facing the OPPOSITE way: where the
+// capture saw a surface at a texel and the hit lies farther from the card than that surface by more than the bias
+// (rising to full over the same quarter-bias falloff), the hit is on the far side of that surface - the solid band
+// a mesh SDF's sign vote puts behind one-sided geometry (UE MeshDistanceFieldBuild DfInsideByRays), whose boundary
+// the march stops on with a gradient facing the ray. No triangle faces the hit there, so no card can hold it.
+float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 normal, float bias )
+{
+    const MeshCards mesh        = surfaceMeshCards[meshCardsIndex];
+    const vec3      localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
+                                        dot( mesh.worldToLocal[2].xyz, normal ) );
+    const vec2      atlasSize   = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    float           weight      = 0.0;
+    for ( uint axis = 0u; axis < 3u; ++axis )
+    {
+        const float axisWeight = localNormal[axis] * localNormal[axis];
+        if ( axisWeight < 0.01 )
+            continue;
+        const uint opposite = axis * 2u + ( localNormal[axis] >= 0.0 ? 0u : 1u );
+        uint       mask     = MeshCardsFacing( mesh, opposite );
+        while ( mask != 0u )
+        {
+            const uint bit = findLSB( mask );
+            mask &= mask - 1u;
+            const SurfaceCard card = surfaceCards[mesh.cards.x + bit];
+            SurfaceCardFootprint fp;
+            if ( !SurfaceCardVisible( card ) || !SurfaceCardFootprintAt( card, position, bias, atlasSize, fp ) )
+                continue;
+            float behindSum = 0.0;
+            for ( uint k = 0u; k < 4u; ++k )
+            {
+                ivec2       atlasTexel;
+                const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
+                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                    continue;
+                const float captured = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                behindSum += bilinear * clamp( ( fp.hitDepth - captured - fp.threshold ) / fp.falloff, 0.0, 1.0 );
+            }
+            weight += axisWeight * behindSum;
+        }
+    }
+    return weight;
+}
+
+void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float bias, inout SurfaceCacheHitSample acc )
 {
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
     if ( instance.cards.x == GI_NO_MESH_CARDS )
         return;
-    if ( any( lessThan( position, instance.boundsMin.xyz - tolerance ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + tolerance ) ) )
+    if ( any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
         return;
-    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, tolerance, acc );
+    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, bias, acc );
 }
 
-// The surface cache's radiance at @p hit (FinalLighting); false where no card holds the hit.
-bool SurfaceCacheHitLighting( GIHit hit, float tolerance, out vec3 lighting )
+float SurfaceCacheBackFaceRow( uint row, vec3 position, vec3 normal, float bias )
+{
+    const SurfaceCacheInstance instance = surfaceCacheInstances[row];
+    if ( instance.cards.x == GI_NO_MESH_CARDS ||
+         any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
+        return 0.0;
+    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, bias );
+}
+
+// What the surface cache says of a hit (SurfaceCacheHitLighting).
+#define SURFACE_CACHE_HIT_LIT 0       // the cards hold it: their FinalLighting
+#define SURFACE_CACHE_HIT_BACK_FACE 1 // it lies behind a surface the cards captured: the back of one-sided geometry
+#define SURFACE_CACHE_HIT_UNCOVERED 2 // no card says anything of it
+
+// The surface cache's radiance at @p hit (FinalLighting) when the cards hold it (SURFACE_CACHE_HIT_LIT); otherwise
+// whether the cards put it on the back of a surface they captured (SURFACE_CACHE_HIT_BACK_FACE, the same minimum
+// weight) or know nothing of it (SURFACE_CACHE_HIT_UNCOVERED). @p bias: how far the hit may lie from the captured
+// surface (GIHitSurfaceCacheBias, the tracer's precision for this hit).
+uint SurfaceCacheHitLighting( GIHit hit, float bias, out vec3 lighting )
 {
     SurfaceCacheHitSample acc;
     acc.lighting = vec3( 0.0 );
     acc.weight   = 0.0;
+    lighting     = vec3( 0.0 );
     const uvec4 rows = GIHitInstanceRows( hit );
     for ( int i = 0; i < 4; ++i )
     {
         if ( rows[i] == GI_NO_INSTANCE )
             break;
         if ( rows[i] < uint( surfaceCacheInstances.length() ) )
-            SurfaceCacheSampleRow( rows[i], hit.position, hit.normal, tolerance, acc );
+            SurfaceCacheSampleRow( rows[i], hit.position, hit.normal, bias, acc );
         if ( acc.weight >= SURFACE_CACHE_ENOUGH_HIT_WEIGHT )
             break;
     }
-    if ( acc.weight < SURFACE_CACHE_MIN_HIT_WEIGHT )
+    if ( acc.weight >= SURFACE_CACHE_MIN_HIT_WEIGHT )
     {
-        lighting = vec3( 0.0 );
-        return false;
+        lighting = acc.lighting / acc.weight;
+        return SURFACE_CACHE_HIT_LIT;
     }
-    lighting = acc.lighting / acc.weight;
-    return true;
+    float behind = 0.0;
+    for ( int i = 0; i < 4 && behind < SURFACE_CACHE_MIN_HIT_WEIGHT; ++i )
+    {
+        if ( rows[i] == GI_NO_INSTANCE )
+            break;
+        if ( rows[i] < uint( surfaceCacheInstances.length() ) )
+            behind += SurfaceCacheBackFaceRow( rows[i], hit.position, hit.normal, bias );
+    }
+    return behind >= SURFACE_CACHE_MIN_HIT_WEIGHT ? SURFACE_CACHE_HIT_BACK_FACE : SURFACE_CACHE_HIT_UNCOVERED;
 }
 
 #endif // SURFACE_CACHE_SAMPLING_GLSLH

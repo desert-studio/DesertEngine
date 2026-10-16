@@ -1,7 +1,12 @@
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 
+#include <Common/Core/Logger.hpp>
+
+#include <algorithm>
 #include <bit>
 #include <cstring>
+#include <format>
+#include <map>
 
 namespace Desert::Assets
 {
@@ -11,6 +16,9 @@ namespace Desert::Assets
 
         std::mutex       s_CardBuilderMutex;
         MeshCardsBuilder s_CardBuilder;
+
+        std::mutex                                    s_CoverageMutex;
+        std::map<std::string, MeshCardsCoverageEntry> s_Coverage; // by asset path
 
         // Little-endian fixed width: the container is read on the platform that did not write it.
         void PutU32( std::string& out, const uint32_t v )
@@ -121,6 +129,7 @@ namespace Desert::Assets
         PutF32( image, settings.MinVoxelSize );
         PutU32( image, settings.MinVoxelsAcrossThinAxis );
         PutU32( image, settings.MaxVoxels );
+        PutU32( image, settings.MaxVoxelsLarge );
         PutU32( image, settings.TargetSurfels );
         PutF32( image, settings.MinDensity );
         PutF32( image, settings.NormalThreshold );
@@ -180,7 +189,94 @@ namespace Desert::Assets
         if ( !decoded.IsSuccess() )
             return Common::MakeFormattedError<Result>( "mesh asset '{}': cached cards {:016x} are corrupt: {}",
                                                        asset.string(), key, decoded.GetError() );
+        if ( builder )
+        {
+            // The coverage report (the editor / the cook only: a packaged game has nothing to report to).
+            std::string image;
+            PutU32( image, kMeshCardsCoverageVersion );
+            PutU32( image, kMeshCardsCoverageSamples );
+            const uint64_t coverageKey =
+                 Common::DDC::MakeKey( kMeshCardsCoverageDeriver, key, image.data(), image.size() );
+            const MeshCardsBuildData& cards    = decoded.GetValue();
+            auto                      measured = Common::DDC::GetOrBuild( kMeshCardsCoverageDeriver, coverageKey,
+                                                                          [&input, &cards]() -> Common::ResultStr<std::string>
+                                                                          {
+                                                         std::string             bytes;
+                                                         const MeshCardsCoverage coverage =
+                                                              MeasureMeshCardsCoverage( input, cards );
+                                                         PutF32( bytes, coverage.Held );
+                                                         PutF32( bytes, coverage.BackOnly );
+                                                         return Common::MakeSuccess( bytes );
+                                                     } );
+            if ( !measured.IsSuccess() || measured.GetValue().size() != 8 )
+            {
+                LOG_ERROR( "mesh asset '{}': card coverage {:016x}: {}", asset.string(), coverageKey,
+                           measured.IsSuccess() ? std::string( "not 8 bytes" ) : measured.GetError() );
+            }
+            else
+            {
+                Reader            r{ measured.GetValue(), 0 };
+                MeshCardsCoverage coverage;
+                coverage.Held     = r.F32();
+                coverage.BackOnly = r.F32();
+                RecordMeshCardsCoverage( asset, coverage, cards );
+            }
+        }
         return Common::MakeSuccess<Result>( std::make_shared<const MeshCardsBuildData>( decoded.ExtractValue() ) );
+    }
+
+    void RecordMeshCardsCoverage( const std::filesystem::path& asset, const MeshCardsCoverage& coverage,
+                                  const MeshCardsBuildData& cards )
+    {
+        MeshCardsCoverageEntry entry{ asset.generic_string(), coverage.Held, coverage.BackOnly,
+                                      static_cast<uint32_t>( cards.Cards.size() ),
+                                      cards.BoundsMax - cards.BoundsMin };
+        if ( entry.Coverage < kMeshCardsLowCoverage )
+        {
+            LOG_WARN(
+                 "[MeshCards] '{}' ({:.0f} x {:.0f} x {:.0f} cm): its {} card(s) hold {:.0f} % of its surface "
+                 "(below {:.0f} %; {:.0f} % of its one-sided surface is seen only from behind); a ray hit on "
+                 "the rest is lit in place, not from the surface cache",
+                 entry.Asset, entry.Size.x, entry.Size.y, entry.Size.z, entry.Cards, entry.Coverage * 100.0f,
+                 kMeshCardsLowCoverage * 100.0f, entry.BackOnly * 100.0f );
+        }
+        const std::lock_guard<std::mutex> lock( s_CoverageMutex );
+        s_Coverage[entry.Asset] = std::move( entry );
+    }
+
+    MeshCardsCoverageReport MeshCardsCoverageSummary()
+    {
+        MeshCardsCoverageReport report;
+        double                  sum = 0.0;
+        {
+            const std::lock_guard<std::mutex> lock( s_CoverageMutex );
+            for ( const auto& [asset, entry] : s_Coverage )
+            {
+                ++report.Meshes;
+                sum += entry.Coverage;
+                if ( entry.Coverage < kMeshCardsLowCoverage )
+                    report.Low.push_back( entry );
+            }
+        }
+        report.MeanCoverage = report.Meshes != 0 ? static_cast<float>( sum / report.Meshes ) : 1.0f;
+        std::sort( report.Low.begin(), report.Low.end(),
+                   []( const MeshCardsCoverageEntry& a, const MeshCardsCoverageEntry& b )
+                   { return a.Coverage != b.Coverage ? a.Coverage < b.Coverage : a.Asset < b.Asset; } );
+        return report;
+    }
+
+    std::string FormatMeshCardsCoverage( const MeshCardsCoverageReport& report, const size_t listed )
+    {
+        std::string line =
+             std::format( "{} mesh(es), mean {:.1f} %, {} below {:.0f} %", report.Meshes,
+                          report.MeanCoverage * 100.0f, report.Low.size(), kMeshCardsLowCoverage * 100.0f );
+        for ( size_t i = 0; i < std::min( listed, report.Low.size() ); ++i )
+            line += std::format( "{}{} {:.0f} %", i == 0 ? ": " : ", ",
+                                 std::filesystem::path( report.Low[i].Asset ).filename().string(),
+                                 report.Low[i].Coverage * 100.0f );
+        if ( report.Low.size() > listed )
+            line += std::format( ", ... (+{})", report.Low.size() - listed );
+        return line;
     }
 
     std::shared_ptr<const MeshCardsBuildData> MeshCardsSlot::Get() const

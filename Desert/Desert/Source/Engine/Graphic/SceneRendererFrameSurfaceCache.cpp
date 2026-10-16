@@ -2,6 +2,7 @@
 // capture through the G-buffer view pass, the copy into the atlas, the direct lighting of the cards - in the lit
 // frame, before the traced GI whose hits read it (GIHitRadiance) - and the three view modes that show it.
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
@@ -203,6 +204,9 @@ namespace Desert::Graphic
                       "resolution, {} page(s)",
                       scene.MeshCards.size(), scene.Cards.size(), scene.ResidentCards, scene.CapturedCards,
                       scene.HighResCards, scene.Pages.size() );
+            // The card build's coverage report over the meshes loaded so far (MeshCardRepresentation.hpp).
+            LOG_INFO( "[SurfaceCache] card coverage: {}",
+                      Assets::FormatMeshCardsCoverage( Assets::MeshCardsCoverageSummary(), 12 ) );
             if ( scene.MissingMinimumCards != 0 )
             {
                 LOG_WARN(
