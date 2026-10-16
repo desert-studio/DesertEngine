@@ -937,11 +937,11 @@ namespace Desert::Graphic
         void AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
-        // THE POST CHAIN'S TAIL (UE AddPostProcessingPasses: each pass takes the previous one's FScreenPassTexture,
-        // the last one writes the view family target). @p source: the colour the post chain reads (the temporal
-        // output, or the scene colour without one). @p display: the view's output. The tonemap writes @p display
-        // itself when @p last, otherwise a transient "Tonemap" of the display's extent; returns what it wrote
-        // (invalid when it was not recorded).
+        // THE POST CHAIN'S TAIL (UE AddPostProcessingPasses: each pass takes the previous one's
+        // FScreenPassTexture, the last one writes the view family target). @p source: the colour the post chain
+        // reads (the temporal output, or the scene colour without one). @p display: the view's output. The tonemap
+        // writes @p display itself when @p last, otherwise a transient "Tonemap" of the display's extent; returns
+        // what it wrote (invalid when it was not recorded).
         RDG::TextureRef AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source,
                                          RDG::TextureRef display, bool last );
         // The spatial AA: @p input (the tonemap's transient) -> @p output (the view's output).

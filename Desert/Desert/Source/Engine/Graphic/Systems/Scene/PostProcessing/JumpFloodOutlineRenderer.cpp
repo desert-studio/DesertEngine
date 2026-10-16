@@ -100,7 +100,7 @@ namespace Desert::Graphic::System
 
     RDG::TextureDesc JumpFloodOutlineRenderer::GetSeedDesc( const RDG::TextureDesc& mask )
     {
-        return RDG::TextureDesc{ .Size = { .Width = mask.Size.Width, .Height = mask.Size.Height },
+        return RDG::TextureDesc{ .Size   = { .Width = mask.Size.Width, .Height = mask.Size.Height },
                                  .Format = kSeedFormat };
     }
 

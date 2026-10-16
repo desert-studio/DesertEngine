@@ -107,8 +107,8 @@ namespace Desert::Graphic
         m_Image = images.CreateImage2D( spec );
         if ( !m_Image )
             return Common::MakeFormattedError<bool>(
-                 "ViewOutputTexture::AllocatePhysical: the image factory made no {}x{} view output", m_Extent.Width,
-                 m_Extent.Height );
+                 "ViewOutputTexture::AllocatePhysical: the image factory made no {}x{} view output",
+                 m_Extent.Width, m_Extent.Height );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic

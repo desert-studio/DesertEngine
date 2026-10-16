@@ -183,8 +183,8 @@ namespace Desert::Graphic
             // The mask is handed to its reader (the Jump Flood outline) as the ref of this graph the pass wrote:
             // the image is already registered by the node above, so this is that same ref.
             if ( silhouette.TargetFramebuffer )
-                textures.Transients.SilhouetteMask =
-                     textures.Import( silhouette.TargetFramebuffer->GetColorAttachmentImage( 0 ), "SilhouetteMask" );
+                textures.Transients.SilhouetteMask = textures.Import(
+                     silhouette.TargetFramebuffer->GetColorAttachmentImage( 0 ), "SilhouetteMask" );
         }
     }
 

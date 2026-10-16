@@ -162,7 +162,8 @@ namespace Desert::Graphic
 
     RDG::TextureDesc EyeAdaptationHistory::Desc()
     {
-        return RDG::TextureDesc{ .Size = { .Width = 1, .Height = 1 }, .Format = Core::Formats::ImageFormat::RGBA32F };
+        return RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
+                                 .Format = Core::Formats::ImageFormat::RGBA32F };
     }
 
     RDG::TextureRef EyeAdaptationHistory::RegisterPrevious( RDG::Builder& graph )
@@ -178,8 +179,8 @@ namespace Desert::Graphic
     {
         // The other slot: what it held is two frames old and nothing registers it any more. Emptied first, so
         // a frame whose extraction does not happen leaves no stale image in it.
-        RDG::ExternalTexture& next = m_Slots[m_PreviousSlot ^ 1u];
-        next                       = RDG::ExternalTexture{};
+        RDG::ExternalTexture& next    = m_Slots[m_PreviousSlot ^ 1u];
+        next                          = RDG::ExternalTexture{};
         const RDG::TextureRef current = graph.CreateTexture( Desc(), "AutoExposure.Adapted" );
         graph.SetFaultDefault( current, RDG::FaultDefault::White );
         graph.Extract( current, next, RDG::Access::SampledCompute );
@@ -197,7 +198,7 @@ namespace Desert::Graphic
     {
         if ( !m_Created )
             return; // no auto-exposure this frame: the previous luminance stays what the next one adapts from
-        m_Created = false;
+        m_Created       = false;
         const bool lost = m_WriterPass == UINT32_MAX ||
                           std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
         const uint32_t next = m_PreviousSlot ^ 1u;
@@ -248,9 +249,8 @@ namespace Desert::Graphic
     {
         if ( !m_Image )
             return 0;
-        return TextureBytes(
-             RDG::TextureDesc{ .Size   = { .Width = m_Extent.Width, .Height = m_Extent.Height },
-                               .Format = ViewTargetFormats::kTonemap } );
+        return TextureBytes( RDG::TextureDesc{ .Size   = { .Width = m_Extent.Width, .Height = m_Extent.Height },
+                                               .Format = ViewTargetFormats::kTonemap } );
     }
 
     // ---- SceneViewState -------------------------------------------------------------------------------------

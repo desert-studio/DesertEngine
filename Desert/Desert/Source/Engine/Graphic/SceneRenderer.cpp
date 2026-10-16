@@ -548,7 +548,8 @@ namespace Desert::Graphic
             case 21:
             {
                 // FXAA consumes the tonemapped image (LDR, a transient of the frame graph). It only runs when the
-                // machine's post AA is FXAA (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
+                // machine's post AA is FXAA (Common::Settings::MachineSettings::AA — it left SceneSettings with
+                // К3).
                 RegisterSystem<System::FXAARenderer>( "FXAASystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
                     LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
@@ -1356,8 +1357,9 @@ namespace Desert::Graphic
             AddFrameEditorPrimitives( graph, textures, overlay, display );
         }
         else
-            LOG_ERROR( "SceneRenderer: {}: the view has no output image; the post chain is not recorded this frame",
-                       m_ViewResources.GetName() );
+            LOG_ERROR(
+                 "SceneRenderer: {}: the view has no output image; the post chain is not recorded this frame",
+                 m_ViewResources.GetName() );
         // The view's output is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
         if ( const auto extracted =
                   textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
