@@ -435,6 +435,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // the element, array.back() this level's length).
             [[nodiscard]] uint64_t Std430Size( const spirv_cross::SPIRType& type, uint64_t& alignment ) const
             {
+                // A variable's type is a POINTER, and spirv-cross copies the pointee's array dimensions onto it:
+                // sized as an array, a `shared uint bins[256]` counted its length twice (256 * 256 * 4 bytes).
+                if ( type.pointer )
+                    return Std430Size( get<spirv_cross::SPIRType>( type.parent_type ), alignment );
                 if ( !type.array.empty() )
                 {
                     uint64_t       elementAlignment = 1;
