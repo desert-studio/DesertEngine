@@ -28,7 +28,7 @@ namespace
 TEST( RayTracingGeometry, ASubmeshDescribesTheMeshVertexLayoutAndItsIndexRangeInBytes )
 {
     const std::vector<Submesh> submeshes{ MakeSubmesh( 100, 24, 36, 60 ) };
-    const auto                 segments = DescribeStaticMeshGeometry( submeshes, 0 );
+    const auto                 segments = DescribeStaticMeshGeometry( submeshes, {} );
     ASSERT_EQ( segments.size(), 1u );
     const RayTracingGeometrySegment& s = segments[0];
     EXPECT_EQ( s.VertexFormat, RayTracingVertexFormat::Float3 );
@@ -47,7 +47,7 @@ TEST( RayTracingGeometry, TheBuildReadsLodZeroOfAChainedSubmesh )
 {
     Submesh submesh     = MakeSubmesh( 0, 8, 0, 36 );
     submesh.LODs        = { { 600, 30 }, { 900, 12 } };
-    const auto segments = DescribeStaticMeshGeometry( std::vector<Submesh>{ submesh }, 0 );
+    const auto segments = DescribeStaticMeshGeometry( std::vector<Submesh>{ submesh }, {} );
     ASSERT_EQ( segments.size(), 1u );
     EXPECT_EQ( segments[0].IndexByteOffset, 600u * 4u );
     EXPECT_EQ( segments[0].PrimitiveCount, 10u );
@@ -59,7 +59,7 @@ TEST( RayTracingGeometry, EmptySubmeshesAndPartialTrianglesAreNotGeometry )
 {
     const std::vector<Submesh> submeshes{ MakeSubmesh( 0, 3, 0, 2 ), MakeSubmesh( 3, 0, 2, 0 ),
                                           MakeSubmesh( 3, 4, 2, 7 ) };
-    const auto                 segments = DescribeStaticMeshGeometry( submeshes, 0 );
+    const auto                 segments = DescribeStaticMeshGeometry( submeshes, {} );
     ASSERT_EQ( segments.size(), 1u );
     EXPECT_EQ( segments[0].FirstVertex, 3u );
     EXPECT_EQ( segments[0].PrimitiveCount, 2u );
@@ -75,7 +75,7 @@ TEST( RayTracingGeometry, HiddenSubmeshesContributeNoSegmentAndTheRestKeepTheirS
         submeshes.push_back( MakeSubmesh( i * 3u, 3, i * 3u, 3 ) );
 
     const uint64_t hidden   = ( 1ull << 0 ) | ( 1ull << 2 ) | ( 1ull << 63 );
-    const auto     segments = DescribeStaticMeshGeometry( submeshes, hidden );
+    const auto     segments = DescribeStaticMeshGeometry( submeshes, { .Hidden = hidden } );
     ASSERT_EQ( segments.size(), 63u );
     EXPECT_EQ( segments[0].SubmeshIndex, 1u );
     EXPECT_EQ( segments[0].FirstVertex, 3u );
@@ -85,7 +85,7 @@ TEST( RayTracingGeometry, HiddenSubmeshesContributeNoSegmentAndTheRestKeepTheirS
     EXPECT_EQ( segments[61].SubmeshIndex, 64u );
     EXPECT_EQ( segments[62].SubmeshIndex, 65u );
 
-    const auto all = DescribeStaticMeshGeometry( submeshes, 0 );
+    const auto all = DescribeStaticMeshGeometry( submeshes, {} );
     ASSERT_EQ( all.size(), 66u );
     for ( std::size_t i = 0; i < all.size(); ++i )
         EXPECT_EQ( all[i].SubmeshIndex, i );
@@ -98,7 +98,7 @@ TEST( RayTracingGeometry, ADeformedMeshReadsPackedPositionsAndHonoursTheInstance
 {
     const std::vector<Submesh> submeshes{ MakeSubmesh( 0, 6, 0, 9 ), MakeSubmesh( 6, 4, 9, 6 ) };
 
-    const auto deformed = DescribeDeformedMeshGeometry( submeshes, 0b01 );
+    const auto deformed = DescribeDeformedMeshGeometry( submeshes, { .Hidden = 0b01 } );
     ASSERT_EQ( deformed.size(), 1u );
     EXPECT_EQ( deformed[0].VertexStride, 12u );
     EXPECT_EQ( deformed[0].PositionOffset, 0u );
@@ -108,7 +108,7 @@ TEST( RayTracingGeometry, ADeformedMeshReadsPackedPositionsAndHonoursTheInstance
     EXPECT_EQ( deformed[0].IndexByteOffset, 9u * 4u );
     EXPECT_EQ( deformed[0].PrimitiveCount, 2u );
 
-    const auto rest = DescribeStaticMeshGeometry( submeshes, 0b01 );
+    const auto rest = DescribeStaticMeshGeometry( submeshes, { .Hidden = 0b01 } );
     ASSERT_EQ( rest.size(), 1u );
     EXPECT_EQ( rest[0].VertexStride, sizeof( Vertex ) );
     EXPECT_EQ( rest[0].FirstVertex, deformed[0].FirstVertex );

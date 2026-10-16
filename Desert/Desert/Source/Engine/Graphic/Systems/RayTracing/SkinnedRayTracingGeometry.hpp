@@ -25,9 +25,10 @@ namespace Desert::Graphic::RayTracing
     {
     public:
         // Makes the positions buffer and the BLAS fit @p input (DescribeDeformedMeshBlas of the skinned mesh and
-        // the instance's hidden mask), recreating both when the vertex/index buffers, the vertex count or the
-        // segments changed. Errors: the device cannot build acceleration structures, the buffers are not
-        // resident, the input has no segment or no vertex, an allocation failed.
+        // the instance's hidden and non-opaque masks), recreating both when the vertex/index buffers, the vertex
+        // count or the segments (a section's opacity included) changed. Errors: the device cannot build
+        // acceleration structures, the buffers are not resident, the input has no segment or no vertex, an
+        // allocation failed.
         [[nodiscard]] virtual Common::ResultStr<SkinnedBlasPrepared>
         Prepare( const RayTracingMeshInput& input ) = 0;
         // Graph external carrying its own state across graphs: the positions the skin pass writes (the BLAS

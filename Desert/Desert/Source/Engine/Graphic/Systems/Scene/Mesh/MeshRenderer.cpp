@@ -6,6 +6,8 @@
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <algorithm>
+
 namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
@@ -64,18 +66,14 @@ namespace Desert::Graphic::System
             return index;
         }
 
-        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot )
         {
-            for ( auto* inst : slots )
-            {
-                if ( inst == nullptr )
-                    continue;
-                // The batched paths draw a material allocated from a cell of the mesh-shader table, on the
-                // path the cell belongs to (MeshCellPath) — the vertex factory's question, asked of the shader.
-                auto* surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
-                if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == path )
-                    return { inst, surface };
-            }
+            if ( slots == nullptr || sectionSlot >= slots->Slots.size() || slots->Slots[sectionSlot] == nullptr )
+                return {};
+            MaterialInstance* inst    = slots->Slots[sectionSlot];
+            auto*             surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+            if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Static )
+                return { inst, surface };
             return {};
         }
 
@@ -568,6 +566,7 @@ namespace Desert::Graphic::System
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
+                staticData.SectionSlot              = data.SectionSlot;
                 staticData.Outlined        = data.Outlined;
                 staticData.HiddenSubmeshes = data.HiddenSubmeshes;
                 staticData.ForcedLOD       = data.ForcedLOD;
@@ -592,38 +591,58 @@ namespace Desert::Graphic::System
                 skinnedData.BoneMatrices  = data.BoneMatrices;
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
-                skinnedData.MaterialSlots = data.MaterialSlots; // keeps Instance below alive (A8-3)
+                skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                 {
-                    // THE SAME selector the static queue uses, asked for the SKINNED path. It used to be
-                    // a second loop hunting a different C++ CLASS, and since the material build could not
-                    // produce that class from an asset under any circumstances, an imported character
-                    // with its own materials matched nothing and was dropped without drawing.
-                    if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
+                    // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
+                    // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
+                    using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
+                    const auto&  slots = data.MaterialSlots->Slots;
+                    const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
+                    std::vector<SlotSections> visibleBySlot;
+                    for ( size_t si = 0; si < count; ++si )
                     {
-                        skinnedData.Instance = slot.Instance;
-                        skinnedData.Material = slot.Surface;
+                        const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
+                        const auto   it   = std::ranges::find( visibleBySlot, slot, &SlotSections::first );
+                        if ( it != visibleBySlot.end() )
+                            it->second |= 1ull << si;
+                        else
+                            visibleBySlot.emplace_back( slot, 1ull << si );
                     }
-                    else
+                    for ( const SlotSections& group : visibleBySlot )
                     {
-                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its
-                        // default skinned lit material for any slot that fails to resolve, so every slot
-                        // reaching here should already carry a skinned-path parent. If one does not, the
-                        // producer and this queue disagree about what a skinned slot IS, and drawing it
-                        // through the skinned pipeline with a static material's descriptor sets is a
-                        // layout mismatch — so the mesh is dropped and the disagreement is named.
+                        const size_t        slot    = group.first;
+                        const uint64_t      visible = group.second;
+                        MaterialInstance*   inst    = slots[slot];
+                        DataDrivenMaterial* surface = nullptr;
+                        if ( inst != nullptr )
+                            surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+                        if ( surface != nullptr &&
+                             MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Skinned )
+                        {
+                            skinnedData.Sections.push_back(
+                                 { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
+                            continue;
+                        }
+                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default
+                        // skinned lit material for any slot that fails to resolve, so every slot reaching here
+                        // should already carry a skinned-path parent. If one does not, the producer and this
+                        // queue disagree about what a skinned slot IS, and drawing it through the skinned
+                        // pipeline with a static material's descriptor sets is a layout mismatch - so that
+                        // section is dropped and the disagreement is named.
                         static bool s_WarnedNoSkinnedSlot = false;
                         if ( !s_WarnedNoSkinnedSlot )
                         {
-                            LOG_WARN( "[MeshRenderer] A skinned mesh arrived with slots but none whose parent "
-                                      "is a lit material on the SKINNED vertex path; the mesh is dropped. "
-                                      "MeshECSSystem is expected to have substituted its default skinned "
-                                      "material, so this means the two disagree." );
+                            LOG_WARN(
+                                 "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
+                                 "vertex path; its sections are dropped. MeshECSSystem is expected to have "
+                                 "substituted its default skinned material, so this means the two disagree.",
+                                 slot );
                             s_WarnedNoSkinnedSlot = true;
                         }
                     }
                 }
-                if ( skinnedData.Material && skinnedData.Instance )
+                if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
             }

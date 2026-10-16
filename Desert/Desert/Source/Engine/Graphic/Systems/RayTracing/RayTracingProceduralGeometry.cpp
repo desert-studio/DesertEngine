@@ -18,7 +18,7 @@ namespace Desert::Graphic::RayTracing
             if ( primitive.ProceduralMesh == nullptr || primitive.Geometry != nullptr )
                 continue;
             const Mesh& mesh  = *primitive.ProceduralMesh;
-            Entry&      entry = m_Entries[Key{ &mesh, primitive.HiddenSubmeshes }];
+            Entry&      entry = m_Entries[Key{ &mesh, primitive.Submeshes }];
             if ( entry.LastCall == m_Call )
             {
                 // Another primitive of this view (an ISM instance, a second row of the mesh) handled it.
@@ -43,13 +43,14 @@ namespace Desert::Graphic::RayTracing
                 entry.Geometry = CreateProceduralRayTracingGeometry();
 
             const Common::ResultStr<ProceduralBlasPrepared> prepared =
-                 entry.Geometry->Prepare( DescribeStaticMeshBlas( mesh, primitive.HiddenSubmeshes ) );
+                 entry.Geometry->Prepare( DescribeStaticMeshBlas( mesh, primitive.Submeshes ) );
             if ( !prepared )
             {
                 if ( !entry.RefusalLogged )
                 {
-                    LOG_ERROR( "[RayTracing] a procedural mesh (hidden mask {:#x}) is not in the TLAS: {}",
-                               primitive.HiddenSubmeshes, prepared.GetError() );
+                    LOG_ERROR( "[RayTracing] a procedural mesh (hidden mask {:#x}, non-opaque {:#x}) is not in "
+                               "the TLAS: {}",
+                               primitive.Submeshes.Hidden, primitive.Submeshes.NonOpaque, prepared.GetError() );
                 }
                 entry.RefusalLogged = true;
                 continue;

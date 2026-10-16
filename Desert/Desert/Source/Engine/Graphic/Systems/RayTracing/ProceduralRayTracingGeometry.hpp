@@ -21,7 +21,7 @@ namespace Desert::Graphic::RayTracing
     {
     public:
         // Makes the BLAS fit @p input (DescribeStaticMeshBlas of the mesh's current buffers and the instance's
-        // hidden mask), recreating it when the vertex/index buffers or the segments changed. Errors: no
+        // masks), recreating it when the vertex/index buffers or the segments changed. Errors: no
         // acceleration-structure device, the buffers are not resident, the input has no segment, an allocation
         // failed.
         [[nodiscard]] virtual Common::ResultStr<ProceduralBlasPrepared>

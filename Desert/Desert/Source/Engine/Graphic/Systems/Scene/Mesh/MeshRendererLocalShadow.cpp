@@ -64,6 +64,9 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( rd.Mesh );
             hash.Add( rd.Transform );
+            // One entry per section material: which submeshes it casts, and through which slot's route.
+            hash.Add( rd.HiddenSubmeshes );
+            hash.Add( rd.SectionSlot );
         }
         for ( const auto& g : m_GenericQueue )
         {
@@ -97,7 +100,10 @@ namespace Desert::Graphic::System
                 any = true;
             }
             if ( any )
+            {
                 hash.Add( ism.Mesh );
+                hash.Add( ism.HiddenSubmeshes );
+            }
         }
         return hash.Value;
     }

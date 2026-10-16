@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 
 #include <glm/glm.hpp>
 
@@ -28,6 +29,11 @@ namespace Desert
 {
     class Mesh;
 }
+namespace Desert::Graphic
+{
+    class Material;
+    class MaterialInstance;
+} // namespace Desert::Graphic
 
 namespace Desert::Graphic::RayTracing
 {
@@ -38,6 +44,34 @@ namespace Desert::Graphic::RayTracing
 
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
+    // VkAccelerationStructureInstanceKHR::instanceShaderBindingTableRecordOffset is 24 bits too.
+    inline constexpr uint32_t kMaxSegmentRecord = ( 1u << 24 ) - 1u;
+
+    // THE MATERIAL OF ONE BLAS SEGMENT (UE: the FRayTracingMeshCommand of a segment, the record its hit group
+    // runs, found at the instance's InstanceContributionToHitGroupIndex + the segment's geometry index). The
+    // frame's records lie end to end in RayTracingGatherResult::SegmentRecords; a primitive's run starts at its
+    // FirstSegmentRecord and holds one record per segment of its BLAS, in segment order. Its TLAS instance carries
+    // that start as the instance's SBT record offset, so an inline ray query names the record of a hit as
+    //   rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT + rayQueryGetIntersectionGeometryIndexEXT
+    // with no table of its own. The instances of one ISM share their mesh's run.
+    struct RayTracingSegmentRecord
+    {
+        // The section's slot instance (static, ISM, skinned: the instance the raster binds for that section).
+        // Null for a generic record (a per-slot data-driven material, bound with no instance) and a landscape
+        // tile.
+        const MaterialInstance* Instance = nullptr;
+        // The material the raster shades the section with: the slot's surface template (SectionSurface), or a
+        // generic record's SlotMaterial. Null: a whole-entity shader override (its material is keyed by shader
+        // name, MaterialComponent) and a landscape tile, whose surface is LandscapeRayTracingMaterial by row.
+        const Material* SurfaceMaterial = nullptr;
+        // The submesh the segment is (a landscape tile: the segment's index in LandscapeRayTracingLayout).
+        uint32_t SubmeshIndex = 0;
+        // The segment's own Opaque: false = the material is Masked and a hit runs its alpha test (the same test as
+        // the material's shadow caster, MeshRendererShadow.cpp).
+        bool Opaque = true;
+
+        bool operator==( const RayTracingSegmentRecord& ) const = default;
+    };
 
     // Which queue a TLAS instance came from (UE: the primitive's scene proxy kind). Counted per kind so the
     // overlay says what the rays see: a frame whose foliage or landscape is missing from the TLAS shows a zero
@@ -56,20 +90,26 @@ namespace Desert::Graphic::RayTracing
     // One TLAS instance as the gather produced it: ONE GPU-scene row (an ObjectMotions row), ONE instance. An ISM
     // instance has a row of its own (the GI card table is keyed per instance, 1:1 with the TLAS instance), so
     // the custom index alone names the instance a ray hit. Geometry is the BLAS the instance traces: the mesh's
-    // own, or the (mesh, hidden mask) variant when the row hides some submeshes (RayTracingGeometryVariants);
+    // own, or the (mesh, Submeshes) variant when the row hides a submesh or has a masked section
+    // (RayTracingGeometryVariants);
     // null: the mesh has none (not resident, or a kind with no BLAS). For a skinned primitive Geometry is its
     // per-frame dynamic BLAS (null until one is built for this frame) and DeformedMesh the mesh it skins.
     struct RayTracingPrimitive
     {
-        const void*             Geometry        = nullptr;
-        glm::mat4               World           = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t                GpuSceneRow     = 0; // the primitive's ObjectMotions row (MotionRow)
-        bool                    CastShadows     = true;
-        uint64_t                HiddenSubmeshes = 0; // bit i = submesh i hidden; Geometry already leaves them out
-        RayTracingPrimitiveKind Kind            = RayTracingPrimitiveKind::Static;
-        const void*             DeformedMesh    = nullptr; // skinned only: the SkinnedMesh it skins
+        const void* Geometry    = nullptr;
+        glm::mat4   World       = glm::mat4( 1.0f ); // centimetres, like every world transform
+        uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        bool        CastShadows = true;
+        // Hidden: bit i = submesh i hidden, Geometry already leaves it out. NonOpaque: submesh i's section
+        // material is Masked, Geometry's segment is not opaque. Both are the BLAS key (RayTracingSubmeshMasks).
+        RayTracingSubmeshMasks Submeshes;
+        // This primitive's run in RayTracingGatherResult::SegmentRecords: one record per segment of Geometry.
+        uint32_t                FirstSegmentRecord = 0;
+        uint32_t                SegmentRecordCount = 0;
+        RayTracingPrimitiveKind Kind               = RayTracingPrimitiveKind::Static;
+        const void*             DeformedMesh       = nullptr; // skinned only: the SkinnedMesh it skins
         // A mesh with no uploader BLAS (Mesh::GetRayTracingGeometry null, e.g. a DynamicMesh): the RT scene's
-        // procedural cache builds its (mesh, HiddenSubmeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
+        // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
         // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
         const Mesh* ProceduralMesh = nullptr;
     };
@@ -79,9 +119,9 @@ namespace Desert::Graphic::RayTracing
     // instances it. Primitive indexes the frame's primitive list, the slot whose Geometry the build fills.
     struct RayTracingDynamicGeometryRequest
     {
-        uint32_t    Primitive       = 0;
-        const void* DeformedMesh    = nullptr;
-        uint64_t    HiddenSubmeshes = 0;
+        uint32_t               Primitive    = 0;
+        const void*            DeformedMesh = nullptr;
+        RayTracingSubmeshMasks Submeshes; // the primitive's: hidden sections left out, masked ones non-opaque
     };
 
     // THE TLAS INSTANCES OF ONE GPU-SCENE ROW (UE: a primitive's ray-tracing instance range). Every row the frame
@@ -100,6 +140,8 @@ namespace Desert::Graphic::RayTracing
         std::array<float, 12> Transform{}; // row-major 3x4, VkTransformMatrixKHR
         uint32_t              CustomIndex = 0;
         uint8_t               Mask        = 0;
+        // The instance's SBT record offset: its primitive's FirstSegmentRecord (RayTracingSegmentRecord).
+        uint32_t FirstSegmentRecord = 0;
     };
 
     // Why a queued primitive is NOT in the TLAS. Counted, never silent: the overlay and the log say how much of
@@ -108,8 +150,9 @@ namespace Desert::Graphic::RayTracing
     {
         NoGeometry = 0, // no resident BLAS for the mesh
         Skinned, // a deformed mesh whose skin-cache entry was refused this frame (logged, RayTracingSkinCache)
-        NothingVisible, // every submesh of the row is hidden: there is no triangle to trace
-        RowOutOfRange,  // the GPU-scene row does not fit the 24-bit custom index
+        NothingVisible,          // every submesh of the row is hidden: there is no triangle to trace
+        RowOutOfRange,           // the GPU-scene row does not fit the 24-bit custom index
+        SegmentRecordOutOfRange, // the first segment record does not fit the 24-bit SBT record offset
         Count
     };
 
@@ -147,6 +190,8 @@ namespace Desert::Graphic::RayTracing
                 return "Nothing visible";
             case RayTracingSkip::RowOutOfRange:
                 return "Row out of range";
+            case RayTracingSkip::SegmentRecordOutOfRange:
+                return "Segment record out of range";
             case RayTracingSkip::Count:
                 break;
         }
@@ -177,12 +222,15 @@ namespace Desert::Graphic::RayTracing
         std::vector<RayTracingPrimitive>                                        Primitives;
         std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{}; // decided by the gather
         std::vector<std::string> Errors; // one line per variant build that failed this frame
+        // Every primitive's per-segment material run (RayTracingSegmentRecord), indexed by FirstSegmentRecord.
+        std::vector<RayTracingSegmentRecord> SegmentRecords;
 
         void Clear()
         {
             Primitives.clear();
             Skipped = {};
             Errors.clear();
+            SegmentRecords.clear();
         }
     };
 
@@ -206,7 +254,7 @@ namespace Desert::Graphic::RayTracing
     // The deformed primitives that get a BLAS this frame: skinned, with a mesh, and with a GPU-scene row the TLAS
     // can carry (a build for a primitive the instance list would drop anyway is wasted GPU time). In primitive
     // order, so builds and instances agree on the slot. Hidden submeshes do not exclude: the build leaves them
-    // out.
+    // out, and builds a masked section's segments non-opaque.
     [[nodiscard]] inline std::vector<RayTracingDynamicGeometryRequest>
     SelectDynamicGeometry( std::span<const RayTracingPrimitive> primitives )
     {
@@ -220,7 +268,7 @@ namespace Desert::Graphic::RayTracing
             RayTracingDynamicGeometryRequest& request = requests.emplace_back();
             request.Primitive                         = static_cast<uint32_t>( i );
             request.DeformedMesh                      = primitive.DeformedMesh;
-            request.HiddenSubmeshes                   = primitive.HiddenSubmeshes;
+            request.Submeshes                         = primitive.Submeshes;
         }
         return requests;
     }
@@ -254,6 +302,11 @@ namespace Desert::Graphic::RayTracing
                 skip( RayTracingSkip::RowOutOfRange );
                 continue;
             }
+            if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
+            {
+                skip( RayTracingSkip::SegmentRecordOutOfRange );
+                continue;
+            }
             traced.push_back( static_cast<uint32_t>( i ) );
             if ( primitive.GpuSceneRow >= list.Ranges.size() )
                 list.Ranges.resize( static_cast<std::size_t>( primitive.GpuSceneRow ) + 1u );
@@ -283,6 +336,7 @@ namespace Desert::Graphic::RayTracing
             instance.Geometry                    = primitive.Geometry;
             instance.Transform                   = ToRowMajor3x4( primitive.World );
             instance.CustomIndex                 = row;
+            instance.FirstSegmentRecord          = primitive.FirstSegmentRecord;
             instance.Mask =
                  static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];

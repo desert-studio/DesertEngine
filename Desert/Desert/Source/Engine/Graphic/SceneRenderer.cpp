@@ -1332,13 +1332,14 @@ namespace Desert::Graphic
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             RayTracing::RayTracingExternalPrimitives    external;
             if ( landscape.IsSuccess() )
-                external = { .Primitives  = landscapeFrame.Primitives,
-                             .Builds      = landscapeFrame.Builds,
-                             .Resident    = landscapeFrame.Resident,
-                             .Built       = landscapeFrame.Built,
-                             .Refit       = landscapeFrame.Refit,
-                             .VertexBytes = landscapeFrame.VertexBytes,
-                             .BlasBytes   = landscapeFrame.BlasBytes };
+                external = { .Primitives     = landscapeFrame.Primitives,
+                             .Builds         = landscapeFrame.Builds,
+                             .Resident       = landscapeFrame.Resident,
+                             .Built          = landscapeFrame.Built,
+                             .Refit          = landscapeFrame.Refit,
+                             .VertexBytes    = landscapeFrame.VertexBytes,
+                             .BlasBytes      = landscapeFrame.BlasBytes,
+                             .SegmentRecords = landscapeFrame.SegmentRecords };
 
             Common::BoolResultStr tlas = BOOLSUCCESS;
             if ( m_FrameRayTracingCache == nullptr )
@@ -1834,6 +1835,7 @@ namespace Desert::Graphic
                              .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
+                             .SectionSlot              = extra.SectionSlot,
                              .BoneMatrices             = extra.BoneMatrices,
                              .MorphWeights             = extra.MorphWeights,
                              .MorphRevision            = extra.MorphRevision,
@@ -1912,7 +1914,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
-                                             const MaterialInstancePtr&                           material,
+                                             const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1929,6 +1931,7 @@ namespace Desert::Graphic
              ->SubmitInstancedMesh( { .Entity            = entity,
                                       .Mesh              = mesh,
                                       .Material          = material,
+                                      .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
                                       .CastContactShadow = castContactShadow,

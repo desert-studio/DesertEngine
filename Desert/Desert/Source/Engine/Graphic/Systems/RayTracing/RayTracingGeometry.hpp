@@ -62,6 +62,28 @@ namespace Desert::Graphic::RayTracing
         return index < 64u && ( hiddenSubmeshes >> index & 1ull ) != 0;
     }
 
+    // WHAT A BLAS OF A MESH IS BUILT FROM BESIDES THE MESH (UE: the sections' bVisibleInRayTracing and each
+    // section material's blend mode, both baked into FRayTracingGeometry segments). Two BLASes of one mesh with
+    // equal masks are the same BLAS, so this is the key of every BLAS cache (variants, procedural, skin cache):
+    // a section whose material turns masked changes NonOpaque and so gets a BLAS built with that segment
+    // non-opaque. A submesh past the 64th is visible and opaque, as at draw.
+    struct RayTracingSubmeshMasks
+    {
+        uint64_t Hidden    = 0; // bit i = submesh i has no segment (MeshComponent::HiddenSubmeshes, other slots)
+        uint64_t NonOpaque = 0; // bit i = submesh i's segment runs the alpha test (its section material is Masked)
+
+        bool operator==( const RayTracingSubmeshMasks& ) const = default;
+    };
+
+    // Does @p submesh contribute a segment at all: at least one LOD-0 triangle and a vertex range. The one rule
+    // DescribeMeshGeometry and the gather's per-segment records both apply, so a hit's geometry index and its
+    // record agree.
+    [[nodiscard]] inline bool HasRayTracingSegment( const Submesh& submesh )
+    {
+        const uint32_t indexCount = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
+        return indexCount / 3u > 0 && submesh.VertexCount > 0;
+    }
+
     // Every submesh with at least one triangle at LOD 0 that @p hiddenSubmeshes does not hide, in submesh order
     // (UE: a section hidden in ray tracing has no segment, so a ray passes where the raster draws nothing). A
     // submesh with no LOD chain (procedural meshes) uses its own index range, which IS its LOD 0 (Submesh::LODs
@@ -82,21 +104,19 @@ namespace Desert::Graphic::RayTracing
                                                                      0u };
 
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes,
+    DescribeMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks,
                           const RayTracingVertexLayout layout )
     {
         std::vector<RayTracingGeometrySegment> segments;
         segments.reserve( submeshes.size() );
         for ( std::size_t index = 0; index < submeshes.size(); ++index )
         {
-            if ( IsSubmeshHidden( hiddenSubmeshes, index ) )
+            const Submesh& submesh = submeshes[index];
+            if ( IsSubmeshHidden( masks.Hidden, index ) || !HasRayTracingSegment( submesh ) )
                 continue;
-            const Submesh& submesh     = submeshes[index];
             const uint32_t indexOffset = submesh.LODs.empty() ? submesh.IndexOffset : submesh.LODs[0].IndexOffset;
             const uint32_t indexCount  = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
             const uint32_t triangles   = indexCount / 3u;
-            if ( triangles == 0 || submesh.VertexCount == 0 )
-                continue;
 
             RayTracingGeometrySegment segment;
             segment.VertexFormat    = RayTracingVertexFormat::Float3;
@@ -108,24 +128,25 @@ namespace Desert::Graphic::RayTracing
             segment.IndexByteOffset = indexOffset * static_cast<uint32_t>( sizeof( uint32_t ) );
             segment.PrimitiveCount  = triangles;
             segment.SubmeshIndex    = static_cast<uint32_t>( index );
+            segment.Opaque          = !IsSubmeshHidden( masks.NonOpaque, index );
             segments.push_back( segment );
         }
         return segments;
     }
 
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks )
     {
-        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kStaticMeshVertexLayout );
+        return DescribeMeshGeometry( submeshes, masks, kStaticMeshVertexLayout );
     }
 
     // A skinned mesh's per-frame BLAS input (UE dynamic geometry): the same submesh rule over the skin pass's
     // packed positions, with the instance's own hidden mask — the BLAS is the instance's, so it can leave out what
-    // that instance hides.
+    // that instance hides and with its own sections' opacity.
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeDeformedMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    DescribeDeformedMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks )
     {
-        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kDeformedPositionLayout );
+        return DescribeMeshGeometry( submeshes, masks, kDeformedPositionLayout );
     }
 
     // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and

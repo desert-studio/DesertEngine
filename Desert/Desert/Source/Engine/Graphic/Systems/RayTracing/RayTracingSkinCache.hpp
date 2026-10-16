@@ -35,9 +35,9 @@ namespace Desert::Graphic::System
 // a skinned primitive through a BLAS of its POSED triangles, so every frame a compute pass skins the primitive's
 // LOD-0 vertices into a cached positions buffer (kDeformedPositionLayout: one float3 per vertex, mesh space, the
 // mesh's own vertex order, so its index buffer and submesh ranges address it unchanged) and the primitive's BLAS
-// is built from it - fully on the first frame and whenever the mesh or the hidden mask changes, refit in place
-// every other frame. Both run inside the view's graph, before "RayTracingScene.TLAS" (the TLAS pass reads every
-// built BLAS).
+// is built from it - fully on the first frame and whenever the mesh or its masks (hidden, non-opaque) change,
+// refit in place every other frame. Both run inside the view's graph, before "RayTracingScene.TLAS" (the TLAS pass
+// reads every built BLAS).
 //
 // ONE SOURCE OF THE POSE. The skin pass reads the same bytes the raster skins from: the view's ObjectBones palette
 // at the primitive's row BoneOffset (MeshRenderer::BuildObjectMotions), and the vertices of the mesh the queue
